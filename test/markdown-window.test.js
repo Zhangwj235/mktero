@@ -126,6 +126,26 @@ test('renders ready Markdown without XML innerHTML assignment in Zotero', () => 
     assert.match(preview.querySelector('img').getAttribute('src'), /^blob:/);
 });
 
+test('imports MathML markup into the Zotero view', () => {
+    const { view, shadow } = createView();
+
+    view.render(createModel({
+        status: 'ready',
+        markdown: 'Author $^{a,b,*}$',
+        sourceKind: 'markdown',
+        cacheHit: true,
+    }));
+
+    const math = shadow.querySelector('#mktero-preview math');
+    assert.ok(math);
+    assert.equal(math.getAttribute('xmlns'), 'http://www.w3.org/1998/Math/MathML');
+    assert.ok(math.querySelector('msup'));
+    assert.equal(
+        shadow.querySelector('#mktero-status').textContent,
+        'Cached MinerU Markdown'
+    );
+});
+
 test('updates conversion progress directly in the inline view', () => {
     const { view, shadow } = createView();
 

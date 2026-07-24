@@ -300,6 +300,26 @@ main {
     text-align: center;
 }
 
+.math-inline {
+    display: inline-block;
+    max-width: 100%;
+    vertical-align: -0.1em;
+}
+
+.math-inline .katex,
+.math-inline math {
+    font-size: 1em;
+}
+
+.math-display .katex {
+    display: block;
+}
+
+.math-fallback {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
 .page-marker {
     display: block;
     margin: 28px 0 12px;
