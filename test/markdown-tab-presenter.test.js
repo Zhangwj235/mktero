@@ -2,83 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MarkdownTabPresenter } from '../src/ui/markdown-tab-presenter.js';
 
-function createMainWindow({ synchronousBrowserLoad = false } = {}) {
+function createMainWindow() {
     const added = [];
     const selected = [];
     const renamed = [];
     const closed = [];
-    const windowListeners = new Map();
-    const activeTimeouts = new Map();
     let nextID = 1;
-    let nextTimeoutID = 1;
 
-    const document = {
-        createXULElement(tagName) {
-            const events = [];
-            const listeners = new Map();
-            const contentDocument = {
-                documentURI: 'about:blank',
-                documentElement: { id: '' },
-            };
-            return {
-                tagName,
-                attributes: {},
-                children: [],
-                style: {},
-                events,
-                listeners,
-                attached: false,
-                srcSetAfterAppend: false,
-                loadedURI: null,
-                loadOptions: null,
-                contentDocument,
-                contentWindow: {
-                    loaded: false,
-                    document: contentDocument,
-                    CustomEvent: class CustomEvent {
-                        constructor(type) {
-                            this.type = type;
-                        }
-                    },
-                    dispatchEvent(event) {
-                        if (this.loaded) events.push(event.type);
-                    },
-                },
-                setAttribute(name, value) {
-                    this.attributes[name] = String(value);
-                    if (name === 'src' && this.attached) {
-                        this.srcSetAfterAppend = true;
-                    }
-                },
-                addEventListener(type, listener) {
-                    listeners.set(type, listener);
-                },
-                appendChild(child) {
-                    child.attached = true;
-                    this.children.push(child);
-                },
-                fixupAndLoadURIString() {
-                    throw new Error('NS_ERROR_FAILURE [nsIWebNavigation.fixupAndLoadURIString]');
-                },
-                loadURI(uri, options) {
-                    if (!this.attached) throw new Error('The browser must be attached before loading');
-                    if (!uri?.spec) throw new TypeError('loadURI requires an nsIURI-like object');
-                    this.loadedURI = uri;
-                    this.loadOptions = options;
-                    if (synchronousBrowserLoad) this.load();
-                },
-                load() {
-                    this.contentWindow.loaded = true;
-                    this.contentDocument.documentURI = this.loadedURI?.spec
-                        || this.attributes.src;
-                    this.contentDocument.documentElement.id = 'mktero-markdown-page';
-                    for (const listener of windowListeners.get('DOMContentLoaded') || []) {
-                        listener({ target: this.contentDocument });
-                    }
-                },
-            };
-        },
-    };
+    const document = {};
     const Zotero_Tabs = {
         add(options) {
             const children = [];
@@ -88,7 +19,6 @@ function createMainWindow({ synchronousBrowserLoad = false } = {}) {
                 children,
                 container: {
                     appendChild(child) {
-                        child.attached = true;
                         children.push(child);
                     },
                 },
@@ -124,49 +54,52 @@ function createMainWindow({ synchronousBrowserLoad = false } = {}) {
         selected,
         renamed,
         closed,
-        addEventListener(type, listener) {
-            const listeners = windowListeners.get(type) || [];
-            listeners.push(listener);
-            windowListeners.set(type, listeners);
-        },
-        removeEventListener(type, listener) {
-            const listeners = windowListeners.get(type) || [];
-            windowListeners.set(type, listeners.filter(value => value !== listener));
-        },
-        dispatchDOMContentLoaded(target) {
-            for (const listener of windowListeners.get('DOMContentLoaded') || []) {
-                listener({ target });
-            }
-        },
-        setTimeout(listener) {
-            const id = nextTimeoutID++;
-            activeTimeouts.set(id, listener);
-            return id;
-        },
-        clearTimeout(id) {
-            activeTimeouts.delete(id);
-        },
-        activeTimeoutCount() {
-            return activeTimeouts.size;
+    };
+}
+
+function createViewHarness() {
+    const views = [];
+    const calls = [];
+    return {
+        views,
+        calls,
+        createView(options) {
+            calls.push(options);
+            const renderCalls = [];
+            const root = { kind: 'inline-markdown-view' };
+            const view = {
+                root,
+                renderCalls,
+                destroyCalls: 0,
+                render(model) {
+                    renderCalls.push({ ...model });
+                },
+                destroy() {
+                    this.destroyCalls++;
+                },
+            };
+            views.push(view);
+            return view;
         },
     };
 }
 
-test('opens Markdown in a Zotero tab and reuses it for the same PDF', () => {
-    const mainWindow = createMainWindow();
-    const systemPrincipal = { kind: 'system-principal' };
-    const presenter = new MarkdownTabPresenter({
-        zotero: { getMainWindow: () => mainWindow },
+function createPresenter(mainWindow, harness, zoteroOverrides = {}) {
+    const zotero = {
+        getMainWindow: () => mainWindow,
+        ...zoteroOverrides,
+    };
+    return new MarkdownTabPresenter({
+        zotero,
         rootURI: 'jar:file:///profile/extensions/mktero.xpi!/',
-        services: {
-            io: {
-                newURI: spec => ({ spec }),
-            },
-            scriptSecurityManager: {
-                getSystemPrincipal: () => systemPrincipal,
-            },
-        },
+        createView: harness.createView.bind(harness),
     });
+}
+
+test('opens Markdown directly in a Zotero tab and reuses it for the same PDF', () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness);
 
     const first = presenter.open(42);
     const second = presenter.open(42);
@@ -177,81 +110,85 @@ test('opens Markdown in a Zotero tab and reuses it for the same PDF', () => {
     assert.equal(mainWindow.added[0].options.type, 'mktero');
     assert.equal(mainWindow.added[0].options.title, 'Converting PDF…');
     assert.equal(mainWindow.added[0].options.data.mkteroItemID, 42);
-    assert.equal(first.browser.attributes.remote, 'false');
+    assert.equal(mainWindow.added[0].children[0], first.view.root);
+    assert.equal(harness.calls[0].document, mainWindow.document);
     assert.equal(
-        first.browser.loadedURI.spec,
-        'jar:file:///profile/extensions/mktero.xpi!/ui/markdown.xhtml'
+        harness.calls[0].rootURI,
+        'jar:file:///profile/extensions/mktero.xpi!/'
     );
-    assert.equal(first.browser.loadOptions.triggeringPrincipal, systemPrincipal);
     assert.deepEqual(mainWindow.selected, [first.tabID]);
-    assert.deepEqual(mainWindow.Zotero_Tabs.getState().map(tab => tab.type), ['library', 'other']);
+    assert.deepEqual(mainWindow.Zotero_Tabs.getState().map(tab => tab.type), [
+        'library',
+        'other',
+    ]);
 });
 
-test('shows native conversion progress until the Markdown browser loads', () => {
+test('renders model updates immediately without a browser load boundary or watchdog', () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness);
+    const presentation = presenter.open(42);
+
+    presenter.update(presentation, { status: 'loading', progress: 10 });
+    presenter.update(presentation, {
+        status: 'ready',
+        markdown: '# Loaded without waiting',
+        cacheHit: true,
+    });
+
+    assert.equal('browser' in presentation, false);
+    assert.equal('loadTimeoutID' in presentation, false);
+    assert.deepEqual(
+        presentation.view.renderCalls.map(call => [call.status, call.progress]),
+        [
+            ['loading', 0],
+            ['loading', 10],
+            ['ready', 10],
+        ]
+    );
+    assert.equal(
+        presentation.view.renderCalls.at(-1).markdown,
+        '# Loaded without waiting'
+    );
+});
+
+test('does not create a Zotero tab when the inline view cannot be initialized', () => {
     const mainWindow = createMainWindow();
     const presenter = new MarkdownTabPresenter({
         zotero: { getMainWindow: () => mainWindow },
         rootURI: 'resource://mktero/',
-    });
-
-    const presentation = presenter.open(42);
-
-    assert.equal(presentation.nativeLoading.hidden, false);
-    assert.equal(
-        presentation.nativeLoadingLabel.attributes.value,
-        'Preparing the PDF for MinerU…'
-    );
-
-    presenter.update(presentation, { status: 'loading', progress: 5 });
-    assert.equal(
-        presentation.nativeLoadingLabel.attributes.value,
-        'Uploading the PDF to MinerU…'
-    );
-    assert.equal(presentation.nativeLoadingProgress.attributes.value, '5');
-
-    presenter.update(presentation, { status: 'loading', progress: 10 });
-    assert.equal(
-        presentation.nativeLoadingLabel.attributes.value,
-        'PDF uploaded. MinerU is parsing the document…'
-    );
-
-    mainWindow.dispatchDOMContentLoaded(presentation.browser.contentDocument);
-    assert.equal(presentation.nativeLoading.hidden, false);
-
-    mainWindow.dispatchDOMContentLoaded({ unrelated: true });
-    assert.equal(presentation.nativeLoading.hidden, false);
-
-    presentation.browser.load();
-    assert.equal(presentation.nativeLoading.hidden, true);
-    assert.equal(mainWindow.activeTimeoutCount(), 0);
-});
-
-test('does not leave a watchdog after the Markdown document loads synchronously', () => {
-    const mainWindow = createMainWindow({ synchronousBrowserLoad: true });
-    const systemPrincipal = {};
-    const presenter = new MarkdownTabPresenter({
-        zotero: { getMainWindow: () => mainWindow },
-        rootURI: 'jar:file:///profile/extensions/mktero.xpi!/',
-        services: {
-            io: { newURI: spec => ({ spec }) },
-            scriptSecurityManager: { getSystemPrincipal: () => systemPrincipal },
+        createView() {
+            throw new Error('Shadow DOM unavailable');
         },
     });
 
-    const presentation = presenter.open(42);
+    assert.throws(() => presenter.open(42), /Shadow DOM unavailable/);
+    assert.equal(mainWindow.added.length, 0);
+});
 
-    assert.equal(presentation.nativeLoading.hidden, true);
-    assert.equal(presentation.loadTimeoutID, null);
-    assert.equal(mainWindow.activeTimeoutCount(), 0);
+test('rolls back the Zotero tab when mounting the inline view fails', () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const originalAdd = mainWindow.Zotero_Tabs.add;
+    mainWindow.Zotero_Tabs.add = options => {
+        const result = originalAdd(options);
+        result.container.appendChild = () => {
+            throw new Error('Mount failed');
+        };
+        return result;
+    };
+    const presenter = createPresenter(mainWindow, harness);
+
+    assert.throws(() => presenter.open(42), /Mount failed/);
+    assert.equal(harness.views[0].destroyCalls, 1);
+    assert.deepEqual(mainWindow.closed, ['tab-1']);
 });
 
 test('exposes and refreshes the reparse action on the tab model', async () => {
     const mainWindow = createMainWindow();
+    const harness = createViewHarness();
     const calls = [];
-    const presenter = new MarkdownTabPresenter({
-        zotero: { getMainWindow: () => mainWindow },
-        rootURI: 'resource://mktero/',
-    });
+    const presenter = createPresenter(mainWindow, harness);
     const first = presenter.open(42, {
         onReparse: () => calls.push('first'),
     });
@@ -268,6 +205,7 @@ test('exposes and refreshes the reparse action on the tab model', async () => {
 
 test('removes stale Mktero tabs before Zotero restores the previous session', () => {
     const mainWindow = createMainWindow();
+    const harness = createViewHarness();
     const state = {
         windows: [{
             type: 'pane',
@@ -279,25 +217,19 @@ test('removes stale Mktero tabs before Zotero restores the previous session', ()
         }],
     };
 
-    new MarkdownTabPresenter({
-        zotero: {
-            getMainWindow: () => mainWindow,
-            Session: { state },
-        },
-        rootURI: 'resource://mktero/',
-    });
+    createPresenter(mainWindow, harness, { Session: { state } });
 
     assert.deepEqual(state.windows[0].tabs.map(tab => tab.type), ['library', 'reader']);
 });
 
-test('updates and closes the owned Markdown tab', () => {
+test('updates, destroys, and closes the owned Markdown tab', () => {
     const mainWindow = createMainWindow();
-    const presenter = new MarkdownTabPresenter({
-        zotero: { getMainWindow: () => mainWindow },
-        rootURI: 'resource://mktero/',
+    const harness = createViewHarness();
+    let closeCalls = 0;
+    const presenter = createPresenter(mainWindow, harness);
+    const presentation = presenter.open(42, {
+        onClose: () => closeCalls++,
     });
-    const presentation = presenter.open(42);
-    presentation.browser.load();
 
     presenter.update(presentation, {
         title: 'Example Paper',
@@ -312,43 +244,16 @@ test('updates and closes the owned Markdown tab', () => {
         tabID: presentation.tabID,
         title: 'Example Paper',
     }]);
-    assert.deepEqual(presentation.browser.events, [
-        'mktero:model-update',
-        'mktero:model-update',
-    ]);
+    assert.equal(presentation.view.destroyCalls, 1);
+    assert.equal(closeCalls, 1);
     assert.deepEqual(mainWindow.closed, [presentation.tabID]);
-});
-
-test('delivers the latest model after the Markdown browser finishes loading', () => {
-    const mainWindow = createMainWindow();
-    const presenter = new MarkdownTabPresenter({
-        zotero: { getMainWindow: () => mainWindow },
-        rootURI: 'resource://mktero/',
-    });
-    const presentation = presenter.open(42);
-
-    presenter.update(presentation, {
-        status: 'ready',
-        markdown: '# Loaded after conversion',
-    });
-    assert.deepEqual(presentation.browser.events, []);
-
-    presentation.browser.load();
-
-    assert.equal(presentation.browser.contentWindow.mkteroModel, presentation.model);
-    assert.deepEqual(presentation.browser.events, ['mktero:model-update']);
 });
 
 test('ignores conversion updates after the Markdown tab is closed', () => {
     const mainWindow = createMainWindow();
-    let closeCalls = 0;
-    const presenter = new MarkdownTabPresenter({
-        zotero: { getMainWindow: () => mainWindow },
-        rootURI: 'resource://mktero/',
-    });
-    const presentation = presenter.open(42, {
-        onClose: () => closeCalls++,
-    });
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness);
+    const presentation = presenter.open(42);
 
     mainWindow.added[0].options.onClose();
     presenter.update(presentation, {
@@ -360,6 +265,5 @@ test('ignores conversion updates after the Markdown tab is closed', () => {
     assert.equal(presentation.model.status, 'loading');
     assert.equal(presentation.model.markdown, '');
     assert.deepEqual(mainWindow.renamed, []);
-    assert.deepEqual(presentation.browser.events, []);
-    assert.equal(closeCalls, 1);
+    assert.equal(presentation.view.renderCalls.length, 1);
 });

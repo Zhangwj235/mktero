@@ -26,15 +26,6 @@ await Promise.all([
         legalComments: 'none',
     }),
     build({
-        entryPoints: [path.join(projectRoot, 'src/ui/markdown-window.js')],
-        outfile: path.join(packageRoot, 'ui/markdown-window.js'),
-        bundle: true,
-        format: 'iife',
-        platform: 'browser',
-        target: ['firefox115'],
-        legalComments: 'none',
-    }),
-    build({
         entryPoints: [path.join(projectRoot, 'src/ui/preferences.js')],
         outfile: path.join(packageRoot, 'ui/preferences.js'),
         bundle: true,
@@ -47,7 +38,6 @@ await Promise.all([
 
 await Promise.all([
     copyText('manifest.json', 'manifest.json'),
-    copyText('ui/markdown.xhtml', 'ui/markdown.xhtml'),
     copyText('ui/markdown.css', 'ui/markdown.css'),
     copyText('ui/preferences.xhtml', 'ui/preferences.xhtml'),
     copyText('ui/preferences.css', 'ui/preferences.css'),

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { parseHTML } from 'linkedom';
 
 test('uses the Zotero window AbortController when the plugin sandbox has none', async t => {
     const NativeAbortController = globalThis.AbortController;
@@ -103,6 +104,7 @@ test('uses the Zotero window AbortController when the plugin sandbox has none', 
 });
 
 function createMainWindow(AbortController, alerts) {
+    const { document } = parseHTML('<html><body></body></html>');
     const tabs = new Map();
     let nextTabID = 1;
     const Zotero_Tabs = {
@@ -125,20 +127,7 @@ function createMainWindow(AbortController, alerts) {
     return {
         AbortController,
         Zotero_Tabs,
-        document: {
-            createXULElement() {
-                return {
-                    children: [],
-                    style: {},
-                    setAttribute() {},
-                    addEventListener() {},
-                    appendChild(child) {
-                        this.children.push(child);
-                    },
-                    contentWindow: null,
-                };
-            },
-        },
+        document,
         alert(message) {
             alerts.push(message);
         },
