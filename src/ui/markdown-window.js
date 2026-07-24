@@ -91,14 +91,28 @@ class MarkdownTabView {
         if (model.status === 'ready') {
             this.syncAssetURLs();
             elements.status.textContent = sourceLabel(model.sourceKind, model.cacheHit);
-            elements.preview.innerHTML = renderMarkdownHTML(model.markdown || '', {
+            this.replacePreviewHTML(renderMarkdownHTML(model.markdown || '', {
                 resolveImageURL: source => this.resolveImageURL(source),
-            });
+            }));
             elements.source.textContent = model.markdown || '';
             return;
         }
 
         elements.status.textContent = 'Conversion failed';
+    }
+
+    replacePreviewHTML(html) {
+        const DOMParserType = this.ownerWindow.DOMParser || globalThis.DOMParser;
+        if (!DOMParserType) throw new Error('The Zotero HTML parser is unavailable');
+        const parsed = new DOMParserType().parseFromString(
+            `<!doctype html><html><body>${html}</body></html>`,
+            'text/html'
+        );
+        if (!parsed.body) throw new Error('The Markdown HTML could not be parsed');
+        const nodes = [...parsed.body.childNodes].map(node => (
+            this.document.importNode(node, true)
+        ));
+        this.elements.preview.replaceChildren(...nodes);
     }
 
     destroy() {

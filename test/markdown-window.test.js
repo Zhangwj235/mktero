@@ -97,6 +97,35 @@ test('replaces loading state with cached Markdown as soon as the model is ready'
     );
 });
 
+test('renders ready Markdown without XML innerHTML assignment in Zotero', () => {
+    const { view, shadow } = createView();
+    const preview = shadow.querySelector('#mktero-preview');
+    let assignedInnerHTML = false;
+    Object.defineProperty(preview, 'innerHTML', {
+        configurable: true,
+        set(value) {
+            assignedInnerHTML = true;
+            if (/<img\b[^>]*(?<!\/)\s*>/i.test(value)) {
+                throw new SyntaxError('An invalid or illegal string was specified');
+            }
+        },
+    });
+
+    assert.doesNotThrow(() => view.render(createModel({
+        status: 'ready',
+        markdown: '# XML-safe rendering\n\n![Figure](images/figure.png)',
+        assets: [{
+            path: 'images/figure.png',
+            mimeType: 'image/png',
+            data: new Uint8Array([1, 2, 3]),
+        }],
+        sourceKind: 'markdown',
+    })));
+    assert.equal(assignedInnerHTML, false);
+    assert.equal(preview.querySelector('h1').textContent, 'XML-safe rendering');
+    assert.match(preview.querySelector('img').getAttribute('src'), /^blob:/);
+});
+
 test('updates conversion progress directly in the inline view', () => {
     const { view, shadow } = createView();
 
