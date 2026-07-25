@@ -48,22 +48,22 @@ test('mounts the Markdown UI in an isolated inline shadow root', () => {
 
     assert.equal(view.root.localName, 'div');
     assert.equal(view.root.getAttribute('role'), 'region');
-    assert.equal(
+    assert.match(
         shadow.querySelector('link[rel="stylesheet"]').getAttribute('href'),
-        'jar:file:///profile/extensions/mktero.xpi!/ui/markdown.css'
+        /^jar:file:\/\/\/profile\/extensions\/mktero\.xpi!\/ui\/markdown\.css\?v=\d+$/
     );
     assert.equal(shadow.querySelector('#mktero-loading').getAttribute('role'), 'status');
-    assert.equal(
-        shadow.querySelector('#mktero-status').textContent,
-        'Converting PDF… 0%'
-    );
+    assert.equal(shadow.querySelector('#mktero-status'), null);
     assert.equal(shadow.querySelector('#mktero-title'), null);
     assert.equal(shadow.querySelector('#mktero-reparse'), null);
     assert.equal(shadow.querySelector('#mktero-copy'), null);
     assert.equal(shadow.querySelector('#mktero-show-preview').textContent, '预览');
     assert.equal(shadow.querySelector('#mktero-show-source').textContent, '查看源文件');
-    assert.ok(shadow.querySelector('#mktero-show-preview svg'));
-    assert.ok(shadow.querySelector('#mktero-show-source svg'));
+    assert.equal(shadow.querySelector('.app-header').children.length, 1);
+    assert.equal(shadow.querySelector('#mktero-show-preview svg').getAttribute('width'), '16');
+    assert.equal(shadow.querySelector('#mktero-show-preview svg').getAttribute('height'), '16');
+    assert.equal(shadow.querySelector('#mktero-show-source svg').getAttribute('width'), '16');
+    assert.equal(shadow.querySelector('#mktero-show-source svg').getAttribute('height'), '16');
 });
 
 test('uses a flexing XUL layout root in the Zotero main document', () => {
@@ -93,7 +93,7 @@ test('replaces loading state with cached Markdown as soon as the model is ready'
 
     assert.equal(shadow.querySelector('#mktero-loading').hidden, true);
     assert.equal(shadow.querySelector('#mktero-preview').hidden, false);
-    assert.equal(shadow.querySelector('#mktero-status').textContent, 'Cached MinerU Markdown');
+    assert.equal(shadow.querySelector('#mktero-status'), null);
     assert.match(
         shadow.querySelector('#mktero-preview').innerHTML,
         /<h1>Example Paper<\/h1>[\s\S]*<p>Converted\.<\/p>/
@@ -178,10 +178,6 @@ test('imports MathML markup into the Zotero view', () => {
     assert.ok(math);
     assert.equal(math.getAttribute('xmlns'), 'http://www.w3.org/1998/Math/MathML');
     assert.ok(math.querySelector('msup'));
-    assert.equal(
-        shadow.querySelector('#mktero-status').textContent,
-        'Cached MinerU Markdown'
-    );
 });
 
 test('updates conversion progress directly in the inline view', () => {

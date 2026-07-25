@@ -3,6 +3,7 @@ import { createLoadingPresentation } from './markdown-loading-state.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const STYLESHEET_CACHE_KEY = Date.now();
 
 export function createMarkdownTabView({ document, rootURI, model, zotero }) {
     return new MarkdownTabView({ document, rootURI, model, zotero });
@@ -70,7 +71,6 @@ class MarkdownTabView {
         this.syncContentVisibility(showContent);
 
         if (loadingView.visible) {
-            elements.status.textContent = `${loadingView.title} ${loadingView.progressLabel}`;
             elements.loadingTitle.textContent = loadingView.title;
             elements.loadingDetail.textContent = loadingView.detail;
             elements.loadingProgressLabel.textContent = loadingView.progressLabel;
@@ -85,13 +85,11 @@ class MarkdownTabView {
         }
 
         if (model.status === 'ready') {
-            elements.status.textContent = sourceLabel(model.sourceKind, model.cacheHit);
             this.renderMarkdownPreview();
             elements.source.value = model.markdown || '';
             return;
         }
 
-        elements.status.textContent = 'Conversion failed';
     }
 
     replacePreviewHTML(html) {
@@ -120,7 +118,7 @@ class MarkdownTabView {
     createStylesheet(rootURI) {
         return this.createElement('link', {
             rel: 'stylesheet',
-            href: `${rootURI}ui/markdown.css`,
+            href: `${rootURI}ui/markdown.css?v=${STYLESHEET_CACHE_KEY}`,
         });
     }
 
@@ -151,17 +149,6 @@ class MarkdownTabView {
             '查看源文件',
             'source'
         );
-        const status = this.createElement(
-            'span',
-            {
-                id: 'mktero-status',
-                class: 'visually-hidden',
-                role: 'status',
-                'aria-live': 'polite',
-            },
-            'Converting PDF…'
-        );
-
         const modeSwitch = this.createElement('div', {
             class: 'mode-switch',
             role: 'group',
@@ -169,7 +156,7 @@ class MarkdownTabView {
         });
         appendChildren(modeSwitch, previewButton, sourceButton);
         const header = this.createElement('header', { class: 'app-header' });
-        appendChildren(header, modeSwitch, status);
+        header.appendChild(modeSwitch);
 
         const progress = this.createElement('progress', {
             id: 'mktero-progress',
@@ -274,7 +261,6 @@ class MarkdownTabView {
         appendChildren(view, header, progress, warning, error, content);
         return {
             view,
-            status,
             progress,
             warning,
             error,
@@ -319,6 +305,8 @@ class MarkdownTabView {
             'stroke-linecap': 'round',
             'stroke-linejoin': 'round',
             'aria-hidden': 'true',
+            width: '16',
+            height: '16',
         });
         const iconParts = iconName === 'preview'
             ? [
@@ -482,11 +470,4 @@ function resolveZipPath(basePath, relativePath) {
 
 function normalizeZipPath(path) {
     return resolveZipPath('', String(path).replace(/\\/g, '/'));
-}
-
-function sourceLabel(sourceKind, cacheHit) {
-    if (sourceKind === 'markdown' && cacheHit) return 'Cached MinerU Markdown';
-    if (sourceKind === 'markdown') return 'MinerU Markdown';
-    if (sourceKind === 'structured') return 'Structured Markdown';
-    return 'Plain-text Markdown';
 }
