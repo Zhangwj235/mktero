@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
 import { registerReaderToolbar } from '../src/ui/reader-toolbar.js';
 
 function createDocument() {
@@ -104,4 +105,92 @@ test('uses Zotero plugin cleanup instead of the broken 9.0 listener unregister A
     dispose();
 
     assert.equal(unregisterCalls, 0);
+});
+
+test('adds and removes the toolbar action without restarting Zotero', () => {
+    const { document } = parseHTML([
+        '<html><body>',
+        '<div class="toolbar"><div class="end">',
+        '<div class="custom-sections"></div>',
+        '</div></div>',
+        '</body></html>',
+    ].join(''));
+    const reader = {
+        type: 'pdf',
+        itemID: 42,
+        _iframeWindow: { document },
+    };
+    const cleanedPluginIDs = [];
+    let toolbarHandler;
+    const zotero = {
+        version: '9.0.6',
+        Reader: {
+            _readers: [reader],
+            registerEventListener(_type, handler) {
+                toolbarHandler = handler;
+            },
+            _unregisterEventListenerByPluginID(pluginID) {
+                cleanedPluginIDs.push(pluginID);
+            },
+        },
+    };
+
+    const dispose = registerReaderToolbar({
+        zotero,
+        pluginID: 'mktero@example.com',
+        onOpen: async () => {},
+    });
+
+    assert.ok(document.querySelector('.mktero-markdown-button'));
+    toolbarHandler({
+        reader,
+        doc: document,
+        append: element => document.querySelector('.custom-sections').append(element),
+    });
+    assert.equal(document.querySelectorAll('.mktero-markdown-button').length, 1);
+    dispose();
+    assert.equal(document.querySelector('.mktero-markdown-button'), null);
+    toolbarHandler({
+        reader,
+        doc: document,
+        append: element => document.querySelector('.custom-sections').append(element),
+    });
+    assert.equal(document.querySelector('.mktero-markdown-button'), null);
+    assert.deepEqual(cleanedPluginIDs, ['mktero@example.com']);
+});
+
+test('replaces a stale toolbar action during a hot plugin update', () => {
+    const { document } = parseHTML([
+        '<html><body>',
+        '<div class="toolbar"><div class="end">',
+        '<div class="custom-sections"><div class="section">',
+        '<button id="stale" class="mktero-markdown-button">MD</button>',
+        '</div></div>',
+        '</div></div>',
+        '</body></html>',
+    ].join(''));
+    const staleButton = document.querySelector('#stale');
+    const zotero = {
+        version: '9.0.6',
+        Reader: {
+            _readers: [{
+                type: 'pdf',
+                itemID: 42,
+                _iframeWindow: { document },
+            }],
+            registerEventListener() {},
+            _unregisterEventListenerByPluginID() {},
+        },
+    };
+
+    const dispose = registerReaderToolbar({
+        zotero,
+        pluginID: 'mktero@example.com',
+        onOpen: async () => {},
+    });
+    const currentButton = document.querySelector('.mktero-markdown-button');
+
+    assert.notEqual(currentButton, staleButton);
+    assert.equal(staleButton.isConnected, false);
+    dispose();
 });

@@ -1,10 +1,15 @@
+const BUTTON_SELECTOR = '.mktero-markdown-button';
+const CUSTOM_SECTIONS_SELECTOR = '.toolbar .end .custom-sections';
+
 export function registerReaderToolbar({ zotero, pluginID, onOpen, onError = defaultErrorHandler }) {
     if (!zotero?.Reader?.registerEventListener) {
         throw new Error('Zotero Reader event handlers are unavailable');
     }
 
+    let active = true;
     const handler = ({ reader, doc, append }) => {
-        if (reader?.type !== 'pdf') return;
+        if (!active || reader?.type !== 'pdf') return;
+        if (doc.querySelector?.(BUTTON_SELECTOR)) return;
 
         const button = doc.createElement('button');
         button.type = 'button';
@@ -20,13 +25,77 @@ export function registerReaderToolbar({ zotero, pluginID, onOpen, onError = defa
     };
 
     zotero.Reader.registerEventListener('renderToolbar', handler, pluginID);
+    injectOpenReaderToolbars(zotero, handler);
     return () => {
-        // Zotero removes listeners registered with pluginID during plugin shutdown.
+        if (!active) return;
+        active = false;
+        removeOpenReaderToolbarButtons(zotero);
         // Zotero 9.0's public unregister method incorrectly keeps only the target
-        // listener, so calling it can remove listeners belonging to other plugins.
-        if (isZotero90(zotero.version)) return;
+        // listener. Its plugin-ID cleanup path has the intended implementation.
+        if (isZotero90(zotero.version)) {
+            zotero.Reader._unregisterEventListenerByPluginID?.(pluginID);
+            return;
+        }
         zotero.Reader.unregisterEventListener?.('renderToolbar', handler);
     };
+}
+
+function injectOpenReaderToolbars(zotero, handler) {
+    for (const reader of getOpenReaders(zotero)) {
+        try {
+            const doc = getReaderDocument(reader);
+            removeToolbarButtonsFromDocument(doc);
+            const container = doc?.querySelector?.(CUSTOM_SECTIONS_SELECTOR);
+            if (!container) continue;
+            handler({
+                reader,
+                doc,
+                append(element) {
+                    const section = doc.createElement('div');
+                    section.className = 'section';
+                    section.append(element);
+                    container.append(section);
+                },
+            });
+        }
+        catch (error) {
+            zotero.logError?.(error);
+        }
+    }
+}
+
+function removeOpenReaderToolbarButtons(zotero) {
+    for (const reader of getOpenReaders(zotero)) {
+        try {
+            const doc = getReaderDocument(reader);
+            removeToolbarButtonsFromDocument(doc);
+        }
+        catch (error) {
+            zotero.logError?.(error);
+        }
+    }
+}
+
+function removeToolbarButtonsFromDocument(doc) {
+    for (const button of doc?.querySelectorAll?.(BUTTON_SELECTOR) || []) {
+        const section = button.parentElement;
+        button.remove();
+        if (section?.classList?.contains('section') && !section.children.length) {
+            section.remove();
+        }
+    }
+}
+
+function getOpenReaders(zotero) {
+    return Array.isArray(zotero.Reader?._readers)
+        ? zotero.Reader._readers
+        : [];
+}
+
+function getReaderDocument(reader) {
+    return reader?._iframeWindow?.document
+        || reader?._iframe?.contentDocument
+        || null;
 }
 
 function isZotero90(version) {
