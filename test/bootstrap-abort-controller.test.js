@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseHTML } from 'linkedom';
 
@@ -11,6 +12,7 @@ test('uses the Zotero window AbortController when the plugin sandbox has none', 
         PathUtils: globalThis.PathUtils,
         startup: globalThis.startup,
         shutdown: globalThis.shutdown,
+        __MKTERO_MARKDOWN_STYLES__: globalThis.__MKTERO_MARKDOWN_STYLES__,
     };
     const alerts = [];
     const debugLogs = [];
@@ -69,6 +71,10 @@ test('uses the Zotero window AbortController when the plugin sandbox has none', 
         parent: path.dirname,
         filename: path.basename,
     };
+    globalThis.__MKTERO_MARKDOWN_STYLES__ = readFileSync(
+        new URL('../ui/markdown.css', import.meta.url),
+        'utf8'
+    );
     delete globalThis.AbortController;
 
     t.after(() => {

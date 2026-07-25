@@ -21,7 +21,12 @@ test('ships MinerU token, cache preferences, and Markdown UI assets', async () =
     assert.match(script, /createZoteroMarkdownCache/);
     assert.match(markdownView, /'mktero-show-source'/);
     assert.doesNotMatch(markdownView, /'mktero-reparse'/);
+    assert.match(markdownView, /__MKTERO_MARKDOWN_STYLES__/);
+    assert.doesNotMatch(markdownView, /STYLESHEET_CACHE_KEY/);
+    assert.match(markdownView, /bundled Markdown styles are unavailable/);
     assert.match(tabPresenter, /TAB_ICON = 'markdown'/);
     assert.match(buildScript, /ui\/preferences\.js/);
     assert.match(buildScript, /ui\/icons\/markdown\.svg/);
+    assert.match(buildScript, /__MKTERO_MARKDOWN_STYLES__/);
+    assert.doesNotMatch(buildScript, /copyText\('ui\/markdown\.css'/);
 });

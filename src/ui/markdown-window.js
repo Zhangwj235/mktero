@@ -3,16 +3,31 @@ import { createLoadingPresentation } from './markdown-loading-state.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
-const STYLESHEET_CACHE_KEY = Date.now();
+const BUNDLED_MARKDOWN_STYLES = typeof __MKTERO_MARKDOWN_STYLES__ === 'string'
+    ? __MKTERO_MARKDOWN_STYLES__
+    : null;
 
-export function createMarkdownTabView({ document, rootURI, model, zotero }) {
-    return new MarkdownTabView({ document, rootURI, model, zotero });
+export function createMarkdownTabView({
+    document,
+    model,
+    zotero,
+    stylesheetText = BUNDLED_MARKDOWN_STYLES,
+}) {
+    return new MarkdownTabView({
+        document,
+        model,
+        zotero,
+        stylesheetText,
+    });
 }
 
 class MarkdownTabView {
-    constructor({ document, rootURI, model, zotero }) {
+    constructor({ document, model, zotero, stylesheetText }) {
         if (!document?.createElementNS) {
             throw new Error('The Zotero window cannot create the Markdown view');
+        }
+        if (!stylesheetText) {
+            throw new Error('The bundled Markdown styles are unavailable');
         }
 
         this.document = document;
@@ -42,7 +57,7 @@ class MarkdownTabView {
 
         this.root = this.createLayoutRoot();
         this.mount = this.host.attachShadow({ mode: 'open' });
-        this.mount.appendChild(this.createStylesheet(rootURI));
+        this.mount.appendChild(this.createStylesheet(stylesheetText));
         this.elements = this.createContent();
         this.mount.appendChild(this.elements.view);
         this.bindActions();
@@ -115,11 +130,12 @@ class MarkdownTabView {
         this.root.remove?.();
     }
 
-    createStylesheet(rootURI) {
-        return this.createElement('link', {
-            rel: 'stylesheet',
-            href: `${rootURI}ui/markdown.css?v=${STYLESHEET_CACHE_KEY}`,
+    createStylesheet(stylesheetText) {
+        const style = this.createElement('style', {
+            'data-mktero-styles': 'embedded',
         });
+        style.textContent = stylesheetText;
+        return style;
     }
 
     createLayoutRoot() {

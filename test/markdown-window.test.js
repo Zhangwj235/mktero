@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { parseHTML } from 'linkedom';
 import { createMarkdownTabView } from '../src/ui/markdown-window.js';
+
+const MARKDOWN_STYLES = readFileSync(
+    new URL('../ui/markdown.css', import.meta.url),
+    'utf8'
+);
 
 function createModel(changes = {}) {
     return {
@@ -38,6 +44,7 @@ function createView(model = createModel(), zotero = {}, options = {}) {
         rootURI: 'jar:file:///profile/extensions/mktero.xpi!/',
         model,
         zotero,
+        stylesheetText: options.stylesheetText ?? MARKDOWN_STYLES,
     });
     view.render(model);
     return { document, view, shadow: view.host.shadowRoot };
@@ -48,9 +55,10 @@ test('mounts the Markdown UI in an isolated inline shadow root', () => {
 
     assert.equal(view.root.localName, 'div');
     assert.equal(view.root.getAttribute('role'), 'region');
-    assert.match(
-        shadow.querySelector('link[rel="stylesheet"]').getAttribute('href'),
-        /^jar:file:\/\/\/profile\/extensions\/mktero\.xpi!\/ui\/markdown\.css\?v=\d+$/
+    assert.equal(shadow.querySelector('link[rel="stylesheet"]'), null);
+    assert.equal(
+        shadow.querySelector('style[data-mktero-styles="embedded"]').textContent,
+        MARKDOWN_STYLES
     );
     assert.equal(shadow.querySelector('#mktero-loading').getAttribute('role'), 'status');
     assert.equal(shadow.querySelector('#mktero-status'), null);
@@ -64,6 +72,24 @@ test('mounts the Markdown UI in an isolated inline shadow root', () => {
     assert.equal(shadow.querySelector('#mktero-show-preview svg').getAttribute('height'), '16');
     assert.equal(shadow.querySelector('#mktero-show-source svg').getAttribute('width'), '16');
     assert.equal(shadow.querySelector('#mktero-show-source svg').getAttribute('height'), '16');
+});
+
+test('embeds bundled CSS directly in the Markdown shadow root', () => {
+    const stylesheetText = ':host { color: rgb(12 34 56); }';
+    const { shadow } = createView(createModel(), {}, { stylesheetText });
+
+    assert.equal(shadow.querySelector('link[rel="stylesheet"]'), null);
+    assert.equal(
+        shadow.querySelector('style[data-mktero-styles="embedded"]').textContent,
+        stylesheetText
+    );
+});
+
+test('fails clearly when bundled Markdown CSS is unavailable', () => {
+    assert.throws(
+        () => createView(createModel(), {}, { stylesheetText: '' }),
+        /bundled Markdown styles are unavailable/
+    );
 });
 
 test('uses a flexing XUL layout root in the Zotero main document', () => {

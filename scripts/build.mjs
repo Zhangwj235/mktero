@@ -10,6 +10,10 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const buildRoot = path.join(projectRoot, 'build');
 const packageRoot = path.join(buildRoot, 'package');
 const manifest = JSON.parse(await readFile(path.join(projectRoot, 'manifest.json'), 'utf8'));
+const markdownStyles = await readFile(
+    path.join(projectRoot, 'ui/markdown.css'),
+    'utf8'
+);
 const xpiPath = path.join(buildRoot, `mktero-${manifest.version}.xpi`);
 
 await rm(buildRoot, { recursive: true, force: true });
@@ -25,6 +29,9 @@ await Promise.all([
         platform: 'browser',
         target: ['firefox115'],
         legalComments: 'none',
+        define: {
+            __MKTERO_MARKDOWN_STYLES__: JSON.stringify(markdownStyles),
+        },
     }),
     build({
         entryPoints: [path.join(projectRoot, 'src/ui/preferences.js')],
@@ -39,7 +46,6 @@ await Promise.all([
 
 await Promise.all([
     copyText('manifest.json', 'manifest.json'),
-    copyText('ui/markdown.css', 'ui/markdown.css'),
     copyText('ui/preferences.xhtml', 'ui/preferences.xhtml'),
     copyText('ui/preferences.css', 'ui/preferences.css'),
     copyText('ui/icons/markdown.svg', 'ui/icons/markdown.svg'),
