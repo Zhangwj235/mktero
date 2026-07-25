@@ -124,6 +124,7 @@ test('returns a cached result without requiring a MinerU API token', async () =>
     assert.equal(result.title, 'Parent Paper');
     assert.equal(result.markdown, '# Cached MinerU result');
     assert.equal(result.cacheHit, true);
+    assert.equal(result.cacheKey, cacheKey);
     assert.deepEqual(progress, [100]);
 });
 
@@ -163,8 +164,128 @@ test('stores a successful MinerU result after a cache miss', async () => {
 
     assert.equal(result.markdown, '# Fresh MinerU result');
     assert.equal(result.cacheHit, false);
+    assert.equal(result.cacheKey, cacheKey);
     assert.equal(stored.key, cacheKey);
     assert.equal(stored.value, minerUResult);
+});
+
+test('saves edited Markdown to the original cache entry with its assets', async () => {
+    const cacheKey = 'f'.repeat(64);
+    let stored;
+    const assets = [{
+        path: 'images/figure.png',
+        mimeType: 'image/png',
+        data: new Uint8Array([1, 2, 3]),
+    }];
+    const extractor = new MinerUDocumentExtractor({
+        zotero: { Items: { getAsync: async () => createPDFItem() } },
+        client: { parse: async () => assert.fail('MinerU should not be called') },
+        getApiKey: () => '',
+        readFile: async () => new Uint8Array(),
+        cache: {
+            put: async (key, value) => { stored = { key, value }; },
+        },
+        createCacheKey: async () => cacheKey,
+        isCacheEnabled: () => true,
+    });
+
+    await extractor.save({
+        cacheKey,
+        markdown: '# Edited',
+        assets,
+        assetBasePath: 'result',
+        extractedPages: 2,
+        totalPages: 3,
+    });
+
+    assert.equal(stored.key, cacheKey);
+    assert.equal(stored.value.markdown, '# Edited');
+    assert.equal(stored.value.assets, assets);
+    assert.equal(stored.value.assetBasePath, 'result');
+    assert.equal(stored.value.extractedPages, 2);
+    assert.equal(stored.value.totalPages, 3);
+});
+
+test('saves explicit edits even when automatic caching is disabled', async () => {
+    let stored;
+    const extractor = new MinerUDocumentExtractor({
+        zotero: { Items: { getAsync: async () => createPDFItem() } },
+        client: { parse: async () => {} },
+        getApiKey: () => '',
+        readFile: async () => new Uint8Array(),
+        cache: {
+            put: async (key, value, options) => {
+                stored = { key, value, options };
+            },
+        },
+        createCacheKey: async () => 'f'.repeat(64),
+        isCacheEnabled: () => false,
+    });
+
+    await extractor.save({ cacheKey: 'f'.repeat(64), markdown: '' });
+
+    assert.equal(stored.key, 'f'.repeat(64));
+    assert.equal(stored.value.markdown, '');
+    assert.equal(stored.value.userEdited, true);
+    assert.deepEqual(stored.options, { allowEmptyMarkdown: true });
+});
+
+test('reopens explicit saved edits while automatic caching is disabled', async () => {
+    const cacheKey = '9'.repeat(64);
+    const extractor = new MinerUDocumentExtractor({
+        zotero: { Items: { getAsync: async () => createPDFItem() } },
+        client: { parse: async () => assert.fail('MinerU should not be called') },
+        getApiKey: () => '',
+        readFile: async () => new Uint8Array([1, 2, 3]),
+        cache: {
+            get: async key => {
+                assert.equal(key, cacheKey);
+                return {
+                    markdown: '# Explicit edit',
+                    assets: [],
+                    assetBasePath: '',
+                    userEdited: true,
+                };
+            },
+            put: async () => assert.fail('opening must not rewrite the edit'),
+        },
+        createCacheKey: async () => cacheKey,
+        isCacheEnabled: () => false,
+    });
+
+    const result = await extractor.extract(42);
+
+    assert.equal(result.markdown, '# Explicit edit');
+    assert.equal(result.cacheHit, true);
+    assert.equal(result.cacheKey, cacheKey);
+});
+
+test('ignores automatic cache entries when caching is disabled', async () => {
+    let parseCalls = 0;
+    const cacheKey = '8'.repeat(64);
+    const extractor = new MinerUDocumentExtractor({
+        zotero: { Items: { getAsync: async () => createPDFItem() } },
+        client: {
+            parse: async () => {
+                parseCalls++;
+                return { markdown: '# Fresh result' };
+            },
+        },
+        getApiKey: () => 'configured-token',
+        readFile: async () => new Uint8Array([1, 2, 3]),
+        cache: {
+            get: async () => ({ markdown: '# Automatic cache', assets: [] }),
+            put: async () => assert.fail('automatic caching is disabled'),
+        },
+        createCacheKey: async () => cacheKey,
+        isCacheEnabled: () => false,
+    });
+
+    const result = await extractor.extract(42);
+
+    assert.equal(parseCalls, 1);
+    assert.equal(result.markdown, '# Fresh result');
+    assert.equal(result.cacheKey, cacheKey);
 });
 
 test('still returns MinerU Markdown when the cache cannot be written', async () => {

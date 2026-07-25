@@ -18,6 +18,7 @@ test('keeps the current Markdown visible while a forced reparse is running', () 
         assetBasePath: 'result',
         sourceKind: 'markdown',
         cacheHit: true,
+        cacheKey: 'a'.repeat(64),
         extractedPages: 2,
         totalPages: 2,
         warnings: [],
@@ -32,6 +33,7 @@ test('keeps the current Markdown visible while a forced reparse is running', () 
     assert.equal(loading.preserveContent, true);
     assert.equal(loading.markdown, '# Cached paper');
     assert.equal(loading.cacheHit, true);
+    assert.equal(loading.cacheKey, 'a'.repeat(64));
 });
 
 test('restores the previous result with a warning when reparse fails', () => {
@@ -68,6 +70,7 @@ test('uses the normal empty and error states without a previous result', () => {
         assets: [],
         assetBasePath: '',
         cacheHit: false,
+        cacheKey: null,
         warnings: [],
         error: '',
         preserveContent: false,
@@ -87,6 +90,7 @@ test('clears figures when a successful reparse has no assets', () => {
     }), {
         assets: [],
         assetBasePath: '',
+        cacheKey: null,
         title: 'Reparsed paper',
         markdown: '# Reparsed',
         sourceKind: 'markdown',

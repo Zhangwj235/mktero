@@ -9,6 +9,27 @@ const MAX_TOTAL_MATH_SOURCE_LENGTH = 100_000;
 const UNSAFE_MATH_COMMAND = /\\(?:csname|def|edef|futurelet|gdef|global|let|newcommand|providecommand|renewcommand|xdef)\b/;
 const INLINE_CHILD_TOKEN_TYPES = new Set(['strong', 'em', 'del', 'link', 'image']);
 const MATH_RANGE_TOKEN_TYPES = new Set(['text', 'escape', 'strong', 'em', 'del', 'link']);
+const SAFE_TABLE_TAGS = new Set([
+    'table',
+    'thead',
+    'tbody',
+    'tfoot',
+    'tr',
+    'th',
+    'td',
+    'caption',
+    'colgroup',
+    'col',
+    'p',
+    'br',
+    'strong',
+    'em',
+    'b',
+    'i',
+    'sub',
+    'sup',
+    'code',
+]);
 
 export function renderMarkdownHTML(markdown, { resolveImageURL = () => null } = {}) {
     if (typeof markdown !== 'string') {
@@ -40,6 +61,8 @@ function createSafeRenderer(resolveImageURL) {
             if (page) {
                 return `<span class="page-marker" data-page="${escapeAttribute(page[1])}">Page ${escapeHTML(page[1])}</span>`;
             }
+            const table = sanitizeRawHTMLTable(text);
+            if (table) return table;
             return escapeKnownInlineTags(escapeHTML(text));
         },
 
@@ -629,4 +652,66 @@ function escapeKnownInlineTags(value) {
     return value
         .replace(/&lt;(br|sup|sub)&gt;/gi, '<$1>')
         .replace(/&lt;\/(br|sup|sub)&gt;/gi, '</$1>');
+}
+
+function sanitizeRawHTMLTable(value) {
+    const source = String(value).trim();
+    if (!/^<table(?:\s|>)/i.test(source) || !/<\/table>$/i.test(source)) {
+        return null;
+    }
+
+    let output = '';
+    let sourceIndex = 0;
+    const tagPattern = /<\/?[a-z][^<>]*>/gi;
+    for (const match of source.matchAll(tagPattern)) {
+        output += escapeHTMLText(source.slice(sourceIndex, match.index));
+        const closing = /^<\s*\//.test(match[0]);
+        const tagName = /^<\s*\/?\s*([a-z][a-z0-9]*)/i.exec(match[0])?.[1]
+            ?.toLowerCase();
+        output += SAFE_TABLE_TAGS.has(tagName)
+            ? sanitizeTableTag(match[0], tagName, closing)
+            : escapeHTML(match[0]);
+        sourceIndex = match.index + match[0].length;
+    }
+    output += escapeHTMLText(source.slice(sourceIndex));
+    return output;
+}
+
+function sanitizeTableTag(rawTag, tagName, closing) {
+    if (closing) return `</${tagName}>`;
+    let attributes = '';
+    const attributeNames = tagName === 'td' || tagName === 'th'
+        ? ['rowspan', 'colspan']
+        : tagName === 'col' || tagName === 'colgroup'
+            ? ['span']
+            : [];
+    for (const name of attributeNames) {
+        const value = readNumericHTMLAttribute(rawTag, name);
+        if (value !== null) attributes += ` ${name}="${value}"`;
+    }
+    return `<${tagName}${attributes}>`;
+}
+
+function readNumericHTMLAttribute(rawTag, name) {
+    const source = rawTag
+        .replace(/^<\s*[a-z][a-z0-9]*/i, '')
+        .replace(/\/?>\s*$/, '');
+    const attributePattern = /([^\s"'<>/=]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+    for (const match of source.matchAll(attributePattern)) {
+        if (match[1].toLowerCase() !== name) continue;
+        const rawValue = match[2] ?? match[3] ?? match[4];
+        if (!/^\d+$/.test(rawValue)) return null;
+        const value = Number(rawValue);
+        return Number.isSafeInteger(value) && value >= 1 && value <= 1000
+            ? String(value)
+            : null;
+    }
+    return null;
+}
+
+function escapeHTMLText(value) {
+    return escapeHTML(value).replace(
+        /&amp;((?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]+);)/gi,
+        '&$1'
+    );
 }

@@ -129,6 +129,7 @@ test('passes through Markdown produced by MinerU', async () => {
                 totalPages: 2,
                 warnings: [],
                 cacheHit: true,
+                cacheKey: 'a'.repeat(64),
             }),
         },
     });
@@ -137,6 +138,47 @@ test('passes through Markdown produced by MinerU', async () => {
 
     assert.equal(result.markdown, '# Already Markdown\n\n| A | B |');
     assert.equal(result.sourceKind, 'markdown');
+    assert.equal(result.cacheHit, true);
+    assert.equal(result.cacheKey, 'a'.repeat(64));
+});
+
+test('persists edited Markdown through the configured extractor', async () => {
+    const saved = [];
+    const service = new MarkdownDocumentService({
+        extractor: {
+            extract: async () => assert.fail('conversion should not run'),
+            save: async result => saved.push(result),
+        },
+    });
+    const result = {
+        cacheKey: 'a'.repeat(64),
+        markdown: '# Edited',
+        assets: [],
+    };
+
+    await service.save(result);
+
+    assert.deepEqual(saved, [result]);
+});
+
+test('reopens an intentionally empty user-edited Markdown document', async () => {
+    const service = new MarkdownDocumentService({
+        extractor: {
+            extract: async () => ({
+                kind: 'markdown',
+                title: 'Edited paper',
+                markdown: '',
+                warnings: [],
+                cacheHit: true,
+                cacheKey: 'a'.repeat(64),
+                userEdited: true,
+            }),
+        },
+    });
+
+    const result = await service.convert(42);
+
+    assert.equal(result.markdown, '');
     assert.equal(result.cacheHit, true);
 });
 

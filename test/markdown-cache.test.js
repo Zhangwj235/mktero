@@ -63,6 +63,30 @@ test('restores cached Markdown and images across cache instances', async t => {
     }]);
 });
 
+test('stores an intentionally empty user-edited Markdown document', async t => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
+    t.after(() => rm(rootPath, { recursive: true, force: true }));
+    const cache = new MarkdownCache({
+        rootPath,
+        ioUtils: createNodeIOUtils(),
+        pathUtils: { join: path.join, filename: path.basename },
+    });
+
+    await cache.put(CACHE_KEY, {
+        markdown: '',
+        userEdited: true,
+    }, { allowEmptyMarkdown: true });
+
+    assert.deepEqual(await cache.get(CACHE_KEY), {
+        markdown: '',
+        assets: [],
+        assetBasePath: '',
+        extractedPages: null,
+        totalPages: null,
+        userEdited: true,
+    });
+});
+
 test('prunes the oldest entry when the cache exceeds its entry limit', async t => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
     t.after(() => rm(rootPath, { recursive: true, force: true }));

@@ -17,7 +17,7 @@ export class MarkdownTabPresenter {
         this.ensureSessionStateFilter();
     }
 
-    open(itemID, { onClose, onReparse } = {}) {
+    open(itemID, { onClose, onReparse, onSave } = {}) {
         this.ensureSessionStateFilter();
         const owner = this.zotero.getMainWindow?.();
         const tabs = owner?.Zotero_Tabs;
@@ -30,11 +30,12 @@ export class MarkdownTabPresenter {
         if (existing) {
             if (onClose) existing.onClose = onClose;
             if (onReparse) existing.model.onReparse = onReparse;
+            if (onSave) existing.model.onSave = onSave;
             tabs.select(existing.tabID);
             return { ...existing, created: false };
         }
 
-        const model = createInitialModel(itemID, onReparse);
+        const model = createInitialModel(itemID, onReparse, onSave);
         const view = this.createView({
             document: owner.document,
             rootURI: this.rootURI,
@@ -184,7 +185,7 @@ function isMkteroSessionTab(tab) {
     return tab?.type === TAB_TYPE && tab.data?.mkteroItemID !== undefined;
 }
 
-function createInitialModel(itemID, onReparse) {
+function createInitialModel(itemID, onReparse, onSave) {
     return {
         itemID,
         title: 'Converting PDF…',
@@ -195,9 +196,11 @@ function createInitialModel(itemID, onReparse) {
         assetBasePath: '',
         sourceKind: null,
         cacheHit: false,
+        cacheKey: null,
         preserveContent: false,
         warnings: [],
         error: '',
         onReparse,
+        onSave,
     };
 }

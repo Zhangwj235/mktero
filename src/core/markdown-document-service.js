@@ -30,6 +30,13 @@ export class MarkdownDocumentService {
         return entry.promise;
     }
 
+    async save(result) {
+        if (!this.extractor.save) {
+            throw new Error('This Markdown source cannot be saved locally.');
+        }
+        return this.extractor.save(result);
+    }
+
     async #convert(itemID, options) {
         const extracted = await this.extractor.extract(itemID, options);
         const markdown = extracted.kind === 'markdown'
@@ -37,7 +44,7 @@ export class MarkdownDocumentService {
             : extracted.kind === 'structured'
                 ? renderStructuredDocument(extracted.document)
                 : renderPlainText(extracted.text);
-        if (!markdown.trim()) {
+        if (!markdown.trim() && !extracted.userEdited) {
             throw new Error('The PDF contains no extractable text; OCR may be required');
         }
 
@@ -52,6 +59,9 @@ export class MarkdownDocumentService {
         };
         if ('cacheHit' in extracted) {
             result.cacheHit = Boolean(extracted.cacheHit);
+        }
+        if (extracted.cacheKey) {
+            result.cacheKey = extracted.cacheKey;
         }
         if (extracted.assets?.length) {
             result.assets = extracted.assets;

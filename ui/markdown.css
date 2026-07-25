@@ -6,6 +6,9 @@
     --text: #202124;
     --muted: #65666b;
     --accent: #2f6feb;
+    --accent-strong: #245fd1;
+    --editor-background: #fbfbfc;
+    --success: #237a45;
     --warning: #7a4a00;
     --error: #a40e26;
     font: menu;
@@ -19,6 +22,9 @@
         --text: #f1f1f2;
         --muted: #aaaab1;
         --accent: #75a7ff;
+        --accent-strong: #8bb5ff;
+        --editor-background: #242429;
+        --success: #67c587;
         --warning: #ffd27a;
         --error: #ff8d9b;
     }
@@ -126,8 +132,8 @@ main {
 }
 
 main.source-mode {
-    max-width: 1120px;
-    padding-top: 20px;
+    max-width: 1280px;
+    padding: 18px 28px 30px;
 }
 
 .loading-state {
@@ -336,31 +342,132 @@ main.source-mode {
     text-transform: uppercase;
 }
 
+.source-editor {
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--border) 84%, var(--text));
+    border-radius: 12px;
+    background: var(--editor-background);
+    box-shadow:
+        0 1px 2px rgb(0 0 0 / 6%),
+        0 10px 30px rgb(0 0 0 / 5%);
+}
+
+.source-editor:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
+    box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent),
+        0 12px 34px rgb(0 0 0 / 7%);
+}
+
+.source-toolbar {
+    display: flex;
+    min-height: 52px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 8px 12px 8px 18px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 78%, var(--background));
+    font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.source-heading {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.source-title {
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.source-hint {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.source-actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 12px;
+}
+
+.save-status {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.save-status[data-state="dirty"],
+.save-status[data-state="saving"] {
+    color: var(--accent);
+}
+
+.save-status[data-state="saved"] { color: var(--success); }
+.save-status[data-state="error"] { color: var(--error); }
+
+.save-button {
+    min-width: 58px;
+    min-height: 30px;
+    padding: 5px 14px;
+    border: 1px solid var(--accent);
+    border-radius: 7px;
+    color: #fff;
+    background: var(--accent);
+    font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
+    cursor: pointer;
+}
+
+.save-button:hover:not(:disabled) { background: var(--accent-strong); }
+
+.save-button:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: 2px;
+}
+
+.save-button:disabled {
+    border-color: var(--border);
+    color: var(--muted);
+    background: var(--surface);
+    cursor: default;
+    opacity: 0.72;
+}
+
 .markdown-source {
     display: block;
     width: 100%;
-    min-height: calc(100vh - 126px);
+    min-height: calc(100vh - 170px);
     margin: 0;
-    padding: 18px 20px;
-    resize: vertical;
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    padding: 24px 28px 34px;
+    resize: none;
+    border: 0;
+    border-radius: 0;
     outline: none;
     color: var(--text);
-    background: var(--surface);
+    background: var(--editor-background);
+    caret-color: var(--accent);
     tab-size: 4;
     white-space: pre;
-    font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 14px/1.72 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: 0.005em;
 }
 
 .markdown-source:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 68%, transparent);
 }
 
 @media (max-width: 720px) {
     main { padding: 24px 18px 48px; }
+    main.source-mode { padding: 12px; }
     .loading-state { margin-top: 32px; padding: 20px; }
+    .source-hint,
+    .save-status { display: none; }
+    .markdown-source { padding: 20px 18px 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

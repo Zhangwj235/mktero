@@ -37,6 +37,9 @@ class MarkdownTabView {
         this.renderedAssets = undefined;
         this.assetURLs = new Map();
         this.listeners = [];
+        this.draftMarkdown = '';
+        this.savedMarkdown = '';
+        this.saving = false;
 
         this.host = this.createElement('div', {
             class: 'mktero-tab-host',
@@ -100,8 +103,13 @@ class MarkdownTabView {
         }
 
         if (model.status === 'ready') {
+            this.draftMarkdown = model.markdown || '';
+            this.savedMarkdown = this.draftMarkdown;
+            elements.source.value = this.draftMarkdown;
+            this.setSaveState(
+                this.canSave() ? 'clean' : 'unavailable'
+            );
             this.renderMarkdownPreview();
-            elements.source.value = model.markdown || '';
             return;
         }
 
@@ -267,11 +275,55 @@ class MarkdownTabView {
             spellcheck: 'false',
         });
         source.hidden = true;
+        const sourceTitle = this.createElement(
+            'strong',
+            { class: 'source-title' },
+            'Markdown 源文件'
+        );
+        const sourceHint = this.createElement(
+            'span',
+            { class: 'source-hint' },
+            '支持直接编辑 · ⌘/Ctrl + S 保存'
+        );
+        const sourceHeading = this.createElement('div', { class: 'source-heading' });
+        appendChildren(sourceHeading, sourceTitle, sourceHint);
+        const saveStatus = this.createElement(
+            'span',
+            {
+                id: 'mktero-save-status',
+                class: 'save-status',
+                role: 'status',
+                'aria-live': 'polite',
+                'data-state': 'clean',
+            },
+            '所有更改已保存'
+        );
+        const saveButton = this.createElement(
+            'button',
+            {
+                id: 'mktero-save',
+                class: 'save-button',
+                type: 'button',
+                title: '保存 Markdown（⌘/Ctrl + S）',
+            },
+            '保存'
+        );
+        saveButton.disabled = true;
+        const sourceActions = this.createElement('div', { class: 'source-actions' });
+        appendChildren(sourceActions, saveStatus, saveButton);
+        const sourceToolbar = this.createElement('div', { class: 'source-toolbar' });
+        appendChildren(sourceToolbar, sourceHeading, sourceActions);
+        const sourceEditor = this.createElement('section', {
+            class: 'source-editor',
+            'aria-label': 'Markdown 编辑器',
+        });
+        sourceEditor.hidden = true;
+        appendChildren(sourceEditor, sourceToolbar, source);
         const content = this.createElement('main', {
             id: 'mktero-content',
             'aria-busy': 'true',
         });
-        appendChildren(content, loading, preview, source);
+        appendChildren(content, loading, preview, sourceEditor);
 
         const view = this.createElement('div', { class: 'mktero-tab-view' });
         appendChildren(view, header, progress, warning, error, content);
@@ -289,6 +341,9 @@ class MarkdownTabView {
             loadingHint,
             preview,
             source,
+            sourceEditor,
+            saveButton,
+            saveStatus,
             previewButton,
             sourceButton,
         };
@@ -354,6 +409,8 @@ class MarkdownTabView {
         this.listen(this.elements.previewButton, 'click', () => this.setMode('preview'));
         this.listen(this.elements.sourceButton, 'click', () => this.setMode('source'));
         this.listen(this.elements.source, 'input', () => this.updateMarkdownSource());
+        this.listen(this.elements.source, 'keydown', event => this.handleEditorKeydown(event));
+        this.listen(this.elements.saveButton, 'click', () => this.saveMarkdownSource());
         this.listen(this.elements.preview, 'click', event => this.openLink(event));
     }
 
@@ -366,6 +423,7 @@ class MarkdownTabView {
         const previewMode = this.elements.previewButton.classList.contains('active');
         this.elements.preview.hidden = !visible || !previewMode;
         this.elements.source.hidden = !visible || previewMode;
+        this.elements.sourceEditor.hidden = !visible || previewMode;
         this.elements.content.classList.toggle('source-mode', visible && !previewMode);
     }
 
@@ -382,12 +440,83 @@ class MarkdownTabView {
     }
 
     updateMarkdownSource() {
-        this.model.markdown = this.elements.source.value;
+        this.draftMarkdown = this.elements.source.value;
+        if (!this.canSave()) {
+            this.setSaveState('unavailable');
+            return;
+        }
+        if (this.saving) {
+            this.setSaveState('saving');
+            return;
+        }
+        this.setSaveState(
+            this.draftMarkdown === this.savedMarkdown ? 'clean' : 'dirty'
+        );
+    }
+
+    handleEditorKeydown(event) {
+        if (event.key?.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey)) {
+            return;
+        }
+        event.preventDefault();
+        this.saveMarkdownSource();
+    }
+
+    async saveMarkdownSource() {
+        if (this.saving || this.draftMarkdown === this.savedMarkdown) return;
+        if (!this.canSave()) {
+            this.setSaveState('unavailable');
+            return;
+        }
+
+        const markdown = this.draftMarkdown;
+        this.saving = true;
+        this.setSaveState('saving');
+        try {
+            await this.model.onSave(markdown, this.model);
+            this.savedMarkdown = markdown;
+            this.model.markdown = markdown;
+            this.setSaveState(
+                this.draftMarkdown === this.savedMarkdown ? 'saved' : 'dirty'
+            );
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.setSaveState('error', message || '未知错误');
+        }
+        finally {
+            this.saving = false;
+            if (this.draftMarkdown !== this.savedMarkdown
+                && this.elements.saveStatus.getAttribute('data-state') === 'saving') {
+                this.setSaveState('dirty');
+            }
+        }
+    }
+
+    setSaveState(state, detail = '') {
+        const messages = {
+            clean: '所有更改已保存',
+            dirty: '有未保存的更改',
+            saving: '正在保存…',
+            saved: '已保存',
+            unavailable: '当前内容无法保存到本地缓存',
+            error: `保存失败：${detail}`,
+        };
+        this.elements.saveStatus.setAttribute('data-state', state);
+        this.elements.saveStatus.textContent = messages[state] || '';
+        this.elements.saveButton.disabled = state === 'clean'
+            || state === 'saved'
+            || state === 'saving'
+            || state === 'unavailable';
+    }
+
+    canSave() {
+        return Boolean(this.model.onSave && this.model.cacheKey);
     }
 
     renderMarkdownPreview() {
         this.syncAssetURLs();
-        this.replacePreviewHTML(renderMarkdownHTML(this.model.markdown || '', {
+        this.replacePreviewHTML(renderMarkdownHTML(this.draftMarkdown, {
             resolveImageURL: source => this.resolveImageURL(source),
         }));
     }

@@ -20,10 +20,12 @@ function createModel(changes = {}) {
         assetBasePath: '',
         sourceKind: null,
         cacheHit: false,
+        cacheKey: null,
         preserveContent: false,
         warnings: [],
         error: '',
         onReparse: null,
+        onSave: null,
         ...changes,
     };
 }
@@ -72,6 +74,8 @@ test('mounts the Markdown UI in an isolated inline shadow root', () => {
     assert.equal(shadow.querySelector('#mktero-show-preview svg').getAttribute('height'), '16');
     assert.equal(shadow.querySelector('#mktero-show-source svg').getAttribute('width'), '16');
     assert.equal(shadow.querySelector('#mktero-show-source svg').getAttribute('height'), '16');
+    assert.equal(shadow.querySelector('#mktero-source').closest('.source-editor') !== null, true);
+    assert.equal(shadow.querySelector('#mktero-save').textContent, '保存');
 });
 
 test('embeds bundled CSS directly in the Markdown shadow root', () => {
@@ -153,11 +157,103 @@ test('edits Markdown source and renders the edited value in preview mode', () =>
         new document.defaultView.Event('click', { bubbles: true })
     );
 
-    assert.equal(model.markdown, '# Edited\n\nNow editable.');
+    assert.equal(model.markdown, '# Original');
     assert.equal(source.hidden, true);
     assert.equal(shadow.querySelector('#mktero-preview').hidden, false);
     assert.equal(shadow.querySelector('#mktero-preview h1').textContent, 'Edited');
     assert.equal(shadow.querySelector('#mktero-preview p').textContent, 'Now editable.');
+    view.destroy();
+});
+
+test('saves an edited Markdown draft and reports the saved state', async () => {
+    const saved = [];
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Original',
+        sourceKind: 'markdown',
+        cacheKey: 'a'.repeat(64),
+        onSave: async markdown => saved.push(markdown),
+    });
+    const { document, view, shadow } = createView(model);
+    const source = shadow.querySelector('#mktero-source');
+    const saveButton = shadow.querySelector('#mktero-save');
+    const saveStatus = shadow.querySelector('#mktero-save-status');
+
+    shadow.querySelector('#mktero-show-source').dispatchEvent(
+        new document.defaultView.Event('click', { bubbles: true })
+    );
+    assert.equal(saveButton.disabled, true);
+    assert.equal(saveStatus.getAttribute('data-state'), 'clean');
+
+    source.value = '# Edited';
+    source.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    assert.equal(saveButton.disabled, false);
+    assert.equal(saveStatus.getAttribute('data-state'), 'dirty');
+
+    saveButton.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(saved, ['# Edited']);
+    assert.equal(model.markdown, '# Edited');
+    assert.equal(saveButton.disabled, true);
+    assert.equal(saveStatus.getAttribute('data-state'), 'saved');
+    assert.match(saveStatus.textContent, /已保存/);
+    view.destroy();
+});
+
+test('keeps an edited Markdown draft when saving fails', async () => {
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Original',
+        sourceKind: 'markdown',
+        cacheKey: 'a'.repeat(64),
+        onSave: async () => { throw new Error('disk full'); },
+    });
+    const { document, view, shadow } = createView(model);
+    const source = shadow.querySelector('#mktero-source');
+    const saveButton = shadow.querySelector('#mktero-save');
+    const saveStatus = shadow.querySelector('#mktero-save-status');
+
+    shadow.querySelector('#mktero-show-source').dispatchEvent(
+        new document.defaultView.Event('click', { bubbles: true })
+    );
+    source.value = '# Unsaved';
+    source.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    saveButton.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(model.markdown, '# Original');
+    assert.equal(source.value, '# Unsaved');
+    assert.equal(saveButton.disabled, false);
+    assert.equal(saveStatus.getAttribute('data-state'), 'error');
+    assert.match(saveStatus.textContent, /disk full/);
+    view.destroy();
+});
+
+test('explains when Markdown edits cannot be saved to a local cache entry', () => {
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Draft only',
+        sourceKind: 'markdown',
+        onSave: async () => assert.fail('save must remain unavailable'),
+    });
+    const { document, view, shadow } = createView(model);
+    const source = shadow.querySelector('#mktero-source');
+    const saveButton = shadow.querySelector('#mktero-save');
+    const saveStatus = shadow.querySelector('#mktero-save-status');
+
+    shadow.querySelector('#mktero-show-source').dispatchEvent(
+        new document.defaultView.Event('click', { bubbles: true })
+    );
+    source.value = '# Edited draft';
+    source.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+
+    assert.equal(saveButton.disabled, true);
+    assert.equal(saveStatus.getAttribute('data-state'), 'unavailable');
+    assert.match(saveStatus.textContent, /无法保存/);
     view.destroy();
 });
 

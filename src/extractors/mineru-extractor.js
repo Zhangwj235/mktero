@@ -48,12 +48,11 @@ export class MinerUDocumentExtractor {
         const title = item.parentItem?.getDisplayTitle?.()
             || item.getDisplayTitle?.()
             || 'Untitled PDF';
-        const cacheEnabled = Boolean(
-            this.cache && this.createCacheKey && this.isCacheEnabled()
-        );
+        const cacheAvailable = Boolean(this.cache && this.createCacheKey);
+        const cacheEnabled = cacheAvailable && Boolean(this.isCacheEnabled());
         const warnings = [];
         let cacheKey = null;
-        if (cacheEnabled) {
+        if (cacheAvailable) {
             try {
                 cacheKey = await this.createCacheKey(fileData);
             }
@@ -71,9 +70,9 @@ export class MinerUDocumentExtractor {
                 this.#reportCacheError(error);
                 warnings.push('The local Markdown cache could not be read.');
             }
-            if (cached) {
+            if (cached && (cacheEnabled || cached.userEdited)) {
                 onProgress?.(100);
-                return createResult(title, cached, true);
+                return createResult(title, cached, true, warnings, cacheKey);
             }
         }
 
@@ -88,7 +87,7 @@ export class MinerUDocumentExtractor {
             onProgress,
             signal,
         });
-        if (cacheKey) {
+        if (cacheKey && cacheEnabled) {
             try {
                 await this.cache.put(cacheKey, result);
             }
@@ -97,7 +96,26 @@ export class MinerUDocumentExtractor {
                 warnings.push('The Markdown result could not be saved to the local cache.');
             }
         }
-        return createResult(title, result, false, warnings);
+        return createResult(title, result, false, warnings, cacheKey);
+    }
+
+    async save(cacheEntry) {
+        if (!this.cache) {
+            throw new Error('The local Markdown cache is unavailable.');
+        }
+        if (!cacheEntry?.cacheKey) {
+            throw new Error('This Markdown document has no local cache entry to update.');
+        }
+        try {
+            await this.cache.put(cacheEntry.cacheKey, {
+                ...cacheEntry,
+                userEdited: true,
+            }, { allowEmptyMarkdown: true });
+        }
+        catch (error) {
+            this.#reportCacheError(error);
+            throw error;
+        }
     }
 
     #reportCacheError(error) {
@@ -110,18 +128,21 @@ export class MinerUDocumentExtractor {
     }
 }
 
-function createResult(title, result, cacheHit, warnings = []) {
-    return {
+function createResult(title, parsedResult, cacheHit, warnings = [], cacheKey = null) {
+    const extracted = {
         kind: 'markdown',
         title,
-        markdown: result.markdown,
-        assets: result.assets || [],
-        assetBasePath: result.assetBasePath || '',
-        extractedPages: result.extractedPages,
-        totalPages: result.totalPages,
+        markdown: parsedResult.markdown,
+        assets: parsedResult.assets || [],
+        assetBasePath: parsedResult.assetBasePath || '',
+        extractedPages: parsedResult.extractedPages,
+        totalPages: parsedResult.totalPages,
         warnings,
         cacheHit,
     };
+    if (cacheKey) extracted.cacheKey = cacheKey;
+    if (parsedResult.userEdited) extracted.userEdited = true;
+    return extracted;
 }
 
 function throwIfAborted(signal) {

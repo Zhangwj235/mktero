@@ -115,6 +115,7 @@ async function openReaderAsMarkdown(reader, { forceRefresh = false } = {}) {
     const presentation = runtime.presenter.open(itemID, {
         onClose: () => abortConversion(itemID),
         onReparse: () => openReaderAsMarkdown(reader, { forceRefresh: true }),
+        onSave: (markdown, model) => saveMarkdownSource(markdown, model),
     });
     if (!presentation.created
         && presentation.model.status !== 'error'
@@ -186,6 +187,19 @@ async function openReaderAsMarkdown(reader, { forceRefresh = false } = {}) {
             runtime.controllers.delete(itemID);
         }
     }
+}
+
+async function saveMarkdownSource(markdown, model) {
+    if (!runtime.service) throw new Error('Mktero is not running.');
+    await runtime.service.save({
+        cacheKey: model.cacheKey,
+        markdown,
+        assets: model.assets || [],
+        assetBasePath: model.assetBasePath || '',
+        extractedPages: model.extractedPages,
+        totalPages: model.totalPages,
+    });
+    Zotero.debug(`Mktero: saved Markdown edits for item ${model.itemID}`);
 }
 
 function conversionProgressLog(progress) {

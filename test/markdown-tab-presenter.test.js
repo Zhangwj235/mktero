@@ -222,6 +222,25 @@ test('exposes and refreshes the reparse action on the tab model', async () => {
     assert.equal(first.model, second.model);
     assert.deepEqual(calls, ['second']);
     assert.equal(second.model.cacheHit, false);
+    assert.equal(second.model.cacheKey, null);
+});
+
+test('exposes and refreshes the save action on the tab model', async () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const calls = [];
+    const presenter = createPresenter(mainWindow, harness);
+    const first = presenter.open(42, {
+        onSave: markdown => calls.push(`first:${markdown}`),
+    });
+    const second = presenter.open(42, {
+        onSave: markdown => calls.push(`second:${markdown}`),
+    });
+
+    await second.model.onSave('# Edited');
+
+    assert.equal(first.model, second.model);
+    assert.deepEqual(calls, ['second:# Edited']);
 });
 
 test('removes stale Mktero tabs before Zotero restores the previous session', () => {

@@ -110,6 +110,7 @@ export class MarkdownCache {
                 assetBasePath: metadata.assetBasePath,
                 extractedPages: metadata.extractedPages,
                 totalPages: metadata.totalPages,
+                ...(metadata.userEdited ? { userEdited: true } : {}),
             };
         }
         catch {
@@ -119,9 +120,10 @@ export class MarkdownCache {
         }
     }
 
-    async put(cacheKey, result) {
+    async put(cacheKey, result, { allowEmptyMarkdown = false } = {}) {
         validateCacheKey(cacheKey);
-        if (typeof result?.markdown !== 'string' || !result.markdown.trim()) {
+        if (typeof result?.markdown !== 'string'
+            || (!allowEmptyMarkdown && !result.markdown.trim())) {
             throw new TypeError('Cached Markdown must be a non-empty string');
         }
 
@@ -182,6 +184,7 @@ export class MarkdownCache {
                     + assets.reduce((total, asset) => total + asset.size, 0),
                 assets,
             };
+            if (result.userEdited) metadata.userEdited = true;
             temporaryPaths.push(`${metadataPath}.tmp`);
             await this.#writeMetadata(metadataPath, metadata);
             await this.#removeReferencedFiles(entryPath, previousMetadata);
@@ -356,6 +359,8 @@ function validateMetadata(metadata, cacheKey) {
         || (metadata.markdownFile !== undefined
             && !/^document-[a-z0-9-]+\.md$/.test(metadata.markdownFile))
         || typeof metadata.assetBasePath !== 'string'
+        || (metadata.userEdited !== undefined
+            && typeof metadata.userEdited !== 'boolean')
         || !Array.isArray(metadata.assets)
         || metadata.assets.length > 1000) {
         throw new Error('Invalid cache metadata');

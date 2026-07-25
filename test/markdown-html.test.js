@@ -399,3 +399,42 @@ test('keeps the safe inline tags emitted by Zotero structured extraction', () =>
 
     assert.equal(html, '<p>H<sub>2</sub>O<br>next</p>\n');
 });
+
+test('renders compact raw HTML tables emitted by MinerU', () => {
+    const html = renderMarkdownHTML(
+        '<table><tr><td>Title {1}</td><td>Value</td></tr></table>'
+    );
+
+    assert.equal(
+        html,
+        '<table><tr><td>Title {1}</td><td>Value</td></tr></table>'
+    );
+    assert.doesNotMatch(html, /&lt;table&gt;/);
+});
+
+test('sanitizes attributes and unsafe elements inside raw HTML tables', () => {
+    const html = renderMarkdownHTML([
+        '<table onclick="alert(1)"><tr><td colspan="2">Safe',
+        '<img src="https://example.com/tracker.png" onerror="alert(2)">',
+        '<script>alert(3)</script></td></tr></table>',
+    ].join(''));
+
+    assert.match(html, /^<table><tr><td colspan="2">Safe/);
+    assert.doesNotMatch(html, /onclick|<script|<img/i);
+    assert.match(html, /&lt;img [\s\S]*&lt;script&gt;alert\(3\)&lt;\/script&gt;/);
+});
+
+test('preserves safe table spans, formatting, and existing HTML entities', () => {
+    const html = renderMarkdownHTML([
+        '<table><tr><th rowspan="2" onclick="alert(1)">',
+        '<strong>A &amp; B</strong><br>Line 2</th>',
+        '<td colspan="2"><em>Value</em></td></tr></table>',
+    ].join(''));
+
+    assert.equal(html, [
+        '<table><tr><th rowspan="2">',
+        '<strong>A &amp; B</strong><br>Line 2</th>',
+        '<td colspan="2"><em>Value</em></td></tr></table>',
+    ].join(''));
+    assert.doesNotMatch(html, /onclick|&amp;amp;/);
+});

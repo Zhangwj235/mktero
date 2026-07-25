@@ -5,6 +5,7 @@ const READY_RESULT_FIELDS = [
     'assetBasePath',
     'sourceKind',
     'cacheHit',
+    'cacheKey',
     'extractedPages',
     'totalPages',
     'warnings',
@@ -36,6 +37,7 @@ export function createConversionLoadingChanges(previousResult) {
         assets: [],
         assetBasePath: '',
         cacheHit: false,
+        cacheKey: null,
         warnings: [],
         error: '',
         preserveContent: false,
@@ -46,6 +48,7 @@ export function createConversionReadyChanges(result) {
     return {
         assets: [],
         assetBasePath: '',
+        cacheKey: null,
         ...result,
         status: 'ready',
         progress: 100,
