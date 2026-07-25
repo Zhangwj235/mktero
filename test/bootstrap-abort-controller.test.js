@@ -99,7 +99,7 @@ test('uses the Zotero window AbortController when the plugin sandbox has none', 
     });
 
     appended[0].click();
-    for (let index = 0; index < 5; index++) {
+    for (let index = 0; index < 100 && !openedPreferences; index++) {
         await new Promise(resolve => setImmediate(resolve));
     }
 

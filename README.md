@@ -1,6 +1,6 @@
 # Mktero
 
-Mktero is a Zotero 7/8/9 plugin that adds an **MD** button to PDF reader toolbars. It sends the opened PDF to MinerU, then displays the resulting Markdown in a Zotero tab with a safe rendered preview and source view.
+Mktero is a Zotero 7/8/9 plugin that opens PDFs as Markdown from either the PDF reader's **MD** button or a library item's **Read as Markdown with Mktero** context-menu action. It sends the selected PDF to MinerU, then displays the resulting Markdown in a Zotero tab with a safe rendered preview and source view.
 
 Configure a MinerU API Token under **Settings → Mktero** before converting a PDF. The token is stored as a standard, unencrypted preference in the local Zotero profile. Clicking **MD** uploads the current PDF to MinerU for processing.
 
@@ -40,7 +40,7 @@ Open **Help → Debug Output Logging**, enable logging, trigger the **MD** actio
 
 ## Current scope
 
-- PDF reader toolbar entry
+- PDF reader toolbar and library item context-menu entries
 - MinerU VLM parsing with OCR, formula, and table recognition
 - Local PDF upload through MinerU pre-signed URLs
 - Parsing progress reported in the Markdown tab

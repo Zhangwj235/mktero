@@ -19,6 +19,7 @@ import {
 } from './extractors/mineru-extractor.js';
 import { MinerUClient } from './mineru/mineru-client.js';
 import { createRuntimeAbortController } from './platform/abort-controller.js';
+import { registerItemContextMenu } from './ui/item-context-menu.js';
 import { registerReaderToolbar } from './ui/reader-toolbar.js';
 import { MarkdownTabPresenter } from './ui/markdown-tab-presenter.js';
 import {
@@ -33,8 +34,10 @@ const runtime = {
     service: null,
     presenter: null,
     cache: null,
+    rootURI: null,
     preferencePaneID: null,
     disposeToolbar: null,
+    contextMenus: new Map(),
     controllers: new Map(),
 };
 
@@ -42,6 +45,7 @@ globalThis.install = async function install() {};
 
 globalThis.startup = async function startup({ id, rootURI }) {
     runtime.id = id;
+    runtime.rootURI = rootURI;
     runtime.presenter = new MarkdownTabPresenter({
         zotero: Zotero,
         rootURI,
@@ -85,8 +89,9 @@ globalThis.startup = async function startup({ id, rootURI }) {
         zotero: Zotero,
         pluginID: id,
         onOpen: openReaderAsMarkdown,
-        onError: handleToolbarError,
+        onError: handleOpenError,
     });
+    registerMainWindowContextMenu(Zotero.getMainWindow?.());
 
     Zotero.debug('Mktero: started');
 };
@@ -94,6 +99,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
 globalThis.shutdown = function shutdown() {
     abortAllConversions();
     runtime.disposeToolbar?.();
+    disposeAllContextMenus();
     runtime.presenter?.dispose();
     if (runtime.preferencePaneID) {
         Zotero.PreferencePanes.unregister?.(runtime.preferencePaneID);
@@ -102,19 +108,27 @@ globalThis.shutdown = function shutdown() {
     runtime.presenter = null;
     runtime.service = null;
     runtime.cache = null;
+    runtime.rootURI = null;
     runtime.preferencePaneID = null;
     runtime.id = null;
 };
 
 globalThis.uninstall = async function uninstall() {};
-globalThis.onMainWindowLoad = function onMainWindowLoad() {};
-globalThis.onMainWindowUnload = function onMainWindowUnload() {};
+globalThis.onMainWindowLoad = function onMainWindowLoad({ window }) {
+    registerMainWindowContextMenu(window);
+};
+globalThis.onMainWindowUnload = function onMainWindowUnload({ window }) {
+    disposeMainWindowContextMenu(window);
+};
 
 async function openReaderAsMarkdown(reader, { forceRefresh = false } = {}) {
-    const itemID = reader.itemID;
+    return openItemAsMarkdown(reader.itemID, { forceRefresh });
+}
+
+async function openItemAsMarkdown(itemID, { forceRefresh = false } = {}) {
     const presentation = runtime.presenter.open(itemID, {
         onClose: () => abortConversion(itemID),
-        onReparse: () => openReaderAsMarkdown(reader, { forceRefresh: true }),
+        onReparse: () => openItemAsMarkdown(itemID, { forceRefresh: true }),
         onSave: (markdown, model) => saveMarkdownSource(markdown, model),
     });
     if (!presentation.created
@@ -235,7 +249,31 @@ function abortAllConversions() {
     runtime.controllers.clear();
 }
 
-function handleToolbarError(error) {
+function registerMainWindowContextMenu(window) {
+    if (!window || !runtime.id || runtime.contextMenus.has(window)) return;
+    const dispose = registerItemContextMenu({
+        zotero: Zotero,
+        window,
+        rootURI: runtime.rootURI,
+        onOpen: openItemAsMarkdown,
+        onError: handleOpenError,
+    });
+    if (dispose) runtime.contextMenus.set(window, dispose);
+}
+
+function disposeMainWindowContextMenu(window) {
+    const dispose = runtime.contextMenus.get(window);
+    if (!dispose) return;
+    runtime.contextMenus.delete(window);
+    dispose();
+}
+
+function disposeAllContextMenus() {
+    for (const dispose of runtime.contextMenus.values()) dispose();
+    runtime.contextMenus.clear();
+}
+
+function handleOpenError(error) {
     Zotero.logError(error);
     const owner = Zotero.getMainWindow?.();
     owner?.alert?.(`Mktero: ${userFacingError(error)}`);
