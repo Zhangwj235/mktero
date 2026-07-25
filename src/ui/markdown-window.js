@@ -1,8 +1,11 @@
-import { renderMarkdownHTML } from '../markdown/markdown-html.js';
+import { createInlineMarkdownEditor } from '../editor/inline-markdown-editor.js';
+import {
+    bindEditorToolbar,
+    createEditorToolbar,
+} from './editor-toolbar.js';
 import { createLoadingPresentation } from './markdown-loading-state.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
-const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BUNDLED_MARKDOWN_STYLES = typeof __MKTERO_MARKDOWN_STYLES__ === 'string'
     ? __MKTERO_MARKDOWN_STYLES__
     : null;
@@ -12,17 +15,19 @@ export function createMarkdownTabView({
     model,
     zotero,
     stylesheetText = BUNDLED_MARKDOWN_STYLES,
+    editorFactory = createInlineMarkdownEditor,
 }) {
     return new MarkdownTabView({
         document,
         model,
         zotero,
         stylesheetText,
+        editorFactory,
     });
 }
 
 class MarkdownTabView {
-    constructor({ document, model, zotero, stylesheetText }) {
+    constructor({ document, model, zotero, stylesheetText, editorFactory }) {
         if (!document?.createElementNS) {
             throw new Error('The Zotero window cannot create the Markdown view');
         }
@@ -63,6 +68,18 @@ class MarkdownTabView {
         this.mount.appendChild(this.createStylesheet(stylesheetText));
         this.elements = this.createContent();
         this.mount.appendChild(this.elements.view);
+        this.editor = editorFactory({
+            document: this.document,
+            parent: this.elements.editorHost,
+            initialMarkdown: '',
+            resolveImageURL: source => this.resolveImageURL(source),
+            openLink: href => this.openLink(href),
+            onChange: markdown => this.updateMarkdownSource(markdown),
+            onSaveRequest: markdown => {
+                this.updateMarkdownSource(markdown);
+                this.saveMarkdownSource();
+            },
+        });
         this.bindActions();
     }
 
@@ -84,8 +101,6 @@ class MarkdownTabView {
         elements.error.textContent = model.error || '';
         elements.warning.hidden = !model.warnings?.length;
         elements.warning.textContent = model.warnings?.join(' ') || '';
-        elements.previewButton.disabled = !showContent;
-        elements.sourceButton.disabled = !showContent;
         this.syncContentVisibility(showContent);
 
         if (loadingView.visible) {
@@ -96,8 +111,7 @@ class MarkdownTabView {
             elements.loadingProgress.value = loadingView.progress;
             if (!loadingView.preserveContent) {
                 this.revokeAssetURLs();
-                elements.preview.replaceChildren();
-                elements.source.value = '';
+                this.editor.setMarkdown('');
             }
             return;
         }
@@ -105,28 +119,15 @@ class MarkdownTabView {
         if (model.status === 'ready') {
             this.draftMarkdown = model.markdown || '';
             this.savedMarkdown = this.draftMarkdown;
-            elements.source.value = this.draftMarkdown;
+            const assetsChanged = this.syncAssetURLs();
+            this.editor.setMarkdown(this.draftMarkdown);
+            if (assetsChanged) this.editor.refreshRendering();
             this.setSaveState(
                 this.canSave() ? 'clean' : 'unavailable'
             );
-            this.renderMarkdownPreview();
             return;
         }
 
-    }
-
-    replacePreviewHTML(html) {
-        const DOMParserType = this.ownerWindow.DOMParser || globalThis.DOMParser;
-        if (!DOMParserType) throw new Error('The Zotero HTML parser is unavailable');
-        const parsed = new DOMParserType().parseFromString(
-            `<!doctype html><html><body>${html}</body></html>`,
-            'text/html'
-        );
-        if (!parsed.body) throw new Error('The Markdown HTML could not be parsed');
-        const nodes = [...parsed.body.childNodes].map(node => (
-            this.document.importNode(node, true)
-        ));
-        this.elements.preview.replaceChildren(...nodes);
     }
 
     destroy() {
@@ -134,6 +135,7 @@ class MarkdownTabView {
             element.removeEventListener(type, listener);
         }
         this.listeners = [];
+        this.editor?.destroy();
         this.revokeAssetURLs();
         this.root.remove?.();
     }
@@ -162,26 +164,6 @@ class MarkdownTabView {
     }
 
     createContent() {
-        const previewButton = this.createModeButton(
-            'mktero-show-preview',
-            '预览',
-            'preview',
-            true
-        );
-        const sourceButton = this.createModeButton(
-            'mktero-show-source',
-            '查看源文件',
-            'source'
-        );
-        const modeSwitch = this.createElement('div', {
-            class: 'mode-switch',
-            role: 'group',
-            'aria-label': 'View mode',
-        });
-        appendChildren(modeSwitch, previewButton, sourceButton);
-        const header = this.createElement('header', { class: 'app-header' });
-        header.appendChild(modeSwitch);
-
         const progress = this.createElement('progress', {
             id: 'mktero-progress',
             max: '100',
@@ -256,31 +238,6 @@ class MarkdownTabView {
         });
         appendChildren(loading, spinner, loadingContent);
 
-        const preview = this.createElement('article', {
-            id: 'mktero-preview',
-            class: 'markdown-body',
-        });
-        preview.hidden = true;
-        const source = this.createElement('textarea', {
-            id: 'mktero-source',
-            class: 'markdown-source',
-            'aria-label': 'Markdown 源文件',
-            autocomplete: 'off',
-            spellcheck: 'false',
-        });
-        source.hidden = true;
-        const sourceTitle = this.createElement(
-            'strong',
-            { class: 'source-title' },
-            'Markdown 源文件'
-        );
-        const sourceHint = this.createElement(
-            'span',
-            { class: 'source-hint' },
-            '支持直接编辑 · ⌘/Ctrl + S 保存'
-        );
-        const sourceHeading = this.createElement('div', { class: 'source-heading' });
-        appendChildren(sourceHeading, sourceTitle, sourceHint);
         const saveStatus = this.createElement(
             'span',
             {
@@ -305,19 +262,25 @@ class MarkdownTabView {
         saveButton.disabled = true;
         const sourceActions = this.createElement('div', { class: 'source-actions' });
         appendChildren(sourceActions, saveStatus, saveButton);
-        const sourceToolbar = this.createElement('div', { class: 'source-toolbar' });
-        appendChildren(sourceToolbar, sourceHeading, sourceActions);
-        const sourceEditor = this.createElement('section', {
-            class: 'source-editor',
-            'aria-label': 'Markdown 编辑器',
+        const { editorToolbar, toolbarButtons } = createEditorToolbar(this.document);
+        const header = this.createElement('header', { class: 'app-header' });
+        appendChildren(header, editorToolbar, sourceActions);
+
+        const editorHost = this.createElement('div', {
+            id: 'mktero-editor',
+            class: 'markdown-editor-host',
         });
-        sourceEditor.hidden = true;
-        appendChildren(sourceEditor, sourceToolbar, source);
+        const editorSection = this.createElement('section', {
+            class: 'markdown-editor',
+            'aria-label': 'Markdown 所见即所得编辑器',
+        });
+        editorSection.hidden = true;
+        editorSection.appendChild(editorHost);
         const content = this.createElement('main', {
             id: 'mktero-content',
             'aria-busy': 'true',
         });
-        appendChildren(content, loading, preview, sourceEditor);
+        appendChildren(content, loading, editorSection);
 
         const view = this.createElement('div', { class: 'mktero-tab-view' });
         appendChildren(view, header, progress, warning, error, content);
@@ -333,61 +296,13 @@ class MarkdownTabView {
             loadingProgress,
             loadingProgressLabel,
             loadingHint,
-            preview,
-            source,
-            sourceEditor,
+            editorHost,
+            editorSection,
             saveButton,
             saveStatus,
-            previewButton,
-            sourceButton,
+            editorToolbar,
+            toolbarButtons,
         };
-    }
-
-    createModeButton(id, label, iconName, active = false) {
-        const button = this.createElement('button', {
-            id,
-            type: 'button',
-            'aria-pressed': String(active),
-        });
-        button.disabled = true;
-        button.classList.toggle('active', active);
-        appendChildren(
-            button,
-            this.createModeIcon(iconName),
-            this.createElement('span', { class: 'mode-label' }, label)
-        );
-        return button;
-    }
-
-    createModeIcon(iconName) {
-        const svg = this.document.createElementNS(SVG_NAMESPACE, 'svg');
-        setAttributes(svg, {
-            class: 'mode-icon',
-            viewBox: '0 0 24 24',
-            fill: 'none',
-            stroke: 'currentColor',
-            'stroke-width': '1.8',
-            'stroke-linecap': 'round',
-            'stroke-linejoin': 'round',
-            'aria-hidden': 'true',
-            width: '16',
-            height: '16',
-        });
-        const iconParts = iconName === 'preview'
-            ? [
-                ['path', { d: 'M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z' }],
-                ['circle', { cx: '12', cy: '12', r: '2.7' }],
-            ]
-            : [
-                ['circle', { cx: '12', cy: '12', r: '9.5' }],
-                ['path', { d: 'm9 8-4 4 4 4M15 8l4 4-4 4M14 6.5l-4 11' }],
-            ];
-        for (const [tagName, attributes] of iconParts) {
-            const part = this.document.createElementNS(SVG_NAMESPACE, tagName);
-            setAttributes(part, attributes);
-            svg.appendChild(part);
-        }
-        return svg;
     }
 
     createElement(tagName, attributes = {}, text = '') {
@@ -400,12 +315,16 @@ class MarkdownTabView {
     }
 
     bindActions() {
-        this.listen(this.elements.previewButton, 'click', () => this.setMode('preview'));
-        this.listen(this.elements.sourceButton, 'click', () => this.setMode('source'));
-        this.listen(this.elements.source, 'input', () => this.updateMarkdownSource());
-        this.listen(this.elements.source, 'keydown', event => this.handleEditorKeydown(event));
         this.listen(this.elements.saveButton, 'click', () => this.saveMarkdownSource());
-        this.listen(this.elements.preview, 'click', event => this.openLink(event));
+        bindEditorToolbar({
+            toolbarButtons: this.elements.toolbarButtons,
+            runCommand: command => this.editor.runCommand(command),
+            listen: (element, type, listener) => this.listen(
+                element,
+                type,
+                listener
+            ),
+        });
     }
 
     listen(element, type, listener) {
@@ -414,27 +333,14 @@ class MarkdownTabView {
     }
 
     syncContentVisibility(visible) {
-        const previewMode = this.elements.previewButton.classList.contains('active');
-        this.elements.preview.hidden = !visible || !previewMode;
-        this.elements.source.hidden = !visible || previewMode;
-        this.elements.sourceEditor.hidden = !visible || previewMode;
-        this.elements.content.classList.toggle('source-mode', visible && !previewMode);
+        this.elements.editorSection.hidden = !visible;
+        for (const { button } of this.elements.toolbarButtons) {
+            button.disabled = !visible;
+        }
     }
 
-    setMode(mode) {
-        const previewMode = mode === 'preview';
-        const loadingView = createLoadingPresentation(this.model);
-        const showContent = this.model.status === 'ready' || loadingView.preserveContent;
-        this.elements.previewButton.classList.toggle('active', previewMode);
-        this.elements.sourceButton.classList.toggle('active', !previewMode);
-        this.elements.previewButton.setAttribute('aria-pressed', String(previewMode));
-        this.elements.sourceButton.setAttribute('aria-pressed', String(!previewMode));
-        if (previewMode && showContent) this.renderMarkdownPreview();
-        this.syncContentVisibility(showContent);
-    }
-
-    updateMarkdownSource() {
-        this.draftMarkdown = this.elements.source.value;
+    updateMarkdownSource(markdown) {
+        this.draftMarkdown = markdown;
         if (!this.canSave()) {
             this.setSaveState('unavailable');
             return;
@@ -446,14 +352,6 @@ class MarkdownTabView {
         this.setSaveState(
             this.draftMarkdown === this.savedMarkdown ? 'clean' : 'dirty'
         );
-    }
-
-    handleEditorKeydown(event) {
-        if (event.key?.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey)) {
-            return;
-        }
-        event.preventDefault();
-        this.saveMarkdownSource();
     }
 
     async saveMarkdownSource() {
@@ -508,18 +406,7 @@ class MarkdownTabView {
         return Boolean(this.model.onSave && this.model.cacheKey);
     }
 
-    renderMarkdownPreview() {
-        this.syncAssetURLs();
-        this.replacePreviewHTML(renderMarkdownHTML(this.draftMarkdown, {
-            resolveImageURL: source => this.resolveImageURL(source),
-        }));
-    }
-
-    openLink(event) {
-        const anchor = event.target?.closest?.('a[href]');
-        if (!anchor) return;
-        event.preventDefault();
-        const href = anchor.getAttribute('href') || '';
+    openLink(href) {
         if (href.startsWith('#')) {
             this.scrollToFragment(href.slice(1));
             return;
@@ -542,7 +429,7 @@ class MarkdownTabView {
     }
 
     syncAssetURLs() {
-        if (this.renderedAssets === this.model.assets) return;
+        if (this.renderedAssets === this.model.assets) return false;
         this.revokeAssetURLs();
         this.renderedAssets = this.model.assets;
         const URLAPI = this.ownerWindow.URL || globalThis.URL;
@@ -556,6 +443,7 @@ class MarkdownTabView {
             ));
             this.assetURLs.set(path, url);
         }
+        return true;
     }
 
     revokeAssetURLs() {
@@ -585,12 +473,6 @@ class MarkdownTabView {
 
 function appendChildren(parent, ...children) {
     for (const child of children) parent.appendChild(child);
-}
-
-function setAttributes(element, attributes) {
-    for (const [name, value] of Object.entries(attributes)) {
-        element.setAttribute(name, value);
-    }
 }
 
 function resolveZipPath(basePath, relativePath) {

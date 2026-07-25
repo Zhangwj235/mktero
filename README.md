@@ -1,10 +1,10 @@
 # Mktero
 
-Mktero is a Zotero 7/8/9 plugin that opens PDFs as Markdown from either the PDF reader's **MD** button or a library item's **Read as Markdown with Mktero** context-menu action. It sends the selected PDF to MinerU, then displays the resulting Markdown in a Zotero tab with a safe rendered preview and source view.
+Mktero is a Zotero 7/8/9 plugin that opens PDFs as Markdown from either the PDF reader's **MD** button or a library item's **Read as Markdown with Mktero** context-menu action. It sends the selected PDF to MinerU, then displays the result in a safe, inline-rendered Markdown editor inside a Zotero tab.
 
 Configure a MinerU API Token under **Settings → Mktero** before converting a PDF. The token is stored as a standard, unencrypted preference in the local Zotero profile. Clicking **MD** uploads the current PDF to MinerU for processing.
 
-Successful MinerU results are cached locally by PDF content and parser profile. Opening an unchanged PDF again reuses its Markdown and figures without requiring a Token or another upload. The source view is editable; saved edits are stored in the same local cache and reopened even when automatic result caching is disabled. Clearing the cache also removes those edits. Cache files are stored unencrypted in the current Zotero profile and are not synced.
+Successful MinerU results are cached locally by PDF content and parser profile. Opening an unchanged PDF again reuses its Markdown and figures without requiring a Token or another upload. Markdown remains the editor's source of truth while inactive formatting, formulas, tables, code blocks, and figures render in place. Use the compact editing toolbar for common formatting, or move the caret into a rendered element to reveal and edit its Markdown. **Save** and **Cmd/Ctrl+S** store changes in the same local cache. Saved edits reopen even when automatic result caching is disabled. Clearing the cache also removes those edits. Cache files are stored unencrypted in the current Zotero profile and are not synced.
 
 ## Development
 
@@ -44,7 +44,7 @@ Open **Help → Debug Output Logging**, enable logging, trigger the **MD** actio
 - MinerU VLM parsing with OCR, formula, and table recognition
 - Local PDF upload through MinerU pre-signed URLs
 - Parsing progress reported in the Markdown tab
-- Zotero Tab with rendered preview and an editable, locally saved Markdown source
+- Zotero Tab with a CodeMirror 6 inline-rendered, locally saved Markdown editor
 - Escaped PDF content and restricted link schemes
 - Local figure previews extracted from the MinerU result archive
 - Local content-addressed cache with automatic expiry and manual clearing

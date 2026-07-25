@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { parseHTML } from 'linkedom';
+import { JSDOM } from 'jsdom';
 
 test('uses the Zotero window AbortController when the plugin sandbox has none', async t => {
     const NativeAbortController = globalThis.AbortController;
@@ -79,6 +79,7 @@ test('uses the Zotero window AbortController when the plugin sandbox has none', 
 
     t.after(() => {
         globalThis.shutdown?.();
+        mainWindow.document.defaultView.close();
         globalThis.AbortController = NativeAbortController;
         for (const [name, value] of Object.entries(previousGlobals)) {
             if (value === undefined) delete globalThis[name];
@@ -110,7 +111,10 @@ test('uses the Zotero window AbortController when the plugin sandbox has none', 
 });
 
 function createMainWindow(AbortController, alerts) {
-    const { document } = parseHTML('<html><body></body></html>');
+    const { document } = new JSDOM(
+        '<!doctype html><html><body></body></html>',
+        { pretendToBeVisual: true }
+    ).window;
     const tabs = new Map();
     let nextTabID = 1;
     const Zotero_Tabs = {

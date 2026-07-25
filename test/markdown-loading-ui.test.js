@@ -22,21 +22,25 @@ test('ships an accessible, visible loading UI for MinerU conversion', async () =
     assert.doesNotMatch(styles, /\.loading-eyebrow/);
 });
 
-test('keeps the Markdown mode toolbar compact and right aligned', async () => {
+test('styles the Joplin-like Markdown toolbar as a compact grouped row', async () => {
     const styles = await readFile(new URL('../ui/markdown.css', import.meta.url), 'utf8');
 
-    assert.match(styles, /\.app-header\s*\{[^}]*justify-content: flex-end;/s);
-    assert.match(styles, /\.app-header\s*\{[^}]*min-height: 46px;/s);
-    assert.match(styles, /\.mode-switch button\s*\{[^}]*min-height: 28px;/s);
+    assert.match(styles, /\.app-header\s*\{[^}]*min-height: 40px;/s);
+    assert.match(styles, /\.editor-toolbar\s*\{[^}]*display: flex;/s);
+    assert.match(styles, /\.editor-toolbar\s*\{[^}]*overflow-x: auto;/s);
+    assert.match(styles, /\.editor-toolbar-group:not\(:last-child\)\s*\{[^}]*border-right:/s);
+    assert.match(styles, /\.editor-toolbar-button\s*\{[^}]*width: 30px;[^}]*height: 30px;/s);
+    assert.match(styles, /\.markdown-editor-host\s*\{[^}]*min-height: 0;/s);
+    assert.doesNotMatch(styles, /\.mode-switch/);
 });
 
-test('allows text selection in the rendered Markdown preview', async () => {
+test('allows text selection in the inline rendered Markdown editor', async () => {
     const styles = await readFile(new URL('../ui/markdown.css', import.meta.url), 'utf8');
 
-    assert.match(styles, /\.markdown-body\s*\{[^}]*-moz-user-select: text;/s);
-    assert.match(styles, /\.markdown-body\s*\{[^}]*user-select: text;/s);
+    assert.match(styles, /\.cm-content\s*\{[^}]*-moz-user-select: text;/s);
+    assert.match(styles, /\.cm-content\s*\{[^}]*user-select: text;/s);
     assert.match(
         styles,
-        /\.markdown-body ::selection\s*\{[^}]*color: HighlightText;[^}]*background-color: Highlight;/s
+        /\.cm-content ::selection\s*\{[^}]*color: HighlightText;[^}]*background-color: Highlight;/s
     );
 });

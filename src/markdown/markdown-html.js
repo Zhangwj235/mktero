@@ -68,7 +68,7 @@ function createSafeRenderer(resolveImageURL) {
 
         link({ href, tokens }) {
             const label = this.parser.parseInline(tokens);
-            const safeHref = safeLinkURL(href);
+            const safeHref = safeMarkdownLinkURL(href);
             if (!safeHref) return label;
             return `<a href="${escapeAttribute(safeHref)}" rel="noreferrer">${label}</a>`;
         },
@@ -345,7 +345,7 @@ function lexBlockFragment(source, Lexer, options, { links } = {}) {
     return lexer.lex(source);
 }
 
-function findDisplayMathMatches(source) {
+export function findDisplayMathMatches(source) {
     const dollarMatches = [];
     const bracketMatches = [];
     let dollarOpener = null;
@@ -439,7 +439,7 @@ function createMultilineMathRange(source, opener, closer) {
     };
 }
 
-function findInlineMathMatches(source) {
+export function findInlineMathMatches(source) {
     const dollarMatches = [];
     const parenthesisMatches = [];
     let dollarOpener = -1;
@@ -627,7 +627,7 @@ function renderMathFallback(source) {
     return `<code class="math-fallback">${escapeHTML(source)}</code>`;
 }
 
-function safeLinkURL(value) {
+export function safeMarkdownLinkURL(value) {
     const url = String(value || '').trim();
     if (/^https?:\/\//i.test(url) || /^zotero:\/\//i.test(url) || url.startsWith('#')) {
         return url.replace(/[\u0000-\u001F\u007F]/g, '');

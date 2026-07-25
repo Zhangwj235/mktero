@@ -19,7 +19,8 @@ test('ships MinerU token, cache preferences, and Markdown UI assets', async () =
     assert.match(pane, /id="mktero-clear-cache"/);
     assert.match(pane, /MkteroPreferences\.init\(event\)/);
     assert.match(script, /createZoteroMarkdownCache/);
-    assert.match(markdownView, /'mktero-show-source'/);
+    assert.match(markdownView, /createInlineMarkdownEditor/);
+    assert.doesNotMatch(markdownView, /'mktero-show-source'/);
     assert.doesNotMatch(markdownView, /'mktero-reparse'/);
     assert.match(markdownView, /__MKTERO_MARKDOWN_STYLES__/);
     assert.doesNotMatch(markdownView, /STYLESHEET_CACHE_KEY/);

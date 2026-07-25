@@ -47,10 +47,112 @@ function createView(model = createModel(), zotero = {}, options = {}) {
         model,
         zotero,
         stylesheetText: options.stylesheetText ?? MARKDOWN_STYLES,
+        editorFactory: options.editorFactory ?? createTestInlineEditor,
     });
     view.render(model);
     return { document, view, shadow: view.host.shadowRoot };
 }
+
+function createTestInlineEditor({ document, parent, initialMarkdown, onChange, onSaveRequest }) {
+    const editor = document.createElement('div');
+    editor.className = 'cm-editor';
+    const content = document.createElement('div');
+    content.className = 'cm-content';
+    content.setAttribute('contenteditable', 'true');
+    content.textContent = initialMarkdown;
+    content.addEventListener('input', () => onChange(content.textContent));
+    content.addEventListener('keydown', event => {
+        if (event.key?.toLowerCase() === 's' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            onSaveRequest(content.textContent);
+        }
+    });
+    editor.appendChild(content);
+    parent.appendChild(editor);
+    return {
+        getMarkdown: () => content.textContent,
+        setMarkdown(markdown) {
+            content.textContent = markdown;
+        },
+        focus: () => content.focus(),
+        refreshRendering: () => {},
+        runCommand: () => false,
+        destroy: () => editor.remove(),
+    };
+}
+
+function editMarkdown(document, shadow, markdown) {
+    const content = shadow.querySelector('.cm-content');
+    content.textContent = markdown;
+    content.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+}
+
+test('uses one inline Markdown editor instead of separate preview and source modes', () => {
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper\n\nEditable.',
+        sourceKind: 'markdown',
+    }));
+
+    assert.ok(shadow.querySelector('#mktero-editor .cm-editor'));
+    assert.equal(shadow.querySelector('.cm-content').textContent, '# Paper\n\nEditable.');
+    assert.equal(shadow.querySelector('#mktero-show-preview'), null);
+    assert.equal(shadow.querySelector('#mktero-show-source'), null);
+    assert.equal(shadow.querySelector('#mktero-preview'), null);
+    assert.equal(shadow.querySelector('#mktero-source'), null);
+    assert.equal(shadow.querySelector('#mktero-save').textContent, '保存');
+    view.destroy();
+});
+
+test('uses a Joplin-style editing toolbar to run inline editor commands', () => {
+    const commands = [];
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Editable.',
+        sourceKind: 'markdown',
+    }), {}, {
+        editorFactory(options) {
+            const editor = createTestInlineEditor(options);
+            editor.runCommand = command => {
+                commands.push(command);
+                return true;
+            };
+            return editor;
+        },
+    });
+    const toolbar = shadow.querySelector('#mktero-editor-toolbar');
+
+    assert.equal(toolbar.getAttribute('role'), 'toolbar');
+    assert.equal(toolbar.getAttribute('aria-label'), 'Markdown 编辑工具');
+    assert.deepEqual(
+        [...toolbar.querySelectorAll('button[data-command]')]
+            .map(button => button.getAttribute('data-command')),
+        [
+            'undo',
+            'redo',
+            'bold',
+            'italic',
+            'link',
+            'code',
+            'bullet-list',
+            'numbered-list',
+            'task-list',
+            'heading',
+            'horizontal-rule',
+            'table',
+        ]
+    );
+    assert.equal(shadow.querySelector('#mktero-show-preview'), null);
+    assert.equal(shadow.querySelector('#mktero-show-source'), null);
+
+    shadow.querySelector('button[data-command="bold"]').dispatchEvent(
+        new document.defaultView.Event('click', { bubbles: true })
+    );
+    assert.deepEqual(commands, ['bold']);
+    view.destroy();
+});
 
 test('mounts the Markdown UI in an isolated inline shadow root', () => {
     const { view, shadow } = createView();
@@ -67,15 +169,14 @@ test('mounts the Markdown UI in an isolated inline shadow root', () => {
     assert.equal(shadow.querySelector('#mktero-title'), null);
     assert.equal(shadow.querySelector('#mktero-reparse'), null);
     assert.equal(shadow.querySelector('#mktero-copy'), null);
-    assert.equal(shadow.querySelector('#mktero-show-preview').textContent, '预览');
-    assert.equal(shadow.querySelector('#mktero-show-source').textContent, '查看源文件');
-    assert.equal(shadow.querySelector('.app-header').children.length, 1);
-    assert.equal(shadow.querySelector('#mktero-show-preview svg').getAttribute('width'), '16');
-    assert.equal(shadow.querySelector('#mktero-show-preview svg').getAttribute('height'), '16');
-    assert.equal(shadow.querySelector('#mktero-show-source svg').getAttribute('width'), '16');
-    assert.equal(shadow.querySelector('#mktero-show-source svg').getAttribute('height'), '16');
-    assert.equal(shadow.querySelector('#mktero-source').closest('.source-editor') !== null, true);
+    assert.equal(shadow.querySelector('#mktero-show-preview'), null);
+    assert.equal(shadow.querySelector('#mktero-show-source'), null);
+    assert.equal(shadow.querySelector('.app-header').children.length, 2);
+    assert.ok(shadow.querySelector('#mktero-editor-toolbar'));
+    assert.ok(shadow.querySelector('#mktero-editor .cm-content'));
+    assert.equal(shadow.querySelector('.markdown-editor').hidden, true);
     assert.equal(shadow.querySelector('#mktero-save').textContent, '保存');
+    view.destroy();
 });
 
 test('embeds bundled CSS directly in the Markdown shadow root', () => {
@@ -122,17 +223,16 @@ test('replaces loading state with cached Markdown as soon as the model is ready'
     }));
 
     assert.equal(shadow.querySelector('#mktero-loading').hidden, true);
-    assert.equal(shadow.querySelector('#mktero-preview').hidden, false);
+    assert.equal(shadow.querySelector('.markdown-editor').hidden, false);
     assert.equal(shadow.querySelector('#mktero-status'), null);
-    assert.match(
-        shadow.querySelector('#mktero-preview').innerHTML,
-        /<h1>Example Paper<\/h1>[\s\S]*<p>Converted\.<\/p>/
+    assert.equal(
+        shadow.querySelector('.cm-content').textContent,
+        '# Example Paper\n\nConverted.'
     );
-    assert.equal(shadow.querySelector('#mktero-source').localName, 'textarea');
-    assert.equal(shadow.querySelector('#mktero-source').value, '# Example Paper\n\nConverted.');
+    view.destroy();
 });
 
-test('edits Markdown source and renders the edited value in preview mode', () => {
+test('edits Markdown directly in the inline rendered surface', () => {
     const model = createModel({
         title: 'Editable paper',
         status: 'ready',
@@ -141,27 +241,15 @@ test('edits Markdown source and renders the edited value in preview mode', () =>
         sourceKind: 'markdown',
     });
     const { document, view, shadow } = createView(model);
-    const source = shadow.querySelector('#mktero-source');
 
-    shadow.querySelector('#mktero-show-source').dispatchEvent(
-        new document.defaultView.Event('click', { bubbles: true })
-    );
-
-    assert.equal(shadow.querySelector('#mktero-preview').hidden, true);
-    assert.equal(source.hidden, false);
-    assert.equal(source.hasAttribute('readonly'), false);
-
-    source.value = '# Edited\n\nNow editable.';
-    source.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
-    shadow.querySelector('#mktero-show-preview').dispatchEvent(
-        new document.defaultView.Event('click', { bubbles: true })
-    );
+    editMarkdown(document, shadow, '# Edited\n\nNow editable.');
 
     assert.equal(model.markdown, '# Original');
-    assert.equal(source.hidden, true);
-    assert.equal(shadow.querySelector('#mktero-preview').hidden, false);
-    assert.equal(shadow.querySelector('#mktero-preview h1').textContent, 'Edited');
-    assert.equal(shadow.querySelector('#mktero-preview p').textContent, 'Now editable.');
+    assert.equal(shadow.querySelector('.cm-content').textContent, '# Edited\n\nNow editable.');
+    assert.equal(
+        shadow.querySelector('#mktero-save-status').getAttribute('data-state'),
+        'unavailable'
+    );
     view.destroy();
 });
 
@@ -176,18 +264,13 @@ test('saves an edited Markdown draft and reports the saved state', async () => {
         onSave: async markdown => saved.push(markdown),
     });
     const { document, view, shadow } = createView(model);
-    const source = shadow.querySelector('#mktero-source');
     const saveButton = shadow.querySelector('#mktero-save');
     const saveStatus = shadow.querySelector('#mktero-save-status');
 
-    shadow.querySelector('#mktero-show-source').dispatchEvent(
-        new document.defaultView.Event('click', { bubbles: true })
-    );
     assert.equal(saveButton.disabled, true);
     assert.equal(saveStatus.getAttribute('data-state'), 'clean');
 
-    source.value = '# Edited';
-    source.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    editMarkdown(document, shadow, '# Edited');
     assert.equal(saveButton.disabled, false);
     assert.equal(saveStatus.getAttribute('data-state'), 'dirty');
 
@@ -212,20 +295,15 @@ test('keeps an edited Markdown draft when saving fails', async () => {
         onSave: async () => { throw new Error('disk full'); },
     });
     const { document, view, shadow } = createView(model);
-    const source = shadow.querySelector('#mktero-source');
     const saveButton = shadow.querySelector('#mktero-save');
     const saveStatus = shadow.querySelector('#mktero-save-status');
 
-    shadow.querySelector('#mktero-show-source').dispatchEvent(
-        new document.defaultView.Event('click', { bubbles: true })
-    );
-    source.value = '# Unsaved';
-    source.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    editMarkdown(document, shadow, '# Unsaved');
     saveButton.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
     await new Promise(resolve => setImmediate(resolve));
 
     assert.equal(model.markdown, '# Original');
-    assert.equal(source.value, '# Unsaved');
+    assert.equal(shadow.querySelector('.cm-content').textContent, '# Unsaved');
     assert.equal(saveButton.disabled, false);
     assert.equal(saveStatus.getAttribute('data-state'), 'error');
     assert.match(saveStatus.textContent, /disk full/);
@@ -241,65 +319,15 @@ test('explains when Markdown edits cannot be saved to a local cache entry', () =
         onSave: async () => assert.fail('save must remain unavailable'),
     });
     const { document, view, shadow } = createView(model);
-    const source = shadow.querySelector('#mktero-source');
     const saveButton = shadow.querySelector('#mktero-save');
     const saveStatus = shadow.querySelector('#mktero-save-status');
 
-    shadow.querySelector('#mktero-show-source').dispatchEvent(
-        new document.defaultView.Event('click', { bubbles: true })
-    );
-    source.value = '# Edited draft';
-    source.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    editMarkdown(document, shadow, '# Edited draft');
 
     assert.equal(saveButton.disabled, true);
     assert.equal(saveStatus.getAttribute('data-state'), 'unavailable');
     assert.match(saveStatus.textContent, /无法保存/);
     view.destroy();
-});
-
-test('renders ready Markdown without XML innerHTML assignment in Zotero', () => {
-    const { view, shadow } = createView();
-    const preview = shadow.querySelector('#mktero-preview');
-    let assignedInnerHTML = false;
-    Object.defineProperty(preview, 'innerHTML', {
-        configurable: true,
-        set(value) {
-            assignedInnerHTML = true;
-            if (/<img\b[^>]*(?<!\/)\s*>/i.test(value)) {
-                throw new SyntaxError('An invalid or illegal string was specified');
-            }
-        },
-    });
-
-    assert.doesNotThrow(() => view.render(createModel({
-        status: 'ready',
-        markdown: '# XML-safe rendering\n\n![Figure](images/figure.png)',
-        assets: [{
-            path: 'images/figure.png',
-            mimeType: 'image/png',
-            data: new Uint8Array([1, 2, 3]),
-        }],
-        sourceKind: 'markdown',
-    })));
-    assert.equal(assignedInnerHTML, false);
-    assert.equal(preview.querySelector('h1').textContent, 'XML-safe rendering');
-    assert.match(preview.querySelector('img').getAttribute('src'), /^blob:/);
-});
-
-test('imports MathML markup into the Zotero view', () => {
-    const { view, shadow } = createView();
-
-    view.render(createModel({
-        status: 'ready',
-        markdown: 'Author $^{a,b,*}$',
-        sourceKind: 'markdown',
-        cacheHit: true,
-    }));
-
-    const math = shadow.querySelector('#mktero-preview math');
-    assert.ok(math);
-    assert.equal(math.getAttribute('xmlns'), 'http://www.w3.org/1998/Math/MathML');
-    assert.ok(math.querySelector('msup'));
 });
 
 test('updates conversion progress directly in the inline view', () => {
@@ -317,44 +345,49 @@ test('updates conversion progress directly in the inline view', () => {
 
 test('routes rendered Markdown links through Zotero instead of navigating the main window', () => {
     const launched = [];
-    const { document, view, shadow } = createView(
+    let openLink;
+    const { view } = createView(
         createModel({
             status: 'ready',
             markdown: '[MinerU](https://mineru.net)',
             sourceKind: 'markdown',
         }),
-        { launchURL: url => launched.push(url) }
+        { launchURL: url => launched.push(url) },
+        {
+            editorFactory(options) {
+                openLink = options.openLink;
+                return createTestInlineEditor(options);
+            },
+        }
     );
-    const link = shadow.querySelector('#mktero-preview a');
-
-    link.dispatchEvent(new document.defaultView.Event('click', {
-        bubbles: true,
-        cancelable: true,
-    }));
+    openLink('https://mineru.net');
 
     assert.deepEqual(launched, ['https://mineru.net']);
     view.destroy();
 });
 
 test('ignores an empty Markdown fragment without treating it as a CSS selector', () => {
-    const { document, view, shadow } = createView(createModel({
+    let openLink;
+    const { view } = createView(createModel({
         status: 'ready',
         markdown: '[Top](#)',
         sourceKind: 'markdown',
-    }));
-    const link = shadow.querySelector('#mktero-preview a');
+    }), {}, {
+        editorFactory(options) {
+            openLink = options.openLink;
+            return createTestInlineEditor(options);
+        },
+    });
 
-    assert.doesNotThrow(() => link.dispatchEvent(new document.defaultView.Event('click', {
-        bubbles: true,
-        cancelable: true,
-    })));
+    assert.doesNotThrow(() => openLink('#'));
     view.destroy();
 });
 
 test('creates and revokes Blob URLs for cached MinerU images', () => {
     const created = [];
     const revoked = [];
-    const { view, shadow } = createView(createModel({
+    let resolveImageURL;
+    const { view } = createView(createModel({
         status: 'ready',
         markdown: '![Figure](images/figure.png)',
         assets: [{
@@ -376,13 +409,54 @@ test('creates and revokes Blob URLs for cached MinerU images', () => {
             };
             window.Blob = globalThis.Blob;
         },
+        editorFactory(options) {
+            resolveImageURL = options.resolveImageURL;
+            return createTestInlineEditor(options);
+        },
     });
 
     assert.equal(created.length, 1);
-    assert.equal(
-        shadow.querySelector('#mktero-preview img').getAttribute('src'),
-        'blob:mktero-test-figure'
-    );
+    assert.equal(resolveImageURL('images/figure.png'), 'blob:mktero-test-figure');
     view.destroy();
     assert.deepEqual(revoked, ['blob:mktero-test-figure']);
+});
+
+test('refreshes inline rendering when cached image assets change', () => {
+    const firstAssets = [{
+        path: 'images/figure.png',
+        mimeType: 'image/png',
+        data: new Uint8Array([1]),
+    }];
+    const model = createModel({
+        status: 'ready',
+        markdown: '![Figure](images/figure.png)',
+        assets: firstAssets,
+        sourceKind: 'markdown',
+    });
+    let refreshes = 0;
+    const { view } = createView(model, {}, {
+        configureWindow(window) {
+            window.URL = {
+                createObjectURL: () => `blob:mktero-${refreshes}`,
+                revokeObjectURL: () => {},
+            };
+            window.Blob = globalThis.Blob;
+        },
+        editorFactory(options) {
+            const editor = createTestInlineEditor(options);
+            editor.refreshRendering = () => refreshes++;
+            return editor;
+        },
+    });
+
+    assert.equal(refreshes, 1);
+    view.render(model);
+    assert.equal(refreshes, 1);
+
+    view.render({
+        ...model,
+        assets: [{ ...firstAssets[0], data: new Uint8Array([2]) }],
+    });
+    assert.equal(refreshes, 2);
+    view.destroy();
 });
