@@ -1,6 +1,5 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
-import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 import { searchKeymap } from '@codemirror/search';
 import { Annotation, EditorState, Transaction } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
@@ -12,6 +11,14 @@ import {
 import { runEditorCommand, runSaveShortcut } from './editor-commands.js';
 
 const externalUpdate = Annotation.define();
+const DOM_GLOBAL_NAMES = [
+    'document',
+    'window',
+    'Window',
+    'IntersectionObserver',
+    'MutationObserver',
+    'ResizeObserver',
+];
 const DOM_ACTIVATION_EVENTS = [
     'beforeinput',
     'click',
@@ -29,6 +36,8 @@ const DOM_ACTIVATION_EVENTS = [
     'mousedown',
     'paste',
     'pointerdown',
+    'scroll',
+    'wheel',
 ];
 let activeDOMWindow = null;
 const domWindowReferences = new Map();
@@ -46,9 +55,20 @@ export function createInlineMarkdownEditor({
     const ownerWindow = parent.ownerDocument?.defaultView;
     if (!ownerWindow) throw new Error('The editor requires a browser window');
     acquireDOMGlobals(ownerWindow);
-    const removeDOMActivation = installDOMActivation(parent, ownerWindow);
-
     let view;
+    const removeDOMActivation = installDOMActivation(
+        parent,
+        ownerWindow,
+        eventType => {
+            if (!view) return;
+            view.requestMeasure();
+            if (eventType === 'scroll'
+                && typeof ownerWindow.IntersectionObserver !== 'function') {
+                view.measure();
+            }
+        }
+    );
+
     try {
         const state = EditorState.create({
             doc: initialMarkdown || '',
@@ -59,7 +79,6 @@ export function createInlineMarkdownEditor({
                     openLink,
                     onSaveRequest,
                 }),
-                syntaxHighlighting(defaultHighlightStyle),
                 history(),
                 keymap.of([
                     ...defaultKeymap,
@@ -145,7 +164,7 @@ export function createInlineMarkdownEditor({
 function acquireDOMGlobals(ownerWindow) {
     if (!domWindowReferences.size) {
         previousDOMGlobals = new Map();
-        for (const name of ['document', 'window', 'Window', 'MutationObserver']) {
+        for (const name of DOM_GLOBAL_NAMES) {
             previousDOMGlobals.set(name, {
                 exists: Object.hasOwn(globalThis, name),
                 value: globalThis[name],
@@ -161,7 +180,7 @@ function acquireDOMGlobals(ownerWindow) {
 
 function activateDOMGlobals(ownerWindow) {
     if (activeDOMWindow === ownerWindow) return;
-    for (const name of ['document', 'window', 'Window', 'MutationObserver']) {
+    for (const name of DOM_GLOBAL_NAMES) {
         globalThis[name] = name === 'document'
             ? ownerWindow.document
             : ownerWindow[name];
@@ -169,8 +188,13 @@ function activateDOMGlobals(ownerWindow) {
     activeDOMWindow = ownerWindow;
 }
 
-function installDOMActivation(parent, ownerWindow) {
-    const activate = () => activateDOMGlobals(ownerWindow);
+function installDOMActivation(parent, ownerWindow, refreshViewport) {
+    const activate = event => {
+        activateDOMGlobals(ownerWindow);
+        if (event.type === 'scroll' || event.type === 'wheel') {
+            refreshViewport?.(event.type);
+        }
+    };
     for (const type of DOM_ACTIVATION_EVENTS) {
         parent.addEventListener(type, activate, true);
     }

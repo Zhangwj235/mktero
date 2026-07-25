@@ -101,8 +101,10 @@ test('uses one inline Markdown editor instead of separate preview and source mod
     assert.equal(shadow.querySelector('#mktero-show-source'), null);
     assert.equal(shadow.querySelector('#mktero-preview'), null);
     assert.equal(shadow.querySelector('#mktero-source'), null);
+    const saveStatus = shadow.querySelector('#mktero-save-status');
     assert.equal(shadow.querySelector('#mktero-save').textContent, '保存');
     view.destroy();
+    assert.equal(saveStatus, null);
 });
 
 test('uses a Joplin-style editing toolbar to run inline editor commands', () => {
@@ -166,12 +168,14 @@ test('mounts the Markdown UI in an isolated inline shadow root', () => {
     );
     assert.equal(shadow.querySelector('#mktero-loading').getAttribute('role'), 'status');
     assert.equal(shadow.querySelector('#mktero-status'), null);
+    assert.equal(shadow.querySelector('#mktero-save-status'), null);
     assert.equal(shadow.querySelector('#mktero-title'), null);
     assert.equal(shadow.querySelector('#mktero-reparse'), null);
     assert.equal(shadow.querySelector('#mktero-copy'), null);
     assert.equal(shadow.querySelector('#mktero-show-preview'), null);
     assert.equal(shadow.querySelector('#mktero-show-source'), null);
     assert.equal(shadow.querySelector('.app-header').children.length, 2);
+    assert.equal(shadow.querySelector('.source-actions').children.length, 1);
     assert.ok(shadow.querySelector('#mktero-editor-toolbar'));
     assert.ok(shadow.querySelector('#mktero-editor .cm-content'));
     assert.equal(shadow.querySelector('.markdown-editor').hidden, true);
@@ -247,7 +251,7 @@ test('edits Markdown directly in the inline rendered surface', () => {
     assert.equal(model.markdown, '# Original');
     assert.equal(shadow.querySelector('.cm-content').textContent, '# Edited\n\nNow editable.');
     assert.equal(
-        shadow.querySelector('#mktero-save-status').getAttribute('data-state'),
+        shadow.querySelector('#mktero-save').getAttribute('data-state'),
         'unavailable'
     );
     view.destroy();
@@ -265,14 +269,13 @@ test('saves an edited Markdown draft and reports the saved state', async () => {
     });
     const { document, view, shadow } = createView(model);
     const saveButton = shadow.querySelector('#mktero-save');
-    const saveStatus = shadow.querySelector('#mktero-save-status');
 
     assert.equal(saveButton.disabled, true);
-    assert.equal(saveStatus.getAttribute('data-state'), 'clean');
+    assert.equal(saveButton.getAttribute('data-state'), 'clean');
 
     editMarkdown(document, shadow, '# Edited');
     assert.equal(saveButton.disabled, false);
-    assert.equal(saveStatus.getAttribute('data-state'), 'dirty');
+    assert.equal(saveButton.getAttribute('data-state'), 'dirty');
 
     saveButton.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
     await new Promise(resolve => setImmediate(resolve));
@@ -280,8 +283,8 @@ test('saves an edited Markdown draft and reports the saved state', async () => {
     assert.deepEqual(saved, ['# Edited']);
     assert.equal(model.markdown, '# Edited');
     assert.equal(saveButton.disabled, true);
-    assert.equal(saveStatus.getAttribute('data-state'), 'saved');
-    assert.match(saveStatus.textContent, /已保存/);
+    assert.equal(saveButton.getAttribute('data-state'), 'saved');
+    assert.equal(shadow.querySelector('#mktero-save-status'), null);
     view.destroy();
 });
 
@@ -296,7 +299,6 @@ test('keeps an edited Markdown draft when saving fails', async () => {
     });
     const { document, view, shadow } = createView(model);
     const saveButton = shadow.querySelector('#mktero-save');
-    const saveStatus = shadow.querySelector('#mktero-save-status');
 
     editMarkdown(document, shadow, '# Unsaved');
     saveButton.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
@@ -305,9 +307,14 @@ test('keeps an edited Markdown draft when saving fails', async () => {
     assert.equal(model.markdown, '# Original');
     assert.equal(shadow.querySelector('.cm-content').textContent, '# Unsaved');
     assert.equal(saveButton.disabled, false);
-    assert.equal(saveStatus.getAttribute('data-state'), 'error');
-    assert.match(saveStatus.textContent, /disk full/);
+    assert.equal(saveButton.getAttribute('data-state'), 'error');
+    assert.match(saveButton.getAttribute('title'), /disk full/);
+    const saveError = shadow.querySelector('#mktero-save-error');
     view.destroy();
+
+    assert.ok(saveError);
+    assert.equal(saveError.hidden, false);
+    assert.match(saveError.textContent, /disk full/);
 });
 
 test('explains when Markdown edits cannot be saved to a local cache entry', () => {
@@ -320,13 +327,12 @@ test('explains when Markdown edits cannot be saved to a local cache entry', () =
     });
     const { document, view, shadow } = createView(model);
     const saveButton = shadow.querySelector('#mktero-save');
-    const saveStatus = shadow.querySelector('#mktero-save-status');
 
     editMarkdown(document, shadow, '# Edited draft');
 
     assert.equal(saveButton.disabled, true);
-    assert.equal(saveStatus.getAttribute('data-state'), 'unavailable');
-    assert.match(saveStatus.textContent, /无法保存/);
+    assert.equal(saveButton.getAttribute('data-state'), 'unavailable');
+    assert.match(saveButton.getAttribute('title'), /无法保存/);
     view.destroy();
 });
 

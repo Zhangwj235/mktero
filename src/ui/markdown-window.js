@@ -45,6 +45,7 @@ class MarkdownTabView {
         this.draftMarkdown = '';
         this.savedMarkdown = '';
         this.saving = false;
+        this.saveState = 'unavailable';
 
         this.host = this.createElement('div', {
             class: 'mktero-tab-host',
@@ -180,6 +181,12 @@ class MarkdownTabView {
             class: 'message error',
         });
         error.hidden = true;
+        const saveError = this.createElement('div', {
+            id: 'mktero-save-error',
+            class: 'message error',
+            role: 'alert',
+        });
+        saveError.hidden = true;
 
         const spinner = this.createElement('div', {
             class: 'loading-spinner',
@@ -238,17 +245,6 @@ class MarkdownTabView {
         });
         appendChildren(loading, spinner, loadingContent);
 
-        const saveStatus = this.createElement(
-            'span',
-            {
-                id: 'mktero-save-status',
-                class: 'save-status',
-                role: 'status',
-                'aria-live': 'polite',
-                'data-state': 'clean',
-            },
-            '所有更改已保存'
-        );
         const saveButton = this.createElement(
             'button',
             {
@@ -261,7 +257,7 @@ class MarkdownTabView {
         );
         saveButton.disabled = true;
         const sourceActions = this.createElement('div', { class: 'source-actions' });
-        appendChildren(sourceActions, saveStatus, saveButton);
+        sourceActions.appendChild(saveButton);
         const { editorToolbar, toolbarButtons } = createEditorToolbar(this.document);
         const header = this.createElement('header', { class: 'app-header' });
         appendChildren(header, editorToolbar, sourceActions);
@@ -283,12 +279,13 @@ class MarkdownTabView {
         appendChildren(content, loading, editorSection);
 
         const view = this.createElement('div', { class: 'mktero-tab-view' });
-        appendChildren(view, header, progress, warning, error, content);
+        appendChildren(view, header, progress, warning, error, saveError, content);
         return {
             view,
             progress,
             warning,
             error,
+            saveError,
             content,
             loading,
             loadingTitle,
@@ -299,7 +296,6 @@ class MarkdownTabView {
             editorHost,
             editorSection,
             saveButton,
-            saveStatus,
             editorToolbar,
             toolbarButtons,
         };
@@ -379,23 +375,28 @@ class MarkdownTabView {
         finally {
             this.saving = false;
             if (this.draftMarkdown !== this.savedMarkdown
-                && this.elements.saveStatus.getAttribute('data-state') === 'saving') {
+                && this.saveState === 'saving') {
                 this.setSaveState('dirty');
             }
         }
     }
 
     setSaveState(state, detail = '') {
-        const messages = {
-            clean: '所有更改已保存',
-            dirty: '有未保存的更改',
-            saving: '正在保存…',
-            saved: '已保存',
+        const errorMessage = detail ? `保存失败：${detail}` : '保存失败';
+        const titles = {
+            clean: '保存 Markdown（⌘/Ctrl + S）',
+            dirty: '保存 Markdown（⌘/Ctrl + S）',
+            saving: '正在保存 Markdown…',
+            saved: '保存 Markdown（⌘/Ctrl + S）',
             unavailable: '当前内容无法保存到本地缓存',
-            error: `保存失败：${detail}`,
+            error: `${errorMessage}。点击重试`,
         };
-        this.elements.saveStatus.setAttribute('data-state', state);
-        this.elements.saveStatus.textContent = messages[state] || '';
+        this.saveState = state;
+        this.elements.saveError.hidden = state !== 'error';
+        this.elements.saveError.textContent = state === 'error' ? errorMessage : '';
+        this.elements.saveButton.setAttribute('data-state', state);
+        this.elements.saveButton.setAttribute('title', titles[state] || titles.clean);
+        this.elements.saveButton.setAttribute('aria-label', titles[state] || titles.clean);
         this.elements.saveButton.disabled = state === 'clean'
             || state === 'saved'
             || state === 'saving'

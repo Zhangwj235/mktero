@@ -491,10 +491,11 @@ function decorateMath(
 }
 
 function renderedRange(node, state, display, context) {
+    const source = state.sliceDoc(node.from, node.to);
     if (display === 'table') {
         return Decoration.replace({
             widget: new EditableTableWidget({
-                source: state.sliceDoc(node.from, node.to),
+                source,
                 from: node.from,
                 to: node.to,
                 ...context,
@@ -504,9 +505,12 @@ function renderedRange(node, state, display, context) {
     }
     return Decoration.replace({
         widget: new RenderedMarkdownWidget({
-            source: state.sliceDoc(node.from, node.to),
+            source,
             display,
             from: node.from,
+            extraClassName: display === 'html-block' && /^\s*<table\b/i.test(source)
+                ? 'cm-mktero-html-table'
+                : '',
             ...context,
         }),
         block: true,

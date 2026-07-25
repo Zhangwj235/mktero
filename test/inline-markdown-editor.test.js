@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EditorView } from '@codemirror/view';
 import { JSDOM } from 'jsdom';
 import { createInlineMarkdownEditor } from '../src/editor/inline-markdown-editor.js';
 
@@ -67,6 +68,27 @@ test('renders inactive Markdown formatting and formulas without rewriting source
     dom.window.close();
 });
 
+test('does not apply source-code underlines to rendered headings', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: 'Intro\n\n# Rendered heading',
+        resolveImageURL: () => null,
+    });
+    const heading = document.querySelector('.cm-mktero-heading-1');
+    const renderedText = heading.textContent;
+    const hasSourceHighlight = Boolean(heading.querySelector('span[class]'));
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.equal(renderedText, 'Rendered heading');
+    assert.equal(hasSourceHighlight, false);
+});
+
 test('renders formulas in headings and link labels', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -112,6 +134,8 @@ test('renders paper tables, cached images, page markers, and safe links inline',
         '',
         '![Figure](images/figure.png)',
         '',
+        '<table><tr><td>Raw table</td></tr></table>',
+        '',
         '<!-- zotero-page: 2 -->',
     ].join('\n');
     const editor = createInlineMarkdownEditor({
@@ -131,7 +155,11 @@ test('renders paper tables, cached images, page markers, and safe links inline',
         document.querySelector('.cm-mktero-image img').getAttribute('src'),
         'blob:mktero-figure'
     );
-    assert.match(document.querySelector('.cm-mktero-html-block').textContent, /Page 2/);
+    assert.equal(
+        document.querySelector('.cm-mktero-html-table table td').textContent,
+        'Raw table'
+    );
+    assert.match(document.querySelector('.page-marker').textContent, /Page 2/);
 
     document.querySelector('.cm-mktero-table a').dispatchEvent(
         new dom.window.MouseEvent('mousedown', {
@@ -661,6 +689,125 @@ test('supports editors owned by two Zotero windows at the same time', () => {
     firstEditor.destroy();
     secondDOM.window.close();
     firstDOM.window.close();
+});
+
+test('activates the owning Zotero window before CodeMirror handles scrolling', () => {
+    const originalRequestMeasure = EditorView.prototype.requestMeasure;
+    const originalMeasure = EditorView.prototype.measure;
+    let measureRequests = 0;
+    let synchronousMeasures = 0;
+    EditorView.prototype.requestMeasure = function(...args) {
+        measureRequests++;
+        return originalRequestMeasure.apply(this, args);
+    };
+    EditorView.prototype.measure = function(...args) {
+        synchronousMeasures++;
+        return originalMeasure.apply(this, args);
+    };
+    const firstDOM = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const secondDOM = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const firstEditor = createInlineMarkdownEditor({
+        parent: firstDOM.window.document.querySelector('#editor'),
+        initialMarkdown: Array.from(
+            { length: 200 },
+            (_, index) => `Paragraph ${index + 1}`
+        ).join('\n\n'),
+    });
+    const secondEditor = createInlineMarkdownEditor({
+        parent: secondDOM.window.document.querySelector('#editor'),
+        initialMarkdown: '# Second window',
+    });
+
+    const measureRequestsBeforeScroll = measureRequests;
+    const synchronousMeasuresBeforeScroll = synchronousMeasures;
+    firstDOM.window.document.querySelector('.cm-scroller').dispatchEvent(
+        new firstDOM.window.Event('scroll')
+    );
+    const scrollActivatedFirstWindow = globalThis.window === firstDOM.window;
+    const scrollRequestedMeasure = measureRequests > measureRequestsBeforeScroll;
+    const scrollMeasuredSynchronously = (
+        synchronousMeasures > synchronousMeasuresBeforeScroll
+    );
+
+    firstDOM.window.document.querySelector('.cm-content').dispatchEvent(
+        new firstDOM.window.KeyboardEvent('keydown', {
+            key: 'a',
+            bubbles: true,
+        })
+    );
+    const keyActivatedFirstWindow = globalThis.window === firstDOM.window;
+
+    secondEditor.destroy();
+    firstEditor.destroy();
+    secondDOM.window.close();
+    firstDOM.window.close();
+    EditorView.prototype.requestMeasure = originalRequestMeasure;
+    EditorView.prototype.measure = originalMeasure;
+
+    assert.equal(scrollActivatedFirstWindow, true);
+    assert.equal(scrollRequestedMeasure, true);
+    assert.equal(scrollMeasuredSynchronously, true);
+    assert.equal(keyActivatedFirstWindow, true);
+});
+
+test('observes editor resizes through the owning Zotero window', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const observedElements = [];
+    dom.window.ResizeObserver = class {
+        observe(element) {
+            observedElements.push(element);
+        }
+
+        disconnect() {}
+    };
+    const editor = createInlineMarkdownEditor({
+        parent: dom.window.document.querySelector('#editor'),
+        initialMarkdown: '# Paper\n\n![Figure](figure.png)',
+        resolveImageURL: () => 'blob:figure',
+    });
+    const observedEditorScroller = observedElements.some(element => (
+        element.classList?.contains('cm-scroller')
+    ));
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.equal(observedEditorScroller, true);
+});
+
+test('observes editor visibility through the owning Zotero window', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const observedElements = [];
+    dom.window.IntersectionObserver = class {
+        observe(element) {
+            observedElements.push(element);
+        }
+
+        disconnect() {}
+    };
+    const editor = createInlineMarkdownEditor({
+        parent: dom.window.document.querySelector('#editor'),
+        initialMarkdown: Array.from(
+            { length: 200 },
+            (_, index) => `Paragraph ${index + 1}`
+        ).join('\n\n'),
+    });
+    const observedEditorContent = observedElements.some(element => (
+        element.classList?.contains('cm-content')
+    ));
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.equal(observedEditorContent, true);
 });
 
 test('applies toolbar bold formatting and can undo it', () => {

@@ -245,53 +245,67 @@ main {
     line-height: 1.72;
 }
 
-.markdown-editor-host .cm-scroller {
-    overflow: auto;
+.markdown-editor-host > .cm-editor .cm-scroller {
+    overflow-x: hidden;
+    overflow-y: auto;
     font-family: inherit;
     line-height: inherit;
 }
 
-.cm-content {
-    width: min(900px, 100%);
+.markdown-editor-host > .cm-editor .cm-content {
+    width: calc(100% - 48px);
+    max-width: 960px;
+    min-width: 0;
     min-height: 100%;
+    flex: 0 0 auto;
     margin: 0 auto;
-    padding: 32px 28px 72px;
+    padding: 32px 0 72px;
     -moz-user-select: text;
     user-select: text;
     caret-color: var(--accent);
 }
 
-.cm-content:focus { outline: none; }
+.markdown-editor-host > .cm-editor .cm-content:focus { outline: none; }
 
-.cm-content::selection,
-.cm-content ::selection {
+.markdown-editor-host > .cm-editor .cm-content::selection,
+.markdown-editor-host > .cm-editor .cm-content ::selection {
     color: HighlightText;
     background-color: Highlight;
 }
 
-.markdown-editor-host .cm-cursor { border-left-color: var(--accent); }
-.markdown-editor-host .cm-selectionBackground { background: Highlight; }
-.markdown-editor-host .cm-gutters { display: none; }
+.markdown-editor-host > .cm-editor .cm-cursorLayer .cm-cursor {
+    border-left-color: var(--accent);
+}
 
-.cm-mktero-heading {
+.markdown-editor-host > .cm-editor .cm-selectionLayer .cm-selectionBackground {
+    background: Highlight;
+}
+
+.markdown-editor-host > .cm-editor .cm-gutters { display: none; }
+
+.markdown-editor-host > .cm-editor .cm-line { padding-inline: 0; }
+
+.markdown-editor-host > .cm-editor .cm-mktero-heading {
     padding-top: 0.7em;
     padding-bottom: 0.2em;
     font-weight: 700;
     line-height: 1.3;
 }
 
-.cm-mktero-heading-1 { font-size: 1.85em; }
-.cm-mktero-heading-2 { font-size: 1.5em; }
-.cm-mktero-heading-3 { font-size: 1.25em; }
-.cm-mktero-heading-4,
-.cm-mktero-heading-5,
-.cm-mktero-heading-6 { font-size: 1.08em; }
+.markdown-editor-host > .cm-editor .cm-mktero-heading-1 { font-size: 1.85em; }
+.markdown-editor-host > .cm-editor .cm-mktero-heading-2 { font-size: 1.5em; }
+.markdown-editor-host > .cm-editor .cm-mktero-heading-3 { font-size: 1.25em; }
+.markdown-editor-host > .cm-editor .cm-mktero-heading-4,
+.markdown-editor-host > .cm-editor .cm-mktero-heading-5,
+.markdown-editor-host > .cm-editor .cm-mktero-heading-6 { font-size: 1.08em; }
 
-.cm-mktero-strong { font-weight: 700; }
-.cm-mktero-emphasis { font-style: italic; }
-.cm-mktero-strikethrough { text-decoration: line-through; }
+.markdown-editor-host > .cm-editor .cm-mktero-strong { font-weight: 700; }
+.markdown-editor-host > .cm-editor .cm-mktero-emphasis { font-style: italic; }
+.markdown-editor-host > .cm-editor .cm-mktero-strikethrough {
+    text-decoration: line-through;
+}
 
-.cm-mktero-code {
+.markdown-editor-host > .cm-editor .cm-mktero-code {
     padding: 2px 4px;
     border-radius: 4px;
     background: var(--surface);
@@ -299,8 +313,8 @@ main {
     font-size: 0.88em;
 }
 
-.cm-mktero-link,
-.cm-mktero-rendered a {
+.markdown-editor-host > .cm-editor .cm-mktero-link,
+.markdown-editor-host > .cm-editor .cm-mktero-rendered a {
     color: var(--accent);
     text-decoration: underline;
     text-decoration-thickness: 1px;
@@ -308,14 +322,14 @@ main {
     cursor: pointer;
 }
 
-.cm-mktero-blockquote {
+.markdown-editor-host > .cm-editor .cm-mktero-blockquote {
     padding-left: 18px !important;
     border-left: 4px solid var(--border);
     color: var(--muted);
 }
 
-.cm-mktero-list-bullet,
-.cm-mktero-list-number {
+.markdown-editor-host > .cm-editor .cm-mktero-list-bullet,
+.markdown-editor-host > .cm-editor .cm-mktero-list-number {
     display: inline-block;
     min-width: 1.2em;
     color: var(--muted);
@@ -323,7 +337,7 @@ main {
     font-weight: 650;
 }
 
-.cm-mktero-task input {
+.markdown-editor-host > .cm-editor .cm-mktero-task input {
     width: 15px;
     height: 15px;
     margin: 0 6px 0 0;
@@ -332,32 +346,32 @@ main {
     cursor: pointer;
 }
 
-.cm-mktero-rendered {
+.markdown-editor-host > .cm-editor .cm-mktero-rendered {
     max-width: 100%;
     white-space: normal;
 }
 
-.cm-mktero-image img {
+.markdown-editor-host > .cm-editor .cm-mktero-image img {
     display: block;
     max-width: 100%;
     height: auto;
     margin: 20px auto;
 }
 
-.cm-mktero-image-inline {
+.markdown-editor-host > .cm-editor .cm-mktero-image-inline {
     display: inline-block;
     max-width: 100%;
     vertical-align: middle;
 }
 
-.cm-mktero-image-inline img {
+.markdown-editor-host > .cm-editor .cm-mktero-image-inline img {
     display: inline-block;
     max-width: 100%;
     max-height: 1.8em;
     vertical-align: middle;
 }
 
-.cm-mktero-code-block pre {
+.markdown-editor-host > .cm-editor .cm-mktero-code-block pre {
     overflow-x: auto;
     margin: 18px 0;
     padding: 14px;
@@ -367,53 +381,75 @@ main {
     font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.cm-mktero-divider hr {
+.markdown-editor-host > .cm-editor .cm-mktero-divider hr {
     margin: 28px 0;
     border: 0;
     border-top: 1px solid var(--border);
 }
 
-.cm-mktero-table {
-    overflow-x: auto;
-    margin: 20px 0;
+.markdown-editor-host > .cm-editor .cm-mktero-table,
+.markdown-editor-host > .cm-editor .cm-mktero-html-table {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    margin: 24px 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--background);
 }
 
-.cm-mktero-table table,
-.cm-mktero-html-block table {
+.markdown-editor-host > .cm-editor .cm-mktero-table table,
+.markdown-editor-host > .cm-editor .cm-mktero-html-block table {
     width: 100%;
+    max-width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-family: ui-sans-serif, system-ui, sans-serif;
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 1.45;
 }
 
-.cm-mktero-table th,
-.cm-mktero-table td,
-.cm-mktero-html-block th,
-.cm-mktero-html-block td {
-    min-width: 72px;
-    padding: 8px 10px;
+.markdown-editor-host > .cm-editor .cm-mktero-table th,
+.markdown-editor-host > .cm-editor .cm-mktero-table td,
+.markdown-editor-host > .cm-editor .cm-mktero-html-block th,
+.markdown-editor-host > .cm-editor .cm-mktero-html-block td {
+    min-width: 0;
+    padding: 8px;
     border: 1px solid var(--border);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
     text-align: start;
     vertical-align: top;
 }
 
-.cm-mktero-table th,
-.cm-mktero-html-block th { background: var(--surface); }
+.markdown-editor-host > .cm-editor .cm-mktero-table th,
+.markdown-editor-host > .cm-editor .cm-mktero-html-block th {
+    color: var(--text);
+    background: color-mix(in srgb, var(--surface) 88%, var(--background));
+    font-weight: 650;
+    vertical-align: bottom;
+}
 
-.cm-mktero-table [contenteditable="true"]:focus {
+.markdown-editor-host > .cm-editor .cm-mktero-table tbody tr:nth-child(even) td,
+.markdown-editor-host > .cm-editor .cm-mktero-html-block tbody tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--surface) 45%, var(--background));
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-table [contenteditable="true"]:focus {
     outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
     outline-offset: -2px;
     background: color-mix(in srgb, var(--accent) 6%, var(--background));
 }
 
-.cm-mktero-math {
+.markdown-editor-host > .cm-editor .cm-mktero-math {
     display: inline-block;
     max-width: 100%;
     vertical-align: -0.1em;
     cursor: text;
 }
 
-.cm-mktero-math-display {
+.markdown-editor-host > .cm-editor .cm-mktero-math-display {
     overflow-x: auto;
     margin: 20px 0;
     padding: 14px;
@@ -423,8 +459,10 @@ main {
     cursor: text;
 }
 
-.cm-mktero-math math,
-.cm-mktero-math-display math { font-size: 1em; }
+.markdown-editor-host > .cm-editor .cm-mktero-math math,
+.markdown-editor-host > .cm-editor .cm-mktero-math-display math {
+    font-size: 1em;
+}
 
 .math-fallback {
     overflow-wrap: anywhere;
@@ -457,16 +495,6 @@ main {
     padding-left: 8px;
 }
 
-.save-status {
-    color: var(--muted);
-    font-size: 12px;
-}
-
-.save-status[data-state="dirty"],
-.save-status[data-state="saving"] { color: var(--accent); }
-.save-status[data-state="saved"] { color: var(--success); }
-.save-status[data-state="error"] { color: var(--error); }
-
 .save-button {
     min-width: 58px;
     min-height: 30px;
@@ -496,8 +524,10 @@ main {
 
 @media (max-width: 720px) {
     .loading-state { margin-top: 32px; padding: 20px; }
-    .save-status { display: none; }
-    .cm-content { padding: 24px 18px 48px; }
+    .markdown-editor-host > .cm-editor .cm-content {
+        width: calc(100% - 32px);
+        padding: 24px 0 48px;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
