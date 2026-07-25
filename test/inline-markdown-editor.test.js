@@ -581,6 +581,39 @@ test('renders a cached image inside paragraph text', () => {
     dom.window.close();
 });
 
+test('renders an image on its own hard-break line at reading width', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Intro',
+        '',
+        '![](images/figure.jpg)  ',
+        'Figure description.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => 'blob:mktero-figure',
+        openLink: () => {},
+        onChange: assert.fail,
+        onSaveRequest: assert.fail,
+    });
+
+    assert.equal(
+        document.querySelector('.cm-mktero-image img').getAttribute('src'),
+        'blob:mktero-figure'
+    );
+    assert.equal(document.querySelector('.cm-mktero-image-inline'), null);
+    assert.match(document.querySelector('.cm-content').textContent, /Figure description\./);
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('allows rendered block text to be selected without revealing its source', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

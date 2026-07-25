@@ -407,10 +407,12 @@ function decorateSyntaxNode(node, state, decorations, context) {
     }
     if (node.name === 'Image') {
         const parent = node.node.parent;
-        if (parent?.name === 'Paragraph'
-            && state.sliceDoc(parent.from, parent.to).trim() === state.sliceDoc(node.from, node.to)
-            && !selectionIntersects(state, parent.from, parent.to)) {
-            decorations.push(renderedRange(parent, state, 'image', context));
+        const blockRange = parent?.name === 'Paragraph'
+            ? standaloneImageLineRange(node, state)
+            : null;
+        if (blockRange
+            && !selectionIntersects(state, blockRange.from, blockRange.to)) {
+            decorations.push(renderedRange(blockRange, state, 'image', context));
             return false;
         }
         if (!selectionIntersects(state, node.from, node.to)) {
@@ -426,6 +428,14 @@ function decorateSyntaxNode(node, state, decorations, context) {
         }
     }
     return undefined;
+}
+
+function standaloneImageLineRange(node, state) {
+    const line = state.doc.lineAt(node.from);
+    if (node.to > line.to) return null;
+    if (state.sliceDoc(line.from, node.from).trim()) return null;
+    if (state.sliceDoc(node.to, line.to).trim()) return null;
+    return { from: line.from, to: line.to };
 }
 
 function decorateLink(node, state, decorations) {
