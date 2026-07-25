@@ -27,3 +27,14 @@ test('keeps the Markdown mode toolbar compact and right aligned', async () => {
     assert.match(styles, /\.app-header\s*\{[^}]*min-height: 46px;/s);
     assert.match(styles, /\.mode-switch button\s*\{[^}]*min-height: 28px;/s);
 });
+
+test('allows text selection in the rendered Markdown preview', async () => {
+    const styles = await readFile(new URL('../ui/markdown.css', import.meta.url), 'utf8');
+
+    assert.match(styles, /\.markdown-body\s*\{[^}]*-moz-user-select: text;/s);
+    assert.match(styles, /\.markdown-body\s*\{[^}]*user-select: text;/s);
+    assert.match(
+        styles,
+        /\.markdown-body ::selection\s*\{[^}]*color: HighlightText;[^}]*background-color: Highlight;/s
+    );
+});

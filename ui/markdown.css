@@ -225,6 +225,9 @@ main.source-mode {
 }
 
 .markdown-body {
+    -moz-user-select: text;
+    user-select: text;
+    cursor: text;
     font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
     font-size: 17px;
     line-height: 1.7;
@@ -239,7 +242,16 @@ main.source-mode {
 
 .markdown-body p { margin: 1em 0; }
 
-.markdown-body a { color: var(--accent); }
+.markdown-body a {
+    color: var(--accent);
+    cursor: pointer;
+}
+
+.markdown-body::selection,
+.markdown-body ::selection {
+    color: HighlightText;
+    background-color: Highlight;
+}
 
 .markdown-body img {
     display: block;
