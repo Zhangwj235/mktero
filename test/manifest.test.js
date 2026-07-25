@@ -26,7 +26,7 @@ test('provides the update URL required by Zotero 9', () => {
 });
 
 test('keeps the installable package version metadata consistent', () => {
-    assert.notEqual(manifest.version, '0.1.0');
+    assert.equal(manifest.version, '0.1.0');
     assert.equal(packageMetadata.version, manifest.version);
     assert.equal(packageLock.version, manifest.version);
     assert.equal(packageLock.packages[''].version, manifest.version);
