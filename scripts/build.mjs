@@ -14,6 +14,7 @@ const xpiPath = path.join(buildRoot, `mktero-${manifest.version}.xpi`);
 
 await rm(buildRoot, { recursive: true, force: true });
 await mkdir(path.join(packageRoot, 'ui'), { recursive: true });
+await mkdir(path.join(packageRoot, 'ui/icons'), { recursive: true });
 
 await Promise.all([
     build({
@@ -41,6 +42,7 @@ await Promise.all([
     copyText('ui/markdown.css', 'ui/markdown.css'),
     copyText('ui/preferences.xhtml', 'ui/preferences.xhtml'),
     copyText('ui/preferences.css', 'ui/preferences.css'),
+    copyText('ui/icons/markdown.svg', 'ui/icons/markdown.svg'),
     copyText('prefs.js', 'prefs.js'),
 ]);
 

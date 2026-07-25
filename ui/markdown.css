@@ -44,58 +44,72 @@
     z-index: 10;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-    padding: 12px 18px;
+    justify-content: flex-start;
+    padding: 8px 18px;
     border-bottom: 1px solid var(--border);
     background: var(--background);
     backdrop-filter: blur(12px);
 }
 
-.title-area { min-width: 0; }
-
-.title-area h1 {
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
     overflow: hidden;
-    margin: 0;
-    font-size: 16px;
-    text-overflow: ellipsis;
+    clip: rect(0 0 0 0);
     white-space: nowrap;
+    border: 0;
 }
 
-#mktero-status {
-    color: var(--muted);
-    font-size: 12px;
-}
-
-.actions,
 .mode-switch {
-    display: flex;
-    gap: 6px;
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--surface);
 }
 
-button {
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
+.mode-switch button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 32px;
+    padding: 5px 11px;
+    border: 0;
+    border-radius: 8px;
     color: inherit;
-    background: var(--surface);
+    background: transparent;
+    font: inherit;
+    font-weight: 500;
     cursor: pointer;
 }
 
-button:hover,
-button.active {
-    border-color: var(--accent);
-    color: var(--accent);
+.mode-switch button:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--background) 65%, transparent);
 }
 
-button:disabled {
+.mode-switch button.active {
+    background: var(--background);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+.mode-switch button:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+    outline-offset: 1px;
+}
+
+.mode-switch button:disabled {
     opacity: 0.55;
     cursor: default;
 }
 
-button:disabled:hover {
-    border-color: var(--border);
-    color: inherit;
+.mode-icon {
+    flex: none;
+    width: 18px;
+    height: 18px;
 }
 
 #mktero-progress {
@@ -120,6 +134,11 @@ main {
     max-width: 900px;
     margin: 0 auto;
     padding: 32px 28px 64px;
+}
+
+main.source-mode {
+    max-width: 1120px;
+    padding-top: 20px;
 }
 
 .loading-state {
@@ -329,14 +348,28 @@ main {
 }
 
 .markdown-source {
-    overflow-wrap: anywhere;
+    display: block;
+    width: 100%;
+    min-height: calc(100vh - 126px);
     margin: 0;
-    white-space: pre-wrap;
+    padding: 18px 20px;
+    resize: vertical;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    outline: none;
+    color: var(--text);
+    background: var(--surface);
+    tab-size: 4;
+    white-space: pre;
     font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.markdown-source:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
 @media (max-width: 720px) {
-    .app-header { align-items: flex-start; flex-direction: column; }
     main { padding: 24px 18px 48px; }
     .loading-state { margin-top: 32px; padding: 20px; }
 }

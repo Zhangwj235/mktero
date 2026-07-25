@@ -57,6 +57,13 @@ test('mounts the Markdown UI in an isolated inline shadow root', () => {
         shadow.querySelector('#mktero-status').textContent,
         'Converting PDF… 0%'
     );
+    assert.equal(shadow.querySelector('#mktero-title'), null);
+    assert.equal(shadow.querySelector('#mktero-reparse'), null);
+    assert.equal(shadow.querySelector('#mktero-copy'), null);
+    assert.equal(shadow.querySelector('#mktero-show-preview').textContent, '预览');
+    assert.equal(shadow.querySelector('#mktero-show-source').textContent, '查看源文件');
+    assert.ok(shadow.querySelector('#mktero-show-preview svg'));
+    assert.ok(shadow.querySelector('#mktero-show-source svg'));
 });
 
 test('uses a flexing XUL layout root in the Zotero main document', () => {
@@ -91,10 +98,41 @@ test('replaces loading state with cached Markdown as soon as the model is ready'
         shadow.querySelector('#mktero-preview').innerHTML,
         /<h1>Example Paper<\/h1>[\s\S]*<p>Converted\.<\/p>/
     );
-    assert.equal(
-        shadow.querySelector('#mktero-source').textContent,
-        '# Example Paper\n\nConverted.'
+    assert.equal(shadow.querySelector('#mktero-source').localName, 'textarea');
+    assert.equal(shadow.querySelector('#mktero-source').value, '# Example Paper\n\nConverted.');
+});
+
+test('edits Markdown source and renders the edited value in preview mode', () => {
+    const model = createModel({
+        title: 'Editable paper',
+        status: 'ready',
+        progress: 100,
+        markdown: '# Original',
+        sourceKind: 'markdown',
+    });
+    const { document, view, shadow } = createView(model);
+    const source = shadow.querySelector('#mktero-source');
+
+    shadow.querySelector('#mktero-show-source').dispatchEvent(
+        new document.defaultView.Event('click', { bubbles: true })
     );
+
+    assert.equal(shadow.querySelector('#mktero-preview').hidden, true);
+    assert.equal(source.hidden, false);
+    assert.equal(source.hasAttribute('readonly'), false);
+
+    source.value = '# Edited\n\nNow editable.';
+    source.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    shadow.querySelector('#mktero-show-preview').dispatchEvent(
+        new document.defaultView.Event('click', { bubbles: true })
+    );
+
+    assert.equal(model.markdown, '# Edited\n\nNow editable.');
+    assert.equal(source.hidden, true);
+    assert.equal(shadow.querySelector('#mktero-preview').hidden, false);
+    assert.equal(shadow.querySelector('#mktero-preview h1').textContent, 'Edited');
+    assert.equal(shadow.querySelector('#mktero-preview p').textContent, 'Now editable.');
+    view.destroy();
 });
 
 test('renders ready Markdown without XML innerHTML assignment in Zotero', () => {
@@ -192,71 +230,6 @@ test('ignores an empty Markdown fragment without treating it as a CSS selector',
         bubbles: true,
         cancelable: true,
     })));
-    view.destroy();
-});
-
-test('copies through Zotero when the main-window Clipboard API is unavailable', async () => {
-    const copied = [];
-    const { document, view, shadow } = createView(createModel({
-        status: 'ready',
-        markdown: '# Copy me',
-        sourceKind: 'markdown',
-    }), {
-        Utilities: {
-            Internal: {
-                copyTextToClipboard(value) {
-                    copied.push(value);
-                },
-            },
-        },
-    });
-
-    shadow.querySelector('#mktero-copy').dispatchEvent(
-        new document.defaultView.Event('click', { bubbles: true })
-    );
-    await new Promise(resolve => setImmediate(resolve));
-
-    assert.deepEqual(copied, ['# Copy me']);
-    assert.equal(shadow.querySelector('#mktero-copy').textContent, 'Copied');
-    view.destroy();
-});
-
-test('falls back to Zotero when the main-window Clipboard API rejects', async () => {
-    const copied = [];
-    const { document, view, shadow } = createView(createModel({
-        status: 'ready',
-        markdown: '# Copy after rejection',
-        sourceKind: 'markdown',
-    }), {
-        Utilities: {
-            Internal: {
-                copyTextToClipboard(value) {
-                    copied.push(value);
-                },
-            },
-        },
-    });
-    view.ownerWindow = {
-        navigator: {
-            clipboard: {
-                writeText: async () => {
-                    throw new Error('NotAllowedError');
-                },
-            },
-        },
-        setTimeout,
-        clearTimeout,
-        URL: globalThis.URL,
-        Blob: globalThis.Blob,
-    };
-
-    shadow.querySelector('#mktero-copy').dispatchEvent(
-        new document.defaultView.Event('click', { bubbles: true })
-    );
-    await new Promise(resolve => setImmediate(resolve));
-
-    assert.deepEqual(copied, ['# Copy after rejection']);
-    assert.equal(shadow.querySelector('#mktero-copy').textContent, 'Copied');
     view.destroy();
 });
 

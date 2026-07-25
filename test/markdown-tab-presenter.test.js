@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
 import { MarkdownTabPresenter } from '../src/ui/markdown-tab-presenter.js';
 
-function createMainWindow() {
+function createMainWindow(document = {}) {
     const added = [];
     const selected = [];
     const renamed = [];
     const closed = [];
     let nextID = 1;
 
-    const document = {};
     const Zotero_Tabs = {
         add(options) {
             const children = [];
@@ -110,6 +110,7 @@ test('opens Markdown directly in a Zotero tab and reuses it for the same PDF', (
     assert.equal(mainWindow.added[0].options.type, 'mktero');
     assert.equal(mainWindow.added[0].options.title, 'Converting PDF…');
     assert.equal(mainWindow.added[0].options.data.mkteroItemID, 42);
+    assert.equal(mainWindow.added[0].options.data.icon, 'markdown');
     assert.equal(mainWindow.added[0].children[0], first.view.root);
     assert.equal(harness.calls[0].document, mainWindow.document);
     assert.equal(
@@ -121,6 +122,26 @@ test('opens Markdown directly in a Zotero tab and reuses it for the same PDF', (
         'library',
         'other',
     ]);
+});
+
+test('installs the custom Markdown tab icon stylesheet in the Zotero window', () => {
+    const { document } = parseHTML('<html><body></body></html>');
+    const mainWindow = createMainWindow(document);
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness);
+
+    presenter.open(42);
+
+    const style = document.querySelector('#mktero-markdown-tab-icon-style');
+    assert.ok(style);
+    assert.match(style.textContent, /data-item-type="markdown"/);
+    assert.match(
+        style.textContent,
+        /jar:file:\/\/\/profile\/extensions\/mktero\.xpi!\/ui\/icons\/markdown\.svg/
+    );
+
+    presenter.dispose();
+    assert.equal(document.querySelector('#mktero-markdown-tab-icon-style'), null);
 });
 
 test('renders model updates immediately without a browser load boundary or watchdog', () => {

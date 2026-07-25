@@ -1,6 +1,9 @@
 import { createMarkdownTabView } from './markdown-window.js';
 
 const TAB_TYPE = 'mktero';
+const TAB_ICON = 'markdown';
+const TAB_ICON_STYLE_ID = 'mktero-markdown-tab-icon-style';
+const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 
 export class MarkdownTabPresenter {
     constructor({ zotero, rootURI, createView = createMarkdownTabView }) {
@@ -9,6 +12,7 @@ export class MarkdownTabPresenter {
         this.createView = createView;
         this.presentations = new Map();
         this.sessionStatePatch = null;
+        this.tabIconStyle = null;
         this.removeStaleSessionTabs();
         this.ensureSessionStateFilter();
     }
@@ -20,6 +24,7 @@ export class MarkdownTabPresenter {
         if (!owner?.document || !tabs?.add || !tabs?.select) {
             throw new Error('The Zotero tab manager is not available');
         }
+        this.ensureTabIconStyle(owner.document);
 
         const existing = this.presentations.get(itemID);
         if (existing) {
@@ -45,7 +50,7 @@ export class MarkdownTabPresenter {
                 title: model.title,
                 data: {
                     mkteroItemID: itemID,
-                    icon: 'attachment-pdf',
+                    icon: TAB_ICON,
                 },
                 select: true,
                 preventJumpback: true,
@@ -108,6 +113,30 @@ export class MarkdownTabPresenter {
     dispose() {
         this.closeAll();
         this.restoreSessionStateFilter();
+        this.tabIconStyle?.remove?.();
+        this.tabIconStyle = null;
+    }
+
+    ensureTabIconStyle(document) {
+        const existing = document.getElementById?.(TAB_ICON_STYLE_ID);
+        if (existing) {
+            this.tabIconStyle = existing;
+            return;
+        }
+        if (!document.createElementNS || !document.documentElement?.appendChild) return;
+
+        const style = document.createElementNS(XHTML_NAMESPACE, 'style');
+        style.setAttribute('id', TAB_ICON_STYLE_ID);
+        style.textContent = `
+.icon-item-type[data-item-type="${TAB_ICON}"] {
+    background-image: url("${this.rootURI}ui/icons/markdown.svg") !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    background-size: contain !important;
+}
+`;
+        document.documentElement.appendChild(style);
+        this.tabIconStyle = style;
     }
 
     ensureSessionStateFilter() {

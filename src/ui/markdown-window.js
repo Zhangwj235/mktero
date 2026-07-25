@@ -2,6 +2,7 @@ import { renderMarkdownHTML } from '../markdown/markdown-html.js';
 import { createLoadingPresentation } from './markdown-loading-state.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 export function createMarkdownTabView({ document, rootURI, model, zotero }) {
     return new MarkdownTabView({ document, rootURI, model, zotero });
@@ -20,7 +21,6 @@ class MarkdownTabView {
         this.renderedAssets = undefined;
         this.assetURLs = new Map();
         this.listeners = [];
-        this.copyResetTimer = null;
 
         this.host = this.createElement('div', {
             class: 'mktero-tab-host',
@@ -53,7 +53,6 @@ class MarkdownTabView {
         const loadingView = createLoadingPresentation(model);
         const showContent = model.status === 'ready' || loadingView.preserveContent;
 
-        elements.title.textContent = model.title || 'Mktero';
         elements.progress.hidden = !loadingView.visible;
         elements.progress.value = loadingView.progress || 0;
         elements.loading.hidden = !loadingView.visible;
@@ -68,9 +67,6 @@ class MarkdownTabView {
         elements.warning.textContent = model.warnings?.join(' ') || '';
         elements.previewButton.disabled = !showContent;
         elements.sourceButton.disabled = !showContent;
-        elements.copyButton.disabled = !showContent;
-        elements.reparseButton.disabled = loadingView.visible
-            || typeof model.onReparse !== 'function';
         this.syncContentVisibility(showContent);
 
         if (loadingView.visible) {
@@ -83,18 +79,15 @@ class MarkdownTabView {
             if (!loadingView.preserveContent) {
                 this.revokeAssetURLs();
                 elements.preview.replaceChildren();
-                elements.source.textContent = '';
+                elements.source.value = '';
             }
             return;
         }
 
         if (model.status === 'ready') {
-            this.syncAssetURLs();
             elements.status.textContent = sourceLabel(model.sourceKind, model.cacheHit);
-            this.replacePreviewHTML(renderMarkdownHTML(model.markdown || '', {
-                resolveImageURL: source => this.resolveImageURL(source),
-            }));
-            elements.source.textContent = model.markdown || '';
+            this.renderMarkdownPreview();
+            elements.source.value = model.markdown || '';
             return;
         }
 
@@ -120,10 +113,6 @@ class MarkdownTabView {
             element.removeEventListener(type, listener);
         }
         this.listeners = [];
-        if (this.copyResetTimer !== null) {
-            this.ownerWindow.clearTimeout?.(this.copyResetTimer);
-            this.copyResetTimer = null;
-        }
         this.revokeAssetURLs();
         this.root.remove?.();
     }
@@ -151,18 +140,27 @@ class MarkdownTabView {
     }
 
     createContent() {
-        const previewButton = this.createButton('mktero-show-preview', 'Preview', true);
-        const sourceButton = this.createButton('mktero-show-source', 'Markdown');
-        const reparseButton = this.createButton('mktero-reparse', 'Reparse');
-        const copyButton = this.createButton('mktero-copy', 'Copy Markdown');
-        const title = this.createElement('h1', { id: 'mktero-title' }, 'Mktero');
+        const previewButton = this.createModeButton(
+            'mktero-show-preview',
+            '预览',
+            'preview',
+            true
+        );
+        const sourceButton = this.createModeButton(
+            'mktero-show-source',
+            '查看源文件',
+            'source'
+        );
         const status = this.createElement(
             'span',
-            { id: 'mktero-status' },
+            {
+                id: 'mktero-status',
+                class: 'visually-hidden',
+                role: 'status',
+                'aria-live': 'polite',
+            },
             'Converting PDF…'
         );
-        const titleArea = this.createElement('div', { class: 'title-area' });
-        appendChildren(titleArea, title, status);
 
         const modeSwitch = this.createElement('div', {
             class: 'mode-switch',
@@ -170,10 +168,8 @@ class MarkdownTabView {
             'aria-label': 'View mode',
         });
         appendChildren(modeSwitch, previewButton, sourceButton);
-        const actions = this.createElement('div', { class: 'actions' });
-        appendChildren(actions, modeSwitch, reparseButton, copyButton);
         const header = this.createElement('header', { class: 'app-header' });
-        appendChildren(header, titleArea, actions);
+        appendChildren(header, modeSwitch, status);
 
         const progress = this.createElement('progress', {
             id: 'mktero-progress',
@@ -260,9 +256,12 @@ class MarkdownTabView {
             class: 'markdown-body',
         });
         preview.hidden = true;
-        const source = this.createElement('pre', {
+        const source = this.createElement('textarea', {
             id: 'mktero-source',
             class: 'markdown-source',
+            'aria-label': 'Markdown 源文件',
+            autocomplete: 'off',
+            spellcheck: 'false',
         });
         source.hidden = true;
         const content = this.createElement('main', {
@@ -275,7 +274,6 @@ class MarkdownTabView {
         appendChildren(view, header, progress, warning, error, content);
         return {
             view,
-            title,
             status,
             progress,
             warning,
@@ -291,16 +289,52 @@ class MarkdownTabView {
             source,
             previewButton,
             sourceButton,
-            reparseButton,
-            copyButton,
         };
     }
 
-    createButton(id, label, active = false) {
-        const button = this.createElement('button', { id, type: 'button' }, label);
+    createModeButton(id, label, iconName, active = false) {
+        const button = this.createElement('button', {
+            id,
+            type: 'button',
+            'aria-pressed': String(active),
+        });
         button.disabled = true;
         button.classList.toggle('active', active);
+        appendChildren(
+            button,
+            this.createModeIcon(iconName),
+            this.createElement('span', { class: 'mode-label' }, label)
+        );
         return button;
+    }
+
+    createModeIcon(iconName) {
+        const svg = this.document.createElementNS(SVG_NAMESPACE, 'svg');
+        setAttributes(svg, {
+            class: 'mode-icon',
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-width': '1.8',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+            'aria-hidden': 'true',
+        });
+        const iconParts = iconName === 'preview'
+            ? [
+                ['path', { d: 'M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z' }],
+                ['circle', { cx: '12', cy: '12', r: '2.7' }],
+            ]
+            : [
+                ['circle', { cx: '12', cy: '12', r: '9.5' }],
+                ['path', { d: 'm9 8-4 4 4 4M15 8l4 4-4 4M14 6.5l-4 11' }],
+            ];
+        for (const [tagName, attributes] of iconParts) {
+            const part = this.document.createElementNS(SVG_NAMESPACE, tagName);
+            setAttributes(part, attributes);
+            svg.appendChild(part);
+        }
+        return svg;
     }
 
     createElement(tagName, attributes = {}, text = '') {
@@ -315,8 +349,7 @@ class MarkdownTabView {
     bindActions() {
         this.listen(this.elements.previewButton, 'click', () => this.setMode('preview'));
         this.listen(this.elements.sourceButton, 'click', () => this.setMode('source'));
-        this.listen(this.elements.copyButton, 'click', () => this.copyMarkdown());
-        this.listen(this.elements.reparseButton, 'click', () => this.reparse());
+        this.listen(this.elements.source, 'input', () => this.updateMarkdownSource());
         this.listen(this.elements.preview, 'click', event => this.openLink(event));
     }
 
@@ -329,60 +362,30 @@ class MarkdownTabView {
         const previewMode = this.elements.previewButton.classList.contains('active');
         this.elements.preview.hidden = !visible || !previewMode;
         this.elements.source.hidden = !visible || previewMode;
+        this.elements.content.classList.toggle('source-mode', visible && !previewMode);
     }
 
     setMode(mode) {
         const previewMode = mode === 'preview';
-        this.elements.preview.hidden = !previewMode;
-        this.elements.source.hidden = previewMode;
+        const loadingView = createLoadingPresentation(this.model);
+        const showContent = this.model.status === 'ready' || loadingView.preserveContent;
         this.elements.previewButton.classList.toggle('active', previewMode);
         this.elements.sourceButton.classList.toggle('active', !previewMode);
+        this.elements.previewButton.setAttribute('aria-pressed', String(previewMode));
+        this.elements.sourceButton.setAttribute('aria-pressed', String(!previewMode));
+        if (previewMode && showContent) this.renderMarkdownPreview();
+        this.syncContentVisibility(showContent);
     }
 
-    async reparse() {
-        const button = this.elements.reparseButton;
-        if (typeof this.model.onReparse !== 'function') return;
-        button.disabled = true;
-        try {
-            await this.model.onReparse();
-        }
-        finally {
-            button.disabled = this.model.status === 'loading';
-        }
+    updateMarkdownSource() {
+        this.model.markdown = this.elements.source.value;
     }
 
-    async copyMarkdown() {
-        const button = this.elements.copyButton;
-        try {
-            await this.writeClipboardText(this.model.markdown || '');
-            button.textContent = 'Copied';
-        }
-        catch {
-            button.textContent = 'Copy failed';
-        }
-        if (this.copyResetTimer !== null) {
-            this.ownerWindow.clearTimeout?.(this.copyResetTimer);
-        }
-        this.copyResetTimer = this.ownerWindow.setTimeout?.(() => {
-            button.textContent = 'Copy Markdown';
-            this.copyResetTimer = null;
-        }, 1500) ?? null;
-    }
-
-    async writeClipboardText(text) {
-        const clipboard = this.ownerWindow.navigator?.clipboard;
-        if (clipboard?.writeText) {
-            try {
-                await clipboard.writeText(text);
-                return;
-            }
-            catch {
-                // Privileged Zotero windows can reject the web Clipboard API.
-            }
-        }
-        const copyText = this.zotero?.Utilities?.Internal?.copyTextToClipboard;
-        if (!copyText) throw new Error('Clipboard API unavailable');
-        copyText.call(this.zotero.Utilities.Internal, text);
+    renderMarkdownPreview() {
+        this.syncAssetURLs();
+        this.replacePreviewHTML(renderMarkdownHTML(this.model.markdown || '', {
+            resolveImageURL: source => this.resolveImageURL(source),
+        }));
     }
 
     openLink(event) {
@@ -455,6 +458,12 @@ class MarkdownTabView {
 
 function appendChildren(parent, ...children) {
     for (const child of children) parent.appendChild(child);
+}
+
+function setAttributes(element, attributes) {
+    for (const [name, value] of Object.entries(attributes)) {
+        element.setAttribute(name, value);
+    }
 }
 
 function resolveZipPath(basePath, relativePath) {
