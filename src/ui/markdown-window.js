@@ -203,11 +203,6 @@ class MarkdownTabView {
             class: 'loading-spinner',
             'aria-hidden': 'true',
         });
-        const loadingEyebrow = this.createElement(
-            'span',
-            { class: 'loading-eyebrow' },
-            'MinerU conversion'
-        );
         const loadingTitle = this.createElement(
             'h2',
             { id: 'mktero-loading-title' },
@@ -246,7 +241,6 @@ class MarkdownTabView {
         const loadingContent = this.createElement('div', { class: 'loading-content' });
         appendChildren(
             loadingContent,
-            loadingEyebrow,
             loadingTitle,
             loadingDetail,
             loadingProgressHeading,
