@@ -6,6 +6,14 @@ const manifest = JSON.parse(await readFile(
     new URL('../manifest.json', import.meta.url),
     'utf8'
 ));
+const packageMetadata = JSON.parse(await readFile(
+    new URL('../package.json', import.meta.url),
+    'utf8'
+));
+const packageLock = JSON.parse(await readFile(
+    new URL('../package-lock.json', import.meta.url),
+    'utf8'
+));
 
 test('allows installation on the tested Zotero 9 minor version', () => {
     assert.equal(manifest.applications.zotero.strict_max_version, '9.0.*');
@@ -15,4 +23,11 @@ test('provides the update URL required by Zotero 9', () => {
     const updateURL = manifest.applications.zotero.update_url;
     assert.doesNotThrow(() => new URL(updateURL));
     assert.match(updateURL, /^https:\/\//);
+});
+
+test('keeps the installable package version metadata consistent', () => {
+    assert.notEqual(manifest.version, '0.1.0');
+    assert.equal(packageMetadata.version, manifest.version);
+    assert.equal(packageLock.version, manifest.version);
+    assert.equal(packageLock.packages[''].version, manifest.version);
 });

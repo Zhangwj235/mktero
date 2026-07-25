@@ -22,7 +22,7 @@ npm test
 npm run build
 ```
 
-The installable package is written to `build/mktero-0.1.0.xpi`.
+The installable package is written to `build/mktero-<version>.xpi`.
 
 To load source builds during development, create an extension proxy file named `mktero@tenglvjun.github.io` in the Zotero profile's `extensions` directory. Its contents should be the absolute path to `build/package`. Run `npm run build` before starting Zotero.
 
