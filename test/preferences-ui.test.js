@@ -11,7 +11,7 @@ test('formats cache statistics for the preferences pane', () => {
 });
 
 test('loads cache usage and clears it from the preferences pane', async () => {
-    const status = { textContent: '' };
+    const status = createControl({ textContent: '' });
     const button = {
         disabled: false,
         addEventListener(_type, listener) {
@@ -28,10 +28,14 @@ test('loads cache usage and clears it from the preferences pane', async () => {
     const proxyElements = createProxyElements();
     let stats = { entries: 2, sizeBytes: 1536 };
     let clearCalls = 0;
+    let finishClear;
     const cache = {
         getStats: async () => stats,
         clear: async () => {
             clearCalls++;
+            await new Promise(resolve => {
+                finishClear = resolve;
+            });
             stats = { entries: 0, sizeBytes: 0 };
         },
     };
@@ -43,16 +47,55 @@ test('loads cache usage and clears it from the preferences pane', async () => {
 
     await controller.init();
     assert.equal(status.textContent, '2 cached documents, 1.5 KB');
+    assert.equal(status.attributes['aria-busy'], 'false');
 
-    await button.listener();
+    const clearing = button.listener();
     assert.equal(clearCalls, 1);
+    assert.equal(button.disabled, true);
+    assert.equal(status.textContent, 'Clearing cache...');
+    assert.equal(status.attributes['aria-busy'], 'true');
+
+    finishClear();
+    await clearing;
     assert.equal(button.disabled, false);
     assert.equal(status.textContent, 'No cached documents');
+    assert.equal(status.attributes['aria-busy'], 'false');
+});
+
+test('restores cache controls when clearing the cache fails', async () => {
+    const status = createControl({ textContent: '' });
+    const button = createControl();
+    const proxyElements = createProxyElements();
+    const document = {
+        getElementById(id) {
+            if (id === 'mktero-cache-status') return status;
+            if (id === 'mktero-clear-cache') return button;
+            return proxyElements[id];
+        },
+    };
+    const failure = new Error('cache unavailable');
+    let loggedError;
+    const controller = createPreferencesController({
+        document,
+        zotero: { logError: error => { loggedError = error; } },
+        cache: {
+            getStats: async () => ({ entries: 0, sizeBytes: 0 }),
+            clear: async () => { throw failure; },
+        },
+    });
+
+    await controller.init();
+    await button.dispatch('click');
+
+    assert.equal(loggedError, failure);
+    assert.equal(button.disabled, false);
+    assert.equal(status.textContent, 'Cache could not be cleared');
+    assert.equal(status.attributes['aria-busy'], 'false');
 });
 
 test('reveals and validates manual proxy fields when system proxy is disabled', async () => {
     const proxyElements = createProxyElements();
-    const cacheStatus = { textContent: '' };
+    const cacheStatus = createControl({ textContent: '' });
     const clearButton = createControl();
     const document = {
         getElementById(id) {
@@ -72,6 +115,8 @@ test('reveals and validates manual proxy fields when system proxy is disabled', 
 
     await controller.init();
     assert.equal(proxyElements['mktero-proxy-use-system'].disabled, true);
+    assert.equal(proxyElements['mktero-system-proxy-row'].dataset.disabled, 'true');
+    assert.equal(proxyElements['mktero-system-proxy-row'].attributes['aria-disabled'], 'true');
     assert.equal(proxyElements['mktero-proxy-use-system'].attributes['aria-expanded'], 'false');
     assert.equal(proxyElements['mktero-manual-proxy-fields'].hidden, true);
     assert.equal(proxyElements['mktero-manual-proxy-fields'].attributes['aria-hidden'], 'true');
@@ -80,6 +125,8 @@ test('reveals and validates manual proxy fields when system proxy is disabled', 
     proxyElements['mktero-proxy-enabled'].checked = true;
     proxyElements['mktero-proxy-enabled'].dispatch('change');
     assert.equal(proxyElements['mktero-proxy-use-system'].disabled, false);
+    assert.equal(proxyElements['mktero-system-proxy-row'].dataset.disabled, 'false');
+    assert.equal(proxyElements['mktero-system-proxy-row'].attributes['aria-disabled'], 'false');
 
     proxyElements['mktero-proxy-use-system'].checked = false;
     proxyElements['mktero-proxy-use-system'].dispatch('change');
@@ -106,7 +153,7 @@ test('restores the saved manual proxy layout after Zotero hydrates preferences',
     const proxyElements = createProxyElements();
     const document = {
         getElementById(id) {
-            if (id === 'mktero-cache-status') return { textContent: '' };
+            if (id === 'mktero-cache-status') return createControl({ textContent: '' });
             if (id === 'mktero-clear-cache') return createControl();
             return proxyElements[id];
         },
@@ -137,6 +184,7 @@ test('restores the saved manual proxy layout after Zotero hydrates preferences',
 function createProxyElements() {
     return {
         'mktero-proxy-enabled': createControl({ checked: false }),
+        'mktero-system-proxy-row': createControl({ dataset: {} }),
         'mktero-proxy-use-system': createControl({ checked: true }),
         'mktero-manual-proxy-fields': createControl({ hidden: false }),
         'mktero-proxy-url': createControl({ value: '' }),
@@ -158,7 +206,7 @@ function createControl(properties = {}) {
             this.attributes[name] = String(value);
         },
         dispatch(type) {
-            listeners.get(type)?.();
+            return listeners.get(type)?.();
         },
     };
 }

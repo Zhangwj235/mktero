@@ -5,6 +5,7 @@ export function createPreferencesController({ document, zotero, cache }) {
     const status = document.getElementById('mktero-cache-status');
     const clearButton = document.getElementById('mktero-clear-cache');
     const proxyEnabled = document.getElementById('mktero-proxy-enabled');
+    const systemProxyRow = document.getElementById('mktero-system-proxy-row');
     const proxyUseSystem = document.getElementById('mktero-proxy-use-system');
     const manualProxyFields = document.getElementById('mktero-manual-proxy-fields');
     const proxyURL = document.getElementById('mktero-proxy-url');
@@ -12,6 +13,7 @@ export function createPreferencesController({ document, zotero, cache }) {
     const proxyStatus = document.getElementById('mktero-proxy-status');
 
     async function refresh() {
+        status.setAttribute('aria-busy', 'true');
         try {
             status.textContent = formatCacheStats(await cache.getStats());
         }
@@ -19,10 +21,14 @@ export function createPreferencesController({ document, zotero, cache }) {
             zotero.logError?.(error);
             status.textContent = 'Cache information unavailable';
         }
+        finally {
+            status.setAttribute('aria-busy', 'false');
+        }
     }
 
     async function clear() {
         clearButton.disabled = true;
+        status.setAttribute('aria-busy', 'true');
         status.textContent = 'Clearing cache...';
         try {
             await cache.clear();
@@ -34,6 +40,7 @@ export function createPreferencesController({ document, zotero, cache }) {
         }
         finally {
             clearButton.disabled = false;
+            status.setAttribute('aria-busy', 'false');
         }
     }
 
@@ -41,6 +48,8 @@ export function createPreferencesController({ document, zotero, cache }) {
         const enabled = proxyEnabled.checked;
         const manual = enabled && !proxyUseSystem.checked;
         proxyUseSystem.disabled = !enabled;
+        systemProxyRow.dataset.disabled = String(!enabled);
+        systemProxyRow.setAttribute('aria-disabled', String(!enabled));
         proxyUseSystem.setAttribute('aria-expanded', String(manual));
         manualProxyFields.hidden = !manual;
         manualProxyFields.setAttribute('aria-hidden', String(!manual));

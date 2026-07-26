@@ -65,9 +65,9 @@ test('ships the proxy preferences as a responsive settings card with switches', 
     ]);
 
     assert.match(pane, /class="mktero-settings-card"/);
-    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 2);
-    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 2);
-    assert.equal((pane.match(/role="switch"/g) || []).length, 2);
+    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 3);
+    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 3);
+    assert.equal((pane.match(/role="switch"/g) || []).length, 3);
     assert.match(
         pane,
         /id="mktero-proxy-use-system"[\s\S]*aria-controls="mktero-manual-proxy-fields"/
@@ -84,4 +84,29 @@ test('ships the proxy preferences as a responsive settings card with switches', 
     assert.match(styles, /\.mktero-switch-input:checked\s*\+\s*\.mktero-switch/);
     assert.match(styles, /\.mktero-switch::before/);
     assert.match(styles, /@media\s*\(max-width:/);
+});
+
+test('presents every preference group as one cohesive settings card', async () => {
+    const [pane, styles] = await Promise.all([
+        readFile(new URL('../ui/preferences.xhtml', import.meta.url), 'utf8'),
+        readFile(new URL('../ui/preferences.css', import.meta.url), 'utf8'),
+    ]);
+
+    assert.equal((pane.match(/class="mktero-settings-card"/g) || []).length, 3);
+    assert.equal((pane.match(/class="mktero-preferences-section"/g) || []).length, 3);
+    assert.match(
+        pane,
+        /id="mktero-mineru-api-key"[\s\S]*aria-describedby="mktero-token-help mktero-token-storage-note"/
+    );
+    assert.match(
+        pane,
+        /id="mktero-cache-enabled"[\s\S]*class="mktero-switch-input"[\s\S]*role="switch"/
+    );
+    assert.match(
+        pane,
+        /id="mktero-cache-status"[\s\S]*role="status"[\s\S]*aria-live="polite"/
+    );
+    assert.match(styles, /#mktero-preferences-pane\s*\{[\s\S]*max-width:/);
+    assert.match(styles, /\.mktero-preferences-section\s*\+\s*\.mktero-preferences-section/);
+    assert.match(styles, /\.mktero-card-note/);
 });
