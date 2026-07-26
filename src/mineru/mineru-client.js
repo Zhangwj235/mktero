@@ -89,6 +89,7 @@ export class MinerUClient {
             label: 'file upload',
             operation: requestSignal => this.fetch(uploadURL, {
                 method: 'PUT',
+                headers: { 'Content-Type': 'application/pdf' },
                 body: toUint8Array(fileData, 'PDF file data'),
                 signal: requestSignal,
             }),
@@ -177,7 +178,10 @@ export class MinerUClient {
             timeoutMs: this.downloadTimeoutMs,
             label: 'result download',
             operation: async requestSignal => {
-                const response = await this.fetch(url, { signal: requestSignal });
+                const response = await this.fetch(url, {
+                    signal: requestSignal,
+                    maxResponseBytes: this.maxArchiveBytes,
+                });
                 if (!response?.ok) {
                     throw httpError('MinerU result download failed', response);
                 }
@@ -343,7 +347,8 @@ function parseRetryAfter(value) {
 }
 
 function isKnownRequestError(error) {
-    return typeof error?.code === 'string' && error.code.startsWith('MINERU_');
+    return typeof error?.code === 'string'
+        && (error.code.startsWith('MINERU_') || error.code.startsWith('MKTERO_'));
 }
 
 function isRetryable(error) {

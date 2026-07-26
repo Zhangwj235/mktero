@@ -1,8 +1,15 @@
 import { createZoteroMarkdownCache } from '../cache/markdown-cache.js';
+import { parseProxyURL } from '../platform/proxy-transport.js';
 
 export function createPreferencesController({ document, zotero, cache }) {
     const status = document.getElementById('mktero-cache-status');
     const clearButton = document.getElementById('mktero-clear-cache');
+    const proxyEnabled = document.getElementById('mktero-proxy-enabled');
+    const proxyUseSystem = document.getElementById('mktero-proxy-use-system');
+    const manualProxyFields = document.getElementById('mktero-manual-proxy-fields');
+    const proxyURL = document.getElementById('mktero-proxy-url');
+    const proxyBypass = document.getElementById('mktero-proxy-bypass');
+    const proxyStatus = document.getElementById('mktero-proxy-status');
 
     async function refresh() {
         try {
@@ -30,9 +37,40 @@ export function createPreferencesController({ document, zotero, cache }) {
         }
     }
 
+    function syncProxyFields() {
+        const enabled = proxyEnabled.checked;
+        const manual = enabled && !proxyUseSystem.checked;
+        proxyUseSystem.disabled = !enabled;
+        manualProxyFields.hidden = !manual;
+        proxyURL.disabled = !manual;
+        proxyBypass.disabled = !manual;
+        proxyStatus.dataset.error = 'false';
+        proxyStatus.textContent = '';
+        if (!manual) return;
+        try {
+            parseProxyURL(proxyURL.value);
+        }
+        catch (error) {
+            proxyStatus.dataset.error = 'true';
+            proxyStatus.textContent = error.message;
+        }
+    }
+
     return {
         async init() {
             clearButton.addEventListener('click', clear);
+            proxyEnabled.addEventListener('change', syncProxyFields);
+            proxyUseSystem.addEventListener('change', syncProxyFields);
+            proxyURL.addEventListener('input', syncProxyFields);
+            for (const field of [
+                proxyEnabled,
+                proxyUseSystem,
+                proxyURL,
+                proxyBypass,
+            ]) {
+                field.addEventListener('syncfrompreference', syncProxyFields);
+            }
+            syncProxyFields();
             await refresh();
         },
     };

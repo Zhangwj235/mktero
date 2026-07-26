@@ -14,6 +14,52 @@
     min-height: 32px;
 }
 
+#mktero-proxy-section {
+    margin-top: 18px;
+}
+
+.mktero-setting-row,
+.mktero-proxy-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    max-width: 640px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--material-border, color-mix(in srgb, currentColor 16%, transparent));
+}
+
+.mktero-setting-row > span,
+.mktero-proxy-field > span {
+    display: grid;
+    gap: 4px;
+}
+
+.mktero-setting-row small,
+.mktero-proxy-field small {
+    color: var(--fill-secondary, currentColor);
+}
+
+#mktero-manual-proxy-fields[hidden] {
+    display: none;
+}
+
+.mktero-proxy-field input {
+    box-sizing: border-box;
+    width: min(320px, 48%);
+    min-height: 32px;
+}
+
+#mktero-proxy-status {
+    min-height: 1.4em;
+    margin-top: 8px;
+    color: var(--fill-secondary, currentColor);
+}
+
+#mktero-proxy-status[data-error="true"] {
+    color: var(--color-red-70, #c62828);
+}
+
 #mktero-cache-section {
     margin-top: 18px;
 }

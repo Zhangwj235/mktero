@@ -1,4 +1,5 @@
 import {
+    getMkteroProxyConfig,
     getMinerUCacheEnabled,
     getMinerUApiKey,
     openMinerUPreferences,
@@ -19,6 +20,7 @@ import {
 } from './extractors/mineru-extractor.js';
 import { MinerUClient } from './mineru/mineru-client.js';
 import { createRuntimeAbortController } from './platform/abort-controller.js';
+import { createZoteroProxyTransport } from './platform/proxy-transport.js';
 import { removeProviderBranding } from './ui/provider-neutral-copy.js';
 import { registerItemContextMenu } from './ui/item-context-menu.js';
 import { registerReaderToolbar } from './ui/reader-toolbar.js';
@@ -35,6 +37,7 @@ const runtime = {
     service: null,
     presenter: null,
     cache: null,
+    proxyTransport: null,
     rootURI: null,
     preferencePaneID: null,
     disposeToolbar: null,
@@ -61,10 +64,18 @@ globalThis.startup = async function startup({ id, rootURI }) {
         pathUtils: PathUtils,
     });
     runtime.cache = cache;
+    const proxyTransport = createZoteroProxyTransport({
+        zotero: Zotero,
+        components: typeof Components === 'undefined' ? null : Components,
+        chromeUtils: typeof ChromeUtils === 'undefined' ? null : ChromeUtils,
+        getConfig: () => getMkteroProxyConfig(Zotero),
+    });
+    runtime.proxyTransport = proxyTransport;
     runtime.service = new MarkdownDocumentService({
         extractor: new MinerUDocumentExtractor({
             zotero: Zotero,
             client: new MinerUClient({
+                fetch: proxyTransport.fetch,
                 createAbortController: createZoteroAbortController,
             }),
             getApiKey: () => getMinerUApiKey(Zotero),
@@ -76,13 +87,23 @@ globalThis.startup = async function startup({ id, rootURI }) {
     });
     cache.prune().catch(error => Zotero.logError(error));
     presenter.ensureSessionStateFilter();
-    const preferencePaneID = await registerMinerUPreferencesPane({
-        zotero: Zotero,
-        pluginID: id,
-        rootURI,
-    });
+    let preferencePaneID;
+    try {
+        preferencePaneID = await registerMinerUPreferencesPane({
+            zotero: Zotero,
+            pluginID: id,
+            rootURI,
+        });
+    }
+    catch (error) {
+        proxyTransport.dispose();
+        if (runtime.proxyTransport === proxyTransport) runtime.proxyTransport = null;
+        throw error;
+    }
     if (runtime.presenter !== presenter) {
         Zotero.PreferencePanes.unregister?.(preferencePaneID);
+        proxyTransport.dispose();
+        if (runtime.proxyTransport === proxyTransport) runtime.proxyTransport = null;
         return;
     }
     runtime.preferencePaneID = preferencePaneID;
@@ -102,6 +123,7 @@ globalThis.shutdown = function shutdown() {
     runtime.disposeToolbar?.();
     disposeAllContextMenus();
     runtime.presenter?.dispose();
+    runtime.proxyTransport?.dispose();
     if (runtime.preferencePaneID) {
         Zotero.PreferencePanes.unregister?.(runtime.preferencePaneID);
     }
@@ -109,6 +131,7 @@ globalThis.shutdown = function shutdown() {
     runtime.presenter = null;
     runtime.service = null;
     runtime.cache = null;
+    runtime.proxyTransport = null;
     runtime.rootURI = null;
     runtime.preferencePaneID = null;
     runtime.id = null;
@@ -189,7 +212,9 @@ async function openItemAsMarkdown(itemID, { forceRefresh = false } = {}) {
         );
         Zotero.logError(error);
         if (error instanceof MinerUConfigurationError
-            || error?.code === 'MINERU_API_KEY_INVALID') {
+            || error?.code === 'MINERU_API_KEY_INVALID'
+            || error?.code === 'MKTERO_PROXY_CONFIG_INVALID'
+            || error?.code === 'MKTERO_PROXY_RUNTIME_UNAVAILABLE') {
             openMinerUPreferences(Zotero);
         }
         runtime.presenter?.update(
@@ -294,6 +319,12 @@ function userFacingError(error) {
     }
     if (error?.code === 'MINERU_API_KEY_INVALID') {
         return 'The API Token is invalid or expired. Update it in Settings → Mktero.';
+    }
+    if (error?.code === 'MKTERO_PROXY_CONFIG_INVALID') {
+        return 'The manual proxy address is invalid. Update it in Settings → Mktero.';
+    }
+    if (error?.code === 'MKTERO_PROXY_RUNTIME_UNAVAILABLE') {
+        return 'Manual proxy routing is unavailable in this Zotero runtime.';
     }
     const message = error instanceof Error ? error.message : String(error);
     if (/no extractable text/i.test(message)) {

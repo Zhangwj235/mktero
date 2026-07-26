@@ -20,6 +20,59 @@
         </description>
     </groupbox>
 
+    <groupbox id="mktero-proxy-section" aria-labelledby="mktero-proxy-title">
+        <label><html:h2 id="mktero-proxy-title">Proxy</html:h2></label>
+
+        <html:label class="mktero-setting-row" for="mktero-proxy-enabled">
+            <html:span>
+                <html:strong>Enable proxy</html:strong>
+                <html:small>Route Mktero network requests through the selected proxy mode</html:small>
+            </html:span>
+            <html:input id="mktero-proxy-enabled"
+                        type="checkbox"
+                        preference="extensions.mktero.proxyEnabled" />
+        </html:label>
+
+        <html:label class="mktero-setting-row" for="mktero-proxy-use-system">
+            <html:span>
+                <html:strong>Use system proxy</html:strong>
+                <html:small>Use the proxy settings resolved by Zotero</html:small>
+            </html:span>
+            <html:input id="mktero-proxy-use-system"
+                        type="checkbox"
+                        preference="extensions.mktero.proxyUseSystem" />
+        </html:label>
+
+        <html:div id="mktero-manual-proxy-fields">
+            <html:label class="mktero-proxy-field" for="mktero-proxy-url">
+                <html:span>
+                    <html:strong>Manual proxy address</html:strong>
+                    <html:small>Supports http, https, socks5, socks5h, and authentication</html:small>
+                </html:span>
+                <html:input id="mktero-proxy-url"
+                            type="text"
+                            preference="extensions.mktero.proxyURL"
+                            placeholder="socks5h://user:pass@127.0.0.1:1080"
+                            autocomplete="off"
+                            spellcheck="false" />
+            </html:label>
+
+            <html:label class="mktero-proxy-field" for="mktero-proxy-bypass">
+                <html:span>
+                    <html:strong>Bypass proxy for</html:strong>
+                    <html:small>Comma-separated hosts, for example localhost, 127.0.0.1, *.local</html:small>
+                </html:span>
+                <html:input id="mktero-proxy-bypass"
+                            type="text"
+                            preference="extensions.mktero.proxyBypass"
+                            placeholder="localhost, 127.0.0.1"
+                            autocomplete="off"
+                            spellcheck="false" />
+            </html:label>
+        </html:div>
+        <description id="mktero-proxy-status" aria-live="polite"></description>
+    </groupbox>
+
     <groupbox id="mktero-cache-section" aria-labelledby="mktero-cache-title">
         <label><html:h2 id="mktero-cache-title">Local Markdown cache</html:h2></label>
 

@@ -4,6 +4,8 @@ Mktero is a Zotero 7/8/9 plugin that opens PDFs as Markdown from either the PDF 
 
 Configure a MinerU API Token under **Settings → Mktero** before converting a PDF. The token is stored as a standard, unencrypted preference in the local Zotero profile. Clicking **MD** uploads the current PDF to MinerU for processing.
 
+Mktero requests can optionally use Zotero's resolved system proxy or a manual proxy under **Settings → Mktero → Proxy**. Manual addresses support `http`, `https`, `socks5`, and `socks5h`, including credentials in the URL. The bypass list accepts comma-separated exact hosts and domain patterns such as `*.local`. Proxy credentials are stored as an unencrypted preference in the local Zotero profile.
+
 Successful MinerU results are cached locally by PDF content and parser profile. Opening an unchanged PDF again reuses its Markdown and figures without requiring a Token or another upload. Markdown remains the editor's source of truth while inactive formatting, formulas, tables, code blocks, and figures render in place. Use the compact editing toolbar for common formatting, or move the caret into a rendered element to reveal and edit its Markdown. **Save** and **Cmd/Ctrl+S** store changes in the same local cache. Saved edits reopen even when automatic result caching is disabled. Clearing the cache also removes those edits. Cache files are stored unencrypted in the current Zotero profile and are not synced.
 
 ## Development
