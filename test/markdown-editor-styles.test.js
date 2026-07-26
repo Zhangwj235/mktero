@@ -107,6 +107,31 @@ test('styles citation popups and temporary reference highlights', () => {
     assert.match(popup, /position:\s*fixed/);
     assert.match(popup, /max-width:\s*min\(460px, calc\(100vw - 24px\)\)/);
     assert.match(popup, /z-index:\s*900/);
+    assert.match(popup, /--citation-popup-surface:\s*#fff/);
+    assert.match(popup, /--citation-popup-text:\s*#24292f/);
+    assert.match(popup, /--citation-popup-border:\s*#d8dee4/);
+    assert.match(popup, /--citation-popup-hover:\s*#f3f6fb/);
+    assert.match(popup, /--citation-popup-accent:\s*#2f6feb/);
+    assert.match(popup, /background:\s*var\(--citation-popup-surface\)/);
+
+    const popupItem = ruleBody('.mktero-citation-popup-item');
+    assert.match(popupItem, /padding:\s*10px 12px/);
+    assert.match(popupItem, /border-radius:\s*7px/);
+
+    const popupItemHover = ruleBody([
+        '.mktero-citation-popup-item:hover,',
+        '.mktero-citation-popup-item:focus-visible',
+    ].join('\n'));
+    assert.match(popupItemHover, /background:\s*var\(--citation-popup-hover\)/);
+    assert.match(
+        popupItemHover,
+        /box-shadow:\s*inset 3px 0 0 var\(--citation-popup-accent\)/
+    );
+
+    assert.match(
+        MARKDOWN_STYLES,
+        /\n\n\.mktero-citation-popup-item:focus-visible\s*\{[^}]*outline:\s*2px solid color-mix\([\s\S]*?var\(--citation-popup-accent\) 35%[^}]*\}/
+    );
 
     const highlight = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-reference-highlight'
