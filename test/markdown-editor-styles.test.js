@@ -133,6 +133,13 @@ test('styles citation popups and temporary reference highlights', () => {
         /\n\n\.mktero-citation-popup-item:focus-visible\s*\{[^}]*outline:\s*2px solid color-mix\([\s\S]*?var\(--citation-popup-accent\) 35%[^}]*\}/
     );
 
+    const superscriptCitation = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-citation-superscript'
+    );
+    assert.match(superscriptCitation, /font-size:\s*0\.75em/);
+    assert.match(superscriptCitation, /line-height:\s*1/);
+    assert.match(superscriptCitation, /vertical-align:\s*super/);
+
     const highlight = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-reference-highlight'
     );

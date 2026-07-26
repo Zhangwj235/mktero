@@ -415,13 +415,40 @@ function buildDecorations(state, context) {
 
 function decorateCitations(state, decorations, context) {
     const result = citationAnalysis(state, context);
+    const hiddenSuperscriptMarkup = new Set();
     for (const citation of result.citations) {
-        if (editingRangeIntersects(context, citation.from, citation.to)
+        const markup = citation.superscriptMarkup;
+        const decoratedFrom = markup?.wrapperFrom ?? citation.from;
+        const decoratedTo = markup?.wrapperTo ?? citation.to;
+        if (editingRangeIntersects(context, decoratedFrom, decoratedTo)
             || citationRangeIsExcluded(state, citation.from)) {
             continue;
         }
+        if (markup) {
+            const markupKey = `${markup.wrapperFrom}:${markup.wrapperTo}`;
+            if (!hiddenSuperscriptMarkup.has(markupKey)) {
+                hiddenSuperscriptMarkup.add(markupKey);
+                if (markup.wrapperFrom < markup.contentFrom) {
+                    decorations.push(Decoration.replace({}).range(
+                        markup.wrapperFrom,
+                        markup.contentFrom
+                    ));
+                }
+                if (markup.contentTo < markup.wrapperTo) {
+                    decorations.push(Decoration.replace({}).range(
+                        markup.contentTo,
+                        markup.wrapperTo
+                    ));
+                }
+            }
+        }
         decorations.push(Decoration.mark({
-            class: 'cm-mktero-citation',
+            class: [
+                'cm-mktero-citation',
+                markup?.raiseContent
+                    ? 'cm-mktero-citation-superscript'
+                    : '',
+            ].filter(Boolean).join(' '),
             attributes: {
                 role: 'link',
                 tabindex: '0',
@@ -739,6 +766,14 @@ function decorateMath(
         if (rangeOverlapsAny(matchFrom, matchTo, displayRanges)
             || rangeOverlapsAny(matchFrom, matchTo, excludedRanges)
             || editingRangeIntersects(context, matchFrom, matchTo)) continue;
+        if (hasSuperscriptCitationMarkup(
+            state,
+            context,
+            matchFrom,
+            matchTo
+        )) {
+            continue;
+        }
         const citationContent = dollarWrappedNumericCitationContent(match.raw);
         if (citationContent) {
             const contentFrom = matchFrom + citationContent.from;
@@ -761,6 +796,13 @@ function decorateMath(
             findAncestorAt(state, matchFrom, 'Link') ? 'cm-mktero-link' : ''
         ));
     }
+}
+
+function hasSuperscriptCitationMarkup(state, context, from, to) {
+    return citationAnalysis(state, context).citations.some(citation => (
+        citation.superscriptMarkup?.wrapperFrom === from
+        && citation.superscriptMarkup.wrapperTo === to
+    ));
 }
 
 function isBracketedNumericCitation(source) {

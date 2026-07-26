@@ -50,6 +50,104 @@ test('maps numeric citation tags and ranges to numbered references', () => {
     )));
 });
 
+test('maps HTML superscript citation numbers and ranges to references', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Relaxation methods reduce anxiety<sup>2–4</sup>.',
+        'Slow breathing improves awareness.<sup>6</sup>',
+        'Surface area remains m<sup>2</sup>.',
+        '',
+        '## References',
+        '',
+        '[2] Beta B. Second paper. 2020.',
+        '[3] Gamma G. Third paper. 2021.',
+        '[4] Delta D. Fourth paper. 2022.',
+        '[6] Zeta Z. Sixth paper. 2024.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            referenceIds: citation.referenceIds,
+        })),
+        [
+            {
+                label: '2–4',
+                referenceIds: ['number:2', 'number:3', 'number:4'],
+            },
+            { label: '6', referenceIds: ['number:6'] },
+        ]
+    );
+});
+
+test('maps LaTeX superscript citation numbers and ranges to references', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Relaxation methods reduce anxiety $^{2-4}$.',
+        'Slow breathing improves awareness \\(^{6}\\).',
+        'Surface area remains m$^{2}$.',
+        '',
+        '## References',
+        '',
+        '[2] Beta B. Second paper. 2020.',
+        '[3] Gamma G. Third paper. 2021.',
+        '[4] Delta D. Fourth paper. 2022.',
+        '[6] Zeta Z. Sixth paper. 2024.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            referenceIds: citation.referenceIds,
+        })),
+        [
+            {
+                label: '2-4',
+                referenceIds: ['number:2', 'number:3', 'number:4'],
+            },
+            { label: '6', referenceIds: ['number:6'] },
+        ]
+    );
+});
+
+test('maps Unicode superscript citations without treating exponents as references', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Relaxation methods reduce anxiety²⁻⁴.',
+        'Slow breathing improves awareness⁶, while area stays m².',
+        '',
+        '## References',
+        '',
+        '[2] Beta B. Second paper. 2020.',
+        '[3] Gamma G. Third paper. 2021.',
+        '[4] Delta D. Fourth paper. 2022.',
+        '[6] Zeta Z. Sixth paper. 2024.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            referenceIds: citation.referenceIds,
+        })),
+        [
+            {
+                label: '²⁻⁴',
+                referenceIds: ['number:2', 'number:3', 'number:4'],
+            },
+            { label: '⁶', referenceIds: ['number:6'] },
+        ]
+    );
+});
+
 test('matches parenthetical and narrative author-year citations', () => {
     const markdown = [
         '# Paper',

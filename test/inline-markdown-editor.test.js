@@ -765,6 +765,132 @@ test('renders dollar-wrapped numeric citations emitted by the PDF converter', ()
     dom.window.close();
 });
 
+test('renders HTML superscript citations as interactive reference links', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'Relaxation methods reduce anxiety<sup>2–4</sup>.',
+        '',
+        '## References',
+        '',
+        '[2] Beta B. Second paper. 2020.',
+        '[3] Gamma G. Third paper. 2021.',
+        '[4] Delta D. Fourth paper. 2022.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    const citation = document.querySelector('.cm-mktero-citation');
+    assert.equal(citation?.textContent, '2–4');
+    assert.ok(citation?.classList.contains('cm-mktero-citation-superscript'));
+    assert.doesNotMatch(
+        document.querySelector('.cm-content')?.textContent || '',
+        /<\/?sup>/
+    );
+
+    citation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    const popup = document.querySelector('.mktero-citation-popup');
+    assert.equal(
+        popup?.querySelectorAll('.mktero-citation-popup-item').length,
+        3
+    );
+    assert.match(popup?.textContent || '', /Beta B\. Second paper\. 2020\./);
+    assert.match(popup?.textContent || '', /Delta D\. Fourth paper\. 2022\./);
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('keeps LaTeX superscript citations interactive instead of rendering math', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'Relaxation methods reduce anxiety $^{2-4}$.',
+        '',
+        '## References',
+        '',
+        '[2] Beta B. Second paper. 2020.',
+        '[3] Gamma G. Third paper. 2021.',
+        '[4] Delta D. Fourth paper. 2022.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    const citation = document.querySelector('.cm-mktero-citation');
+    assert.equal(citation?.textContent, '2-4');
+    assert.ok(citation?.classList.contains('cm-mktero-citation-superscript'));
+    assert.equal(document.querySelector('.cm-mktero-math'), null);
+    assert.doesNotMatch(
+        document.querySelector('.cm-content')?.textContent || '',
+        /\$|\^|\{|\}/
+    );
+
+    citation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.equal(
+        document.querySelectorAll('.mktero-citation-popup-item').length,
+        3
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('keeps Unicode superscript citation glyphs at their native position', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'Relaxation methods reduce anxiety²⁻⁴.',
+        '',
+        '## References',
+        '',
+        '[2] Beta B. Second paper. 2020.',
+        '[3] Gamma G. Third paper. 2021.',
+        '[4] Delta D. Fourth paper. 2022.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    const citation = document.querySelector('.cm-mktero-citation');
+    assert.equal(citation?.textContent, '²⁻⁴');
+    assert.ok(!citation?.classList.contains('cm-mktero-citation-superscript'));
+
+    citation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.equal(
+        document.querySelectorAll('.mktero-citation-popup-item').length,
+        3
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('opens every reference in a grouped citation from its popup', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
