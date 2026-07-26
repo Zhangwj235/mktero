@@ -1,6 +1,22 @@
 import { createZoteroMarkdownCache } from '../cache/markdown-cache.js';
 import { parseProxyURL } from '../platform/proxy-transport.js';
 
+export function registerPreferencesPaneLoader({ document, initialize }) {
+    const initializations = new WeakMap();
+    const handleLoad = event => {
+        const pane = event.target;
+        if (pane?.id !== 'mktero-preferences-pane') return;
+        let initialization = initializations.get(pane);
+        if (!initialization) {
+            initialization = Promise.resolve().then(() => initialize(event));
+            initializations.set(pane, initialization);
+        }
+        event.waitUntil?.(initialization);
+    };
+    document.addEventListener('load', handleLoad, true);
+    return () => document.removeEventListener('load', handleLoad, true);
+}
+
 export function createPreferencesController({ document, zotero, cache }) {
     const status = document.getElementById('mktero-cache-status');
     const clearButton = document.getElementById('mktero-clear-cache');
@@ -113,15 +129,22 @@ function trimDecimal(value) {
 
 globalThis.MkteroPreferences = {
     init(event) {
-        const document = event.currentTarget?.ownerDocument || globalThis.document;
+        const document = event.target?.ownerDocument
+            || event.currentTarget?.ownerDocument
+            || globalThis.document;
         const cache = createZoteroMarkdownCache({
             zotero: Zotero,
             ioUtils: IOUtils,
             pathUtils: PathUtils,
         });
         const controller = createPreferencesController({ document, zotero: Zotero, cache });
-        const initialization = controller.init();
-        event.waitUntil?.(initialization);
-        return initialization;
+        return controller.init();
     },
 };
+
+if (globalThis.document?.addEventListener) {
+    registerPreferencesPaneLoader({
+        document: globalThis.document,
+        initialize: event => globalThis.MkteroPreferences.init(event),
+    });
+}

@@ -38,7 +38,8 @@ test('ships MinerU token, cache preferences, and Markdown UI assets', async () =
     assert.match(pane, /preference="extensions\.mktero\.proxyBypass"/);
     assert.match(pane, /socks5h:\/\/user:pass@127\.0\.0\.1:1080/);
     assert.match(pane, /id="mktero-clear-cache"/);
-    assert.match(pane, /MkteroPreferences\.init\(event\)/);
+    assert.doesNotMatch(pane, /onload=/);
+    assert.match(script, /registerPreferencesPaneLoader/);
     const visiblePreferenceText = pane.replace(/<[^>]+>/g, ' ');
     assert.doesNotMatch(visiblePreferenceText, /mineru/i);
     assert.match(script, /createZoteroMarkdownCache/);

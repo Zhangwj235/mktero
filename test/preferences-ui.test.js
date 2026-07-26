@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPreferencesController, formatCacheStats } from '../src/ui/preferences.js';
+import { JSDOM } from 'jsdom';
+import * as preferencesUI from '../src/ui/preferences.js';
+
+const { createPreferencesController, formatCacheStats } = preferencesUI;
 
 test('formats cache statistics for the preferences pane', () => {
     assert.equal(formatCacheStats({ entries: 0, sizeBytes: 0 }), 'No cached documents');
@@ -179,6 +182,33 @@ test('restores the saved manual proxy layout after Zotero hydrates preferences',
     assert.equal(proxyElements['mktero-manual-proxy-fields'].hidden, false);
     assert.equal(proxyElements['mktero-proxy-url'].disabled, false);
     assert.equal(proxyElements['mktero-proxy-status'].dataset.error, 'false');
+});
+
+test('initializes an imported preferences fragment from Zotero capture-phase load', async () => {
+    assert.equal(typeof preferencesUI.registerPreferencesPaneLoader, 'function');
+    const dom = new JSDOM('<!doctype html><div id="mktero-preferences-pane"></div>');
+    const pane = dom.window.document.getElementById('mktero-preferences-pane');
+    let initializeCalls = 0;
+    const dispose = preferencesUI.registerPreferencesPaneLoader({
+        document: dom.window.document,
+        initialize: async () => { initializeCalls++; },
+    });
+
+    let initialization;
+    const load = new dom.window.Event('load');
+    load.waitUntil = promise => { initialization = promise; };
+    pane.dispatchEvent(load);
+    await initialization;
+
+    pane.dispatchEvent(new dom.window.Event('load'));
+    assert.equal(initializeCalls, 1);
+    dispose();
+
+    const replacementPane = dom.window.document.createElement('div');
+    replacementPane.id = 'mktero-preferences-pane';
+    dom.window.document.body.append(replacementPane);
+    replacementPane.dispatchEvent(new dom.window.Event('load'));
+    assert.equal(initializeCalls, 1);
 });
 
 function createProxyElements() {
