@@ -1,14 +1,16 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { searchKeymap } from '@codemirror/search';
-import { Annotation, EditorState, Transaction } from '@codemirror/state';
+import { Annotation, Compartment, EditorState, Transaction } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { GFM } from '@lezer/markdown';
 import {
+    clearInlineEditing,
     createInlineRenderingExtension,
     refreshInlineRendering,
 } from './inline-rendering.js';
 import { runEditorCommand, runSaveShortcut } from './editor-commands.js';
+import { createImagePreview } from './image-preview.js';
 
 const externalUpdate = Annotation.define();
 const outlineScrollMeasureKey = {};
@@ -78,6 +80,19 @@ export function createInlineMarkdownEditor({
     const ownerWindow = parent.ownerDocument?.defaultView;
     if (!ownerWindow) throw new Error('The editor requires a browser window');
     acquireDOMGlobals(ownerWindow);
+    const imagePreview = createImagePreview(parent);
+    const editingMode = new Compartment();
+    let editingEnabled = false;
+    const setEditingEnabled = (editorView, enabled) => {
+        if (editingEnabled === enabled) return;
+        editingEnabled = enabled;
+        editorView.dispatch({
+            effects: editingMode.reconfigure([
+                EditorView.editable.of(enabled),
+                EditorState.readOnly.of(!enabled),
+            ]),
+        });
+    };
     let view;
     const removeDOMActivation = installDOMActivation(
         parent,
@@ -101,7 +116,14 @@ export function createInlineMarkdownEditor({
                     resolveImageURL,
                     openLink,
                     onSaveRequest,
+                    openImagePreview: imagePreview.open,
+                    enterEditing: editorView => setEditingEnabled(editorView, true),
+                    exitEditing: editorView => setEditingEnabled(editorView, false),
                 }),
+                editingMode.of([
+                    EditorView.editable.of(false),
+                    EditorState.readOnly.of(true),
+                ]),
                 history(),
                 keymap.of([
                     ...defaultKeymap,
@@ -135,6 +157,7 @@ export function createInlineMarkdownEditor({
         });
     }
     catch (error) {
+        imagePreview.destroy();
         removeDOMActivation();
         releaseDOMGlobals(ownerWindow);
         throw error;
@@ -149,8 +172,10 @@ export function createInlineMarkdownEditor({
             activateDOMGlobals(ownerWindow);
             const value = String(markdown || '');
             if (value === view.state.doc.toString()) return;
+            setEditingEnabled(view, false);
             view.dispatch({
                 changes: { from: 0, to: view.state.doc.length, insert: value },
+                effects: clearInlineEditing.of(null),
                 annotations: [
                     externalUpdate.of(true),
                     Transaction.addToHistory.of(false),
@@ -176,13 +201,21 @@ export function createInlineMarkdownEditor({
         },
         runCommand(command) {
             activateDOMGlobals(ownerWindow);
-            return runEditorCommand(view, command);
+            const enteredForCommand = !editingEnabled;
+            if (enteredForCommand) setEditingEnabled(view, true);
+            try {
+                return runEditorCommand(view, command);
+            }
+            finally {
+                if (enteredForCommand) setEditingEnabled(view, false);
+            }
         },
         destroy() {
             if (destroyed) return;
             destroyed = true;
             activateDOMGlobals(ownerWindow);
             try {
+                imagePreview.destroy();
                 view.destroy();
             }
             finally {
@@ -223,7 +256,7 @@ function activateDOMGlobals(ownerWindow) {
 function installDOMActivation(parent, ownerWindow, refreshViewport) {
     const activate = event => {
         activateDOMGlobals(ownerWindow);
-        if (event.type === 'scroll' || event.type === 'wheel') {
+        if (event?.type === 'scroll' || event?.type === 'wheel') {
             refreshViewport?.(event.type);
         }
     };

@@ -28,3 +28,36 @@ export function openRenderedLink(event, openLink) {
     openLink?.(anchor.getAttribute('href') || '');
     return true;
 }
+
+export function installRenderedImagePreview(container, openImagePreview) {
+    for (const image of container.querySelectorAll('img')) {
+        const alt = image.getAttribute('alt') || '图片';
+        image.setAttribute('role', 'button');
+        image.setAttribute('tabindex', '0');
+        image.setAttribute('aria-haspopup', 'dialog');
+        image.setAttribute('aria-label', `预览图片：${alt}`);
+    }
+    container.addEventListener('mousedown', event => {
+        if (!event.target?.closest?.('img')) return;
+        event.preventDefault();
+    });
+    container.addEventListener('click', event => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey) return;
+        openImage(event.target?.closest?.('img'), event, openImagePreview);
+    });
+    container.addEventListener('keydown', event => {
+        if (!['Enter', ' '].includes(event.key)) return;
+        openImage(event.target?.closest?.('img'), event, openImagePreview);
+    });
+}
+
+function openImage(image, event, openImagePreview) {
+    if (!image) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    openImagePreview?.({
+        src: image.currentSrc || image.getAttribute('src') || '',
+        alt: image.getAttribute('alt') || '',
+    });
+    return true;
+}

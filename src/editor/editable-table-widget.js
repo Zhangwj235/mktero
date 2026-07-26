@@ -1,6 +1,7 @@
 import { WidgetType } from '@codemirror/view';
 import {
     appendRenderedMarkdown,
+    installRenderedImagePreview,
     openRenderedLink,
 } from './rendered-markdown-dom.js';
 import { runSaveShortcut } from './editor-commands.js';
@@ -13,6 +14,7 @@ export class EditableTableWidget extends WidgetType {
         to,
         resolveImageURL,
         openLink,
+        openImagePreview,
         onSaveRequest,
         renderVersion,
     }) {
@@ -22,6 +24,7 @@ export class EditableTableWidget extends WidgetType {
         this.to = to;
         this.resolveImageURL = resolveImageURL;
         this.openLink = openLink;
+        this.openImagePreview = openImagePreview;
         this.onSaveRequest = onSaveRequest;
         this.renderVersion = renderVersion;
     }
@@ -46,16 +49,12 @@ export class EditableTableWidget extends WidgetType {
         const values = [tableModel.header, ...tableModel.body].flat();
         const cells = [...table.querySelectorAll('th, td')];
         cells.forEach((cell, index) => {
-            cell.setAttribute('contenteditable', 'true');
+            cell.setAttribute('contenteditable', 'false');
+            cell.setAttribute('tabindex', '0');
             cell.setAttribute('spellcheck', 'false');
+            let editing = false;
             let valueBeforeEditing = values[index] || '';
             let renderedBeforeEditing = null;
-            cell.addEventListener('focus', () => {
-                valueBeforeEditing = values[index] || '';
-                renderedBeforeEditing = [...cell.childNodes]
-                    .map(node => node.cloneNode(true));
-                cell.textContent = valueBeforeEditing;
-            });
             const commitEdit = () => {
                 const nextValue = (cell.textContent || '')
                     .replace(/\r?\n/g, '<br>')
@@ -83,9 +82,49 @@ export class EditableTableWidget extends WidgetType {
                     },
                 });
             };
+            const beginEdit = () => {
+                if (editing) return;
+                editing = true;
+                valueBeforeEditing = values[index] || '';
+                renderedBeforeEditing = [...cell.childNodes]
+                    .map(node => node.cloneNode(true));
+                cell.textContent = valueBeforeEditing;
+                cell.setAttribute('contenteditable', 'true');
+                cell.focus();
+            };
+            const cancelEdit = () => {
+                if (!editing) return;
+                if (renderedBeforeEditing) {
+                    cell.replaceChildren(...renderedBeforeEditing);
+                }
+                editing = false;
+                cell.setAttribute('contenteditable', 'false');
+                cell.focus();
+            };
+            cell.addEventListener('dblclick', event => {
+                if (event.target?.closest?.('img')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                beginEdit();
+            });
             registerTableCellCommandHandler(cell, commitEdit);
-            cell.addEventListener('blur', commitEdit);
+            cell.addEventListener('blur', () => {
+                if (!editing) return;
+                commitEdit();
+                editing = false;
+                cell.setAttribute('contenteditable', 'false');
+            });
             cell.addEventListener('keydown', event => {
+                if (!editing && ['Enter', 'F2'].includes(event.key)) {
+                    event.preventDefault();
+                    beginEdit();
+                    return;
+                }
+                if (editing && event.key === 'Escape') {
+                    event.preventDefault();
+                    cancelEdit();
+                    return;
+                }
                 runSaveShortcut(
                     event,
                     () => view.state.doc.toString(),
@@ -95,8 +134,10 @@ export class EditableTableWidget extends WidgetType {
             });
         });
         container.addEventListener('mousedown', event => {
+            if (event.target?.closest?.('img')) return;
             openRenderedLink(event, this.openLink);
         });
+        installRenderedImagePreview(container, this.openImagePreview);
         return container;
     }
 

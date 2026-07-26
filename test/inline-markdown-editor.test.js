@@ -4,6 +4,14 @@ import { EditorView } from '@codemirror/view';
 import { JSDOM } from 'jsdom';
 import { createInlineMarkdownEditor } from '../src/editor/inline-markdown-editor.js';
 
+function enterTableCellEditing(cell, ownerWindow) {
+    cell.dispatchEvent(new ownerWindow.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+}
+
 test('keeps Markdown as the source of truth and saves it through one editor surface', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -63,6 +71,91 @@ test('renders inactive Markdown formatting and formulas without rewriting source
     assert.equal(document.querySelector('.cm-mktero-strong').textContent, 'Bold');
     assert.ok(document.querySelector('.cm-mktero-math math'));
     assert.doesNotMatch(document.querySelector('.cm-content').textContent, /\*\*Bold\*\*/);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('keeps inline Markdown rendered until its line is double-clicked', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Intro\n\n**Bold** text';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => null,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const content = document.querySelector('.cm-content');
+    const boldPosition = markdown.indexOf('Bold');
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+    }));
+    assert.equal(editor.getMarkdown(), markdown);
+    view.dispatch({ selection: { anchor: boldPosition } });
+    view.posAtCoords = () => boldPosition;
+    const bold = document.querySelector('.cm-mktero-strong');
+
+    bold.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    bold.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.doesNotMatch(document.querySelector('.cm-content').textContent, /\*\*Bold\*\*/);
+
+    bold.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.match(document.querySelector('.cm-content').textContent, /\*\*Bold\*\*/);
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+    assert.equal(editor.getMarkdown(), markdown);
+
+    content.blur();
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('returns to rendered read mode when Markdown is replaced externally', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Intro\n\n**Bold**';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => null,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => markdown.indexOf('Bold');
+    document.querySelector('.cm-mktero-strong').dispatchEvent(
+        new dom.window.MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+        })
+    );
+    assert.equal(document.querySelector('.cm-content').getAttribute('contenteditable'), 'true');
+
+    editor.setMarkdown('# New document');
+
+    assert.equal(document.querySelector('.cm-content').getAttribute('contenteditable'), 'false');
+    assert.equal(document.querySelector('.cm-content').textContent.trim(), 'New document');
+    assert.equal(editor.getMarkdown(), '# New document');
 
     editor.destroy();
     dom.window.close();
@@ -201,12 +294,32 @@ test('edits a rendered GFM table cell while keeping the document Markdown-backed
     });
     const valueCell = document.querySelector('.cm-mktero-table tbody td:last-child');
 
+    assert.equal(valueCell.getAttribute('contenteditable'), 'false');
+    enterTableCellEditing(valueCell, dom.window);
     assert.equal(valueCell.getAttribute('contenteditable'), 'true');
     valueCell.textContent = '43';
     valueCell.dispatchEvent(new dom.window.FocusEvent('blur', { bubbles: true }));
 
     assert.equal(editor.getMarkdown(), markdown.replace('| Score | 42 |', '| Score | 43 |'));
     assert.equal(changes.at(-1), editor.getMarkdown());
+
+    const keyboardCell = document.querySelector('.cm-mktero-table tbody td:last-child');
+    keyboardCell.focus();
+    keyboardCell.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'F2',
+        bubbles: true,
+        cancelable: true,
+    }));
+    assert.equal(keyboardCell.getAttribute('contenteditable'), 'true');
+    keyboardCell.textContent = 'Discarded';
+    keyboardCell.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+    }));
+    assert.equal(keyboardCell.getAttribute('contenteditable'), 'false');
+    assert.equal(keyboardCell.textContent, '43');
+    assert.match(editor.getMarkdown(), /\| Score \| 43 \|/);
 
     editor.destroy();
     dom.window.close();
@@ -236,6 +349,7 @@ test('commits a rendered table cell before handling its save shortcut', () => {
     });
     const valueCell = document.querySelector('.cm-mktero-table tbody td:last-child');
 
+    enterTableCellEditing(valueCell, dom.window);
     valueCell.textContent = '43';
     valueCell.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
         key: 's',
@@ -269,7 +383,7 @@ test('applies inline toolbar formatting to a rendered table cell selection', () 
         resolveImageURL: () => null,
     });
     const nameCell = document.querySelector('.cm-mktero-table tbody td:first-child');
-    nameCell.focus();
+    enterTableCellEditing(nameCell, dom.window);
     const range = document.createRange();
     range.selectNodeContents(nameCell);
     document.getSelection().removeAllRanges();
@@ -285,7 +399,7 @@ test('applies inline toolbar formatting to a rendered table cell selection', () 
     const formattedCell = document.querySelector(
         '.cm-mktero-table tbody td:first-child'
     );
-    formattedCell.focus();
+    enterTableCellEditing(formattedCell, dom.window);
     const formattedRange = document.createRange();
     formattedRange.selectNodeContents(formattedCell);
     document.getSelection().removeAllRanges();
@@ -316,7 +430,7 @@ test('commits a pending rendered table edit before toolbar undo', () => {
         resolveImageURL: () => null,
     });
     const nameCell = document.querySelector('.cm-mktero-table tbody td:first-child');
-    nameCell.focus();
+    enterTableCellEditing(nameCell, dom.window);
     nameCell.textContent = 'Changed';
 
     assert.equal(editor.runCommand('undo'), true);
@@ -353,7 +467,7 @@ test('routes table toolbar commands through the editor shadow root', () => {
     const nameCell = shadowRoot.querySelector(
         '.cm-mktero-table tbody td:first-child'
     );
-    nameCell.focus();
+    enterTableCellEditing(nameCell, dom.window);
     const range = document.createRange();
     range.selectNodeContents(nameCell);
     shadowRoot.getSelection = () => ({
@@ -614,6 +728,135 @@ test('renders an image on its own hard-break line at reading width', () => {
     dom.window.close();
 });
 
+test('previews a rendered image with zoom and drag controls', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Intro\n\n![Figure](images/figure.png)';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => 'blob:mktero-preview-figure',
+    });
+    const renderedImage = document.querySelector('.cm-mktero-image img');
+    assert.equal(renderedImage.getAttribute('role'), 'button');
+    assert.equal(renderedImage.getAttribute('tabindex'), '0');
+    assert.equal(renderedImage.getAttribute('aria-haspopup'), 'dialog');
+
+    renderedImage.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    const dialog = document.querySelector('.mktero-image-preview');
+    const previewImage = dialog?.querySelector('.mktero-image-preview-image');
+    const scale = dialog?.querySelector('.mktero-image-preview-scale');
+    assert.equal(dialog?.getAttribute('role'), 'dialog');
+    assert.equal(dialog?.getAttribute('aria-modal'), 'true');
+    assert.equal(previewImage?.getAttribute('src'), 'blob:mktero-preview-figure');
+    assert.equal(previewImage?.getAttribute('alt'), 'Figure');
+    assert.equal(scale?.textContent, '100%');
+    assert.ok(document.querySelector('.cm-mktero-image'));
+    assert.equal(document.querySelector('.cm-editor').hasAttribute('inert'), true);
+    assert.equal(document.querySelector('.cm-editor').getAttribute('aria-hidden'), 'true');
+
+    const closeButton = dialog.querySelector('[aria-label="关闭图片预览"]');
+    const zoomOutButton = dialog.querySelector('[aria-label="缩小图片"]');
+    assert.equal(document.activeElement, closeButton);
+    dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Tab',
+        cancelable: true,
+    }));
+    assert.equal(document.activeElement, zoomOutButton);
+    dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey: true,
+        cancelable: true,
+    }));
+    assert.equal(document.activeElement, closeButton);
+
+    dialog.querySelector('[aria-label="放大图片"]').click();
+    assert.equal(scale.textContent, '125%');
+    assert.match(previewImage.style.transform, /scale\(1\.25\)/);
+
+    dialog.querySelector('[aria-label="缩小图片"]').click();
+    assert.equal(scale.textContent, '100%');
+    previewImage.dispatchEvent(new dom.window.MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 10,
+        clientY: 20,
+    }));
+    dom.window.dispatchEvent(new dom.window.MouseEvent('mousemove', {
+        clientX: 50,
+        clientY: 80,
+    }));
+    dom.window.dispatchEvent(new dom.window.MouseEvent('mouseup'));
+    assert.match(previewImage.style.transform, /translate\(40px, 60px\)/);
+    assert.equal(editor.getMarkdown(), markdown);
+
+    dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+    assert.equal(document.querySelector('.mktero-image-preview'), null);
+    assert.equal(document.querySelector('.cm-editor').hasAttribute('inert'), false);
+    assert.equal(document.querySelector('.cm-editor').getAttribute('aria-hidden'), null);
+
+    renderedImage.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+    }));
+    assert.ok(document.querySelector('.mktero-image-preview'));
+
+    editor.destroy();
+    assert.equal(document.querySelector('.mktero-image-preview'), null);
+    dom.window.close();
+});
+
+test('previews an image inside a rendered table without editing the cell', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Intro',
+        '',
+        '| Result | Image |',
+        '| --- | --- |',
+        '| A | ![Table figure](images/table-figure.png) |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => 'blob:mktero-table-figure',
+    });
+    const tableImage = document.querySelector('.cm-mktero-table img');
+    const mouseDown = new dom.window.MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    });
+
+    tableImage.dispatchEvent(mouseDown);
+    tableImage.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    assert.equal(mouseDown.defaultPrevented, true);
+    assert.equal(
+        document.querySelector('.mktero-image-preview-image')?.getAttribute('alt'),
+        'Table figure'
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('allows rendered block text to be selected without revealing its source', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -656,7 +899,7 @@ test('allows rendered block text to be selected without revealing its source', (
     dom.window.close();
 });
 
-test('renders an inactive indented Markdown code block', () => {
+test('enters rendered Markdown editing only on double-click', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -680,6 +923,15 @@ test('renders an inactive indented Markdown code block', () => {
 
     document.querySelector('.cm-mktero-code-block').dispatchEvent(
         new dom.window.MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+        })
+    );
+    assert.ok(document.querySelector('.cm-mktero-code-block'));
+
+    document.querySelector('.cm-mktero-code-block').dispatchEvent(
+        new dom.window.MouseEvent('dblclick', {
             bubbles: true,
             cancelable: true,
             button: 0,
@@ -947,6 +1199,7 @@ test('applies toolbar bold formatting and can undo it', () => {
     assert.equal(editor.runCommand('bold'), true);
     assert.equal(editor.getMarkdown(), '**粗体文字**Plain text');
     assert.equal(changes.at(-1), '**粗体文字**Plain text');
+    assert.equal(document.querySelector('.cm-content').getAttribute('contenteditable'), 'false');
 
     assert.equal(editor.runCommand('undo'), true);
     assert.equal(editor.getMarkdown(), 'Plain text');

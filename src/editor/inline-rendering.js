@@ -9,8 +9,12 @@ import {
 import { EditableTableWidget } from './editable-table-widget.js';
 import {
     appendRenderedMarkdown,
+    installRenderedImagePreview,
     openRenderedLink,
 } from './rendered-markdown-dom.js';
+
+const setInlineEditingRange = StateEffect.define();
+export const clearInlineEditing = StateEffect.define();
 
 class RenderedMarkdownWidget extends WidgetType {
     constructor({
@@ -19,6 +23,8 @@ class RenderedMarkdownWidget extends WidgetType {
         from,
         resolveImageURL,
         openLink,
+        openImagePreview,
+        enterEditing,
         renderVersion,
         extraClassName = '',
     }) {
@@ -28,6 +34,8 @@ class RenderedMarkdownWidget extends WidgetType {
         this.from = from;
         this.resolveImageURL = resolveImageURL;
         this.openLink = openLink;
+        this.openImagePreview = openImagePreview;
+        this.enterEditing = enterEditing;
         this.renderVersion = renderVersion;
         this.extraClassName = extraClassName;
     }
@@ -57,15 +65,23 @@ class RenderedMarkdownWidget extends WidgetType {
         );
 
         container.addEventListener('mousedown', event => {
+            if (event.target?.closest?.('img')) return;
             openRenderedLink(event, this.openLink);
         });
-        container.addEventListener('click', event => {
+        installRenderedImagePreview(container, this.openImagePreview);
+        container.addEventListener('dblclick', event => {
+            if (event.target?.closest?.('img')) return;
             if (event.target?.closest?.('a[href]')) return;
             if (event.button !== 0 || event.metaKey || event.ctrlKey) return;
-            const selection = document.defaultView.getSelection?.();
-            if (selection && !selection.isCollapsed) return;
             event.preventDefault();
-            view.dispatch({ selection: { anchor: this.from } });
+            this.enterEditing?.(view);
+            view.dispatch({
+                selection: { anchor: this.from },
+                effects: setInlineEditingRange.of({
+                    from: this.from,
+                    to: this.from + this.source.length,
+                }),
+            });
             view.focus();
         });
         return container;
@@ -139,12 +155,19 @@ export function createInlineRenderingExtension({
     resolveImageURL,
     openLink,
     onSaveRequest,
+    openImagePreview,
+    enterEditing,
+    exitEditing,
 }) {
     const context = {
         resolveImageURL,
         openLink,
         onSaveRequest,
+        openImagePreview,
+        enterEditing,
+        exitEditing,
         renderVersion: 0,
+        editingRange: null,
     };
     const renderingField = StateField.define({
         create(state) {
@@ -154,9 +177,26 @@ export function createInlineRenderingExtension({
             const shouldRefresh = transaction.effects.some(effect => (
                 effect.is(refreshInlineRendering)
             ));
+            let editingRangeChanged = false;
             if (shouldRefresh) context.renderVersion++;
+            if (transaction.docChanged && context.editingRange) {
+                context.editingRange = {
+                    from: transaction.changes.mapPos(context.editingRange.from, -1),
+                    to: transaction.changes.mapPos(context.editingRange.to, 1),
+                };
+            }
+            for (const effect of transaction.effects) {
+                if (effect.is(setInlineEditingRange)) {
+                    context.editingRange = effect.value;
+                    editingRangeChanged = true;
+                }
+                else if (effect.is(clearInlineEditing)) {
+                    context.editingRange = null;
+                    editingRangeChanged = true;
+                }
+            }
             if (transaction.docChanged
-                || transaction.selection
+                || editingRangeChanged
                 || shouldRefresh) {
                 return buildDecorations(transaction.state, context);
             }
@@ -180,6 +220,37 @@ export function createInlineRenderingExtension({
                 event.preventDefault();
                 openLink?.(url);
                 return true;
+            },
+            click(event, view) {
+                if (!context.editingRange || event.button !== 0) return false;
+                const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+                if (position === null || positionInsideRange(position, context.editingRange)) {
+                    return false;
+                }
+                view.dispatch({ effects: setInlineEditingRange.of(null) });
+                context.exitEditing?.(view);
+                return false;
+            },
+            dblclick(event, view) {
+                if (event.button !== 0 || event.target?.closest?.('img')) return false;
+                const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+                if (position === null) return false;
+                const line = view.state.doc.lineAt(position);
+                event.preventDefault();
+                context.enterEditing?.(view);
+                view.dispatch({
+                    selection: { anchor: position },
+                    effects: setInlineEditingRange.of({ from: line.from, to: line.to }),
+                });
+                view.focus();
+                return true;
+            },
+            blur(_event, view) {
+                if (context.editingRange) {
+                    view.dispatch({ effects: setInlineEditingRange.of(null) });
+                }
+                context.exitEditing?.(view);
+                return false;
             },
         }),
     ];
@@ -238,6 +309,10 @@ function normalizeLinkLabel(label) {
         .toLowerCase();
 }
 
+function positionInsideRange(position, range) {
+    return position >= range.from && position <= range.to;
+}
+
 function buildDecorations(state, context) {
     const decorations = [];
     const excludedMathRanges = collectExcludedMathRanges(state);
@@ -287,7 +362,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
 
     if (['HeaderMark', 'EmphasisMark', 'StrikethroughMark', 'CodeMark'].includes(node.name)) {
         const parent = node.node.parent;
-        if (parent && !selectionIntersects(state, parent.from, parent.to)) {
+        if (parent && !editingRangeIntersects(context, parent.from, parent.to)) {
             let to = node.to;
             if (node.name === 'HeaderMark' && state.sliceDoc(to, to + 1) === ' ') to++;
             decorations.push(Decoration.replace({}).range(node.from, to));
@@ -295,13 +370,13 @@ function decorateSyntaxNode(node, state, decorations, context) {
         return;
     }
 
-    if (node.name === 'Link' && !selectionIntersects(state, node.from, node.to)) {
+    if (node.name === 'Link' && !editingRangeIntersects(context, node.from, node.to)) {
         decorateLink(node, state, decorations);
         return;
     }
 
     if (node.name === 'Autolink'
-        && !selectionIntersects(state, node.from, node.to)) {
+        && !editingRangeIntersects(context, node.from, node.to)) {
         const url = node.node.getChild('URL');
         if (url) {
             decorations.push(Decoration.mark({
@@ -320,7 +395,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
     if (node.name === 'URL') {
         const parentName = node.node.parent?.name;
         if (!['Link', 'Autolink', 'LinkReference'].includes(parentName)
-            && !selectionIntersects(state, node.from, node.to)) {
+            && !editingRangeIntersects(context, node.from, node.to)) {
             decorations.push(Decoration.mark({
                 class: 'cm-mktero-link',
             }).range(node.from, node.to));
@@ -329,7 +404,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
     }
 
     if (node.name === 'LinkReference') {
-        if (!selectionIntersects(state, node.from, node.to)) {
+        if (!editingRangeIntersects(context, node.from, node.to)) {
             decorations.push(Decoration.replace({}).range(node.from, node.to));
             return false;
         }
@@ -342,7 +417,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
         decorations.push(Decoration.line({
             class: 'cm-mktero-blockquote',
         }).range(line.from));
-        if (parent && !selectionIntersects(state, parent.from, parent.to)) {
+        if (parent && !editingRangeIntersects(context, parent.from, parent.to)) {
             let to = node.to;
             if (state.sliceDoc(to, to + 1) === ' ') to++;
             decorations.push(Decoration.replace({}).range(node.from, to));
@@ -352,7 +427,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
 
     if (node.name === 'ListMark') {
         const item = node.node.parent;
-        if (item && !selectionIntersects(state, item.from, item.to)) {
+        if (item && !editingRangeIntersects(context, item.from, item.to)) {
             const listType = item.parent?.name;
             const ordered = listType === 'OrderedList';
             decorations.push(Decoration.replace({
@@ -367,7 +442,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
 
     if (node.name === 'TaskMarker') {
         const task = node.node.parent;
-        if (task && !selectionIntersects(state, task.from, task.to)) {
+        if (task && !editingRangeIntersects(context, task.from, task.to)) {
             decorations.push(Decoration.replace({
                 widget: new TaskCheckboxWidget({
                     checked: /x/i.test(state.sliceDoc(node.from, node.to)),
@@ -380,12 +455,12 @@ function decorateSyntaxNode(node, state, decorations, context) {
     }
 
     if (node.name === 'HorizontalRule'
-        && !selectionIntersects(state, node.from, node.to)) {
+        && !editingRangeIntersects(context, node.from, node.to)) {
         decorations.push(renderedRange(node, state, 'divider', context));
         return false;
     }
 
-    if (node.name === 'Table' && !selectionIntersects(state, node.from, node.to)) {
+    if (node.name === 'Table' && !editingRangeIntersects(context, node.from, node.to)) {
         decorations.push(renderedRange(node, state, 'table', context));
         return false;
     }
@@ -393,7 +468,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
         const range = node.name === 'CodeBlock'
             ? { from: state.doc.lineAt(node.from).from, to: node.to }
             : node;
-        if (!selectionIntersects(state, range.from, range.to)) {
+        if (!editingRangeIntersects(context, range.from, range.to)) {
             decorations.push(renderedRange(range, state, 'code-block', context));
             return false;
         }
@@ -401,7 +476,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
     }
     if (['HTMLBlock', 'CommentBlock'].includes(node.name)
         && shouldRenderHTMLBlock(state.sliceDoc(node.from, node.to))
-        && !selectionIntersects(state, node.from, node.to)) {
+        && !editingRangeIntersects(context, node.from, node.to)) {
         decorations.push(renderedRange(node, state, 'html-block', context));
         return false;
     }
@@ -411,11 +486,11 @@ function decorateSyntaxNode(node, state, decorations, context) {
             ? standaloneImageLineRange(node, state)
             : null;
         if (blockRange
-            && !selectionIntersects(state, blockRange.from, blockRange.to)) {
+            && !editingRangeIntersects(context, blockRange.from, blockRange.to)) {
             decorations.push(renderedRange(blockRange, state, 'image', context));
             return false;
         }
-        if (!selectionIntersects(state, node.from, node.to)) {
+        if (!editingRangeIntersects(context, node.from, node.to)) {
             decorations.push(Decoration.replace({
                 widget: new RenderedMarkdownWidget({
                     source: state.sliceDoc(node.from, node.to),
@@ -471,7 +546,7 @@ function decorateMath(
         for (const match of displayMatches) {
             const matchFrom = node.from + match.start;
             const matchTo = node.from + match.end;
-            if (selectionIntersects(state, matchFrom, matchTo)) continue;
+            if (editingRangeIntersects(context, matchFrom, matchTo)) continue;
             decorations.push(renderedMathRange(
                 match.raw,
                 matchFrom,
@@ -487,7 +562,7 @@ function decorateMath(
         const matchTo = node.from + match.end;
         if (rangeOverlapsAny(matchFrom, matchTo, displayRanges)
             || rangeOverlapsAny(matchFrom, matchTo, excludedRanges)
-            || selectionIntersects(state, matchFrom, matchTo)) continue;
+            || editingRangeIntersects(context, matchFrom, matchTo)) continue;
         decorations.push(renderedMathRange(
             match.raw,
             matchFrom,
@@ -571,12 +646,9 @@ function findAncestorAt(state, position, name) {
     return node;
 }
 
-function selectionIntersects(state, from, to) {
-    return state.selection.ranges.some(range => (
-        range.empty
-            ? range.head >= from && range.head <= to
-            : range.from < to && range.to > from
-    ));
+function editingRangeIntersects(context, from, to) {
+    const range = context.editingRange;
+    return Boolean(range && range.from < to && range.to > from);
 }
 
 function rangeOverlapsAny(from, to, ranges) {
