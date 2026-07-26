@@ -95,3 +95,21 @@ test('lays out a responsive scrollable outline beside the editor', () => {
         /@media\s*\(max-width:\s*760px\)[\s\S]*\.markdown-outline\s*\{[^}]*flex-basis:\s*min\(220px, 42vw\)/
     );
 });
+
+test('styles citation popups and temporary reference highlights', () => {
+    const citation = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-citation'
+    );
+    assert.match(citation, /color:\s*var\(--accent\)/);
+    assert.match(citation, /cursor:\s*pointer/);
+
+    const popup = ruleBody('.mktero-citation-popup');
+    assert.match(popup, /position:\s*fixed/);
+    assert.match(popup, /max-width:\s*min\(460px, calc\(100vw - 24px\)\)/);
+    assert.match(popup, /z-index:\s*900/);
+
+    const highlight = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-reference-highlight'
+    );
+    assert.match(highlight, /animation:\s*mktero-reference-highlight 3s ease-out/);
+});

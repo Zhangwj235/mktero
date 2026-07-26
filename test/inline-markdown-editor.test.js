@@ -638,6 +638,233 @@ test('opens all reference, autolink, and bare URL Markdown links', () => {
     dom.window.close();
 });
 
+test('shows resolved reference text when a rendered citation is hovered', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'Numeric evidence [1] and prior work (Münte et al., 2002).',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. Numeric evidence. Journal. 2024.',
+        '[2] Münte, T. F., Altenmüller, E., & Jäncke, L. (2002). The musician’s brain.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const citations = [...document.querySelectorAll('.cm-mktero-citation')];
+
+    assert.deepEqual(citations.map(citation => citation.textContent), [
+        '1',
+        '(Münte et al., 2002)',
+    ]);
+    assert.ok(citations.every(citation => citation.getAttribute('role') === 'link'));
+    assert.ok(citations.every(citation => citation.getAttribute('tabindex') === '0'));
+
+    citations[0].dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+
+    const popup = document.querySelector('.mktero-citation-popup');
+    assert.equal(popup?.getAttribute('role'), 'dialog');
+    assert.equal(popup?.getAttribute('aria-label'), '引用详情');
+    assert.match(popup?.textContent || '', /Alpha A\. Numeric evidence\. Journal\. 2024\./);
+    assert.equal(
+        citations[0].getAttribute('aria-describedby'),
+        popup?.getAttribute('id')
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    popup.querySelector('.mktero-citation-popup-content').dispatchEvent(
+        new dom.window.WheelEvent('wheel', { bubbles: true })
+    );
+    assert.ok(document.querySelector('.mktero-citation-popup'));
+
+    editor.setMarkdown('# Replaced document');
+    assert.equal(document.querySelector('.mktero-citation-popup'), null);
+
+    editor.destroy();
+    assert.equal(document.querySelector('.mktero-citation-popup'), null);
+    dom.window.close();
+});
+
+test('renders bracketed numeric citations with full-width separators', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# 论文',
+        '',
+        '组合证据 [1，2]。',
+        '',
+        '## 参考文献',
+        '',
+        '[1] 张三。第一项研究。2023。',
+        '[2] 李四。第二项研究。2024。',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    assert.deepEqual(
+        [...document.querySelectorAll('.cm-mktero-citation')]
+            .map(citation => citation.textContent),
+        ['1', '2']
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('opens every reference in a grouped citation from its popup', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'Combined evidence [1–2].',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. First target. 2023.',
+        '',
+        '[2] Beta B. Second target. 2024.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const secondOffset = markdown.indexOf('[2] Beta');
+    let navigatedOffset = null;
+    view.lineBlockAt = position => {
+        navigatedOffset = position;
+        return { top: 720 };
+    };
+    view.requestMeasure = request => {
+        if (request?.read) request.write?.(request.read(view), view);
+    };
+
+    const citation = document.querySelector('.cm-mktero-citation');
+    citation.dispatchEvent(
+        new dom.window.MouseEvent('mouseover', { bubbles: true })
+    );
+    const targets = [...document.querySelectorAll('.mktero-citation-popup-item')];
+    assert.equal(targets.length, 2);
+
+    citation.focus();
+    citation.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'ArrowDown',
+    }));
+    assert.equal(document.activeElement, targets[0]);
+
+    targets[0].dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'Escape',
+    }));
+    assert.equal(document.querySelector('.mktero-citation-popup'), null);
+    assert.equal(document.activeElement, citation);
+
+    citation.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'ArrowDown',
+    }));
+    const reopenedTargets = [
+        ...document.querySelectorAll('.mktero-citation-popup-item'),
+    ];
+    assert.equal(document.activeElement, reopenedTargets[0]);
+    reopenedTargets[1].focus();
+    assert.ok(document.querySelector('.mktero-citation-popup'));
+
+    reopenedTargets[1].click();
+
+    assert.equal(navigatedOffset, secondOffset);
+    assert.match(
+        document.querySelector('.cm-mktero-reference-highlight')?.textContent || '',
+        /Beta B\. Second target\. 2024\./
+    );
+    assert.equal(document.querySelector('.mktero-citation-popup'), null);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('jumps to and highlights a clicked citation reference for three seconds', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'Finding [1].',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. Target reference. 2024.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const referenceOffset = markdown.indexOf('[1] Alpha');
+    const scheduled = [];
+    const originalSetTimeout = dom.window.setTimeout;
+    const originalClearTimeout = dom.window.clearTimeout;
+    dom.window.setTimeout = (callback, delay) => {
+        scheduled.push({ callback, delay });
+        return scheduled.length;
+    };
+    dom.window.clearTimeout = () => {};
+    view.lineBlockAt = position => {
+        assert.equal(position, referenceOffset);
+        return { top: 640 };
+    };
+    view.requestMeasure = request => {
+        if (!request?.read) return;
+        request.write?.(request.read(view), view);
+    };
+    view.scrollDOM.scrollTop = 0;
+
+    document.querySelector('.cm-mktero-citation').dispatchEvent(
+        new dom.window.MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+        })
+    );
+
+    assert.equal(view.scrollDOM.scrollTop, 640);
+    assert.match(
+        document.querySelector('.cm-mktero-reference-highlight')?.textContent || '',
+        /Alpha A\. Target reference\. 2024\./
+    );
+    assert.equal(scheduled.at(-1)?.delay, 3000);
+
+    scheduled.at(-1).callback();
+    assert.equal(document.querySelector('.cm-mktero-reference-highlight'), null);
+    assert.equal(editor.getMarkdown(), markdown);
+
+    dom.window.setTimeout = originalSetTimeout;
+    dom.window.clearTimeout = originalClearTimeout;
+    editor.destroy();
+    dom.window.close();
+});
+
 test('refreshes rendered assets without changing the Markdown document', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
