@@ -156,6 +156,67 @@ test('uses a Joplin-style editing toolbar to run inline editor commands', () => 
     view.destroy();
 });
 
+test('shows a live Markdown outline and scrolls to the selected heading', () => {
+    const markdown = '# Overview\n\n## Methods\n\n### Results';
+    const scrolledOffsets = [];
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown,
+        sourceKind: 'markdown',
+    }), {}, {
+        editorFactory(options) {
+            const editor = createTestInlineEditor(options);
+            editor.scrollToOffset = offset => scrolledOffsets.push(offset);
+            return editor;
+        },
+    });
+    const outline = shadow.querySelector('#mktero-outline');
+    const buttons = [...outline.querySelectorAll('.markdown-outline-link')];
+
+    assert.equal(outline.getAttribute('aria-label'), 'Markdown 目录');
+    assert.equal(shadow.querySelector('.markdown-outline-title').textContent, '目录');
+    assert.deepEqual(buttons.map(button => button.textContent), [
+        'Overview',
+        'Methods',
+        'Results',
+    ]);
+    assert.deepEqual(buttons.map(button => button.getAttribute('data-level')), [
+        '1',
+        '2',
+        '3',
+    ]);
+    assert.deepEqual(buttons.map(button => button.getAttribute('style')), [
+        '--outline-indent: 0px;',
+        '--outline-indent: 12px;',
+        '--outline-indent: 24px;',
+    ]);
+
+    buttons[1].dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
+    assert.deepEqual(scrolledOffsets, [markdown.indexOf('## Methods')]);
+
+    editMarkdown(document, shadow, '# Renamed\n\n## Updated');
+    assert.deepEqual(
+        [...outline.querySelectorAll('.markdown-outline-link')]
+            .map(button => button.textContent),
+        ['Renamed', 'Updated']
+    );
+    view.destroy();
+});
+
+test('shows an empty outline state when Markdown has no headings', () => {
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Paragraph only.',
+        sourceKind: 'markdown',
+    }));
+
+    assert.equal(shadow.querySelectorAll('.markdown-outline-link').length, 0);
+    assert.equal(shadow.querySelector('.markdown-outline-empty').textContent, '暂无目录');
+    view.destroy();
+});
+
 test('mounts the Markdown UI in an isolated inline shadow root', () => {
     const { view, shadow } = createView();
 
@@ -178,7 +239,7 @@ test('mounts the Markdown UI in an isolated inline shadow root', () => {
     assert.equal(shadow.querySelector('.source-actions').children.length, 1);
     assert.ok(shadow.querySelector('#mktero-editor-toolbar'));
     assert.ok(shadow.querySelector('#mktero-editor .cm-content'));
-    assert.equal(shadow.querySelector('.markdown-editor').hidden, true);
+    assert.equal(shadow.querySelector('.markdown-workspace').hidden, true);
     assert.equal(shadow.querySelector('#mktero-save').textContent, '保存');
     view.destroy();
 });
@@ -227,7 +288,7 @@ test('replaces loading state with cached Markdown as soon as the model is ready'
     }));
 
     assert.equal(shadow.querySelector('#mktero-loading').hidden, true);
-    assert.equal(shadow.querySelector('.markdown-editor').hidden, false);
+    assert.equal(shadow.querySelector('.markdown-workspace').hidden, false);
     assert.equal(shadow.querySelector('#mktero-status'), null);
     assert.equal(
         shadow.querySelector('.cm-content').textContent,

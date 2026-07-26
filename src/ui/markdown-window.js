@@ -1,4 +1,5 @@
 import { createInlineMarkdownEditor } from '../editor/inline-markdown-editor.js';
+import { extractMarkdownOutline } from '../markdown/markdown-outline.js';
 import {
     bindEditorToolbar,
     createEditorToolbar,
@@ -81,6 +82,7 @@ class MarkdownTabView {
                 this.saveMarkdownSource();
             },
         });
+        this.syncOutline('');
         this.bindActions();
     }
 
@@ -113,6 +115,7 @@ class MarkdownTabView {
             if (!loadingView.preserveContent) {
                 this.revokeAssetURLs();
                 this.editor.setMarkdown('');
+                this.syncOutline('');
             }
             return;
         }
@@ -122,6 +125,7 @@ class MarkdownTabView {
             this.savedMarkdown = this.draftMarkdown;
             const assetsChanged = this.syncAssetURLs();
             this.editor.setMarkdown(this.draftMarkdown);
+            this.syncOutline(this.draftMarkdown);
             if (assetsChanged) this.editor.refreshRendering();
             this.setSaveState(
                 this.canSave() ? 'clean' : 'unavailable'
@@ -270,13 +274,29 @@ class MarkdownTabView {
             class: 'markdown-editor',
             'aria-label': 'Markdown 所见即所得编辑器',
         });
-        editorSection.hidden = true;
         editorSection.appendChild(editorHost);
+        const outlineTitle = this.createElement(
+            'h2',
+            { class: 'markdown-outline-title' },
+            '目录'
+        );
+        const outlineList = this.createElement('ol', {
+            class: 'markdown-outline-list',
+        });
+        const outline = this.createElement('aside', {
+            id: 'mktero-outline',
+            class: 'markdown-outline',
+            'aria-label': 'Markdown 目录',
+        });
+        appendChildren(outline, outlineTitle, outlineList);
+        const workspace = this.createElement('div', { class: 'markdown-workspace' });
+        workspace.hidden = true;
+        appendChildren(workspace, outline, editorSection);
         const content = this.createElement('main', {
             id: 'mktero-content',
             'aria-busy': 'true',
         });
-        appendChildren(content, loading, editorSection);
+        appendChildren(content, loading, workspace);
 
         const view = this.createElement('div', { class: 'mktero-tab-view' });
         appendChildren(view, header, progress, warning, error, saveError, content);
@@ -293,6 +313,9 @@ class MarkdownTabView {
             loadingProgress,
             loadingProgressLabel,
             loadingHint,
+            workspace,
+            outline,
+            outlineList,
             editorHost,
             editorSection,
             saveButton,
@@ -312,6 +335,12 @@ class MarkdownTabView {
 
     bindActions() {
         this.listen(this.elements.saveButton, 'click', () => this.saveMarkdownSource());
+        this.listen(this.elements.outlineList, 'click', event => {
+            const button = event.target?.closest?.('.markdown-outline-link');
+            if (!button || !this.elements.outlineList.contains(button)) return;
+            const offset = Number(button.getAttribute('data-offset'));
+            if (Number.isFinite(offset)) this.editor.scrollToOffset?.(offset);
+        });
         bindEditorToolbar({
             toolbarButtons: this.elements.toolbarButtons,
             runCommand: command => this.editor.runCommand(command),
@@ -329,7 +358,7 @@ class MarkdownTabView {
     }
 
     syncContentVisibility(visible) {
-        this.elements.editorSection.hidden = !visible;
+        this.elements.workspace.hidden = !visible;
         for (const { button } of this.elements.toolbarButtons) {
             button.disabled = !visible;
         }
@@ -337,6 +366,7 @@ class MarkdownTabView {
 
     updateMarkdownSource(markdown) {
         this.draftMarkdown = markdown;
+        this.syncOutline(markdown);
         if (!this.canSave()) {
             this.setSaveState('unavailable');
             return;
@@ -348,6 +378,39 @@ class MarkdownTabView {
         this.setSaveState(
             this.draftMarkdown === this.savedMarkdown ? 'clean' : 'dirty'
         );
+    }
+
+    syncOutline(markdown) {
+        const list = this.elements.outlineList;
+        list.replaceChildren();
+        const headings = extractMarkdownOutline(markdown);
+        if (!headings.length) {
+            list.appendChild(this.createElement(
+                'li',
+                { class: 'markdown-outline-empty' },
+                '暂无目录'
+            ));
+            return;
+        }
+        for (const heading of headings) {
+            const button = this.createElement(
+                'button',
+                {
+                    class: 'markdown-outline-link',
+                    type: 'button',
+                    'data-level': String(heading.level),
+                    'data-offset': String(heading.offset),
+                    style: `--outline-indent: ${(heading.level - 1) * 12}px;`,
+                    title: heading.text,
+                },
+                heading.text
+            );
+            const item = this.createElement('li', {
+                class: 'markdown-outline-item',
+            });
+            item.appendChild(button);
+            list.appendChild(item);
+        }
     }
 
     async saveMarkdownSource() {

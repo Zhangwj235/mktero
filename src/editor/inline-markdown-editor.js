@@ -138,6 +138,19 @@ export function createInlineMarkdownEditor({
             activateDOMGlobals(ownerWindow);
             view.focus();
         },
+        scrollToOffset(offset) {
+            activateDOMGlobals(ownerWindow);
+            const requested = Number(offset);
+            const position = Number.isFinite(requested)
+                ? Math.max(0, Math.min(Math.trunc(requested), view.state.doc.length))
+                : 0;
+            view.dispatch({
+                effects: EditorView.scrollIntoView(position, {
+                    y: 'start',
+                    yMargin: 24,
+                }),
+            });
+        },
         refreshRendering() {
             activateDOMGlobals(ownerWindow);
             view.dispatch({ effects: refreshInlineRendering.of(null) });

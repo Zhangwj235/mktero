@@ -71,3 +71,27 @@ test('wide Markdown tables stay inside the aligned reading column', () => {
     assert.match(cells, /word-break:\s*break-word/);
     assert.match(cells, /white-space:\s*normal/);
 });
+
+test('lays out a responsive scrollable outline beside the editor', () => {
+    const workspace = ruleBody('.markdown-workspace');
+    assert.match(workspace, /display:\s*flex/);
+    assert.match(workspace, /min-width:\s*0/);
+
+    const outline = ruleBody('.markdown-outline');
+    assert.match(outline, /flex:\s*0 0 256px/);
+    assert.match(outline, /border-right:\s*1px solid var\(--border\)/);
+
+    const outlineList = ruleBody('.markdown-outline-list');
+    assert.match(outlineList, /overflow-y:\s*auto/);
+
+    const outlineLink = ruleBody('.markdown-outline-link');
+    assert.match(
+        outlineLink,
+        /padding-left:\s*calc\(8px \+ var\(--outline-indent, 0px\)\)/
+    );
+
+    assert.match(
+        MARKDOWN_STYLES,
+        /@media\s*\(max-width:\s*760px\)[\s\S]*\.markdown-outline\s*\{[\s\S]*display:\s*none/
+    );
+});

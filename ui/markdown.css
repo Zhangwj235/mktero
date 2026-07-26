@@ -135,11 +135,86 @@
 .error { color: var(--error); }
 
 main {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.markdown-workspace {
+    display: flex;
     width: 100%;
     min-width: 0;
     min-height: 0;
     flex: 1;
     overflow: hidden;
+}
+
+.markdown-outline {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 256px;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 68%, var(--background));
+    font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.markdown-outline-title {
+    margin: 0;
+    padding: 18px 16px 10px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.markdown-outline-list {
+    margin: 0;
+    padding: 2px 8px 24px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    list-style: none;
+    scrollbar-width: thin;
+}
+
+.markdown-outline-item { margin: 1px 0; }
+
+.markdown-outline-link {
+    width: 100%;
+    padding: 6px 8px;
+    padding-left: calc(8px + var(--outline-indent, 0px));
+    overflow: hidden;
+    border: 0;
+    border-radius: 5px;
+    color: var(--muted);
+    background: transparent;
+    font: inherit;
+    font-size: 12.5px;
+    line-height: 1.35;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.markdown-outline-link:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.markdown-outline-link:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: -2px;
+}
+
+.markdown-outline-empty {
+    padding: 6px 8px;
+    color: var(--muted);
+    font-size: 12px;
 }
 
 .loading-state {
@@ -229,6 +304,8 @@ main {
     min-width: 0;
     min-height: 0;
 }
+
+.markdown-editor { flex: 1; }
 
 .markdown-editor-host {
     width: 100%;
@@ -528,6 +605,10 @@ main {
         width: calc(100% - 32px);
         padding: 24px 0 48px;
     }
+}
+
+@media (max-width: 760px) {
+    .markdown-outline { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
