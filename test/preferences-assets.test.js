@@ -18,6 +18,8 @@ test('ships MinerU token, cache preferences, and Markdown UI assets', async () =
     assert.match(pane, /preference="extensions\.mktero\.cacheEnabled"/);
     assert.match(pane, /id="mktero-clear-cache"/);
     assert.match(pane, /MkteroPreferences\.init\(event\)/);
+    const visiblePreferenceText = pane.replace(/<[^>]+>/g, ' ');
+    assert.doesNotMatch(visiblePreferenceText, /mineru/i);
     assert.match(script, /createZoteroMarkdownCache/);
     assert.match(markdownView, /createInlineMarkdownEditor/);
     assert.doesNotMatch(markdownView, /'mktero-show-source'/);

@@ -19,6 +19,7 @@ import {
 } from './extractors/mineru-extractor.js';
 import { MinerUClient } from './mineru/mineru-client.js';
 import { createRuntimeAbortController } from './platform/abort-controller.js';
+import { removeProviderBranding } from './ui/provider-neutral-copy.js';
 import { registerItemContextMenu } from './ui/item-context-menu.js';
 import { registerReaderToolbar } from './ui/reader-toolbar.js';
 import { MarkdownTabPresenter } from './ui/markdown-tab-presenter.js';
@@ -289,14 +290,16 @@ function createZoteroAbortController() {
 
 function userFacingError(error) {
     if (error instanceof MinerUConfigurationError) {
-        return 'Configure a MinerU API Token in Settings → Mktero, then try again.';
+        return 'Configure an API Token in Settings → Mktero, then try again.';
     }
     if (error?.code === 'MINERU_API_KEY_INVALID') {
-        return 'The MinerU API Token is invalid or expired. Update it in Settings → Mktero.';
+        return 'The API Token is invalid or expired. Update it in Settings → Mktero.';
     }
     const message = error instanceof Error ? error.message : String(error);
     if (/no extractable text/i.test(message)) {
         return 'This PDF has no extractable text. A scanned PDF may require OCR.';
     }
-    return message || 'PDF conversion failed.';
+    return message
+        ? removeProviderBranding(message)
+        : 'PDF conversion failed.';
 }

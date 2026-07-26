@@ -169,6 +169,11 @@ class MarkdownTabView {
     }
 
     createContent() {
+        const initialLoading = createLoadingPresentation({
+            status: 'loading',
+            progress: 0,
+            preserveContent: false,
+        });
         const progress = this.createElement('progress', {
             id: 'mktero-progress',
             max: '100',
@@ -199,18 +204,18 @@ class MarkdownTabView {
         const loadingTitle = this.createElement(
             'h2',
             { id: 'mktero-loading-title' },
-            'Converting PDF…'
+            initialLoading.title
         );
         const loadingDetail = this.createElement(
             'p',
             { id: 'mktero-loading-detail' },
-            'Preparing the PDF for MinerU.'
+            initialLoading.detail
         );
         const progressHeadingLabel = this.createElement('span', {}, 'Progress');
         const loadingProgressLabel = this.createElement(
             'strong',
             { id: 'mktero-loading-progress-label' },
-            '0%'
+            initialLoading.progressLabel
         );
         const loadingProgressHeading = this.createElement(
             'div',
@@ -229,7 +234,7 @@ class MarkdownTabView {
         const loadingHint = this.createElement(
             'p',
             { id: 'mktero-loading-hint', class: 'loading-hint' },
-            'This can take a few minutes. Keep this tab open while MinerU finishes.'
+            initialLoading.hint
         );
         const loadingContent = this.createElement('div', { class: 'loading-content' });
         appendChildren(

@@ -17,19 +17,19 @@ export function createLoadingPresentation(model = {}) {
         detail: progressDetail(progress),
         hint: preserveContent
             ? 'The current Markdown remains available until the new result is ready.'
-            : 'This can take a few minutes. Keep this tab open while MinerU finishes.',
+            : 'This can take a few minutes. Keep this tab open until conversion finishes.',
     };
 }
 
 function progressDetail(progress) {
     if (progress < CONVERSION_PROGRESS.UPLOADING) {
-        return 'Preparing the PDF for MinerU.';
+        return 'Preparing the PDF.';
     }
     if (progress < CONVERSION_PROGRESS.PARSING) {
-        return 'Uploading the PDF to MinerU.';
+        return 'Uploading the PDF for conversion.';
     }
     if (progress < CONVERSION_PROGRESS.DOWNLOADING) {
-        return 'PDF uploaded. MinerU is parsing the document.';
+        return 'The PDF is being converted to Markdown.';
     }
     return 'Downloading and preparing the Markdown result.';
 }

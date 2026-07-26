@@ -18,7 +18,7 @@ test('ships an accessible, visible loading UI for MinerU conversion', async () =
     assert.match(styles, /\.mktero-tab-view/);
     assert.match(script, /createLoadingPresentation\(model\)/);
     assert.match(script, /loading-state--inline/);
-    assert.doesNotMatch(script, /MinerU conversion|loading-eyebrow/);
+    assert.doesNotMatch(script, /MinerU|loading-eyebrow/);
     assert.doesNotMatch(styles, /\.loading-eyebrow/);
 });
 

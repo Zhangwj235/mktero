@@ -404,7 +404,7 @@ test('updates conversion progress directly in the inline view', () => {
 
     assert.equal(
         shadow.querySelector('#mktero-loading-detail').textContent,
-        'PDF uploaded. MinerU is parsing the document.'
+        'The PDF is being converted to Markdown.'
     );
     assert.equal(shadow.querySelector('#mktero-loading-progress').value, 10);
     assert.equal(shadow.querySelector('#mktero-loading-progress-label').textContent, '10%');
