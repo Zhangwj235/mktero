@@ -24,7 +24,6 @@ test('uploads a local PDF and returns MinerU Markdown', async () => {
                 file_urls: ['https://upload.example/paper'],
             },
         }),
-        { ok: true, status: 200 },
         jsonResponse({
             code: 0,
             data: {
@@ -58,6 +57,11 @@ test('uploads a local PDF and returns MinerU Markdown', async () => {
     ];
     const fetch = async (url, options = {}) => {
         requests.push({ url, options });
+        if (url === 'https://upload.example/paper') {
+            const hasContentType = Object.keys(options.headers || {})
+                .some(name => name.toLowerCase() === 'content-type');
+            return { ok: !hasContentType, status: hasContentType ? 403 : 200 };
+        }
         return responses.shift();
     };
     const progress = [];
@@ -98,7 +102,7 @@ test('uploads a local PDF and returns MinerU Markdown', async () => {
     });
     assert.equal(requests[1].url, 'https://upload.example/paper');
     assert.equal(requests[1].options.method, 'PUT');
-    assert.equal(requests[1].options.headers['Content-Type'], 'application/pdf');
+    assert.equal(requests[1].options.headers, undefined);
     assert.equal(
         requests[2].url,
         'https://mineru.net/api/v4/extract-results/batch/batch-1'

@@ -89,7 +89,6 @@ export class MinerUClient {
             label: 'file upload',
             operation: requestSignal => this.fetch(uploadURL, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/pdf' },
                 body: toUint8Array(fileData, 'PDF file data'),
                 signal: requestSignal,
             }),
