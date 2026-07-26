@@ -787,6 +787,94 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
     assert.equal(keyActivatedFirstWindow, true);
 });
 
+test('corrects outline navigation after the offscreen heading is rendered', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = Array.from(
+        { length: 100 },
+        (_, index) => `## Heading ${index}\n\nParagraph`
+    ).join('\n\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const targetOffset = markdown.indexOf('## Heading 80');
+    let measuredNavigations = 0;
+    const measuredScrollPositions = [];
+    Object.defineProperty(view, 'viewport', {
+        configurable: true,
+        get() {
+            return measuredNavigations > 1
+                ? { from: targetOffset, to: targetOffset + 13 }
+                : { from: 0, to: 20 };
+        },
+    });
+    view.lineBlockAt = position => {
+        assert.equal(position, targetOffset);
+        return {
+            top: measuredNavigations > 1 ? 1320 : 1200,
+            bottom: measuredNavigations > 1 ? 1350 : 1230,
+            height: 30,
+            from: targetOffset,
+            to: targetOffset + 13,
+            type: 0,
+        };
+    };
+    view.requestMeasure = request => {
+        if (!request?.read) return;
+        measuredNavigations++;
+        const measurement = request.read(view);
+        measuredScrollPositions.push(measurement?.top);
+        request.write?.(measurement, view);
+    };
+    view.scrollDOM.scrollTop = 0;
+
+    editor.scrollToOffset(targetOffset);
+    const resultingScrollTop = view.scrollDOM.scrollTop;
+    const resultingMarkdown = editor.getMarkdown();
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.equal(measuredNavigations, 2);
+    assert.deepEqual(measuredScrollPositions, [1200, 1320]);
+    assert.equal(resultingScrollTop, 1320);
+    assert.equal(resultingMarkdown, markdown);
+});
+
+test('cancels a pending outline navigation when the document changes', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = `${'# Long document\n\n'.repeat(20)}## Target`;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    let pendingNavigation;
+    view.requestMeasure = request => {
+        if (request?.read) pendingNavigation = request;
+    };
+    view.scrollDOM.scrollTop = 0;
+
+    editor.scrollToOffset(markdown.indexOf('## Target'));
+    editor.setMarkdown('# Short');
+    const measurement = pendingNavigation.read(view);
+    pendingNavigation.write(measurement, view);
+    const resultingScrollTop = view.scrollDOM.scrollTop;
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.equal(measurement, null);
+    assert.equal(resultingScrollTop, 0);
+});
+
 test('observes editor resizes through the owning Zotero window', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

@@ -11,6 +11,7 @@ import {
 import { runEditorCommand, runSaveShortcut } from './editor-commands.js';
 
 const externalUpdate = Annotation.define();
+const outlineScrollMeasureKey = {};
 const DOM_GLOBAL_NAMES = [
     'document',
     'window',
@@ -42,6 +43,28 @@ const DOM_ACTIVATION_EVENTS = [
 let activeDOMWindow = null;
 const domWindowReferences = new Map();
 let previousDOMGlobals = null;
+
+function requestOutlineScroll(view, position, requestedDocument, correctAfterRender = true) {
+    view.requestMeasure({
+        key: outlineScrollMeasureKey,
+        read(editorView) {
+            if (editorView.state.doc !== requestedDocument) return null;
+            return {
+                top: editorView.lineBlockAt(position).top,
+                targetIsRendered: position >= editorView.viewport.from
+                    && position <= editorView.viewport.to,
+            };
+        },
+        write(measurement, editorView) {
+            if (!measurement || editorView.state.doc !== requestedDocument) return;
+            editorView.scrollDOM.scrollTop = Math.max(0, measurement.top);
+            if (correctAfterRender && !measurement.targetIsRendered) {
+                // Offscreen block-widget heights are estimates until this scroll renders them.
+                requestOutlineScroll(editorView, position, requestedDocument, false);
+            }
+        },
+    });
+}
 
 export function createInlineMarkdownEditor({
     parent,
@@ -144,12 +167,8 @@ export function createInlineMarkdownEditor({
             const position = Number.isFinite(requested)
                 ? Math.max(0, Math.min(Math.trunc(requested), view.state.doc.length))
                 : 0;
-            view.dispatch({
-                effects: EditorView.scrollIntoView(position, {
-                    y: 'start',
-                    yMargin: 24,
-                }),
-            });
+            const requestedDocument = view.state.doc;
+            requestOutlineScroll(view, position, requestedDocument);
         },
         refreshRendering() {
             activateDOMGlobals(ownerWindow);
