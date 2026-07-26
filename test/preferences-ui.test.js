@@ -72,7 +72,10 @@ test('reveals and validates manual proxy fields when system proxy is disabled', 
 
     await controller.init();
     assert.equal(proxyElements['mktero-proxy-use-system'].disabled, true);
+    assert.equal(proxyElements['mktero-proxy-use-system'].attributes['aria-expanded'], 'false');
     assert.equal(proxyElements['mktero-manual-proxy-fields'].hidden, true);
+    assert.equal(proxyElements['mktero-manual-proxy-fields'].attributes['aria-hidden'], 'true');
+    assert.equal(proxyElements['mktero-proxy-status'].hidden, true);
 
     proxyElements['mktero-proxy-enabled'].checked = true;
     proxyElements['mktero-proxy-enabled'].dispatch('change');
@@ -80,17 +83,23 @@ test('reveals and validates manual proxy fields when system proxy is disabled', 
 
     proxyElements['mktero-proxy-use-system'].checked = false;
     proxyElements['mktero-proxy-use-system'].dispatch('change');
+    assert.equal(proxyElements['mktero-proxy-use-system'].attributes['aria-expanded'], 'true');
     assert.equal(proxyElements['mktero-manual-proxy-fields'].hidden, false);
+    assert.equal(proxyElements['mktero-manual-proxy-fields'].attributes['aria-hidden'], 'false');
     assert.equal(proxyElements['mktero-proxy-url'].disabled, false);
 
     proxyElements['mktero-proxy-url'].value = 'ftp://127.0.0.1';
     proxyElements['mktero-proxy-url'].dispatch('input');
     assert.equal(proxyElements['mktero-proxy-status'].dataset.error, 'true');
+    assert.equal(proxyElements['mktero-proxy-status'].hidden, false);
+    assert.equal(proxyElements['mktero-proxy-url'].attributes['aria-invalid'], 'true');
 
     proxyElements['mktero-proxy-url'].value = 'http://127.0.0.1:7890';
     proxyElements['mktero-proxy-url'].dispatch('input');
     assert.equal(proxyElements['mktero-proxy-status'].dataset.error, 'false');
     assert.equal(proxyElements['mktero-proxy-status'].textContent, '');
+    assert.equal(proxyElements['mktero-proxy-status'].hidden, true);
+    assert.equal(proxyElements['mktero-proxy-url'].attributes['aria-invalid'], 'false');
 });
 
 test('restores the saved manual proxy layout after Zotero hydrates preferences', async () => {
@@ -129,10 +138,10 @@ function createProxyElements() {
     return {
         'mktero-proxy-enabled': createControl({ checked: false }),
         'mktero-proxy-use-system': createControl({ checked: true }),
-        'mktero-manual-proxy-fields': { hidden: false },
+        'mktero-manual-proxy-fields': createControl({ hidden: false }),
         'mktero-proxy-url': createControl({ value: '' }),
         'mktero-proxy-bypass': createControl({ value: '' }),
-        'mktero-proxy-status': { textContent: '', dataset: {} },
+        'mktero-proxy-status': createControl({ textContent: '', dataset: {}, hidden: false }),
     };
 }
 
@@ -143,6 +152,10 @@ function createControl(properties = {}) {
         ...properties,
         addEventListener(type, listener) {
             listeners.set(type, listener);
+        },
+        attributes: {},
+        setAttribute(name, value) {
+            this.attributes[name] = String(value);
         },
         dispatch(type) {
             listeners.get(type)?.();

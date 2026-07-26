@@ -57,3 +57,31 @@ test('ships MinerU token, cache preferences, and Markdown UI assets', async () =
     assert.match(buildScript, /__MKTERO_MARKDOWN_STYLES__/);
     assert.doesNotMatch(buildScript, /copyText\('ui\/markdown\.css'/);
 });
+
+test('ships the proxy preferences as a responsive settings card with switches', async () => {
+    const [pane, styles] = await Promise.all([
+        readFile(new URL('../ui/preferences.xhtml', import.meta.url), 'utf8'),
+        readFile(new URL('../ui/preferences.css', import.meta.url), 'utf8'),
+    ]);
+
+    assert.match(pane, /class="mktero-settings-card"/);
+    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 2);
+    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 2);
+    assert.equal((pane.match(/role="switch"/g) || []).length, 2);
+    assert.match(
+        pane,
+        /id="mktero-proxy-use-system"[\s\S]*aria-controls="mktero-manual-proxy-fields"/
+    );
+    assert.match(
+        pane,
+        /id="mktero-proxy-url"[\s\S]*aria-describedby="mktero-proxy-url-help mktero-proxy-status"/
+    );
+    assert.match(
+        pane,
+        /id="mktero-proxy-bypass"[\s\S]*aria-describedby="mktero-proxy-bypass-help"/
+    );
+    assert.match(styles, /\.mktero-settings-card\s*\{[\s\S]*border-radius:/);
+    assert.match(styles, /\.mktero-switch-input:checked\s*\+\s*\.mktero-switch/);
+    assert.match(styles, /\.mktero-switch::before/);
+    assert.match(styles, /@media\s*\(max-width:/);
+});

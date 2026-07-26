@@ -41,18 +41,24 @@ export function createPreferencesController({ document, zotero, cache }) {
         const enabled = proxyEnabled.checked;
         const manual = enabled && !proxyUseSystem.checked;
         proxyUseSystem.disabled = !enabled;
+        proxyUseSystem.setAttribute('aria-expanded', String(manual));
         manualProxyFields.hidden = !manual;
+        manualProxyFields.setAttribute('aria-hidden', String(!manual));
         proxyURL.disabled = !manual;
         proxyBypass.disabled = !manual;
+        proxyURL.setAttribute('aria-invalid', 'false');
         proxyStatus.dataset.error = 'false';
         proxyStatus.textContent = '';
+        proxyStatus.hidden = true;
         if (!manual) return;
         try {
             parseProxyURL(proxyURL.value);
         }
         catch (error) {
+            proxyURL.setAttribute('aria-invalid', 'true');
             proxyStatus.dataset.error = 'true';
             proxyStatus.textContent = error.message;
+            proxyStatus.hidden = false;
         }
     }
 
