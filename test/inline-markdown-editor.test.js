@@ -723,6 +723,48 @@ test('renders bracketed numeric citations with full-width separators', () => {
     dom.window.close();
 });
 
+test('renders dollar-wrapped numeric citations emitted by the PDF converter', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'Toolformer taught models to call external APIs $[34]$,',
+        'alongside related systems $[30, 33]$.',
+        '',
+        '## References',
+        '',
+        '[30] Shishir Patil et al. Gorilla. 2023.',
+        '[33] Yujia Qin et al. ToolLLM. 2023.',
+        '[34] Timo Schick et al. Toolformer. 2023.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    const citations = [...document.querySelectorAll('.cm-mktero-citation')];
+    assert.deepEqual(citations.map(node => node.textContent), ['34', '30', '33']);
+    const [citation] = citations;
+    assert.equal(citation?.textContent, '34');
+    assert.match(
+        document.querySelector('.cm-content')?.textContent || '',
+        /external APIs \[34\],alongside related systems \[30, 33\]\./
+    );
+    citation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-citation-popup')?.textContent || '',
+        /Timo Schick et al\. Toolformer\. 2023\./
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('opens every reference in a grouped citation from its popup', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

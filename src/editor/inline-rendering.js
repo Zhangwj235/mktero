@@ -463,7 +463,7 @@ function citationRangeIsExcluded(state, position) {
         }
         if (node.name === 'Link') {
             const source = state.sliceDoc(node.from, node.to);
-            return !/^\[\s*\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*\s*\]$/.test(source);
+            return !isBracketedNumericCitation(source);
         }
         node = node.parent;
     }
@@ -544,7 +544,10 @@ function decorateSyntaxNode(node, state, decorations, context) {
     }
 
     if (node.name === 'Link' && !editingRangeIntersects(context, node.from, node.to)) {
-        decorateLink(node, state, decorations);
+        const source = state.sliceDoc(node.from, node.to);
+        if (!isBracketedNumericCitation(source)) {
+            decorateLink(node, state, decorations);
+        }
         return;
     }
 
@@ -736,6 +739,18 @@ function decorateMath(
         if (rangeOverlapsAny(matchFrom, matchTo, displayRanges)
             || rangeOverlapsAny(matchFrom, matchTo, excludedRanges)
             || editingRangeIntersects(context, matchFrom, matchTo)) continue;
+        const citationContent = dollarWrappedNumericCitationContent(match.raw);
+        if (citationContent) {
+            const contentFrom = matchFrom + citationContent.from;
+            const contentTo = matchFrom + citationContent.to;
+            if (matchFrom < contentFrom) {
+                decorations.push(Decoration.replace({}).range(matchFrom, contentFrom));
+            }
+            if (contentTo < matchTo) {
+                decorations.push(Decoration.replace({}).range(contentTo, matchTo));
+            }
+            continue;
+        }
         decorations.push(renderedMathRange(
             match.raw,
             matchFrom,
@@ -746,6 +761,21 @@ function decorateMath(
             findAncestorAt(state, matchFrom, 'Link') ? 'cm-mktero-link' : ''
         ));
     }
+}
+
+function isBracketedNumericCitation(source) {
+    return /^\[\s*\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*\s*\]$/.test(
+        source
+    );
+}
+
+function dollarWrappedNumericCitationContent(source) {
+    if (!source.startsWith('$') || !source.endsWith('$')) return null;
+    const content = source.slice(1, -1);
+    const trimmed = content.trim();
+    if (!isBracketedNumericCitation(trimmed)) return null;
+    const from = 1 + content.indexOf(trimmed);
+    return { from, to: from + trimmed.length };
 }
 
 function renderedRange(node, state, display, context) {
