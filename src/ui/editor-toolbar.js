@@ -41,6 +41,27 @@ export function bindEditorToolbar({ toolbarButtons, runCommand, listen }) {
     }
 }
 
+export function createToolbarButton(document, {
+    id,
+    label,
+    icon,
+    pressed,
+}) {
+    const attributes = {
+        id,
+        class: 'editor-toolbar-button',
+        type: 'button',
+        title: label,
+        'aria-label': label,
+    };
+    if (pressed !== undefined) {
+        attributes['aria-pressed'] = String(pressed);
+    }
+    const button = createElement(document, 'button', attributes);
+    button.appendChild(createToolbarIcon(document, icon));
+    return button;
+}
+
 function createToolbarIcon(document, parts) {
     const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
     setAttributes(svg, {

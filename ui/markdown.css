@@ -98,6 +98,11 @@
     background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
+.editor-toolbar-button[aria-pressed="true"] {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 .editor-toolbar-button:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
     outline-offset: -1px;
@@ -700,7 +705,7 @@ main {
 }
 
 @media (max-width: 760px) {
-    .markdown-outline { display: none; }
+    .markdown-outline { flex-basis: min(220px, 42vw); }
 }
 
 @media (prefers-reduced-motion: reduce) {

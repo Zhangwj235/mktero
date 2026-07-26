@@ -92,6 +92,6 @@ test('lays out a responsive scrollable outline beside the editor', () => {
 
     assert.match(
         MARKDOWN_STYLES,
-        /@media\s*\(max-width:\s*760px\)[\s\S]*\.markdown-outline\s*\{[\s\S]*display:\s*none/
+        /@media\s*\(max-width:\s*760px\)[\s\S]*\.markdown-outline\s*\{[^}]*flex-basis:\s*min\(220px, 42vw\)/
     );
 });

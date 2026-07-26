@@ -156,6 +156,39 @@ test('uses a Joplin-style editing toolbar to run inline editor commands', () => 
     view.destroy();
 });
 
+test('toggles the Markdown outline from the first toolbar button', () => {
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Overview\n\n## Methods',
+        sourceKind: 'markdown',
+    }));
+    const toolbar = shadow.querySelector('#mktero-editor-toolbar');
+    const toggle = shadow.querySelector('#mktero-toggle-outline');
+    const outline = shadow.querySelector('#mktero-outline');
+
+    assert.equal(toolbar.querySelector('button'), toggle);
+    assert.equal(toggle.getAttribute('aria-controls'), 'mktero-outline');
+    assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(toggle.getAttribute('aria-label'), '隐藏目录');
+    assert.equal(toggle.getAttribute('title'), '隐藏目录');
+    assert.equal(outline.hidden, false);
+
+    toggle.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
+
+    assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+    assert.equal(toggle.getAttribute('aria-label'), '显示目录');
+    assert.equal(toggle.getAttribute('title'), '显示目录');
+    assert.equal(outline.hidden, true);
+
+    toggle.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
+
+    assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(toggle.getAttribute('aria-label'), '隐藏目录');
+    assert.equal(outline.hidden, false);
+    view.destroy();
+});
+
 test('shows a live Markdown outline and scrolls to the selected heading', () => {
     const markdown = '# Overview\n\n## Methods\n\n### Results';
     const scrolledOffsets = [];
@@ -240,6 +273,7 @@ test('mounts the Markdown UI in an isolated inline shadow root', () => {
     assert.ok(shadow.querySelector('#mktero-editor-toolbar'));
     assert.ok(shadow.querySelector('#mktero-editor .cm-content'));
     assert.equal(shadow.querySelector('.markdown-workspace').hidden, true);
+    assert.equal(shadow.querySelector('#mktero-toggle-outline').disabled, true);
     assert.equal(shadow.querySelector('#mktero-save').textContent, '保存');
     view.destroy();
 });

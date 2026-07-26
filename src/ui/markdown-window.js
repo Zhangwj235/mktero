@@ -3,6 +3,7 @@ import { extractMarkdownOutline } from '../markdown/markdown-outline.js';
 import {
     bindEditorToolbar,
     createEditorToolbar,
+    createToolbarButton,
 } from './editor-toolbar.js';
 import { createLoadingPresentation } from './markdown-loading-state.js';
 
@@ -10,6 +11,10 @@ const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const BUNDLED_MARKDOWN_STYLES = typeof __MKTERO_MARKDOWN_STYLES__ === 'string'
     ? __MKTERO_MARKDOWN_STYLES__
     : null;
+const OUTLINE_ICON = [
+    ['rect', { x: '2.5', y: '3', width: '15', height: '14', rx: '1.5' }],
+    ['path', { d: 'M7.5 3v14M4.5 7h.01M4.5 10h.01M4.5 13h.01' }],
+];
 
 export function createMarkdownTabView({
     document,
@@ -47,6 +52,7 @@ class MarkdownTabView {
         this.savedMarkdown = '';
         this.saving = false;
         this.saveState = 'unavailable';
+        this.outlineVisible = true;
 
         this.host = this.createElement('div', {
             class: 'mktero-tab-host',
@@ -267,7 +273,22 @@ class MarkdownTabView {
         saveButton.disabled = true;
         const sourceActions = this.createElement('div', { class: 'source-actions' });
         sourceActions.appendChild(saveButton);
+        const outlineToggleButton = createToolbarButton(this.document, {
+            id: 'mktero-toggle-outline',
+            label: '隐藏目录',
+            icon: OUTLINE_ICON,
+            pressed: true,
+        });
+        outlineToggleButton.disabled = true;
+        outlineToggleButton.setAttribute('aria-controls', 'mktero-outline');
+        const outlineToolbarGroup = this.createElement('div', {
+            class: 'editor-toolbar-group editor-toolbar-view-group',
+            role: 'group',
+            'aria-label': '视图',
+        });
+        outlineToolbarGroup.appendChild(outlineToggleButton);
         const { editorToolbar, toolbarButtons } = createEditorToolbar(this.document);
+        editorToolbar.insertBefore(outlineToolbarGroup, editorToolbar.firstChild);
         const header = this.createElement('header', { class: 'app-header' });
         appendChildren(header, editorToolbar, sourceActions);
 
@@ -326,6 +347,7 @@ class MarkdownTabView {
             saveButton,
             editorToolbar,
             toolbarButtons,
+            outlineToggleButton,
         };
     }
 
@@ -340,6 +362,14 @@ class MarkdownTabView {
 
     bindActions() {
         this.listen(this.elements.saveButton, 'click', () => this.saveMarkdownSource());
+        this.listen(
+            this.elements.outlineToggleButton,
+            'mousedown',
+            event => event.preventDefault()
+        );
+        this.listen(this.elements.outlineToggleButton, 'click', () => {
+            this.setOutlineVisibility(!this.outlineVisible);
+        });
         this.listen(this.elements.outlineList, 'click', event => {
             const button = event.target?.closest?.('.markdown-outline-link');
             if (!button || !this.elements.outlineList.contains(button)) return;
@@ -364,9 +394,22 @@ class MarkdownTabView {
 
     syncContentVisibility(visible) {
         this.elements.workspace.hidden = !visible;
+        this.elements.outlineToggleButton.disabled = !visible;
         for (const { button } of this.elements.toolbarButtons) {
             button.disabled = !visible;
         }
+    }
+
+    setOutlineVisibility(visible) {
+        this.outlineVisible = visible;
+        this.elements.outline.hidden = !visible;
+        const label = visible ? '隐藏目录' : '显示目录';
+        this.elements.outlineToggleButton.setAttribute(
+            'aria-pressed',
+            String(visible)
+        );
+        this.elements.outlineToggleButton.setAttribute('aria-label', label);
+        this.elements.outlineToggleButton.setAttribute('title', label);
     }
 
     updateMarkdownSource(markdown) {
