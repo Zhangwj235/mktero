@@ -1,5 +1,6 @@
 import { Marked } from 'marked';
 import katex from 'katex';
+import { parseAcademicFigureCaption } from './markdown-figures.js';
 
 const MAX_MATH_EXPRESSIONS = 1000;
 const MAX_MATH_OUTPUT_LENGTH = 250_000;
@@ -73,10 +74,21 @@ function createSafeRenderer(resolveImageURL, mathBudget) {
             return `<a href="${escapeAttribute(safeHref)}" rel="noreferrer">${label}</a>`;
         },
 
+        paragraph({ tokens }) {
+            const image = standaloneImageToken(tokens);
+            const caption = image
+                ? parseAcademicFigureCaption(imageTokenDescription(image))
+                : null;
+            const content = this.parser.parseInline(tokens);
+            if (!caption) return `<p>${content}</p>\n`;
+            return '<figure class="mktero-figure">'
+                + content
+                + `<figcaption>${escapeHTML(caption.text)}</figcaption>`
+                + '</figure>\n';
+        },
+
         image({ href, title, text, tokens }) {
-            const alt = tokens
-                ? inlineTokensToText(tokens)
-                : text;
+            const alt = imageTokenDescription({ text, tokens });
             const resolved = resolveImageURL(href);
             if (!resolved || !String(resolved).startsWith('blob:')) {
                 return `<span class="missing-image">${escapeHTML(alt || 'Image')}</span>`;
@@ -87,6 +99,16 @@ function createSafeRenderer(resolveImageURL, mathBudget) {
             return `<img src="${escapeAttribute(resolved)}" alt="${escapeAttribute(alt)}"${titleAttribute}>`;
         },
     };
+}
+
+function standaloneImageToken(tokens) {
+    return tokens?.length === 1 && tokens[0].type === 'image'
+        ? tokens[0]
+        : null;
+}
+
+function imageTokenDescription({ text, tokens }) {
+    return tokens ? inlineTokensToText(tokens) : text;
 }
 
 function createMathBlockExtension(mathBudget) {

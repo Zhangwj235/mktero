@@ -214,6 +214,86 @@ test('does not merge a figure or table caption with following prose', () => {
     }
 });
 
+test('moves an adjacent MinerU figure caption into the image description', () => {
+    const markdown = '![](images/6071.jpg)  \n'
+        + 'Figure 1. PRISMA flowchart of inclusion of studies for the meta-analysis.';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        '![Figure 1. PRISMA flowchart of inclusion of studies for the meta-analysis.]'
+            + '(images/6071.jpg)'
+    );
+});
+
+test('moves a blank-line-separated figure caption into the image description', () => {
+    const markdown = '![](images/figure.jpg)\n\n'
+        + 'Figure S1A: Participant flow through the study.\n\n'
+        + 'The article continues here.';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        '![Figure S1A: Participant flow through the study.]'
+            + '(images/figure.jpg)\n\nThe article continues here.'
+    );
+});
+
+test('does not move example figure captions inside fenced code', () => {
+    const markdown = '```md\n'
+        + '![](images/example.jpg)\n'
+        + 'Figure 1. This is syntax shown inside a code sample.\n'
+        + '```';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('does not move example figure captions inside indented code', () => {
+    const markdown = '    ![](images/example.jpg)\n'
+        + '    Figure 1. This is syntax shown inside a code sample.';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('does not assign a shared caption to only the last image panel', () => {
+    const markdown = '![](images/panel-a.jpg)\n'
+        + '![](images/panel-b.jpg)\n'
+        + 'Figure 1. Results for panels A and B.';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('keeps narrative figure mentions and existing image descriptions unchanged', () => {
+    const cases = [
+        '![](images/figure.jpg)\nFigure 1 shows the participant flow.',
+        '![Existing description](images/figure.jpg)\n'
+            + 'Figure 1. A separately authored caption.',
+    ];
+
+    for (const markdown of cases) {
+        assert.equal(normalizeMinerUMarkdown(markdown), markdown, markdown);
+    }
+});
+
+test('escapes Markdown punctuation in normalized image descriptions idempotently', () => {
+    const markdown = '![](images/figure.jpg)  \n'
+        + 'Figure 2. Accuracy [95% CI] from C:\\data.';
+    const expected = '![Figure 2. Accuracy \\[95% CI\\] from C:\\\\data.]'
+        + '(images/figure.jpg)';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), expected);
+    assert.equal(normalizeMinerUMarkdown(expected), expected);
+});
+
+test('preserves CRLF when normalizing an academic image caption', () => {
+    const markdown = '![](images/figure.jpg)  \r\n'
+        + 'Fig. 3: Outcome by treatment group.\r\n\r\nNext paragraph.';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        '![Fig. 3: Outcome by treatment group.](images/figure.jpg)'
+            + '\r\n\r\nNext paragraph.'
+    );
+});
+
 test('does not merge prose with Markdown block structures', () => {
     const cases = [
         '# a lowercase heading\n\nparagraph text',

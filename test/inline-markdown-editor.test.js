@@ -1319,6 +1319,59 @@ test('renders an image on its own hard-break line at reading width', () => {
     dom.window.close();
 });
 
+test('renders an academic image description as a selectable editable caption', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const captionText = 'Figure 1. PRISMA flowchart of included studies.';
+    const markdown = `![${captionText}](images/figure.png)`;
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => 'blob:mktero-captioned-figure',
+        openLink: () => {},
+        onChange: assert.fail,
+        onSaveRequest: assert.fail,
+    });
+    const figure = document.querySelector('.cm-mktero-image .mktero-figure');
+    const image = figure?.querySelector('img');
+    const caption = figure?.querySelector('figcaption');
+
+    assert.equal(caption?.textContent, captionText);
+    assert.equal(image?.getAttribute('alt'), captionText);
+
+    const range = document.createRange();
+    range.selectNodeContents(caption);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+    assert.equal(document.getSelection().toString(), captionText);
+
+    image.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(
+        document.querySelector('.mktero-image-preview-image')?.getAttribute('alt'),
+        captionText
+    );
+    document.querySelector('[aria-label="关闭图片预览"]').click();
+
+    caption.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(document.querySelector('.cm-mktero-image .mktero-figure'), null);
+    assert.match(document.querySelector('.cm-content').textContent, /PRISMA flowchart/);
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('previews a rendered image with zoom and drag controls', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

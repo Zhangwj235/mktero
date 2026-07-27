@@ -1,3 +1,5 @@
+import { normalizeMarkdownFigureCaptions } from '../markdown/markdown-figures.js';
+
 const BLANK_LINE_SEPARATOR = /(\r?\n[ \t]*\r?\n(?:[ \t]*\r?\n)*)/;
 const BLOCK_START_PATTERN = /^(?: {0,3}(?:#{1,6}(?:[ \t]|$)|>|(?:[-+*]|\d+[.)])[ \t]+|```|~~~)| {4}\S|\t\S|<|\$\$|\\\[|\\begin\{|\[[^\]\n]+\]:)/;
 const TABLE_SEPARATOR_PATTERN = /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+(?:\s*:?-{3,}:?\s*)?$/m;
@@ -16,10 +18,13 @@ const OCR_BULLET_PREFIX_PATTERN = /^([ \t]*)(?:\\-|•)(?=[ \t]+)/u;
 const MIN_PRECEDING_WORDS = 6;
 
 export function normalizeMinerUMarkdown(markdown) {
-    if (typeof markdown !== 'string' || !markdown.includes('\n')) return markdown;
+    if (typeof markdown !== 'string') return markdown;
 
-    const parts = normalizeOCRBulletLists(markdown).split(BLANK_LINE_SEPARATOR);
-    if (parts.length < 3) return markdown;
+    const withFigureCaptions = normalizeMarkdownFigureCaptions(markdown);
+    if (!withFigureCaptions.includes('\n')) return withFigureCaptions;
+
+    const parts = normalizeOCRBulletLists(withFigureCaptions).split(BLANK_LINE_SEPARATOR);
+    if (parts.length < 3) return withFigureCaptions;
 
     let output = parts[0];
     let inReferences = isReferenceHeading(parts[0]);

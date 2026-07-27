@@ -375,6 +375,49 @@ test('renders language fences and resolved MinerU images', () => {
     assert.match(html, /<img src="blob:mktero-figure" alt="Figure 1">/);
 });
 
+test('renders a standalone academic image description as a visible figure caption', () => {
+    const caption = 'Figure 1. PRISMA flowchart of inclusion of studies.';
+    const html = renderMarkdownHTML(
+        `![${caption}](images/figure.png)`,
+        { resolveImageURL: () => 'blob:mktero-figure' }
+    );
+
+    assert.equal(
+        html,
+        '<figure class="mktero-figure">'
+            + `<img src="blob:mktero-figure" alt="${caption}">`
+            + `<figcaption>${caption}</figcaption>`
+            + '</figure>\n'
+    );
+});
+
+test('keeps academic-looking descriptions on inline images inline', () => {
+    const html = renderMarkdownHTML(
+        'See ![Figure 1. Participant flow.](images/figure.png) for details.',
+        { resolveImageURL: () => 'blob:mktero-figure' }
+    );
+
+    assert.doesNotMatch(html, /<figure/);
+    assert.match(
+        html,
+        /<p>See <img src="blob:mktero-figure" alt="Figure 1\. Participant flow\."> for details\.<\/p>/
+    );
+});
+
+test('escapes visible academic captions independently from image attributes', () => {
+    const html = renderMarkdownHTML(
+        '![Figure 2. A & B <script>.](images/figure.png)',
+        { resolveImageURL: () => 'blob:mktero-figure' }
+    );
+
+    assert.match(html, /alt="Figure 2\. A &amp; B &lt;script&gt;\."/);
+    assert.match(
+        html,
+        /<figcaption>Figure 2\. A &amp; B &lt;script&gt;\.<\/figcaption>/
+    );
+    assert.doesNotMatch(html, /<script>/);
+});
+
 test('does not load unresolved or external Markdown images', () => {
     const html = renderMarkdownHTML('![Remote](https://example.com/tracker.png)');
 

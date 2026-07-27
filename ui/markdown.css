@@ -678,6 +678,25 @@ main {
     margin: 20px auto;
 }
 
+.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure {
+    max-width: 100%;
+    margin: 20px 0 24px;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure img {
+    margin: 0 auto;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure figcaption {
+    max-width: 100%;
+    margin: 8px auto 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+    text-align: left;
+    user-select: text;
+}
+
 .markdown-editor-host > .cm-editor .cm-mktero-image-inline {
     display: inline-block;
     max-width: 100%;
