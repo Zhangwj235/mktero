@@ -140,6 +140,13 @@ test('styles citation popups and temporary reference highlights', () => {
     assert.match(superscriptCitation, /line-height:\s*1/);
     assert.match(superscriptCitation, /vertical-align:\s*super/);
 
+    const affiliationMarker = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-affiliation-marker'
+    );
+    assert.match(affiliationMarker, /color:\s*var\(--accent\)/);
+    assert.match(affiliationMarker, /font-weight:\s*650/);
+    assert.doesNotMatch(affiliationMarker, /cursor:\s*pointer/);
+
     const highlight = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-reference-highlight'
     );

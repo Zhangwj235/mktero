@@ -891,6 +891,87 @@ test('keeps Unicode superscript citation glyphs at their native position', () =>
     dom.window.close();
 });
 
+test('shows author affiliations instead of references for front-matter superscripts', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Acceptability of Artificial Intelligence Therapy',
+        '',
+        'Ashish Mehta $^{1}$, BA; Andrea Niles $^{2}$, PhD',
+        '',
+        '$^{1}$ Department of Psychology, Stanford University. '
+            + '$^{2}$ Youper, Inc.',
+        '',
+        '## Abstract',
+        '',
+        'Prior work supports this result $^{1}$.',
+        '',
+        '## References',
+        '',
+        '[1] Smith, A. (2020). Actual cited paper.',
+        '[2] Beta B. Another cited paper. 2021.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const affiliations = [...document.querySelectorAll('.cm-mktero-affiliation-marker')];
+    const citations = [...document.querySelectorAll('.cm-mktero-citation')];
+
+    assert.deepEqual(affiliations.map(marker => marker.textContent), ['1', '2']);
+    assert.deepEqual(citations.map(citation => citation.textContent), ['1', '2', '1']);
+    assert.equal(citations[0].getAttribute('aria-label'), '查看作者单位 1');
+    assert.doesNotMatch(
+        document.querySelector('.cm-content')?.textContent || '',
+        /<\/?sup>/
+    );
+
+    citations[0].dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    let popup = document.querySelector('.mktero-citation-popup');
+    assert.equal(popup?.getAttribute('aria-label'), '作者单位');
+    assert.match(
+        popup?.textContent || '',
+        /Department of Psychology, Stanford University\./
+    );
+    assert.doesNotMatch(popup?.textContent || '', /Actual cited paper/);
+
+    const affiliationOffset = markdown.indexOf('Department of Psychology');
+    let navigatedOffset = null;
+    view.lineBlockAt = position => {
+        navigatedOffset = position;
+        return { top: 480 };
+    };
+    view.requestMeasure = request => {
+        if (request?.read) request.write?.(request.read(view), view);
+    };
+    citations[0].dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(navigatedOffset, affiliationOffset);
+    assert.match(
+        document.querySelector('.cm-mktero-reference-highlight')?.textContent || '',
+        /Department of Psychology, Stanford University\./
+    );
+
+    citations.at(-1).dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    popup = document.querySelector('.mktero-citation-popup');
+    assert.equal(popup?.getAttribute('aria-label'), '引用详情');
+    assert.match(popup?.textContent || '', /Actual cited paper/);
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('opens every reference in a grouped citation from its popup', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

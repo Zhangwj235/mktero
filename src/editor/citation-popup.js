@@ -32,11 +32,12 @@ export function createCitationPopup(parent) {
 
     const open = ({
         anchor: nextAnchor,
-        references,
+        targets,
+        label = '引用详情',
         onActivate,
         focusFirst = false,
     }) => {
-        if (!nextAnchor || !references?.length) return;
+        if (!nextAnchor || !targets?.length) return;
         if (ignoredOpenAnchor === nextAnchor) {
             ignoredOpenAnchor = null;
             return;
@@ -52,27 +53,27 @@ export function createCitationPopup(parent) {
         popup.id = `mktero-citation-popup-${nextPopupID++}`;
         popup.className = 'mktero-citation-popup';
         popup.setAttribute('role', 'dialog');
-        popup.setAttribute('aria-label', '引用详情');
+        popup.setAttribute('aria-label', label);
         const content = document.createElement('div');
         content.className = 'mktero-citation-popup-content';
 
-        for (const reference of references) {
+        for (const target of targets) {
             const item = document.createElement('button');
             item.type = 'button';
             item.className = 'mktero-citation-popup-item';
             item.addEventListener('click', () => {
                 close();
-                onActivate?.(reference);
+                onActivate?.(target);
             });
-            if (Number.isInteger(reference.number)) {
+            if (Number.isInteger(target.number)) {
                 const number = document.createElement('span');
                 number.className = 'mktero-citation-popup-number';
-                number.textContent = `[${reference.number}]`;
+                number.textContent = `[${target.number}]`;
                 item.appendChild(number);
             }
             const text = document.createElement('span');
             text.className = 'mktero-citation-popup-text';
-            text.textContent = reference.text;
+            text.textContent = target.text;
             item.appendChild(text);
             content.appendChild(item);
         }

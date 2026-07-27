@@ -177,7 +177,7 @@ export function createInlineRenderingExtension({
         highlightedReferenceID: null,
         citationAnalysisDocument: null,
         citationAnalysis: null,
-        citationReferences: new Map(),
+        citationTargets: new Map(),
     };
     const renderingField = StateField.define({
         create(state) {
@@ -416,6 +416,27 @@ function buildDecorations(state, context) {
 function decorateCitations(state, decorations, context) {
     const result = citationAnalysis(state, context);
     const hiddenSuperscriptMarkup = new Set();
+    for (const affiliation of result.affiliations) {
+        const markup = affiliation.markerMarkup;
+        if (!markup
+            || editingRangeIntersects(
+                context,
+                markup.wrapperFrom,
+                affiliation.to
+            )
+            || citationRangeIsExcluded(state, markup.contentFrom)) {
+            continue;
+        }
+        hideSuperscriptMarkup(decorations, markup, hiddenSuperscriptMarkup);
+        decorations.push(Decoration.mark({
+            class: [
+                'cm-mktero-affiliation-marker',
+                markup.raiseContent
+                    ? 'cm-mktero-citation-superscript'
+                    : '',
+            ].filter(Boolean).join(' '),
+        }).range(markup.contentFrom, markup.contentTo));
+    }
     for (const citation of result.citations) {
         const markup = citation.superscriptMarkup;
         const decoratedFrom = markup?.wrapperFrom ?? citation.from;
@@ -425,22 +446,11 @@ function decorateCitations(state, decorations, context) {
             continue;
         }
         if (markup) {
-            const markupKey = `${markup.wrapperFrom}:${markup.wrapperTo}`;
-            if (!hiddenSuperscriptMarkup.has(markupKey)) {
-                hiddenSuperscriptMarkup.add(markupKey);
-                if (markup.wrapperFrom < markup.contentFrom) {
-                    decorations.push(Decoration.replace({}).range(
-                        markup.wrapperFrom,
-                        markup.contentFrom
-                    ));
-                }
-                if (markup.contentTo < markup.wrapperTo) {
-                    decorations.push(Decoration.replace({}).range(
-                        markup.contentTo,
-                        markup.wrapperTo
-                    ));
-                }
-            }
+            hideSuperscriptMarkup(
+                decorations,
+                markup,
+                hiddenSuperscriptMarkup
+            );
         }
         decorations.push(Decoration.mark({
             class: [
@@ -452,19 +462,41 @@ function decorateCitations(state, decorations, context) {
             attributes: {
                 role: 'link',
                 tabindex: '0',
-                'aria-label': citationLabel(citation.references),
+                'aria-label': citationLabel(
+                    citation.references,
+                    citation.kind
+                ),
                 'data-citation-ids': citation.referenceIds.join(' '),
+                'data-citation-kind': citation.kind,
             },
         }).range(citation.from, citation.to));
     }
 
-    const highlighted = context.citationReferences.get(
+    const highlighted = context.citationTargets.get(
         context.highlightedReferenceID
     );
     if (highlighted) {
         decorations.push(Decoration.mark({
             class: 'cm-mktero-reference-highlight',
         }).range(highlighted.from, highlighted.to));
+    }
+}
+
+function hideSuperscriptMarkup(decorations, markup, hiddenMarkup) {
+    const markupKey = `${markup.wrapperFrom}:${markup.wrapperTo}`;
+    if (hiddenMarkup.has(markupKey)) return;
+    hiddenMarkup.add(markupKey);
+    if (markup.wrapperFrom < markup.contentFrom) {
+        decorations.push(Decoration.replace({}).range(
+            markup.wrapperFrom,
+            markup.contentFrom
+        ));
+    }
+    if (markup.contentTo < markup.wrapperTo) {
+        decorations.push(Decoration.replace({}).range(
+            markup.contentTo,
+            markup.wrapperTo
+        ));
     }
 }
 
@@ -475,8 +507,9 @@ function citationAnalysis(state, context) {
     const result = analyzeMarkdownCitations(state.doc.toString());
     context.citationAnalysisDocument = state.doc;
     context.citationAnalysis = result;
-    context.citationReferences = new Map(
-        result.references.map(reference => [reference.id, reference])
+    context.citationTargets = new Map(
+        [...result.references, ...result.affiliations]
+            .map(target => [target.id, target])
     );
     return result;
 }
@@ -497,14 +530,20 @@ function citationRangeIsExcluded(state, position) {
     return false;
 }
 
-function citationLabel(references) {
-    if (references.length === 1) {
-        const reference = references[0];
-        return Number.isInteger(reference.number)
-            ? `查看引用 ${reference.number}`
-            : `查看引用：${reference.text}`;
+function citationLabel(targets, kind) {
+    if (kind === 'affiliation') {
+        if (targets.length === 1) {
+            return `查看作者单位 ${targets[0].number}`;
+        }
+        return `查看 ${targets.length} 个作者单位`;
     }
-    return `查看 ${references.length} 条引用`;
+    if (targets.length === 1) {
+        const target = targets[0];
+        return Number.isInteger(target.number)
+            ? `查看引用 ${target.number}`
+            : `查看引用：${target.text}`;
+    }
+    return `查看 ${targets.length} 条引用`;
 }
 
 function citationElement(event, view) {
@@ -512,29 +551,31 @@ function citationElement(event, view) {
     return citation && view.dom.contains(citation) ? citation : null;
 }
 
-function referencesForCitation(citation, context) {
+function targetsForCitation(citation, context) {
     return (citation.getAttribute('data-citation-ids') || '')
         .split(/\s+/)
-        .map(id => context.citationReferences.get(id))
+        .map(id => context.citationTargets.get(id))
         .filter(Boolean);
 }
 
 function openCitationPopup(citation, view, context, focusFirst = false) {
+    const kind = citation.getAttribute('data-citation-kind');
     context.citationPopup?.open({
         anchor: citation,
-        references: referencesForCitation(citation, context),
+        targets: targetsForCitation(citation, context),
+        label: kind === 'affiliation' ? '作者单位' : '引用详情',
         focusFirst,
-        onActivate(reference) {
-            context.activateCitation?.(view, reference);
+        onActivate(target) {
+            context.activateCitation?.(view, target);
         },
     });
 }
 
 function activateCitationElement(citation, view, context) {
-    const reference = referencesForCitation(citation, context)[0];
-    if (!reference) return false;
+    const target = targetsForCitation(citation, context)[0];
+    if (!target) return false;
     context.citationPopup?.close();
-    context.activateCitation?.(view, reference);
+    context.activateCitation?.(view, target);
     return true;
 }
 
@@ -799,9 +840,13 @@ function decorateMath(
 }
 
 function hasSuperscriptCitationMarkup(state, context, from, to) {
-    return citationAnalysis(state, context).citations.some(citation => (
+    const result = citationAnalysis(state, context);
+    return result.citations.some(citation => (
         citation.superscriptMarkup?.wrapperFrom === from
-        && citation.superscriptMarkup.wrapperTo === to
+            && citation.superscriptMarkup.wrapperTo === to
+    )) || result.affiliations.some(affiliation => (
+        affiliation.markerMarkup?.wrapperFrom === from
+            && affiliation.markerMarkup.wrapperTo === to
     ));
 }
 

@@ -148,6 +148,340 @@ test('maps Unicode superscript citations without treating exponents as reference
     );
 });
 
+test('maps author superscripts to affiliations without stealing body references', () => {
+    const markdown = [
+        '# Acceptability of Artificial Intelligence Therapy',
+        '',
+        'Ashish Mehta $^{1}$, BA; Andrea Niles $^{2}$, PhD',
+        '',
+        '$^{1}$ Department of Psychology, Stanford University. '
+            + '$^{2}$ Youper, Inc.',
+        '',
+        'Corresponding Author: Ashish Mehta',
+        '',
+        '## Abstract',
+        '',
+        'Prior work (Smith, 2020) supports this result $^{1}$.',
+        '',
+        '## References',
+        '',
+        '[1] Smith, A. (2020). Actual cited paper.',
+        '[2] Beta B. Another cited paper. 2021.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.affiliations.map(affiliation => ({
+            id: affiliation.id,
+            number: affiliation.number,
+            text: affiliation.text,
+        })),
+        [
+            {
+                id: 'affiliation:1',
+                number: 1,
+                text: 'Department of Psychology, Stanford University.',
+            },
+            {
+                id: 'affiliation:2',
+                number: 2,
+                text: 'Youper, Inc.',
+            },
+        ]
+    );
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            kind: citation.kind,
+            targetIds: citation.referenceIds,
+        })),
+        [
+            { label: '1', kind: 'affiliation', targetIds: ['affiliation:1'] },
+            { label: '2', kind: 'affiliation', targetIds: ['affiliation:2'] },
+            {
+                label: '(Smith, 2020)',
+                kind: 'reference',
+                targetIds: ['number:1'],
+            },
+            { label: '1', kind: 'reference', targetIds: ['number:1'] },
+        ]
+    );
+});
+
+test('does not treat unmatched front-matter superscripts as references', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Ashish Mehta<sup>1</sup>',
+        '',
+        '## Abstract',
+        '',
+        'The body contains a real citation<sup>1</sup>.',
+        '',
+        '## References',
+        '',
+        '[1] Smith, A. (2020). Actual cited paper.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(result.affiliations, []);
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            kind: citation.kind,
+        })),
+        [{ label: '1', kind: 'reference' }]
+    );
+});
+
+test('recognizes affiliations before an unlisted body heading', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Alice $^{1}$',
+        '',
+        '$^{1}$ Research Lab',
+        '',
+        '## Overview',
+        '',
+        'The body contains a real citation $^{1}$.',
+        '',
+        '## References',
+        '',
+        '[1] Smith, A. (2020). Actual cited paper.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            kind: citation.kind,
+        })),
+        [
+            { label: '1', kind: 'affiliation' },
+            { label: '1', kind: 'reference' },
+        ]
+    );
+});
+
+test('keeps citations before a later recognized body heading', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Alice $^{1}$',
+        '',
+        '$^{1}$ Research Lab',
+        '',
+        '## Related Work',
+        '',
+        'Prior work contains a real citation $^{1}$.',
+        '',
+        '## Methods',
+        '',
+        'Methods text.',
+        '',
+        '## References',
+        '',
+        '[1] Smith, A. (2020). Actual cited paper.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => citation.kind),
+        ['affiliation', 'reference']
+    );
+});
+
+test('maps short author names without treating their markers as exponents', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Li $^{1}$; Wu<sup>2</sup>',
+        '',
+        '$^{1}$ First Lab $^{2}$ Second Lab',
+        '',
+        '## 1. Introduction',
+        '',
+        'The body contains a real citation $^{1}$.',
+        '',
+        '## References',
+        '',
+        '[1] Smith, A. (2020). Actual cited paper.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            kind: citation.kind,
+            targetIds: citation.referenceIds,
+        })),
+        [
+            {
+                label: '1',
+                kind: 'affiliation',
+                targetIds: ['affiliation:1'],
+            },
+            {
+                label: '2',
+                kind: 'affiliation',
+                targetIds: ['affiliation:2'],
+            },
+            {
+                label: '1',
+                kind: 'reference',
+                targetIds: ['number:1'],
+            },
+        ]
+    );
+});
+
+test('does not map a title exponent to an author affiliation', () => {
+    const markdown = [
+        '# Effect of x$^{2}$ on Therapy',
+        '',
+        'Li $^{1}$; Alice $^{2}$',
+        '',
+        '$^{1}$ First Lab $^{2}$ Second Lab',
+        '',
+        '## Abstract',
+        '',
+        'Body text.',
+        '',
+        '## References',
+        '',
+        '[1] Smith, A. (2020). Actual cited paper.',
+        '[2] Jones, B. (2021). Another cited paper.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => markdown.slice(
+            citation.from,
+            citation.to
+        )),
+        ['1', '2']
+    );
+});
+
+test('skips front-matter headings before affiliation definitions', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        '## Author Details',
+        '',
+        'Li $^{1}$',
+        '',
+        '## Institutions',
+        '',
+        '$^{1}$ Research Lab',
+        '',
+        '## Keywords',
+        '',
+        'therapy; research',
+        '',
+        '## Overview',
+        '',
+        'The body contains a real citation $^{1}$.',
+        '',
+        '## References',
+        '',
+        '[1] Smith, A. (2020). Actual cited paper.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => citation.kind),
+        ['affiliation', 'reference']
+    );
+});
+
+test('infers the body after affiliations when no section heading exists', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Li $^{1}$',
+        '',
+        '$^{1}$ Research Lab',
+        '',
+        'Body text contains a real citation $^{1}$.',
+        '',
+        '## References',
+        '',
+        '[1] Smith, A. (2020). Actual cited paper.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => citation.kind),
+        ['affiliation', 'reference']
+    );
+});
+
+test('parses multiline HTML and Unicode affiliation definitions', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Alice<sup>1</sup>; Beatrice<sup>2</sup>',
+        '',
+        '<sup>1</sup> First Research Lab,',
+        'University A',
+        '',
+        '² Second Research Lab,',
+        'University B',
+        '',
+        '## Abstract',
+        '',
+        'The body contains a real citation<sup>1</sup>.',
+        '',
+        '## References',
+        '',
+        '[1] Smith, A. (2020). Actual cited paper.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.affiliations.map(affiliation => affiliation.text),
+        [
+            'First Research Lab, University A',
+            'Second Research Lab, University B',
+        ]
+    );
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            kind: citation.kind,
+            targetIds: citation.referenceIds,
+        })),
+        [
+            {
+                label: '1',
+                kind: 'affiliation',
+                targetIds: ['affiliation:1'],
+            },
+            {
+                label: '2',
+                kind: 'affiliation',
+                targetIds: ['affiliation:2'],
+            },
+            {
+                label: '1',
+                kind: 'reference',
+                targetIds: ['number:1'],
+            },
+        ]
+    );
+});
+
 test('matches parenthetical and narrative author-year citations', () => {
     const markdown = [
         '# Paper',

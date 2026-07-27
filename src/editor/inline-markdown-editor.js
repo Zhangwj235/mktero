@@ -127,16 +127,16 @@ export function createInlineMarkdownEditor({
                     onSaveRequest,
                     openImagePreview: imagePreview.open,
                     citationPopup,
-                    activateCitation(editorView, reference) {
+                    activateCitation(editorView, target) {
                         if (citationHighlightTimer !== null) {
                             ownerWindow.clearTimeout(citationHighlightTimer);
                         }
                         editorView.dispatch({
-                            effects: setReferenceHighlight.of(reference.id),
+                            effects: setReferenceHighlight.of(target.id),
                         });
                         requestEditorScroll(
                             editorView,
-                            reference.from,
+                            target.from,
                             editorView.state.doc
                         );
                         citationHighlightTimer = ownerWindow.setTimeout(() => {

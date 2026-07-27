@@ -1,8 +1,15 @@
 const REFERENCE_HEADING_PATTERN = /^(?:(#{1,6})[ \t]+)?(?:\*{1,2}|_{1,2})?(?:references?|bibliography|works[ \t]+cited|literature[ \t]+cited|参考文献|参考资料|参考书目)(?:\*{1,2}|_{1,2})?[ \t]*[:：]?[ \t]*#*[ \t]*$/gim;
+const MAIN_CONTENT_HEADING_PATTERN = /^(?:(?:#{1,6})[ \t]+)?(?:\*{1,2}|_{1,2})?(?:(?:\d+(?:\.\d+)*)[.)]?[ \t]+)?(?:abstract|summary|background|introduction|materials?[ \t]+and[ \t]+methods|methods?|results?|摘要|背景|引言|绪论|材料与方法|方法|结果)(?:\*{1,2}|_{1,2})?[ \t]*[:：]?[ \t]*#*[ \t]*$/gim;
+const FRONT_MATTER_HEADING_PATTERN = /^(?:authors?(?:[ \t]+(?:details?|information))?|affiliations?|institutional[ \t]+affiliations?|institutions?|departments?|correspond(?:ence|ing[ \t]+authors?)|contact[ \t]+information|keywords?|作者|作者信息|作者单位|机构|所属机构|通讯作者|关键词)$/i;
 const MARKDOWN_HEADING_PATTERN = /^(#{1,6})[ \t]+.+$/gm;
 const NUMBERED_REFERENCE_PATTERN = /^[ \t]*(?:[-*+][ \t]+)?(?:\[(\d{1,4})\]|(\d{1,4})[.)])[ \t]+/gm;
 const YEAR_PATTERN = /(?:^|[^\d])((?:18|19|20)\d{2}[a-z]?)(?=$|[^\d])/i;
 const UNICODE_SUPERSCRIPT_PATTERN = /[⁰¹²³⁴⁵⁶⁷⁸⁹]+(?:\s*(?:[,;，；]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+|[-–—⁻]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+))*/g;
+const WRAPPED_SUPERSCRIPT_PATTERNS = [
+    /<sup(?:\s[^>]*)?>([^<>\r\n]{1,80})<\/sup\s*>/gi,
+    /\$(?:\{\})?\^\{\s*(\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*)\s*\}\$/g,
+    /\\\((?:\{\})?\^\{\s*(\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*)\s*\}\\\)/g,
+];
 const UNICODE_SUPERSCRIPT_CHARACTERS = {
     '⁰': '0',
     '¹': '1',
@@ -20,17 +27,179 @@ const UNICODE_SUPERSCRIPT_CHARACTERS = {
 export function analyzeMarkdownCitations(markdown) {
     const source = String(markdown || '');
     const section = findReferenceSection(source);
-    if (!section) return { references: [], citations: [] };
-
-    const references = parseReferences(source, section);
+    const references = section ? parseReferences(source, section) : [];
+    const bodyEnd = section?.from ?? source.length;
+    const frontMatter = analyzeFrontMatter(source, bodyEnd);
     const citations = [
-        ...findNumericCitations(source, section.from, references),
-        ...findAuthorYearCitations(source, section.from, references),
+        ...frontMatter.citations,
+        ...findNumericCitations(
+            source,
+            frontMatter.bodyFrom,
+            bodyEnd,
+            references
+        ),
+        ...findAuthorYearCitations(
+            source,
+            frontMatter.bodyFrom,
+            bodyEnd,
+            references
+        ),
     ].sort((left, right) => left.from - right.from || left.to - right.to);
 
     return {
         references,
+        affiliations: frontMatter.affiliations,
         citations: removeOverlappingCitations(citations),
+    };
+}
+
+function analyzeFrontMatter(markdown, bodyEnd) {
+    const detectedBodyFrom = findMainContentStart(markdown, bodyEnd);
+    const frontMatterEnd = detectedBodyFrom
+        ?? Math.min(bodyEnd, 5000);
+    const definition = parseAffiliations(markdown, frontMatterEnd);
+    if (!definition.affiliations.length) {
+        return {
+            affiliations: [],
+            citations: [],
+            bodyFrom: detectedBodyFrom ?? 0,
+        };
+    }
+
+    const byNumber = new Map(
+        definition.affiliations.map(affiliation => [
+            affiliation.number,
+            affiliation,
+        ])
+    );
+    const citations = findSuperscriptMarkers(
+        markdown,
+        findAuthorAreaStart(markdown, definition.authorAreaEnd),
+        definition.authorAreaEnd,
+        { includeLikelyExponents: true }
+    ).flatMap(marker => numericCitationsInText(
+        marker.value,
+        marker.from,
+        byNumber,
+        marker.markup,
+        'affiliation'
+    ));
+
+    return {
+        affiliations: definition.affiliations,
+        citations,
+        bodyFrom: detectedBodyFrom ?? definition.affiliationAreaEnd,
+    };
+}
+
+function findAuthorAreaStart(markdown, authorAreaEnd) {
+    const source = markdown.slice(0, authorAreaEnd);
+    for (const heading of source.matchAll(new RegExp(MARKDOWN_HEADING_PATTERN))) {
+        if (heading[1].length !== 1) continue;
+        let from = heading.index + heading[0].length;
+        if (markdown[from] === '\r') from++;
+        if (markdown[from] === '\n') from++;
+        return from;
+    }
+    return 0;
+}
+
+function findMainContentStart(markdown, bodyEnd) {
+    const source = markdown.slice(0, bodyEnd);
+    const pattern = new RegExp(MAIN_CONTENT_HEADING_PATTERN);
+    const candidates = [];
+    const recognized = pattern.exec(source);
+    if (recognized) candidates.push(recognized.index);
+
+    const headings = [...source.matchAll(new RegExp(MARKDOWN_HEADING_PATTERN))];
+    for (const [index, heading] of headings.entries()) {
+        const level = heading[1].length;
+        const label = heading[0]
+            .slice(level)
+            .replace(/[ \t]+#+[ \t]*$/, '')
+            .trim();
+        if (index === 0 && level === 1
+            && !new RegExp(MAIN_CONTENT_HEADING_PATTERN).test(heading[0])) {
+            continue;
+        }
+        if (FRONT_MATTER_HEADING_PATTERN.test(label)) continue;
+        if (new RegExp(REFERENCE_HEADING_PATTERN).test(heading[0])) continue;
+        candidates.push(heading.index);
+        break;
+    }
+    return candidates.length ? Math.min(...candidates) : null;
+}
+
+function parseAffiliations(markdown, frontMatterEnd) {
+    const affiliations = [];
+    const definitionRanges = [];
+    let foundDefinition = false;
+    const paragraphs = paragraphRanges(markdown, {
+        from: 0,
+        to: frontMatterEnd,
+    });
+    for (const paragraph of paragraphs) {
+        const markers = findSuperscriptMarkers(
+            markdown,
+            paragraph.from,
+            paragraph.to
+        ).filter(marker => /^\s*\d+\s*$/.test(marker.value));
+        if (!markers.length) {
+            if (foundDefinition) break;
+            continue;
+        }
+        const leading = markdown.slice(
+            paragraph.from,
+            markers[0].markup.wrapperFrom
+        );
+        if (leading.trim()) {
+            if (foundDefinition) break;
+            continue;
+        }
+
+        const paragraphAffiliations = [];
+        for (const [index, marker] of markers.entries()) {
+            let contentFrom = marker.markup.wrapperTo;
+            while (contentFrom < paragraph.to
+                && /\s/.test(markdown[contentFrom])) {
+                contentFrom++;
+            }
+            const rawTo = index + 1 < markers.length
+                ? markers[index + 1].markup.wrapperFrom
+                : paragraph.to;
+            const to = trimRangeEnd(markdown, contentFrom, rawTo);
+            const text = plainReferenceText(markdown.slice(contentFrom, to));
+            if (!text || !/\p{L}/u.test(text)) continue;
+            const number = Number(marker.value.trim());
+            paragraphAffiliations.push({
+                id: `affiliation:${number}`,
+                number,
+                text,
+                from: contentFrom,
+                to,
+                markerMarkup: marker.markup,
+            });
+        }
+        if (!paragraphAffiliations.length) {
+            if (foundDefinition) break;
+            continue;
+        }
+        foundDefinition = true;
+        affiliations.push(...paragraphAffiliations);
+        definitionRanges.push(paragraph);
+    }
+
+    const unique = [...new Map(
+        affiliations.map(affiliation => [affiliation.id, affiliation])
+    ).values()];
+    return {
+        affiliations: unique,
+        authorAreaEnd: definitionRanges.length
+            ? Math.min(...definitionRanges.map(range => range.from))
+            : frontMatterEnd,
+        affiliationAreaEnd: definitionRanges.length
+            ? Math.max(...definitionRanges.map(range => range.to))
+            : frontMatterEnd,
     };
 }
 
@@ -143,7 +312,7 @@ function createReference({ id, number, text, from, to }) {
     };
 }
 
-function findNumericCitations(markdown, bodyEnd, references) {
+function findNumericCitations(markdown, bodyFrom, bodyEnd, references) {
     const byNumber = new Map(
         references
             .filter(reference => Number.isInteger(reference.number))
@@ -152,7 +321,7 @@ function findNumericCitations(markdown, bodyEnd, references) {
     if (!byNumber.size) return [];
 
     const citations = [];
-    const body = markdown.slice(0, bodyEnd);
+    const body = markdown.slice(bodyFrom, bodyEnd);
     const containers = [
         { pattern: /\[([^\]\r\n]{1,80})\]/g, markdownLink: true },
         { pattern: /\(([^()\r\n]{1,80})\)/g, markdownLink: false },
@@ -166,73 +335,123 @@ function findNumericCitations(markdown, bodyEnd, references) {
                 && (before === '!' || ['(', '[', ':'].includes(after))) {
                 continue;
             }
-            citations.push(...numericCitationsInContainer(match, byNumber));
-        }
-    }
-    const superscriptPatterns = [
-        /<sup(?:\s[^>]*)?>([^<>\r\n]{1,80})<\/sup\s*>/gi,
-        /\$(?:\{\})?\^\{\s*(\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*)\s*\}\$/g,
-        /\\\((?:\{\})?\^\{\s*(\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*)\s*\}\\\)/g,
-    ];
-    for (const pattern of superscriptPatterns) {
-        for (const match of body.matchAll(pattern)) {
-            if (superscriptIsLikelyExponent(body, match.index, match[1])) {
-                continue;
-            }
-            const contentFrom = match.index + match[0].indexOf(match[1]);
-            const contentTo = contentFrom + match[1].length;
-            citations.push(...numericCitationsInText(
-                match[1],
-                contentFrom,
-                byNumber,
-                {
-                    wrapperFrom: match.index,
-                    contentFrom,
-                    contentTo,
-                    wrapperTo: match.index + match[0].length,
-                    raiseContent: true,
-                }
+            citations.push(...numericCitationsInContainer(
+                match,
+                bodyFrom,
+                byNumber
             ));
         }
     }
-    for (const match of body.matchAll(UNICODE_SUPERSCRIPT_PATTERN)) {
-        const after = body[match.index + match[0].length] || '';
-        const normalized = [...match[0]]
-            .map(character => UNICODE_SUPERSCRIPT_CHARACTERS[character] || character)
-            .join('');
-        if (/^[\p{L}\p{N}_]$/u.test(after)
-            || superscriptIsLikelyExponent(body, match.index, normalized)) {
-            continue;
-        }
+    for (const marker of findSuperscriptMarkers(markdown, bodyFrom, bodyEnd)) {
         citations.push(...numericCitationsInText(
-            normalized,
-            match.index,
+            marker.value,
+            marker.from,
             byNumber,
-            {
-                wrapperFrom: match.index,
-                contentFrom: match.index,
-                contentTo: match.index + match[0].length,
-                wrapperTo: match.index + match[0].length,
-                raiseContent: false,
-            }
+            marker.markup
         ));
     }
     return citations;
 }
 
+function findSuperscriptMarkers(
+    markdown,
+    from,
+    to,
+    { includeLikelyExponents = false } = {}
+) {
+    const source = markdown.slice(from, to);
+    const markers = [];
+    for (const pattern of WRAPPED_SUPERSCRIPT_PATTERNS) {
+        for (const match of source.matchAll(pattern)) {
+            const wrapperFrom = from + match.index;
+            const value = normalizeSuperscriptCharacters(match[1]);
+            if (!includeLikelyExponents
+                && superscriptIsLikelyExponent(markdown, wrapperFrom, value)) {
+                continue;
+            }
+            const contentFrom = wrapperFrom + match[0].indexOf(match[1]);
+            const contentTo = contentFrom + match[1].length;
+            markers.push({
+                value,
+                from: contentFrom,
+                to: contentTo,
+                markup: {
+                    wrapperFrom,
+                    contentFrom,
+                    contentTo,
+                    wrapperTo: wrapperFrom + match[0].length,
+                    raiseContent: true,
+                },
+            });
+        }
+    }
+    for (const match of source.matchAll(UNICODE_SUPERSCRIPT_PATTERN)) {
+        const wrapperFrom = from + match.index;
+        const wrapperTo = wrapperFrom + match[0].length;
+        const after = markdown[wrapperTo] || '';
+        const value = normalizeSuperscriptCharacters(match[0]);
+        if (/^[\p{L}\p{N}_]$/u.test(after)
+            || (!includeLikelyExponents
+                && superscriptIsLikelyExponent(markdown, wrapperFrom, value))) {
+            continue;
+        }
+        markers.push({
+            value,
+            from: wrapperFrom,
+            to: wrapperTo,
+            markup: {
+                wrapperFrom,
+                contentFrom: wrapperFrom,
+                contentTo: wrapperTo,
+                wrapperTo,
+                raiseContent: false,
+            },
+        });
+    }
+    const sorted = markers.sort((left, right) => (
+        left.markup.wrapperFrom - right.markup.wrapperFrom
+        || right.markup.wrapperTo - left.markup.wrapperTo
+    ));
+    const nonOverlapping = [];
+    let occupiedUntil = -1;
+    for (const marker of sorted) {
+        if (marker.markup.wrapperFrom < occupiedUntil) continue;
+        nonOverlapping.push(marker);
+        occupiedUntil = marker.markup.wrapperTo;
+    }
+    return nonOverlapping;
+}
+
+function normalizeSuperscriptCharacters(value) {
+    return [...String(value)]
+        .map(character => UNICODE_SUPERSCRIPT_CHARACTERS[character] || character)
+        .join('');
+}
+
 function superscriptIsLikelyExponent(body, from, value) {
     if (!/^\s*\d+\s*$/.test(value)) return false;
     const preceding = body.slice(0, from);
-    if (/\d\s*$/u.test(preceding)) return true;
-    const base = /([\p{L}_][\p{L}\p{N}_]*)\s*$/u.exec(preceding)?.[1] || '';
+    if (/\d[ \t]*$/u.test(preceding)) return true;
+    const base = /([\p{L}_][\p{L}\p{N}_]*)[ \t]*$/u
+        .exec(preceding)?.[1] || '';
     return base.length > 0 && base.length <= 2;
 }
 
-function numericCitationsInContainer(match, byNumber) {
-    return numericCitationsInText(match[1], match.index + 1, byNumber);
+function numericCitationsInContainer(match, offset, byNumber) {
+    return numericCitationsInText(
+        match[1],
+        offset + match.index + 1,
+        byNumber
+    );
 }
 
-function numericCitationsInText(value, valueFrom, byNumber, superscriptMarkup = null) {
+function numericCitationsInText(
+    value,
+    valueFrom,
+    byNumber,
+    superscriptMarkup = null,
+    kind = 'reference'
+) {
     if (!/^\s*\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*\s*$/.test(value)) {
         return [];
     }
@@ -258,7 +477,8 @@ function numericCitationsInText(value, valueFrom, byNumber, superscriptMarkup = 
                     from,
                     to,
                     matched,
-                    superscriptMarkup
+                    superscriptMarkup,
+                    kind
                 ));
             }
             continue;
@@ -269,15 +489,16 @@ function numericCitationsInText(value, valueFrom, byNumber, superscriptMarkup = 
                 from,
                 to,
                 [reference],
-                superscriptMarkup
+                superscriptMarkup,
+                kind
             ));
         }
     }
     return citations;
 }
 
-function findAuthorYearCitations(markdown, bodyEnd, references) {
-    const body = markdown.slice(0, bodyEnd);
+function findAuthorYearCitations(markdown, bodyFrom, bodyEnd, references) {
+    const body = markdown.slice(bodyFrom, bodyEnd);
     const citations = [];
     const referencesByYear = groupReferencesByYear(references);
     const parentheticalPattern = /[（(]([^()（）\r\n]{1,240})[)）]/g;
@@ -297,8 +518,8 @@ function findAuthorYearCitations(markdown, bodyEnd, references) {
         const unique = uniqueReferences(matched);
         if (unique.length) {
             citations.push(createCitation(
-                match.index,
-                match.index + match[0].length,
+                bodyFrom + match.index,
+                bodyFrom + match.index + match[0].length,
                 unique
             ));
         }
@@ -311,8 +532,12 @@ function findAuthorYearCitations(markdown, bodyEnd, references) {
             matchAuthorReferences(referencesByYear, match[2], year)
         )));
         if (!matched.length) continue;
-        const from = match.index + match[1].length;
-        citations.push(createCitation(from, match.index + match[0].length, matched));
+        const from = bodyFrom + match.index + match[1].length;
+        citations.push(createCitation(
+            from,
+            bodyFrom + match.index + match[0].length,
+            matched
+        ));
     }
     return citations;
 }
@@ -386,13 +611,20 @@ function normalizeSearchText(value) {
         .replace(/\s+/g, ' ');
 }
 
-function createCitation(from, to, references, superscriptMarkup = null) {
+function createCitation(
+    from,
+    to,
+    references,
+    superscriptMarkup = null,
+    kind = 'reference'
+) {
     const unique = uniqueReferences(references);
     const citation = {
         from,
         to,
         referenceIds: unique.map(reference => reference.id),
         references: unique,
+        kind,
     };
     if (superscriptMarkup) citation.superscriptMarkup = superscriptMarkup;
     return citation;
