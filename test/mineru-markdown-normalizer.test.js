@@ -2,6 +2,80 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeMinerUMarkdown } from '../src/mineru/markdown-normalizer.js';
 
+test('converts consecutive MinerU OCR bullets into a Markdown list', () => {
+    const markdown = [
+        '## References',
+        '',
+        'Smith J. A preceding reference.',
+        '',
+        '## Benefits',
+        '',
+        '\\- fast submission',
+        '',
+        '• thorough review',
+        '',
+        '\\- rapid publication',
+        '',
+        'A separate explanation.',
+        '',
+        '\\- an isolated literal hyphen',
+    ].join('\n');
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        [
+            '## References',
+            '',
+            'Smith J. A preceding reference.',
+            '',
+            '## Benefits',
+            '',
+            '- fast submission',
+            '',
+            '- thorough review',
+            '',
+            '- rapid publication',
+            '',
+            'A separate explanation.',
+            '',
+            '\\- an isolated literal hyphen',
+        ].join('\n')
+    );
+});
+
+test('keeps OCR bullet markers anywhere inside references unchanged', () => {
+    const markdown = [
+        '## References',
+        '',
+        'Introductory reference note.',
+        '',
+        '\\- Smith J. First study.',
+        '',
+        '• Jones P. Second study.',
+    ].join('\n');
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('keeps OCR bullet markers under a Setext references heading unchanged', () => {
+    const markdown = [
+        'References',
+        '----------',
+        '',
+        '\\- Smith J. First study.',
+        '',
+        '• Jones P. Second study.',
+    ].join('\n');
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('does not join OCR bullets separated by more than one blank line', () => {
+    const markdown = '\\- first standalone item\n\n\n• second standalone item';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
 test('joins a MinerU paragraph split in the middle of a sentence', () => {
     const markdown = [
         'The common elements framework improves ability to change perspective on',

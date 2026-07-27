@@ -1,6 +1,7 @@
 const BLANK_LINE_SEPARATOR = /(\r?\n[ \t]*\r?\n(?:[ \t]*\r?\n)*)/;
 const BLOCK_START_PATTERN = /^(?: {0,3}(?:#{1,6}(?:[ \t]|$)|>|(?:[-+*]|\d+[.)])[ \t]+|```|~~~)| {4}\S|\t\S|<|\$\$|\\\[|\\begin\{|\[[^\]\n]+\]:)/;
 const TABLE_SEPARATOR_PATTERN = /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+(?:\s*:?-{3,}:?\s*)?$/m;
+const ATX_HEADING_PATTERN = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 const SETEXT_HEADING_PATTERN = /\r?\n[ \t]*(?:=+|-+)[ \t]*$/;
 const CAPTION_START_PATTERN = /^(?:algorithm|chart|fig\.?|figure|scheme|table)[ \t]+(?:[a-z]?\d+[a-z]?|[ivxlcdm]+[a-z]?)\b/i;
 const PUBLICATION_METADATA_PATTERN = /^(?:doi|isbn|issn|pmcid?|url)\s*:/i;
@@ -10,12 +11,14 @@ const LOAD_REACTIONS_START_PATTERN = /^load[ \t]+reactions\b/iu;
 const MARKDOWN_IMAGE_LINE_PATTERN = /^!\[[^\]\n]*\]\(.+\)[ \t]*$/;
 const PROSE_CONTINUATION_END_PATTERN = /[\p{L}\p{N}]$/u;
 const SEMICOLON_SERIES_CONTINUATION_PATTERN = /^[^.!?]*;/;
+const OCR_BULLET_ITEM_PATTERN = /^[ \t]*(?:\\-|•)[ \t]+\S[^\r\n]*[ \t]*$/u;
+const OCR_BULLET_PREFIX_PATTERN = /^([ \t]*)(?:\\-|•)(?=[ \t]+)/u;
 const MIN_PRECEDING_WORDS = 6;
 
 export function normalizeMinerUMarkdown(markdown) {
     if (typeof markdown !== 'string' || !markdown.includes('\n')) return markdown;
 
-    const parts = markdown.split(BLANK_LINE_SEPARATOR);
+    const parts = normalizeOCRBulletLists(markdown).split(BLANK_LINE_SEPARATOR);
     if (parts.length < 3) return markdown;
 
     let output = parts[0];
@@ -33,6 +36,52 @@ export function normalizeMinerUMarkdown(markdown) {
         }
     }
     return output;
+}
+
+function normalizeOCRBulletLists(markdown) {
+    const parts = markdown.split(BLANK_LINE_SEPARATOR);
+    let run = [];
+    let inReferences = false;
+    const flushRun = () => {
+        if (run.length >= 2) {
+            for (const index of run) {
+                parts[index] = parts[index].replace(
+                    OCR_BULLET_PREFIX_PATTERN,
+                    '$1-'
+                );
+            }
+        }
+        run = [];
+    };
+
+    for (let index = 0; index < parts.length; index += 2) {
+        const block = parts[index];
+        if (isReferenceHeading(block)) {
+            flushRun();
+            inReferences = true;
+            continue;
+        }
+        if (ATX_HEADING_PATTERN.test(block) || SETEXT_HEADING_PATTERN.test(block)) {
+            flushRun();
+            inReferences = false;
+            continue;
+        }
+        if (inReferences) {
+            flushRun();
+            continue;
+        }
+        if (OCR_BULLET_ITEM_PATTERN.test(block)) {
+            if (run.length && countLineBreaks(parts[index - 1]) !== 2) {
+                flushRun();
+            }
+            run.push(index);
+        }
+        else {
+            flushRun();
+        }
+    }
+    flushRun();
+    return parts.join('');
 }
 
 function isBrokenProseBoundary(previousBlock, separator, nextBlock) {
@@ -68,7 +117,8 @@ function isMarkdownBlock(block) {
 }
 
 function isReferenceHeading(block) {
-    return REFERENCE_HEADING_PATTERN.test(block.trim());
+    const heading = block.trim().replace(SETEXT_HEADING_PATTERN, '').trim();
+    return REFERENCE_HEADING_PATTERN.test(heading);
 }
 
 function isImageOnlyBlock(block) {
