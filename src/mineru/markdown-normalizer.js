@@ -5,6 +5,8 @@ const SETEXT_HEADING_PATTERN = /\r?\n[ \t]*(?:=+|-+)[ \t]*$/;
 const CAPTION_START_PATTERN = /^(?:algorithm|chart|fig\.?|figure|scheme|table)[ \t]+(?:[a-z]?\d+[a-z]?|[ivxlcdm]+[a-z]?)\b/i;
 const PUBLICATION_METADATA_PATTERN = /^(?:doi|isbn|issn|pmcid?|url)\s*:/i;
 const REFERENCE_HEADING_PATTERN = /^(?:#{1,6}[ \t]+)?(?:\*{1,2}|_{1,2})?(?:references?|bibliography|works[ \t]+cited|literature[ \t]+cited|参考文献|参考资料|参考书目)(?:\*{1,2}|_{1,2})?[ \t]*[:：]?[ \t]*#*[ \t]*$/i;
+const PROSE_CONTINUATION_END_PATTERN = /[\p{L}\p{N}]$/u;
+const SEMICOLON_SERIES_CONTINUATION_PATTERN = /^[^.!?]*;/;
 const MIN_PRECEDING_WORDS = 6;
 
 export function normalizeMinerUMarkdown(markdown) {
@@ -39,7 +41,10 @@ function isBrokenProseBoundary(previousBlock, separator, nextBlock) {
         || isMarkdownBlock(previous) || isMarkdownBlock(next)) {
         return false;
     }
-    if (!/^\p{Ll}/u.test(next) || !/[\p{L}\p{N}]$/u.test(previous)) {
+    const continuesProse = PROSE_CONTINUATION_END_PATTERN.test(previous)
+        || (previous.endsWith(';')
+            && SEMICOLON_SERIES_CONTINUATION_PATTERN.test(next));
+    if (!/^\p{Ll}/u.test(next) || !continuesProse) {
         return false;
     }
 

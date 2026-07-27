@@ -16,6 +16,23 @@ test('joins a MinerU paragraph split in the middle of a sentence', () => {
     );
 });
 
+test('joins a MinerU paragraph split after a semicolon', () => {
+    const markdown = 'Concretely, a real loop system assembles five reusable pieces and '
+        + 'an external memory. $^{8}$ Scheduled automations discover and triage the work '
+        + '(the scheduled trigger made concrete);\n\n'
+        + 'isolated worktrees let parallel agents run without colliding; skills encode '
+        + 'project knowledge as named, testable routines.';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        'Concretely, a real loop system assembles five reusable pieces and an external '
+            + 'memory. $^{8}$ Scheduled automations discover and triage the work '
+            + '(the scheduled trigger made concrete); isolated worktrees let parallel '
+            + 'agents run without colliding; skills encode project knowledge as named, '
+            + 'testable routines.'
+    );
+});
+
 test('joins every consecutive continuation created from the same paragraph', () => {
     const markdown = 'A sufficiently descriptive paragraph continues with\n\n'
         + 'another fragment that still has no ending\n\n'
@@ -44,6 +61,13 @@ test('joins prose that follows an inline image in the same MinerU block', () => 
 test('keeps complete prose paragraphs separate', () => {
     const markdown = 'This is a complete paragraph.\n\n'
         + 'another paragraph may intentionally start with a lowercase word.';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('keeps a semicolon-ended paragraph without a continuing semicolon series separate', () => {
+    const markdown = 'The first complete paragraph deliberately closes with a semicolon;\n\n'
+        + 'another paragraph intentionally begins with a lowercase word.';
 
     assert.equal(normalizeMinerUMarkdown(markdown), markdown);
 });
