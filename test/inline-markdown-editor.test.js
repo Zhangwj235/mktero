@@ -76,6 +76,29 @@ test('renders inactive Markdown formatting and formulas without rewriting source
     dom.window.close();
 });
 
+test('keeps inline formulas in the prose flow without block paragraph wrappers', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Anxiety symptoms have a Cronbach $\\alpha$ of .92, while '
+        + 'depression symptoms have a Cronbach $\\alpha$ of .89 and the modified '
+        + 'measure has a Cronbach $\\alpha$ of .84.';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => null,
+    });
+    const inlineMath = [...document.querySelectorAll('.cm-mktero-math')];
+
+    assert.equal(inlineMath.length, 3);
+    assert.ok(inlineMath.every(widget => widget.localName === 'span'));
+    assert.ok(inlineMath.every(widget => widget.querySelector('p') === null));
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('keeps inline Markdown rendered until its line is double-clicked', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

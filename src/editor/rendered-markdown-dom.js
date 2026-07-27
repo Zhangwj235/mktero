@@ -14,8 +14,14 @@ export function appendRenderedMarkdown(
         'text/html'
     );
     let nodes = [...parsed.body.childNodes];
-    if (unwrapParagraph && nodes.length === 1 && nodes[0].localName === 'p') {
-        nodes = [...nodes[0].childNodes];
+    const contentNodes = nodes.filter(node => (
+        node.nodeType !== document.defaultView.Node.TEXT_NODE
+            || node.textContent.trim()
+    ));
+    if (unwrapParagraph
+        && contentNodes.length === 1
+        && contentNodes[0].localName === 'p') {
+        nodes = [...contentNodes[0].childNodes];
     }
     container.append(...nodes.map(node => document.importNode(node, true)));
 }
