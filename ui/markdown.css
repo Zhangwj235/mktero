@@ -689,12 +689,24 @@ main {
 
 .markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure figcaption {
     max-width: 100%;
-    margin: 8px auto 0;
+    margin: 10px auto 0;
+    padding: 8px 10px;
+    border-left: 3px solid color-mix(in srgb, var(--accent) 65%, var(--border));
+    border-radius: 4px;
     color: var(--muted);
-    font-size: 13px;
-    line-height: 1.55;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    letter-spacing: 0;
     text-align: left;
     user-select: text;
+}
+
+.markdown-editor-host > .cm-editor .mktero-figure-label {
+    color: var(--text);
+    font-weight: 650;
+    white-space: nowrap;
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-image-inline {

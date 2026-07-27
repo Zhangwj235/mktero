@@ -386,7 +386,10 @@ test('renders a standalone academic image description as a visible figure captio
         html,
         '<figure class="mktero-figure">'
             + `<img src="blob:mktero-figure" alt="${caption}">`
-            + `<figcaption>${caption}</figcaption>`
+            + '<figcaption>'
+            + '<span class="mktero-figure-label">Figure 1.</span>'
+            + ' PRISMA flowchart of inclusion of studies.'
+            + '</figcaption>'
             + '</figure>\n'
     );
 });
@@ -413,7 +416,7 @@ test('escapes visible academic captions independently from image attributes', ()
     assert.match(html, /alt="Figure 2\. A &amp; B &lt;script&gt;\."/);
     assert.match(
         html,
-        /<figcaption>Figure 2\. A &amp; B &lt;script&gt;\.<\/figcaption>/
+        /<figcaption><span class="mktero-figure-label">Figure 2\.<\/span> A &amp; B &lt;script&gt;\.<\/figcaption>/
     );
     assert.doesNotMatch(html, /<script>/);
 });

@@ -83,7 +83,10 @@ function createSafeRenderer(resolveImageURL, mathBudget) {
             if (!caption) return `<p>${content}</p>\n`;
             return '<figure class="mktero-figure">'
                 + content
-                + `<figcaption>${escapeHTML(caption.text)}</figcaption>`
+                + '<figcaption>'
+                + `<span class="mktero-figure-label">${escapeHTML(caption.label)}</span>`
+                + ` ${escapeHTML(caption.description)}`
+                + '</figcaption>'
                 + '</figure>\n';
         },
 

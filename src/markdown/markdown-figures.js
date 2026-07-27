@@ -1,12 +1,17 @@
-const ACADEMIC_FIGURE_CAPTION_PATTERN = /^(?:algorithm|chart|fig\.?|figure|scheme|table)[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?)[.:][ \t]+\S/iu;
+const ACADEMIC_FIGURE_CAPTION_PATTERN = /^((?:algorithm|chart|fig\.?|figure|scheme|table)[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?)[.:])[ \t]+(\S[\s\S]*)$/iu;
 const EMPTY_IMAGE_LINE_PATTERN = /^( {0,3})!\[[ \t]*\](\([^\r\n]+\))[ \t]*(?:\r?\n)?$/;
 const MARKDOWN_IMAGE_LINE_PATTERN = /^ {0,3}!\[[^\]\r\n]*\]\([^\r\n]+\)[ \t]*(?:\r?\n)?$/;
 const BLANK_LINE_PATTERN = /^[ \t]*(?:\r?\n)?$/;
 
 export function parseAcademicFigureCaption(value) {
     const text = String(value || '').trim();
-    if (!ACADEMIC_FIGURE_CAPTION_PATTERN.test(text)) return null;
-    return { text };
+    const match = ACADEMIC_FIGURE_CAPTION_PATTERN.exec(text);
+    if (!match) return null;
+    return {
+        text,
+        label: match[1],
+        description: match[2],
+    };
 }
 
 export function normalizeMarkdownFigureCaptions(markdown) {

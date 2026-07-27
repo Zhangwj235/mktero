@@ -92,6 +92,25 @@ test('keeps inline math inside the prose line box', () => {
     assert.doesNotMatch(displayMath, /line-height/);
 });
 
+test('styles academic figure captions as distinct labels', () => {
+    const caption = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure figcaption'
+    );
+    assert.match(caption, /padding:\s*8px 10px/);
+    assert.match(caption, /border-left:\s*3px solid/);
+    assert.match(caption, /border-radius:\s*4px/);
+    assert.match(caption, /background:\s*color-mix\(/);
+    assert.match(caption, /font-family:\s*ui-sans-serif/);
+    assert.match(caption, /font-size:\s*12px/);
+    assert.match(caption, /letter-spacing:\s*0/);
+
+    const label = ruleBody(
+        '.markdown-editor-host > .cm-editor .mktero-figure-label'
+    );
+    assert.match(label, /color:\s*var\(--text\)/);
+    assert.match(label, /font-weight:\s*650/);
+});
+
 test('lays out a responsive scrollable outline beside the editor', () => {
     const workspace = ruleBody('.markdown-workspace');
     assert.match(workspace, /display:\s*flex/);
