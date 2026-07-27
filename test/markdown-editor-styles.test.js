@@ -72,6 +72,20 @@ test('wide Markdown tables stay inside the aligned reading column', () => {
     assert.match(cells, /white-space:\s*normal/);
 });
 
+test('keeps inline math inside the prose line box', () => {
+    const inlineMath = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-math'
+    );
+    assert.match(inlineMath, /display:\s*inline-block/);
+    assert.match(inlineMath, /line-height:\s*1\.2/);
+    assert.match(inlineMath, /vertical-align:\s*-0\.1em/);
+
+    const displayMath = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-math-display'
+    );
+    assert.doesNotMatch(displayMath, /line-height/);
+});
+
 test('lays out a responsive scrollable outline beside the editor', () => {
     const workspace = ruleBody('.markdown-workspace');
     assert.match(workspace, /display:\s*flex/);

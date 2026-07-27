@@ -765,6 +765,7 @@ main {
 .markdown-editor-host > .cm-editor .cm-mktero-math {
     display: inline-block;
     max-width: 100%;
+    line-height: 1.2;
     vertical-align: -0.1em;
     cursor: text;
 }
