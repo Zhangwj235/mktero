@@ -33,6 +33,20 @@ test('joins a MinerU paragraph split after a semicolon', () => {
     );
 });
 
+test('joins a MinerU paragraph split after a closing parenthetical', () => {
+    const markdown = 'Exerting effort will induce physiological (e.g., increased heart '
+        + 'rate and cortisol) and psychological (e.g., increased anxiety, distress, '
+        + 'fatigue, and depressed mood)\n\n'
+        + 'load reactions in individuals $[2, 4]$ .';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        'Exerting effort will induce physiological (e.g., increased heart rate and '
+            + 'cortisol) and psychological (e.g., increased anxiety, distress, fatigue, '
+            + 'and depressed mood) load reactions in individuals $[2, 4]$ .'
+    );
+});
+
 test('joins every consecutive continuation created from the same paragraph', () => {
     const markdown = 'A sufficiently descriptive paragraph continues with\n\n'
         + 'another fragment that still has no ending\n\n'
@@ -63,6 +77,35 @@ test('keeps complete prose paragraphs separate', () => {
         + 'another paragraph may intentionally start with a lowercase word.';
 
     assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('keeps complete parenthetical and link endings separate', () => {
+    const cases = [
+        'A sufficiently detailed paragraph closes with a caveat (see Appendix A)\n\n'
+            + 'another paragraph intentionally begins with lowercase prose.',
+        'A sufficiently detailed paragraph closes with a '
+            + '[project link](https://example.org)\n\n'
+            + 'eHealth interventions are discussed in a separate paragraph.',
+    ];
+
+    for (const markdown of cases) {
+        assert.equal(normalizeMinerUMarkdown(markdown), markdown, markdown);
+    }
+});
+
+test('keeps a complete parallel-example paragraph separate', () => {
+    const cases = [
+        'Outcomes were classified as physiological (e.g., heart rate) and '
+            + 'psychological (e.g., anxiety)\n\n'
+            + 'participants were recruited in a separate phase.',
+        'The intervention induces relaxation (e.g., lower heart rate) and '
+            + 'engagement (e.g., focused attention)\n\n'
+            + 'participants were monitored in a separate phase.',
+    ];
+
+    for (const markdown of cases) {
+        assert.equal(normalizeMinerUMarkdown(markdown), markdown, markdown);
+    }
 });
 
 test('keeps a semicolon-ended paragraph without a continuing semicolon series separate', () => {
@@ -117,6 +160,16 @@ test('does not merge prose with Markdown block structures', () => {
     for (const markdown of cases) {
         assert.equal(normalizeMinerUMarkdown(markdown), markdown, markdown);
     }
+});
+
+test('does not merge adjacent figure panels after a Markdown image', () => {
+    const markdown = 'High Laser Power (30 mW)  \n'
+        + 'a  \n'
+        + '![](images/panel-a.jpg)\n\n'
+        + 'b  \n'
+        + '![](images/panel-b.jpg)';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
 });
 
 test('preserves line endings when no MinerU split is repaired', () => {

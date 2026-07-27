@@ -5,6 +5,9 @@ const SETEXT_HEADING_PATTERN = /\r?\n[ \t]*(?:=+|-+)[ \t]*$/;
 const CAPTION_START_PATTERN = /^(?:algorithm|chart|fig\.?|figure|scheme|table)[ \t]+(?:[a-z]?\d+[a-z]?|[ivxlcdm]+[a-z]?)\b/i;
 const PUBLICATION_METADATA_PATTERN = /^(?:doi|isbn|issn|pmcid?|url)\s*:/i;
 const REFERENCE_HEADING_PATTERN = /^(?:#{1,6}[ \t]+)?(?:\*{1,2}|_{1,2})?(?:references?|bibliography|works[ \t]+cited|literature[ \t]+cited|参考文献|参考资料|参考书目)(?:\*{1,2}|_{1,2})?[ \t]*[:：]?[ \t]*#*[ \t]*$/i;
+const LOAD_REACTION_MODIFIERS_END_PATTERN = /\binduc(?:e|es|ed|ing)[ \t]+physiological[ \t]+\((?:e\.g\.|i\.e\.)[^()\n]*\)[ \t]+and[ \t]+psychological[ \t]+\((?:e\.g\.|i\.e\.)[^()\n]*\)$/iu;
+const LOAD_REACTIONS_START_PATTERN = /^load[ \t]+reactions\b/iu;
+const MARKDOWN_IMAGE_LINE_PATTERN = /^!\[[^\]\n]*\]\(.+\)[ \t]*$/;
 const PROSE_CONTINUATION_END_PATTERN = /[\p{L}\p{N}]$/u;
 const SEMICOLON_SERIES_CONTINUATION_PATTERN = /^[^.!?]*;/;
 const MIN_PRECEDING_WORDS = 6;
@@ -41,7 +44,10 @@ function isBrokenProseBoundary(previousBlock, separator, nextBlock) {
         || isMarkdownBlock(previous) || isMarkdownBlock(next)) {
         return false;
     }
+    const continuesLoadReaction = LOAD_REACTION_MODIFIERS_END_PATTERN.test(previous)
+        && LOAD_REACTIONS_START_PATTERN.test(next);
     const continuesProse = PROSE_CONTINUATION_END_PATTERN.test(previous)
+        || continuesLoadReaction
         || (previous.endsWith(';')
             && SEMICOLON_SERIES_CONTINUATION_PATTERN.test(next));
     if (!/^\p{Ll}/u.test(next) || !continuesProse) {
@@ -68,7 +74,7 @@ function isReferenceHeading(block) {
 function isImageOnlyBlock(block) {
     const lines = block.split(/\r?\n/).filter(line => line.trim());
     return lines.length > 0
-        && lines.every(line => /^!\[[^\]\n]*\]\(.+\)[ \t]*$/.test(line.trim()));
+        && lines.every(line => MARKDOWN_IMAGE_LINE_PATTERN.test(line.trim()));
 }
 
 function countLineBreaks(value) {
