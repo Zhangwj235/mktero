@@ -3,7 +3,7 @@ const MAIN_CONTENT_HEADING_PATTERN = /^(?:(?:#{1,6})[ \t]+)?(?:\*{1,2}|_{1,2})?(
 const FRONT_MATTER_HEADING_PATTERN = /^(?:authors?(?:[ \t]+(?:details?|information))?|affiliations?|institutional[ \t]+affiliations?|institutions?|departments?|correspond(?:ence|ing[ \t]+authors?)|contact[ \t]+information|keywords?|作者|作者信息|作者单位|机构|所属机构|通讯作者|关键词)$/i;
 const MARKDOWN_HEADING_PATTERN = /^(#{1,6})[ \t]+.+$/gm;
 const NUMBERED_REFERENCE_PATTERN = /^[ \t]*(?:[-*+][ \t]+)?(?:\[(\d{1,4})\]|(\d{1,4})[.)])[ \t]+/gm;
-const MIN_BRACKET_CITATION_CONTAINERS = 2;
+const MIN_NUMERIC_CITATION_STYLE_CONTAINERS = 2;
 const YEAR_PATTERN = /(?:^|[^\d])((?:18|19|20)\d{2}[a-z]?)(?=$|[^\d])/i;
 const UNICODE_SUPERSCRIPT_PATTERN = /[⁰¹²³⁴⁵⁶⁷⁸⁹]+(?:\s*(?:[,;，；]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+|[-–—⁻]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+))*/g;
 const WRAPPED_SUPERSCRIPT_PATTERNS = [
@@ -321,9 +321,12 @@ function findNumericCitations(markdown, bodyFrom, bodyEnd, references) {
     );
     if (!byNumber.size) return [];
 
-    const containerCitations = [];
+    const squareBracketCitations = [];
+    const parentheticalCitations = [];
     let bracketCitationContainers = 0;
+    let parentheticalCitationContainers = 0;
     const body = markdown.slice(bodyFrom, bodyEnd);
+    const numericEnumerationStarts = findNumericEnumerationStarts(body);
     const containers = [
         { pattern: /\[([^\]\r\n]{1,80})\]/g, squareBrackets: true },
         { pattern: /\(([^()\r\n]{1,80})\)/g, squareBrackets: false },
@@ -337,31 +340,116 @@ function findNumericCitations(markdown, bodyFrom, bodyEnd, references) {
                 && (before === '!' || ['(', '[', ':'].includes(after))) {
                 continue;
             }
+            if (!squareBrackets
+                && (numericEnumerationStarts.has(match.index)
+                    || parentheticalRangeLooksStatistical(body, match))) {
+                continue;
+            }
             const matched = numericCitationsInContainer(
                 match,
                 bodyFrom,
                 byNumber
             );
-            containerCitations.push(...matched);
-            if (squareBrackets && matched.length) bracketCitationContainers++;
+            if (squareBrackets) {
+                squareBracketCitations.push(...matched);
+                if (matched.length) bracketCitationContainers++;
+            } else {
+                parentheticalCitations.push(...matched);
+                if (matched.length) parentheticalCitationContainers++;
+            }
         }
     }
-    const citations = [...containerCitations];
-    if (hasBracketCitationStyle(bracketCitationContainers)) return citations;
+    if (hasBracketCitationStyle(bracketCitationContainers)) {
+        return squareBracketCitations;
+    }
+    if (hasParentheticalCitationStyle(parentheticalCitationContainers)) {
+        return [...squareBracketCitations, ...parentheticalCitations];
+    }
 
+    const superscriptCitations = [];
+    let superscriptCitationContainers = 0;
     for (const marker of findSuperscriptMarkers(markdown, bodyFrom, bodyEnd)) {
-        citations.push(...numericCitationsInText(
+        const matched = numericCitationsInText(
             marker.value,
             marker.from,
             byNumber,
             marker.markup
-        ));
+        );
+        superscriptCitations.push(...matched);
+        if (matched.length) superscriptCitationContainers++;
     }
-    return citations;
+    if (hasSuperscriptCitationStyle(superscriptCitationContainers)) {
+        return [...squareBracketCitations, ...superscriptCitations];
+    }
+    return [
+        ...squareBracketCitations,
+        ...parentheticalCitations,
+        ...superscriptCitations,
+    ];
 }
 
 function hasBracketCitationStyle(containerCount) {
-    return containerCount >= MIN_BRACKET_CITATION_CONTAINERS;
+    return hasNumericCitationStyle(containerCount);
+}
+
+function hasSuperscriptCitationStyle(containerCount) {
+    return hasNumericCitationStyle(containerCount);
+}
+
+function hasParentheticalCitationStyle(containerCount) {
+    return hasNumericCitationStyle(containerCount);
+}
+
+function hasNumericCitationStyle(containerCount) {
+    return containerCount >= MIN_NUMERIC_CITATION_STYLE_CONTAINERS;
+}
+
+function findNumericEnumerationStarts(body) {
+    const starts = new Set();
+    const paragraphs = body.matchAll(/\S[\s\S]*?(?=\r?\n[ \t]*\r?\n|$)/g);
+    for (const paragraphMatch of paragraphs) {
+        const paragraph = paragraphMatch[0];
+        const paragraphFrom = paragraphMatch.index;
+        const markers = [...paragraph.matchAll(/\((\d{1,3})\)/g)];
+        let sequence = [];
+        for (const marker of markers) {
+            const number = Number(marker[1]);
+            const previous = sequence.at(-1);
+            const between = previous
+                ? paragraph.slice(previous.index + previous[0].length, marker.index)
+                : '';
+            if ((!previous && number === 1)
+                || (previous
+                    && number === Number(previous[1]) + 1
+                    && !/[.!?。！？]/u.test(between))) {
+                sequence.push(marker);
+                continue;
+            }
+            if (sequence.length >= 2) {
+                for (const item of sequence) {
+                    starts.add(paragraphFrom + item.index);
+                }
+            }
+            sequence = number === 1 ? [marker] : [];
+        }
+        if (sequence.length >= 2) {
+            for (const item of sequence) {
+                starts.add(paragraphFrom + item.index);
+            }
+        }
+    }
+    return starts;
+}
+
+function parentheticalRangeLooksStatistical(body, match) {
+    const range = /^(\d+)\s*[-–—]\s*(\d+)$/.exec(match[1].trim());
+    if (!range) return false;
+    const preceding = body.slice(Math.max(0, match.index - 120), match.index);
+    if (/\d+(?:[.,]\d+)?\s*$/.test(preceding)) return true;
+    const first = range[1];
+    const last = range[2];
+    return new RegExp(`\\b${first}\\b[^\\r\\n]{0,80}\\b${last}\\b`)
+        .test(preceding);
 }
 
 function findSuperscriptMarkers(

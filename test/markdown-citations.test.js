@@ -196,6 +196,161 @@ test('prefers bracket citations over superscript footnotes in mixed papers', () 
     );
 });
 
+test('does not treat numbered list markers as citations in bracket-style papers', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'The three features are (1) discovery, (2) verification, and (3) memory.',
+        '',
+        'Prior work supports discovery [1].',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. Discovery paper. 2020.',
+        '[2] Beta B. Verification paper. 2021.',
+        '[3] Gamma G. Memory paper. 2022.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            targetIds: citation.referenceIds,
+        })),
+        [
+            { label: '1', targetIds: ['number:1'] },
+        ]
+    );
+});
+
+test('keeps numeric parentheses for parenthetical-style reference papers', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'The first study established this result (1).',
+        'A later study reproduced it (2).',
+        '',
+        '## References',
+        '',
+        '1. Alpha A. First paper. 2020.',
+        '2. Beta B. Second paper. 2021.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            targetIds: citation.referenceIds,
+        })),
+        [
+            { label: '1', targetIds: ['number:1'] },
+            { label: '2', targetIds: ['number:2'] },
+        ]
+    );
+});
+
+test('prefers parenthetical references over superscript footnotes', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'The first study established this result (1).',
+        'A later study reproduced it (2).',
+        '',
+        'A web note appears here $^{1}$ and another note here $^{2}$.',
+        '',
+        '## References',
+        '',
+        '1. Alpha A. First paper. 2020.',
+        '2. Beta B. Second paper. 2021.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            superscript: Boolean(citation.superscriptMarkup),
+        })),
+        [
+            { label: '1', superscript: false },
+            { label: '2', superscript: false },
+        ]
+    );
+});
+
+test('does not treat numeric ranges as citations in superscript-style papers', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Prior work established this result $^{1}$ and confirmation followed '
+            + '$^{2}$.',
+        '',
+        'Participant ages ranged from 18 to 78 years (18–78),',
+        'while scores ranged from 20 to 71 points (20–71).',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. First paper. 2020.',
+        '[2] Beta B. Second paper. 2021.',
+        '[18] Eighteen E. Statistical paper. 2018.',
+        '[19] Nineteen N. Statistical paper. 2019.',
+        '[20] Twenty T. Statistical paper. 2020.',
+        '[71] Seventy-One S. Statistical paper. 2021.',
+        '[78] Seventy-Eight S. Statistical paper. 2022.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            superscript: Boolean(citation.superscriptMarkup),
+        })),
+        [
+            { label: '1', superscript: true },
+            { label: '2', superscript: true },
+        ]
+    );
+});
+
+test('does not treat table value ranges as citations in superscript-style papers', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Prior work established this result $^{1}$ and confirmation followed '
+            + '$^{2}$.',
+        '',
+        '<table>',
+        '<tr><td>Age, median (range)</td><td>59 (18–78)</td></tr>',
+        '<tr><td>Score, median (range)</td><td>33 (26–51)</td></tr>',
+        '</table>',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. First paper. 2020.',
+        '[2] Beta B. Second paper. 2021.',
+        '[18] Eighteen E. Statistical paper. 2018.',
+        '[26] Twenty-Six T. Statistical paper. 2020.',
+        '[51] Fifty-One F. Statistical paper. 2020.',
+        '[78] Seventy-Eight S. Statistical paper. 2022.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            superscript: Boolean(citation.superscriptMarkup),
+        })),
+        [
+            { label: '1', superscript: true },
+            { label: '2', superscript: true },
+        ]
+    );
+});
+
 test('keeps superscript references without multiple bracket citation positions', () => {
     const markdown = [
         '# Paper',

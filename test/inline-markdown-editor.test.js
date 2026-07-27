@@ -775,6 +775,8 @@ test('does not make superscript footnotes interactive in bracket-style papers', 
         '',
         'A practitioner note appears here $^{1}$ and another here $^{2}$.',
         '',
+        'The system has (1) discovery, (2) verification, and (3) memory.',
+        '',
         'ReAct $[50]$ formalized the agent cycle, supported by $[20]$.',
         '',
         '## References',
@@ -800,6 +802,10 @@ test('does not make superscript footnotes interactive in bracket-style papers', 
     );
     assert.equal(
         document.querySelector('[data-citation-ids="number:2"]'),
+        null
+    );
+    assert.equal(
+        document.querySelector('[data-citation-ids="number:3"]'),
         null
     );
 
