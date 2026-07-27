@@ -711,7 +711,10 @@ main {
 .markdown-editor-host > .cm-editor .cm-mktero-html-table {
     width: 100%;
     max-width: 100%;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
     margin: 24px 0;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -721,8 +724,9 @@ main {
 .markdown-editor-host > .cm-editor .cm-mktero-table table,
 .markdown-editor-host > .cm-editor .cm-mktero-html-block table {
     width: 100%;
-    max-width: 100%;
-    table-layout: fixed;
+    min-width: 100%;
+    max-width: none;
+    table-layout: auto;
     border-collapse: collapse;
     font-family: ui-sans-serif, system-ui, sans-serif;
     font-size: 13px;

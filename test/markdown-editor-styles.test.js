@@ -43,21 +43,27 @@ test('article layout outranks the CodeMirror adopted base theme', () => {
     assert.match(heading, /line-height:\s*1\.3/);
 });
 
-test('wide Markdown tables stay inside the aligned reading column', () => {
+test('wide Markdown tables scroll inside the aligned reading column', () => {
     const tableFrame = ruleBody([
         '.markdown-editor-host > .cm-editor .cm-mktero-table,',
         '.markdown-editor-host > .cm-editor .cm-mktero-html-table',
     ].join('\n'));
     assert.match(tableFrame, /width:\s*100%/);
     assert.match(tableFrame, /max-width:\s*100%/);
-    assert.match(tableFrame, /overflow:\s*hidden/);
+    assert.match(tableFrame, /overflow-x:\s*auto/);
+    assert.match(tableFrame, /overflow-y:\s*hidden/);
+    assert.match(tableFrame, /overscroll-behavior-x:\s*contain/);
+    assert.match(tableFrame, /scrollbar-width:\s*thin/);
     assert.match(tableFrame, /border-radius:\s*8px/);
 
     const tables = ruleBody([
         '.markdown-editor-host > .cm-editor .cm-mktero-table table,',
         '.markdown-editor-host > .cm-editor .cm-mktero-html-block table',
     ].join('\n'));
-    assert.match(tables, /table-layout:\s*fixed/);
+    assert.match(tables, /width:\s*100%/);
+    assert.match(tables, /min-width:\s*100%/);
+    assert.match(tables, /max-width:\s*none/);
+    assert.match(tables, /table-layout:\s*auto/);
     assert.match(tables, /font-size:\s*13px/);
 
     const cells = ruleBody([
