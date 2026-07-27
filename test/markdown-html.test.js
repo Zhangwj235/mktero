@@ -412,6 +412,53 @@ test('renders compact raw HTML tables emitted by MinerU', () => {
     assert.doesNotMatch(html, /&lt;table&gt;/);
 });
 
+test('renders inline LaTeX inside raw HTML table cells', () => {
+    const html = renderMarkdownHTML(
+        '<table><tr><td>Key</td><td>C major is $C^{\\#}/D^b$</td></tr></table>'
+    );
+
+    assert.match(html, /<td>C major is <span class="math-inline">/);
+    assert.match(html, /<math/);
+    assert.match(html, /<msup>/);
+    assert.doesNotMatch(html, /\$C\^\{/);
+});
+
+test('renders parenthesized LaTeX inside raw HTML table headers', () => {
+    const html = renderMarkdownHTML(
+        '<table><tr><th>\\(x^2\\)</th><td>$y$</td></tr></table>'
+    );
+
+    assert.equal((html.match(/class="math-inline"/g) || []).length, 2);
+    assert.match(html, /<th><span class="math-inline">[\s\S]*<msup>/);
+    assert.match(html, /application\/x-tex">x\^2<\/annotation>/);
+});
+
+test('keeps code literal while rendering adjacent raw table math', () => {
+    const html = renderMarkdownHTML(
+        '<table><tr><td><code>$x$</code></td><td>$y$</td></tr></table>'
+    );
+
+    assert.match(html, /<td><code>\$x\$<\/code><\/td>/);
+    assert.equal((html.match(/class="math-inline"/g) || []).length, 1);
+    assert.match(html, /application\/x-tex">y<\/annotation>/);
+});
+
+test('shares the document-wide math budget with raw table formulas', () => {
+    const cells = Array.from(
+        { length: 1_000 },
+        () => '<td>$x$</td>'
+    ).join('');
+    const html = renderMarkdownHTML(
+        `<table><tr>${cells}</tr></table>\n\n$z$`
+    );
+
+    assert.equal((html.match(/<math/g) || []).length, 1_000);
+    assert.match(
+        html,
+        /<p><span class="math-inline"><code class="math-fallback">z<\/code><\/span><\/p>/
+    );
+});
+
 test('sanitizes attributes and unsafe elements inside raw HTML tables', () => {
     const html = renderMarkdownHTML([
         '<table onclick="alert(1)"><tr><td colspan="2">Safe',

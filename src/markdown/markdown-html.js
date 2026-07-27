@@ -36,8 +36,8 @@ export function renderMarkdownHTML(markdown, { resolveImageURL = () => null } = 
         throw new TypeError('Markdown must be a string');
     }
 
-    const renderer = createSafeRenderer(resolveImageURL);
     const mathBudget = createMathRenderBudget();
+    const renderer = createSafeRenderer(resolveImageURL, mathBudget);
     const parser = new Marked({
         gfm: true,
         renderer,
@@ -54,14 +54,14 @@ export function renderMarkdownHTML(markdown, { resolveImageURL = () => null } = 
     return parser.parser(transformedTokens);
 }
 
-function createSafeRenderer(resolveImageURL) {
+function createSafeRenderer(resolveImageURL, mathBudget) {
     return {
         html({ text }) {
             const page = text.trim().match(/^<!--\s*zotero-page:\s*(.*?)\s*-->$/);
             if (page) {
                 return `<span class="page-marker" data-page="${escapeAttribute(page[1])}">Page ${escapeHTML(page[1])}</span>`;
             }
-            const table = sanitizeRawHTMLTable(text);
+            const table = sanitizeRawHTMLTable(text, mathBudget);
             if (table) return table;
             return escapeKnownInlineTags(escapeHTML(text));
         },
@@ -654,7 +654,7 @@ function escapeKnownInlineTags(value) {
         .replace(/&lt;\/(br|sup|sub)&gt;/gi, '</$1>');
 }
 
-function sanitizeRawHTMLTable(value) {
+function sanitizeRawHTMLTable(value, mathBudget) {
     const source = String(value).trim();
     if (!/^<table(?:\s|>)/i.test(source) || !/<\/table>$/i.test(source)) {
         return null;
@@ -662,16 +662,64 @@ function sanitizeRawHTMLTable(value) {
 
     let output = '';
     let sourceIndex = 0;
+    let tableCellDepth = 0;
+    let codeDepth = 0;
     const tagPattern = /<\/?[a-z][^<>]*>/gi;
     for (const match of source.matchAll(tagPattern)) {
-        output += escapeHTMLText(source.slice(sourceIndex, match.index));
+        const text = source.slice(sourceIndex, match.index);
+        output += renderRawTableText(
+            text,
+            tableCellDepth > 0 && codeDepth === 0,
+            mathBudget
+        );
         const closing = /^<\s*\//.test(match[0]);
         const tagName = /^<\s*\/?\s*([a-z][a-z0-9]*)/i.exec(match[0])?.[1]
             ?.toLowerCase();
-        output += SAFE_TABLE_TAGS.has(tagName)
-            ? sanitizeTableTag(match[0], tagName, closing)
-            : escapeHTML(match[0]);
+        if (SAFE_TABLE_TAGS.has(tagName)) {
+            output += sanitizeTableTag(match[0], tagName, closing);
+            const depthChange = closing ? -1 : 1;
+            if (tagName === 'td' || tagName === 'th') {
+                tableCellDepth = Math.max(0, tableCellDepth + depthChange);
+            }
+            if (tagName === 'code') {
+                codeDepth = Math.max(0, codeDepth + depthChange);
+            }
+        }
+        else {
+            output += escapeHTML(match[0]);
+        }
         sourceIndex = match.index + match[0].length;
+    }
+    const trailingText = source.slice(sourceIndex);
+    output += renderRawTableText(
+        trailingText,
+        tableCellDepth > 0 && codeDepth === 0,
+        mathBudget
+    );
+    return output;
+}
+
+function renderRawTableText(value, renderMath, mathBudget) {
+    return renderMath
+        ? renderRawTableInlineMath(value, mathBudget)
+        : escapeHTMLText(value);
+}
+
+function renderRawTableInlineMath(value, mathBudget) {
+    const source = String(value);
+    const matches = findInlineMathMatches(source);
+    if (!matches.length) return escapeHTMLText(source);
+
+    let output = '';
+    let sourceIndex = 0;
+    for (const match of matches) {
+        output += escapeHTMLText(source.slice(sourceIndex, match.start));
+        output += `<span class="math-inline">${renderMathML(
+            match.text,
+            false,
+            mathBudget
+        )}</span>`;
+        sourceIndex = match.end;
     }
     output += escapeHTMLText(source.slice(sourceIndex));
     return output;
