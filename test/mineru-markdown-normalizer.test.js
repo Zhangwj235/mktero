@@ -225,6 +225,17 @@ test('moves an adjacent MinerU figure caption into the image description', () =>
     );
 });
 
+test('moves an abbreviated figure caption without punctuation after its number', () => {
+    const markdown = '![](images/figure.jpg)  \n'
+        + 'Fig. 1 Cumulative frequencies of reasons for listening to music after stress.';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        '![Fig. 1 Cumulative frequencies of reasons for listening to music after stress.]'
+            + '(images/figure.jpg)'
+    );
+});
+
 test('moves a blank-line-separated figure caption into the image description', () => {
     const markdown = '![](images/figure.jpg)\n\n'
         + 'Figure S1A: Participant flow through the study.\n\n'
