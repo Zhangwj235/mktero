@@ -148,6 +148,82 @@ test('maps Unicode superscript citations without treating exponents as reference
     );
 });
 
+test('prefers bracket citations over superscript footnotes in mixed papers', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        '## Introduction',
+        '',
+        'A practitioner claim appears here $^{1}$ and another source follows. '
+            + '$^{2}$',
+        '',
+        'ReAct $[50]$ formalized this agent cycle.',
+        '',
+        'A figure is introduced here $^{3}$ and discussed further $^{4}$.',
+        '',
+        'Other academic work supports the result $[20]$.',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. First academic paper. 2020.',
+        '[2] Beta B. Second academic paper. 2021.',
+        '[3] Gamma G. Third academic paper. 2022.',
+        '[4] Delta D. Fourth academic paper. 2023.',
+        '[20] Twenty T. Twentieth academic paper. 2024.',
+        '[50] Yao, S. ReAct: Synergizing reasoning and acting. 2022.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            superscript: Boolean(citation.superscriptMarkup),
+            targetIds: citation.referenceIds,
+        })),
+        [
+            {
+                label: '50',
+                superscript: false,
+                targetIds: ['number:50'],
+            },
+            {
+                label: '20',
+                superscript: false,
+                targetIds: ['number:20'],
+            },
+        ]
+    );
+});
+
+test('keeps superscript references without multiple bracket citation positions', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'The primary source is cited here $^{1}$, with one isolated [2, 3].',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. First paper. 2020.',
+        '[2] Beta B. Second paper. 2021.',
+        '[3] Gamma G. Third paper. 2022.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            superscript: Boolean(citation.superscriptMarkup),
+        })),
+        [
+            { label: '1', superscript: true },
+            { label: '2', superscript: false },
+            { label: '3', superscript: false },
+        ]
+    );
+});
+
 test('maps author superscripts to affiliations without stealing body references', () => {
     const markdown = [
         '# Acceptability of Artificial Intelligence Therapy',

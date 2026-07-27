@@ -3,6 +3,7 @@ const MAIN_CONTENT_HEADING_PATTERN = /^(?:(?:#{1,6})[ \t]+)?(?:\*{1,2}|_{1,2})?(
 const FRONT_MATTER_HEADING_PATTERN = /^(?:authors?(?:[ \t]+(?:details?|information))?|affiliations?|institutional[ \t]+affiliations?|institutions?|departments?|correspond(?:ence|ing[ \t]+authors?)|contact[ \t]+information|keywords?|作者|作者信息|作者单位|机构|所属机构|通讯作者|关键词)$/i;
 const MARKDOWN_HEADING_PATTERN = /^(#{1,6})[ \t]+.+$/gm;
 const NUMBERED_REFERENCE_PATTERN = /^[ \t]*(?:[-*+][ \t]+)?(?:\[(\d{1,4})\]|(\d{1,4})[.)])[ \t]+/gm;
+const MIN_BRACKET_CITATION_CONTAINERS = 2;
 const YEAR_PATTERN = /(?:^|[^\d])((?:18|19|20)\d{2}[a-z]?)(?=$|[^\d])/i;
 const UNICODE_SUPERSCRIPT_PATTERN = /[⁰¹²³⁴⁵⁶⁷⁸⁹]+(?:\s*(?:[,;，；]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+|[-–—⁻]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+))*/g;
 const WRAPPED_SUPERSCRIPT_PATTERNS = [
@@ -320,28 +321,34 @@ function findNumericCitations(markdown, bodyFrom, bodyEnd, references) {
     );
     if (!byNumber.size) return [];
 
-    const citations = [];
+    const containerCitations = [];
+    let bracketCitationContainers = 0;
     const body = markdown.slice(bodyFrom, bodyEnd);
     const containers = [
-        { pattern: /\[([^\]\r\n]{1,80})\]/g, markdownLink: true },
-        { pattern: /\(([^()\r\n]{1,80})\)/g, markdownLink: false },
-        { pattern: /（([^（）\r\n]{1,80})）/g, markdownLink: false },
+        { pattern: /\[([^\]\r\n]{1,80})\]/g, squareBrackets: true },
+        { pattern: /\(([^()\r\n]{1,80})\)/g, squareBrackets: false },
+        { pattern: /（([^（）\r\n]{1,80})）/g, squareBrackets: false },
     ];
-    for (const { pattern, markdownLink } of containers) {
+    for (const { pattern, squareBrackets } of containers) {
         for (const match of body.matchAll(pattern)) {
             const after = body[match.index + match[0].length] || '';
             const before = body[match.index - 1] || '';
-            if (markdownLink
+            if (squareBrackets
                 && (before === '!' || ['(', '[', ':'].includes(after))) {
                 continue;
             }
-            citations.push(...numericCitationsInContainer(
+            const matched = numericCitationsInContainer(
                 match,
                 bodyFrom,
                 byNumber
-            ));
+            );
+            containerCitations.push(...matched);
+            if (squareBrackets && matched.length) bracketCitationContainers++;
         }
     }
+    const citations = [...containerCitations];
+    if (hasBracketCitationStyle(bracketCitationContainers)) return citations;
+
     for (const marker of findSuperscriptMarkers(markdown, bodyFrom, bodyEnd)) {
         citations.push(...numericCitationsInText(
             marker.value,
@@ -351,6 +358,10 @@ function findNumericCitations(markdown, bodyFrom, bodyEnd, references) {
         ));
     }
     return citations;
+}
+
+function hasBracketCitationStyle(containerCount) {
+    return containerCount >= MIN_BRACKET_CITATION_CONTAINERS;
 }
 
 function findSuperscriptMarkers(

@@ -765,6 +765,57 @@ test('renders dollar-wrapped numeric citations emitted by the PDF converter', ()
     dom.window.close();
 });
 
+test('does not make superscript footnotes interactive in bracket-style papers', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'A practitioner note appears here $^{1}$ and another here $^{2}$.',
+        '',
+        'ReAct $[50]$ formalized the agent cycle, supported by $[20]$.',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. First academic paper. 2020.',
+        '[2] Beta B. Second academic paper. 2021.',
+        '[20] Twenty T. Twentieth academic paper. 2024.',
+        '[50] Yao, S. ReAct: Synergizing reasoning and acting. 2022.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    const citations = [...document.querySelectorAll('.cm-mktero-citation')];
+    assert.deepEqual(citations.map(citation => citation.textContent), [
+        '50',
+        '20',
+    ]);
+    assert.equal(
+        document.querySelector('[data-citation-ids="number:1"]'),
+        null
+    );
+    assert.equal(
+        document.querySelector('[data-citation-ids="number:2"]'),
+        null
+    );
+
+    citations[0].dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-citation-popup')?.textContent || '',
+        /ReAct: Synergizing reasoning and acting/
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('renders HTML superscript citations as interactive reference links', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
