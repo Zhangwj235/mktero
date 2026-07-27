@@ -691,7 +691,6 @@ main {
     max-width: 100%;
     margin: 10px auto 0;
     padding: 8px 10px;
-    border-left: 3px solid color-mix(in srgb, var(--accent) 65%, var(--border));
     border-radius: 4px;
     color: var(--muted);
     background: color-mix(in srgb, var(--surface) 88%, transparent);
@@ -699,7 +698,7 @@ main {
     font-size: 12px;
     line-height: 1.5;
     letter-spacing: 0;
-    text-align: left;
+    text-align: center;
     user-select: text;
 }
 

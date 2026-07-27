@@ -97,12 +97,13 @@ test('styles academic figure captions as distinct labels', () => {
         '.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure figcaption'
     );
     assert.match(caption, /padding:\s*8px 10px/);
-    assert.match(caption, /border-left:\s*3px solid/);
+    assert.doesNotMatch(caption, /border-left/);
     assert.match(caption, /border-radius:\s*4px/);
     assert.match(caption, /background:\s*color-mix\(/);
     assert.match(caption, /font-family:\s*ui-sans-serif/);
     assert.match(caption, /font-size:\s*12px/);
     assert.match(caption, /letter-spacing:\s*0/);
+    assert.match(caption, /text-align:\s*center/);
 
     const label = ruleBody(
         '.markdown-editor-host > .cm-editor .mktero-figure-label'
