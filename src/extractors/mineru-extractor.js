@@ -1,3 +1,5 @@
+import { normalizeMinerUMarkdown } from '../mineru/markdown-normalizer.js';
+
 export class MinerUConfigurationError extends Error {
     constructor() {
         super('Configure a MinerU API Token in the Mktero preferences');
@@ -72,14 +74,20 @@ export class MinerUDocumentExtractor {
             }
             if (cached && (cacheEnabled || cached.userEdited)) {
                 onProgress?.(100);
-                return createResult(title, cached, true, warnings, cacheKey);
+                return createResult(
+                    title,
+                    normalizeMinerUResult(cached),
+                    true,
+                    warnings,
+                    cacheKey
+                );
             }
         }
 
         const apiKey = String(this.getApiKey() || '').trim();
         if (!apiKey) throw new MinerUConfigurationError();
 
-        const result = await this.client.parse({
+        const parsedResult = await this.client.parse({
             apiKey,
             fileName: item.attachmentFilename || `zotero-${itemID}.pdf`,
             fileData,
@@ -89,13 +97,14 @@ export class MinerUDocumentExtractor {
         });
         if (cacheKey && cacheEnabled) {
             try {
-                await this.cache.put(cacheKey, result);
+                await this.cache.put(cacheKey, parsedResult);
             }
             catch (error) {
                 this.#reportCacheError(error);
                 warnings.push('The Markdown result could not be saved to the local cache.');
             }
         }
+        const result = normalizeMinerUResult(parsedResult);
         return createResult(title, result, false, warnings, cacheKey);
     }
 
@@ -126,6 +135,12 @@ export class MinerUDocumentExtractor {
             // Cache diagnostics must not make PDF conversion fail.
         }
     }
+}
+
+function normalizeMinerUResult(result) {
+    if (result.userEdited) return result;
+    const markdown = normalizeMinerUMarkdown(result.markdown);
+    return markdown === result.markdown ? result : { ...result, markdown };
 }
 
 function createResult(title, parsedResult, cacheHit, warnings = [], cacheKey = null) {

@@ -1,0 +1,102 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { normalizeMinerUMarkdown } from '../src/mineru/markdown-normalizer.js';
+
+test('joins a MinerU paragraph split in the middle of a sentence', () => {
+    const markdown = [
+        'The common elements framework improves ability to change perspective on',
+        '',
+        'an event), and context engagement with new situations.',
+    ].join('\n');
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        'The common elements framework improves ability to change perspective on '
+            + 'an event), and context engagement with new situations.'
+    );
+});
+
+test('joins every consecutive continuation created from the same paragraph', () => {
+    const markdown = 'A sufficiently descriptive paragraph continues with\n\n'
+        + 'another fragment that still has no ending\n\n'
+        + 'and finally ends here.';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        'A sufficiently descriptive paragraph continues with another fragment '
+            + 'that still has no ending and finally ends here.'
+    );
+});
+
+test('joins prose that follows an inline image in the same MinerU block', () => {
+    const markdown = '![Chart](images/chart.png)  \n'
+        + 'The analysis produced the same result with the exception\n\n'
+        + 'that the final comparison was no longer significant.';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        '![Chart](images/chart.png)  \n'
+            + 'The analysis produced the same result with the exception '
+            + 'that the final comparison was no longer significant.'
+    );
+});
+
+test('keeps complete prose paragraphs separate', () => {
+    const markdown = 'This is a complete paragraph.\n\n'
+        + 'another paragraph may intentionally start with a lowercase word.';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('does not merge entries inside the references section', () => {
+    const markdown = '## References\n\n'
+        + 'Smith J, Jones P. Journal of Behavioral Medicine 2024\n\n'
+        + 'van der Meer A. Another independently published study 2023';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('does not merge a figure or table caption with following prose', () => {
+    const cases = [
+        'Figure 1. A sufficiently descriptive caption without punctuation\n\n'
+            + 'and the article continues with an explanatory paragraph.',
+        'Table 2. A sufficiently descriptive caption without punctuation\n\n'
+            + 'and the article continues with an explanatory paragraph.',
+        'Figure 2A. A sufficiently descriptive caption without punctuation\n\n'
+            + 'and the article continues with an explanatory paragraph.',
+        'Figure S1A. A sufficiently descriptive caption without punctuation\n\n'
+            + 'and the article continues with an explanatory paragraph.',
+    ];
+
+    for (const markdown of cases) {
+        assert.equal(normalizeMinerUMarkdown(markdown), markdown, markdown);
+    }
+});
+
+test('does not merge prose with Markdown block structures', () => {
+    const cases = [
+        '# a lowercase heading\n\nparagraph text',
+        '- a list item\n\nparagraph text',
+        '> a block quote\n\nparagraph text',
+        '| heading | value |\n| --- | --- |\n| a | b |\n\nparagraph text',
+        '<table><tr><td>value</td></tr></table>\n\nparagraph text',
+        '![Figure](images/figure.png)\n\nparagraph text',
+        '$$\nx = y\n$$\n\nparagraph text',
+        '<!-- zotero-page: 2 -->\n\nparagraph text',
+        'URL: https://www.jmir.org/2021/6/e26771\n\ndoi: 10.2196/26771',
+        '    code line with enough prose words and no punctuation\n\n'
+            + 'continuation begins here',
+        'A sufficiently long prose block ends without terminal punctuation\n\n'
+            + 'lowercase setext heading\n---',
+    ];
+
+    for (const markdown of cases) {
+        assert.equal(normalizeMinerUMarkdown(markdown), markdown, markdown);
+    }
+});
+
+test('preserves line endings when no MinerU split is repaired', () => {
+    const markdown = 'First paragraph.\r\n\r\nsecond paragraph.';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});

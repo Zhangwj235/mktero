@@ -381,3 +381,91 @@ test('falls back to MinerU when reading the local cache fails', async () => {
     assert.match(result.warnings[0], /cache/i);
     assert.deepEqual(logged, [cacheError]);
 });
+
+test('repairs sentence fragments in an automatic MinerU cache entry', async () => {
+    const cacheKey = '1'.repeat(64);
+    const extractor = new MinerUDocumentExtractor({
+        zotero: { Items: { getAsync: async () => createPDFItem() } },
+        client: { parse: async () => assert.fail('MinerU should not be called') },
+        getApiKey: () => '',
+        readFile: async () => new Uint8Array([1]),
+        cache: {
+            get: async () => ({
+                markdown: 'The framework improves the ability to change perspective on\n\n'
+                    + 'an event), and context engagement.',
+                assets: [],
+            }),
+            put: async () => assert.fail('reading must not rewrite the cache entry'),
+        },
+        createCacheKey: async () => cacheKey,
+        isCacheEnabled: () => true,
+    });
+
+    const result = await extractor.extract(42);
+
+    assert.equal(
+        result.markdown,
+        'The framework improves the ability to change perspective on '
+            + 'an event), and context engagement.'
+    );
+    assert.equal(result.cacheHit, true);
+});
+
+test('normalizes a fresh MinerU result while caching the original source', async () => {
+    const cacheKey = '2'.repeat(64);
+    let stored;
+    const extractor = new MinerUDocumentExtractor({
+        zotero: { Items: { getAsync: async () => createPDFItem() } },
+        client: {
+            parse: async () => ({
+                markdown: 'The framework improves the ability to change perspective on\n\n'
+                    + 'an event), and context engagement.',
+            }),
+        },
+        getApiKey: () => 'configured-token',
+        readFile: async () => new Uint8Array([1]),
+        cache: {
+            get: async () => null,
+            put: async (_key, value) => { stored = value; },
+        },
+        createCacheKey: async () => cacheKey,
+        isCacheEnabled: () => true,
+    });
+
+    const result = await extractor.extract(42);
+
+    const expected = 'The framework improves the ability to change perspective on '
+        + 'an event), and context engagement.';
+    assert.equal(result.markdown, expected);
+    assert.equal(
+        stored.markdown,
+        'The framework improves the ability to change perspective on\n\n'
+            + 'an event), and context engagement.'
+    );
+});
+
+test('does not normalize Markdown explicitly edited by the user', async () => {
+    const cacheKey = '3'.repeat(64);
+    const editedMarkdown = 'The user intentionally leaves this text without punctuation\n\n'
+        + 'and starts the next paragraph in lowercase.';
+    const extractor = new MinerUDocumentExtractor({
+        zotero: { Items: { getAsync: async () => createPDFItem() } },
+        client: { parse: async () => assert.fail('MinerU should not be called') },
+        getApiKey: () => '',
+        readFile: async () => new Uint8Array([1]),
+        cache: {
+            get: async () => ({
+                markdown: editedMarkdown,
+                assets: [],
+                userEdited: true,
+            }),
+            put: async () => assert.fail('opening must not rewrite the edit'),
+        },
+        createCacheKey: async () => cacheKey,
+        isCacheEnabled: () => true,
+    });
+
+    const result = await extractor.extract(42);
+
+    assert.equal(result.markdown, editedMarkdown);
+});
