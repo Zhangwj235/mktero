@@ -611,6 +611,13 @@ function decorateSyntaxNode(node, state, decorations, context) {
         return;
     }
 
+    if (node.name === 'Escape'
+        && !editingRangeIntersects(context, node.from, node.to)
+        && state.sliceDoc(node.from, node.from + 1) === '\\') {
+        decorations.push(Decoration.replace({}).range(node.from, node.from + 1));
+        return;
+    }
+
     if (node.name === 'Link' && !editingRangeIntersects(context, node.from, node.to)) {
         const source = state.sliceDoc(node.from, node.to);
         if (!isBracketedNumericCitation(source)) {

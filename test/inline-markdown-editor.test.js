@@ -76,6 +76,41 @@ test('renders inactive Markdown formatting and formulas without rewriting source
     dom.window.close();
 });
 
+test('hides Markdown escape slashes until the line is edited', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = '\\- fast, convenient online submission';
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => null,
+        onChange: assert.fail,
+        onSaveRequest: assert.fail,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const content = document.querySelector('.cm-content');
+
+    assert.equal(content.textContent, '- fast, convenient online submission');
+    assert.equal(editor.getMarkdown(), markdown);
+
+    view.posAtCoords = () => 0;
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+    assert.equal(content.textContent, markdown);
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('keeps inline formulas in the prose flow without block paragraph wrappers', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
