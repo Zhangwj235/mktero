@@ -797,6 +797,49 @@ test('parses a plain reference heading and line-separated author entries', () =>
     );
 });
 
+test('infers cited trailing bracketed references without a heading', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'The figure method is documented elsewhere [1].',
+        '',
+        'Additional body text keeps references near the document end.',
+        '',
+        '[1] Alpha A. Figure method. Journal. 2024.',
+        '',
+        '[2] Beta B. Supporting analysis. Journal. 2023.',
+        '',
+        '[3] Gamma G. Validation study. Journal. 2022.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.references.map(reference => reference.number),
+        [1, 2, 3]
+    );
+    assert.deepEqual(result.citations[0].referenceIds, ['number:1']);
+});
+
+test('does not infer an uncited trailing bracketed checklist as references', () => {
+    const markdown = [
+        '# Checklist',
+        '',
+        'Complete these final steps.',
+        '',
+        '[1] Export the data.',
+        '',
+        '[2] Review the chart.',
+        '',
+        '[3] Share the report.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(result.references, []);
+    assert.deepEqual(result.citations, []);
+});
+
 test('supports common citation punctuation, locators, and full-width forms', () => {
     const markdown = [
         '# Paper',

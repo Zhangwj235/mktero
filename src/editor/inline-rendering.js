@@ -14,6 +14,7 @@ import { analyzeMarkdownCitations } from '../markdown/markdown-citations.js';
 import { EditableTableWidget } from './editable-table-widget.js';
 import {
     appendRenderedMarkdown,
+    installRenderedCitations,
     installRenderedImagePreview,
     openRenderedLink,
 } from './rendered-markdown-dom.js';
@@ -32,6 +33,7 @@ class RenderedMarkdownWidget extends WidgetType {
         openImagePreview,
         enterEditing,
         renderVersion,
+        citations = [],
         extraClassName = '',
     }) {
         super();
@@ -43,6 +45,8 @@ class RenderedMarkdownWidget extends WidgetType {
         this.openImagePreview = openImagePreview;
         this.enterEditing = enterEditing;
         this.renderVersion = renderVersion;
+        this.citations = citations;
+        this.citationKey = citations.map(citation => citation.key).join('|');
         this.extraClassName = extraClassName;
     }
 
@@ -51,6 +55,7 @@ class RenderedMarkdownWidget extends WidgetType {
             && this.display === other.display
             && this.from === other.from
             && this.renderVersion === other.renderVersion
+            && this.citationKey === other.citationKey
             && this.extraClassName === other.extraClassName;
     }
 
@@ -69,6 +74,7 @@ class RenderedMarkdownWidget extends WidgetType {
             this.resolveImageURL,
             inline
         );
+        installRenderedCitations(container, this.citations);
 
         container.addEventListener('mousedown', event => {
             if (event.target?.closest?.('img')) return;
@@ -93,8 +99,8 @@ class RenderedMarkdownWidget extends WidgetType {
         return container;
     }
 
-    ignoreEvent() {
-        return true;
+    ignoreEvent(event) {
+        return !event.target?.closest?.('.cm-mktero-citation');
     }
 }
 
@@ -480,22 +486,8 @@ function decorateCitations(state, decorations, context) {
             );
         }
         decorations.push(Decoration.mark({
-            class: [
-                'cm-mktero-citation',
-                markup?.raiseContent
-                    ? 'cm-mktero-citation-superscript'
-                    : '',
-            ].filter(Boolean).join(' '),
-            attributes: {
-                role: 'link',
-                tabindex: '0',
-                'aria-label': citationLabel(
-                    citation.references,
-                    citation.kind
-                ),
-                'data-citation-ids': citation.referenceIds.join(' '),
-                'data-citation-kind': citation.kind,
-            },
+            class: citationClassName(citation),
+            attributes: citationAttributes(citation),
         }).range(citation.from, citation.to));
     }
 
@@ -918,6 +910,14 @@ function renderedRange(node, state, display, context) {
             source: state.sliceDoc(node.from, node.to),
             display,
             from: node.from,
+            citations: display === 'image'
+                ? renderedCitationDescriptors(
+                    state,
+                    context,
+                    node.from,
+                    node.to
+                )
+                : [],
             extraClassName: display === 'html-block'
                 && (node.table?.kind === 'html' || /^\s*<table\b/i.test(source))
                 ? 'cm-mktero-html-table'
@@ -926,6 +926,92 @@ function renderedRange(node, state, display, context) {
         }),
         block: true,
     }).range(node.from, node.to);
+}
+
+function renderedCitationDescriptors(state, context, from, to) {
+    return citationAnalysis(state, context).citations
+        .filter(citation => citation.from >= from && citation.to <= to)
+        .map(citation => renderedCitationDescriptor(
+            state,
+            citation,
+            from,
+            to
+        ));
+}
+
+function renderedCitationDescriptor(state, citation, rangeFrom, rangeTo) {
+    const markerRange = visibleCitationMarkerRange(
+        state,
+        citation,
+        rangeFrom,
+        rangeTo
+    );
+    const markerSource = state.sliceDoc(markerRange.from, markerRange.to);
+    const targetPrefix = state.sliceDoc(markerRange.from, citation.from);
+    const target = visibleMarkdownText(
+        state.sliceDoc(citation.from, citation.to)
+    );
+    return {
+        key: `${citation.from}:${citation.to}:${citation.referenceIds.join(',')}`,
+        markerFrom: markerRange.from,
+        marker: visibleMarkdownText(markerSource),
+        targetOffset: visibleMarkdownText(targetPrefix).length,
+        targetLength: target.length,
+        className: citationClassName(citation),
+        attributes: citationAttributes(citation),
+    };
+}
+
+function visibleCitationMarkerRange(state, citation, rangeFrom, rangeTo) {
+    const markup = citation.superscriptMarkup;
+    if (markup
+        && markup.wrapperFrom >= rangeFrom
+        && markup.wrapperTo <= rangeTo) {
+        return { from: markup.wrapperFrom, to: markup.wrapperTo };
+    }
+
+    const prefixFrom = Math.max(rangeFrom, citation.from - 80);
+    const prefix = state.sliceDoc(prefixFrom, citation.from);
+    const openingOffset = prefix.lastIndexOf('[');
+    const suffixTo = Math.min(rangeTo, citation.to + 80);
+    const suffix = state.sliceDoc(citation.to, suffixTo);
+    const closingOffset = suffix.indexOf(']');
+    if (openingOffset >= 0
+        && closingOffset >= 0
+        && !/[\]\r\n]/.test(prefix.slice(openingOffset + 1))
+        && !/[\[\r\n]/.test(suffix.slice(0, closingOffset))) {
+        return {
+            from: prefixFrom + openingOffset,
+            to: citation.to + closingOffset + 1,
+        };
+    }
+    return { from: citation.from, to: citation.to };
+}
+
+function visibleMarkdownText(value) {
+    return String(value).replace(
+        /\\([!"#$%&'()*+,\-./:;<=>?@[\]\\^_`{|}~])/g,
+        '$1'
+    );
+}
+
+function citationClassName(citation) {
+    return [
+        'cm-mktero-citation',
+        citation.superscriptMarkup?.raiseContent
+            ? 'cm-mktero-citation-superscript'
+            : '',
+    ].filter(Boolean).join(' ');
+}
+
+function citationAttributes(citation) {
+    return {
+        role: 'link',
+        tabindex: '0',
+        'aria-label': citationLabel(citation.references, citation.kind),
+        'data-citation-ids': citation.referenceIds.join(' '),
+        'data-citation-kind': citation.kind,
+    };
 }
 
 function renderedMathRange(

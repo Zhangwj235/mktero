@@ -57,6 +57,73 @@ export function installRenderedImagePreview(container, openImagePreview) {
     });
 }
 
+export function installRenderedCitations(container, citations = []) {
+    const caption = container.querySelector('figcaption');
+    if (!caption || !citations.length) return;
+
+    const captionText = caption.textContent || '';
+    let markerSearchFrom = 0;
+    let previousMarkerFrom = null;
+    let markerIndex = -1;
+    for (const citation of citations) {
+        if (citation.markerFrom !== previousMarkerFrom) {
+            markerIndex = captionText.indexOf(
+                citation.marker,
+                markerSearchFrom
+            );
+            if (markerIndex < 0) continue;
+            markerSearchFrom = markerIndex + citation.marker.length;
+            previousMarkerFrom = citation.markerFrom;
+        }
+        if (markerIndex < 0) continue;
+        wrapCaptionText(
+            caption,
+            markerIndex + citation.targetOffset,
+            citation.targetLength,
+            citation
+        );
+    }
+}
+
+function wrapCaptionText(caption, from, length, citation) {
+    const document = caption.ownerDocument;
+    const nodeFilter = document.defaultView.NodeFilter;
+    const walker = document.createTreeWalker(
+        caption,
+        nodeFilter.SHOW_TEXT
+    );
+    let offset = 0;
+    let startNode = null;
+    let startOffset = 0;
+    let endNode = null;
+    let endOffset = 0;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const nextOffset = offset + node.textContent.length;
+        if (!startNode && from >= offset && from < nextOffset) {
+            startNode = node;
+            startOffset = from - offset;
+        }
+        if (from + length > offset && from + length <= nextOffset) {
+            endNode = node;
+            endOffset = from + length - offset;
+            break;
+        }
+        offset = nextOffset;
+    }
+    if (!startNode || !endNode) return;
+
+    const range = document.createRange();
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+    const element = document.createElement('span');
+    element.className = citation.className;
+    for (const [name, value] of Object.entries(citation.attributes)) {
+        element.setAttribute(name, value);
+    }
+    element.append(range.extractContents());
+    range.insertNode(element);
+}
+
 function openImage(image, event, openImagePreview) {
     if (!image) return false;
     event.preventDefault();

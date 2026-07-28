@@ -1515,6 +1515,52 @@ test('renders one shared caption for consecutive MinerU figure panels', () => {
     dom.window.close();
 });
 
+test('shows resolved references cited inside a shared figure caption', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        '![](images/panel-a.jpg)',
+        '',
+        '![](images/panel-b.jpg)  ',
+        'FIG. 1: Results use the method from Ref. [1].',
+        '',
+        '[1] Alpha A. Figure method. Journal. 2024.',
+        '',
+        '[2] Beta B. Supporting analysis. Journal. 2023.',
+        '',
+        '[3] Gamma G. Validation study. Journal. 2022.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: path => `blob:mktero-${path}`,
+        openLink: () => {},
+        onChange: assert.fail,
+        onSaveRequest: assert.fail,
+    });
+    const citation = document.querySelector(
+        '.mktero-figure-group figcaption .cm-mktero-citation'
+    );
+
+    assert.equal(citation?.textContent, '1');
+    citation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-citation-popup')?.textContent || '',
+        /Alpha A\. Figure method\. Journal\. 2024\./
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('previews a rendered image with zoom and drag controls', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

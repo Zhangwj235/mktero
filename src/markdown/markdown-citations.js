@@ -4,6 +4,7 @@ const FRONT_MATTER_HEADING_PATTERN = /^(?:authors?(?:[ \t]+(?:details?|informati
 const MARKDOWN_HEADING_PATTERN = /^(#{1,6})[ \t]+.+$/gm;
 const NUMBERED_REFERENCE_PATTERN = /^[ \t]*(?:[-*+][ \t]+)?(?:\[(\d{1,4})\]|(\d{1,4})[.)])[ \t]+/gm;
 const MIN_NUMERIC_CITATION_STYLE_CONTAINERS = 2;
+const MIN_INFERRED_NUMBERED_REFERENCES = 3;
 const YEAR_PATTERN = /(?:^|[^\d])((?:18|19|20)\d{2}[a-z]?)(?=$|[^\d])/i;
 const UNICODE_SUPERSCRIPT_PATTERN = /[⁰¹²³⁴⁵⁶⁷⁸⁹]+(?:\s*(?:[,;，；]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+|[-–—⁻]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+))*/g;
 const WRAPPED_SUPERSCRIPT_PATTERNS = [
@@ -207,7 +208,7 @@ function parseAffiliations(markdown, frontMatterEnd) {
 function findReferenceSection(markdown) {
     const headingPattern = new RegExp(REFERENCE_HEADING_PATTERN);
     const match = [...markdown.matchAll(headingPattern)].at(-1);
-    if (!match) return null;
+    if (!match) return inferNumberedReferenceSection(markdown);
 
     const level = match[1]?.length || 6;
     let from = match.index + match[0].length;
@@ -223,6 +224,49 @@ function findReferenceSection(markdown) {
         }
     }
     return { from, to };
+}
+
+function inferNumberedReferenceSection(markdown) {
+    const markers = [...markdown.matchAll(
+        new RegExp(NUMBERED_REFERENCE_PATTERN)
+    )].filter(marker => marker[1]);
+    const minimumFrom = Math.floor(markdown.length / 3);
+    let inferred = null;
+
+    for (let start = 0; start < markers.length; start++) {
+        if (Number(markers[start][1]) !== 1
+            || markers[start].index < minimumFrom) {
+            continue;
+        }
+        let count = 1;
+        while (start + count < markers.length
+            && Number(markers[start + count][1]) === count + 1) {
+            count++;
+        }
+        if (count >= MIN_INFERRED_NUMBERED_REFERENCES
+            && hasNumberedCitationBefore(
+                markdown,
+                markers[start].index,
+                count
+            )) {
+            inferred = {
+                from: markers[start].index,
+                to: markdown.length,
+            };
+        }
+    }
+    return inferred;
+}
+
+function hasNumberedCitationBefore(markdown, to, maximumNumber) {
+    const source = markdown.slice(0, to);
+    for (const match of source.matchAll(/\[(\d{1,4})\]/g)) {
+        const number = Number(match[1]);
+        if (number < 1 || number > maximumNumber) continue;
+        const lineFrom = source.lastIndexOf('\n', match.index - 1) + 1;
+        if (source.slice(lineFrom, match.index).trim()) return true;
+    }
+    return false;
 }
 
 function parseReferences(markdown, section) {
