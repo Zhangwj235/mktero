@@ -85,6 +85,15 @@ function dispatchMouseEvent(target, type, clientX) {
     target.dispatchEvent(event);
 }
 
+function dispatchKeyboardEvent(target, key) {
+    const event = new target.ownerDocument.defaultView.Event('keydown', {
+        bubbles: true,
+        cancelable: true,
+    });
+    Object.defineProperty(event, 'key', { value: key });
+    target.dispatchEvent(event);
+}
+
 test('shows Markdown without editing controls', () => {
     const { view, shadow } = createView(createModel({
         status: 'ready',
@@ -121,15 +130,23 @@ test('resizes and toggles the Markdown outline from its edge', () => {
     }));
     const outline = shadow.querySelector('#mktero-outline');
     const resizer = shadow.querySelector('#mktero-outline-resizer');
+    const toggle = shadow.querySelector('#mktero-outline-toggle');
 
     try {
         assert.ok(resizer);
+        assert.ok(toggle);
+        assert.equal(resizer.contains(toggle), false);
+        assert.equal(resizer.parentElement, toggle.parentElement);
         assert.equal(resizer.getAttribute('role'), 'separator');
         assert.equal(resizer.getAttribute('aria-controls'), 'mktero-outline');
         assert.equal(resizer.getAttribute('aria-orientation'), 'vertical');
         assert.equal(resizer.getAttribute('aria-valuemin'), '180');
         assert.equal(resizer.getAttribute('aria-valuemax'), '480');
         assert.equal(resizer.getAttribute('aria-valuenow'), '256');
+        assert.equal(toggle.textContent, '‹');
+        assert.equal(toggle.getAttribute('aria-controls'), 'mktero-outline');
+        assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+        assert.equal(toggle.getAttribute('aria-label'), '收起目录');
         assert.equal(outline.hidden, false);
 
         dispatchMouseEvent(resizer, 'mousedown', 256);
@@ -142,23 +159,38 @@ test('resizes and toggles the Markdown outline from its edge', () => {
             '376px'
         );
 
-        resizer.dispatchEvent(new document.defaultView.Event('dblclick', {
-            bubbles: true,
-            cancelable: true,
-        }));
+        dispatchMouseEvent(toggle, 'mousedown', 376);
+        dispatchMouseEvent(document.defaultView, 'mousemove', 416);
+        dispatchMouseEvent(document.defaultView, 'mouseup', 416);
+        assert.equal(resizer.getAttribute('aria-valuenow'), '376');
+
+        dispatchKeyboardEvent(toggle, 'ArrowRight');
+        dispatchKeyboardEvent(toggle, 'Enter');
+        assert.equal(resizer.getAttribute('aria-valuenow'), '376');
+        assert.equal(outline.hidden, false);
+
+        toggle.click();
         assert.equal(outline.hidden, true);
+        assert.equal(toggle.textContent, '›');
+        assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+        assert.equal(toggle.getAttribute('aria-label'), '展开目录');
         assert.equal(resizer.getAttribute('aria-label'), '展开目录');
 
-        resizer.dispatchEvent(new document.defaultView.Event('dblclick', {
-            bubbles: true,
-            cancelable: true,
-        }));
+        toggle.click();
         assert.equal(outline.hidden, false);
+        assert.equal(toggle.textContent, '‹');
+        assert.equal(toggle.getAttribute('aria-expanded'), 'true');
         assert.equal(resizer.getAttribute('aria-valuenow'), '376');
         assert.equal(
             outline.style.getPropertyValue('--outline-width'),
             '376px'
         );
+
+        resizer.dispatchEvent(new document.defaultView.Event('dblclick', {
+            bubbles: true,
+            cancelable: true,
+        }));
+        assert.equal(outline.hidden, true);
     }
     finally {
         view.destroy();

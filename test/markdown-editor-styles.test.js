@@ -147,9 +147,12 @@ test('lays out a responsive scrollable outline beside the editor', () => {
     const outline = ruleBody('.markdown-outline');
     assert.match(outline, /flex:\s*0 0 var\(--outline-width, 256px\)/);
 
+    const edge = ruleBody('.markdown-outline-edge');
+    assert.match(edge, /width:\s*7px/);
+    assert.match(edge, /flex:\s*0 0 7px/);
+
     const resizer = ruleBody('.markdown-outline-resizer');
-    assert.match(resizer, /width:\s*7px/);
-    assert.match(resizer, /flex:\s*0 0 7px/);
+    assert.match(resizer, /inset:\s*0/);
     assert.match(resizer, /cursor:\s*col-resize/);
 
     const resizing = ruleBody('.markdown-workspace.is-resizing-outline');

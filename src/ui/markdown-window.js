@@ -276,9 +276,26 @@ class MarkdownTabView {
             'aria-label': '调整目录宽度，双击收起',
             title: '调整目录宽度，双击收起',
         });
+        const outlineToggle = this.createElement(
+            'button',
+            {
+                id: 'mktero-outline-toggle',
+                class: 'markdown-outline-toggle',
+                type: 'button',
+                'aria-controls': 'mktero-outline',
+                'aria-expanded': 'true',
+                'aria-label': '收起目录',
+                title: '收起目录',
+            },
+            '‹'
+        );
+        const outlineEdge = this.createElement('div', {
+            class: 'markdown-outline-edge',
+        });
+        appendChildren(outlineEdge, outlineResizer, outlineToggle);
         const workspace = this.createElement('div', { class: 'markdown-workspace' });
         workspace.hidden = true;
-        appendChildren(workspace, outline, outlineResizer, editorSection);
+        appendChildren(workspace, outline, outlineEdge, editorSection);
         const content = this.createElement('main', {
             id: 'mktero-content',
             'aria-busy': 'true',
@@ -303,6 +320,7 @@ class MarkdownTabView {
             outline,
             outlineList,
             outlineResizer,
+            outlineToggle,
             editorHost,
             editorSection,
         };
@@ -323,6 +341,9 @@ class MarkdownTabView {
             if (!button || !this.elements.outlineList.contains(button)) return;
             const offset = Number(button.getAttribute('data-offset'));
             if (Number.isFinite(offset)) this.editor.scrollToOffset?.(offset);
+        });
+        this.listen(this.elements.outlineToggle, 'click', () => {
+            this.setOutlineVisibility(!this.outlineVisible);
         });
         this.listen(this.elements.outlineResizer, 'dblclick', event => {
             event.preventDefault();
@@ -409,6 +430,14 @@ class MarkdownTabView {
             : '展开目录';
         this.elements.outlineResizer.setAttribute('aria-label', label);
         this.elements.outlineResizer.setAttribute('title', label);
+        const toggleLabel = visible ? '收起目录' : '展开目录';
+        this.elements.outlineToggle.textContent = visible ? '‹' : '›';
+        this.elements.outlineToggle.setAttribute(
+            'aria-expanded',
+            String(visible)
+        );
+        this.elements.outlineToggle.setAttribute('aria-label', toggleLabel);
+        this.elements.outlineToggle.setAttribute('title', toggleLabel);
     }
 
     handleOutlineResizeKey(event) {
