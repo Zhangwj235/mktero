@@ -1,54 +1,163 @@
 # Mktero
 
-Mktero is a Zotero 7/8/9 plugin that opens PDFs as Markdown from either the PDF reader's **MD** button or a library item's **Read as Markdown with Mktero** context-menu action. It sends the selected PDF to MinerU, then displays the result in a safe, inline-rendered, read-only Markdown viewer inside a Zotero tab.
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Zotero](https://img.shields.io/badge/Zotero-7%20%7C%208%20%7C%209-cc2936.svg)](https://www.zotero.org/)
 
-Configure a MinerU API Token under **Settings → Mktero** before converting a PDF. The token is stored as a standard, unencrypted preference in the local Zotero profile. Clicking **MD** uploads the current PDF to MinerU for processing.
+Mktero 是一个适用于 Zotero 7、8 和 9 的 PDF 阅读插件。它通过 MinerU 将本地
+PDF 转换为 Markdown，并在 Zotero 标签页中以只读、行内渲染的方式展示正文、
+公式、表格、图片和学术引用。
 
-Mktero requests can optionally use Zotero's resolved system proxy or a manual proxy under **Settings → Mktero → Proxy**. Manual addresses support `http`, `https`, `socks5`, and `socks5h`, including credentials in the URL. The bypass list accepts comma-separated exact hosts and domain patterns such as `*.local`. Proxy credentials are stored as an unencrypted preference in the local Zotero profile.
+```text
+Zotero 本地 PDF -> MinerU VLM 解析 -> full.md 与图片 -> 规范化与安全渲染 -> Mktero 标签页
+                                                        -> 本地内容缓存
+```
 
-Successful MinerU results are cached locally by PDF content and parser profile. Opening an unchanged PDF again reuses its Markdown and figures without requiring a Token or another upload. Markdown remains the viewer's source of truth while formatting, formulas, tables, code blocks, and figures render in place. The outline can be resized by dragging its edge, and double-clicking the edge collapses or restores it. Cache files are stored unencrypted in the current Zotero profile and are not synced.
+## 主要功能
 
-## Development
+- 从 PDF 阅读器工具栏的 `MD` 按钮打开当前附件。
+- 在文库中右键单个 PDF 或带有 PDF 附件的条目，通过
+  `Read as Markdown with Mktero` 打开；普通条目会使用找到的第一个 PDF 附件。
+- 使用 MinerU VLM 模型执行 OCR，并启用公式和表格识别。
+- 在转换标签页中显示排队、上传、解析和下载进度；关闭标签页会取消仍在进行的转换。
+- 以 CodeMirror 6 只读视图行内渲染标题、段落、强调、列表、任务列表、引用、代码、
+  GFM/HTML 表格、KaTeX 公式、图片及学术图表标题。
+- 自动生成 Markdown 目录。目录支持点击跳转、拖动调整宽度，也可通过按钮或双击边缘收起。
+- 识别数字引用、上标引用和作者单位；悬停时预览文献内容，点击后跳转并临时高亮目标。
+- 识别正文中的表格与图片引用；悬停时显示预览，点击后跳转并临时高亮对应图表。
+- 点击文档图片可打开全屏预览，支持 25% 至 400% 缩放和拖动查看。
+- 按 PDF 内容与解析配置缓存 Markdown 和图片；未变化的 PDF 可直接从本地缓存打开。
+- 支持 Zotero 已解析的系统代理，也支持带认证信息的手动 HTTP、HTTPS、SOCKS5 和
+  SOCKS5H 代理及主机绕过列表。
 
-Requirements:
+## 使用要求
 
-- Node.js 20 or newer
-- `zip`
-- Zotero 7, 8, or 9 with a separate development profile
+- Zotero `7.0` 至 `9.0.*`
+- 可在本机访问的 PDF 附件
+- 用于首次转换或缓存未命中时的 [MinerU API Token](https://mineru.net/apiManage/token)
+- 能够访问 MinerU API 的网络环境
 
-Install dependencies and verify the project:
+文件大小、页数、账户额度和服务可用性由 MinerU API 决定，请以
+[MinerU API 文档](https://mineru.net/apiManage/docs)为准。
+
+## 安装
+
+### 安装 XPI
+
+1. 获取与当前版本对应的 `mktero-<version>.xpi`。
+2. 在 Zotero 中打开 `工具 -> 插件`。
+3. 点击插件管理器右上角的齿轮按钮，选择 `Install Add-on From File...`。
+4. 选择 XPI 文件并按 Zotero 提示完成安装。
+
+当前仓库也可以直接从源码构建 XPI，参见[开发](#开发)。
+
+## 配置
+
+安装后打开 `设置 -> Mktero`。
+
+| 设置 | 默认值 | 说明 |
+| --- | --- | --- |
+| API Token | 空 | 缓存未命中时必填，用于调用 MinerU API |
+| Reuse conversion results | 开启 | 复用相同 PDF 内容和解析配置对应的本地结果 |
+| Enable proxy | 关闭 | 仅为 Mktero 的转换请求启用代理 |
+| Use system proxy | 开启 | 启用代理后使用 Zotero 已解析的系统代理 |
+| Manual proxy address | 空 | 关闭系统代理后填写 `http`、`https`、`socks5` 或 `socks5h` URL |
+| Bypass proxy for | `localhost, 127.0.0.1` | 逗号分隔的主机、主机端口或 `*.local` 一类域名规则 |
+
+API Token 和手动代理 URL 中的认证信息会作为普通首选项保存在当前 Zotero 配置文件中，
+不会加密。
+
+## 使用方法
+
+1. 在 `设置 -> Mktero` 中配置 API Token。
+2. 打开 PDF 后点击阅读器工具栏中的 `MD`；或者在文库中右键单个 PDF/条目并选择
+   `Read as Markdown with Mktero`。
+3. Mktero 会创建一个临时 Zotero 标签页并显示转换进度。相同 PDF 已有有效缓存时，
+   会跳过上传和远程解析。
+4. 在只读视图中选择和复制文本，使用 `Ctrl+F` 或 `Cmd+F` 搜索，并通过目录、引用预览
+   和图表预览浏览文档。
+
+Mktero 标签页不会写入 Zotero 会话状态；关闭 Zotero 后不会自动恢复这些标签页。
+
+## 缓存与隐私
+
+缓存默认位于当前 Zotero 配置文件的 `mktero-cache/v1` 目录：
+
+- 缓存键由 PDF 内容的 SHA-256 和 MinerU 解析配置共同生成。
+- 默认最多保留 100 份文档、占用 512 MiB；超过限制时优先清理最久未访问的结果。
+- 连续 30 天未访问的结果会过期，并在插件启动或读取缓存时清理。
+- 可在 `设置 -> Mktero -> Local Markdown cache` 查看占用并手动清空缓存。
+- 缓存中的 Markdown 和图片未加密，只保存在本机，不通过 Zotero 同步。
+
+缓存未命中时，Mktero 会把完整 PDF 上传到 MinerU 进行解析。返回的图片仅用于当前
+Markdown 标签页和本地缓存，不会导入为 Zotero 附件。
+
+## 安全边界与当前限制
+
+- 阅读器是只读视图，不支持编辑、保存或导出 Markdown。
+- 仅支持具有本地文件的 Zotero PDF 附件；缺失或尚未下载的附件无法转换。
+- 结果压缩包必须包含 `full.md`。插件只加载其中的 GIF、JPEG、PNG 和 WebP 图片。
+- Markdown 图片只能引用当前 MinerU 结果中的本地图片，不会从外部地址加载图片。
+- 可打开的链接协议限定为 `http`、`https`、`zotero` 和当前文档片段。
+- 原始 HTML 默认转义；MinerU 表格只允许经过清理的有限标签与属性。
+- 单个结果压缩包、Markdown、图片及公式渲染均设置了本地资源上限，超限时会停止处理。
+
+## 开发
+
+开发环境要求：
+
+- Node.js 20 或更高版本
+- `zip` 命令
+- 使用独立开发配置文件的 Zotero 7、8 或 9
+
+安装依赖并完成全部验证：
 
 ```bash
-npm install
+npm ci
+npm run check
 npm test
 npm run build
 ```
 
-The installable package is written to `build/mktero-0.1.0.xpi`.
+构建结果位于：
 
-To load source builds during development, create an extension proxy file named `mktero@tenglvjun.github.io` in the Zotero profile's `extensions` directory. Its contents should be the absolute path to `build/package`. Run `npm run build` before starting Zotero.
+- `build/package/`：未压缩插件目录
+- `build/mktero-0.1.0.xpi`：可安装插件包
 
-Alternatively, open **Tools → Add-ons**, choose **Install Add-on From File…**, and select the generated XPI.
+源码调试时，可在 Zotero 配置文件的 `extensions` 目录中新建名为
+`mktero@tenglvjun.github.io` 的扩展代理文件，文件内容为本仓库
+`build/package` 的绝对路径。每次启动 Zotero 前先运行 `npm run build`。
 
-## Troubleshooting conversion
+项目主要目录：
 
-Open **Help → Debug Output Logging**, enable logging, trigger the **MD** action, and then choose **View Output**. Filter for `Mktero:`. The conversion log distinguishes these cases without recording the API Token, upload URL, or PDF content:
+```text
+src/bootstrap.js   Zotero 生命周期与依赖装配
+src/mineru/        MinerU API、解析配置和结果解包
+src/cache/         Markdown 与图片缓存
+src/markdown/      Markdown 规范化、分析和安全渲染
+src/editor/        CodeMirror 只读视图与引用/图片交互
+src/ui/            Zotero 工具栏、菜单、标签页和设置页
+ui/                打包使用的 XHTML、CSS 与图标
+test/              Node.js 单元和 DOM 行为测试
+scripts/build.mjs  esbuild 与 XPI 打包脚本
+```
 
-- `requesting a MinerU upload URL`: Mktero is creating the MinerU task.
-- `uploading PDF to MinerU`: the PDF upload has started.
-- `PDF upload completed; MinerU is parsing`: MinerU received the PDF successfully.
-- `completed from local cache; MinerU upload skipped`: no API request was needed.
-- `completed through MinerU API`: the result came back from MinerU.
+更完整的修改约束与验证清单见 [AGENTS.md](./AGENTS.md)。
 
-## Current scope
+## 转换排障
 
-- PDF reader toolbar and library item context-menu entries
-- MinerU VLM parsing with OCR, formula, and table recognition
-- Local PDF upload through MinerU pre-signed URLs
-- Parsing progress reported in the Markdown tab
-- Zotero Tab with a CodeMirror 6 inline-rendered, read-only Markdown viewer
-- Escaped PDF content and restricted link schemes
-- Local figure previews extracted from the MinerU result archive
-- Local content-addressed cache with automatic expiry and manual clearing
+在 Zotero 中打开 `帮助 -> 调试输出日志`，启用日志后重新执行 `MD` 操作，再选择查看输出并
+筛选 `Mktero:`。常见阶段如下：
 
-The MinerU precision API currently limits each file to 200 MB and 200 pages. Mktero reads `full.md` and supported raster images from the MinerU result archive. Images are displayed for the current Tab but are not imported as Zotero attachments.
+- `requesting a MinerU upload URL`：正在创建 MinerU 任务。
+- `uploading PDF to MinerU`：正在上传本地 PDF。
+- `PDF upload completed; MinerU is parsing`：上传成功，MinerU 正在解析。
+- `MinerU parsing finished; downloading the result`：正在下载结果压缩包。
+- `completed from local cache; MinerU upload skipped`：已命中本地缓存，没有发起上传。
+- `completed through MinerU API`：已通过 MinerU API 完成转换。
+
+日志不会记录 API Token、代理凭据、预签名上传地址或 PDF 内容。若仍然失败，请优先检查
+本地附件是否可用、Token 是否有效，以及代理设置能否访问 MinerU。
+
+## License
+
+[MIT](./LICENSE) © 2026 Tony
