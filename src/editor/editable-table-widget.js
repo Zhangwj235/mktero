@@ -19,6 +19,7 @@ export class EditableTableWidget extends WidgetType {
         openImagePreview,
         onSaveRequest,
         renderVersion,
+        highlighted = false,
     }) {
         super();
         this.source = source;
@@ -30,6 +31,7 @@ export class EditableTableWidget extends WidgetType {
         this.openImagePreview = openImagePreview;
         this.onSaveRequest = onSaveRequest;
         this.renderVersion = renderVersion;
+        this.highlighted = highlighted;
     }
 
     eq(other) {
@@ -37,13 +39,18 @@ export class EditableTableWidget extends WidgetType {
             && this.from === other.from
             && this.to === other.to
             && this.caption?.text === other.caption?.text
-            && this.renderVersion === other.renderVersion;
+            && this.renderVersion === other.renderVersion
+            && this.highlighted === other.highlighted;
     }
 
     toDOM(view) {
         const document = view.dom.ownerDocument;
         const container = document.createElement('div');
-        container.className = 'cm-mktero-rendered cm-mktero-table';
+        container.className = [
+            'cm-mktero-rendered',
+            'cm-mktero-table',
+            this.highlighted ? 'cm-mktero-table-target-highlight' : '',
+        ].filter(Boolean).join(' ');
         appendRenderedMarkdown(container, this.source, this.resolveImageURL);
         const tableModel = parseGFMTable(this.source);
         const table = container.querySelector('table');

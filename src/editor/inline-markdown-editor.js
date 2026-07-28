@@ -9,10 +9,12 @@ import {
     createInlineRenderingExtension,
     refreshInlineRendering,
     setReferenceHighlight,
+    setTableHighlight,
 } from './inline-rendering.js';
 import { runEditorCommand, runSaveShortcut } from './editor-commands.js';
 import { createImagePreview } from './image-preview.js';
 import { createCitationPopup } from './citation-popup.js';
+import { createTablePreviewPopup } from './table-preview-popup.js';
 
 const externalUpdate = Annotation.define();
 const editorNavigationMeasureKey = {};
@@ -84,9 +86,13 @@ export function createInlineMarkdownEditor({
     acquireDOMGlobals(ownerWindow);
     const imagePreview = createImagePreview(parent);
     const citationPopup = createCitationPopup(parent);
+    const tablePreviewPopup = createTablePreviewPopup(parent, {
+        resolveImageURL,
+    });
     const editingMode = new Compartment();
     let editingEnabled = false;
     let citationHighlightTimer = null;
+    let tableHighlightTimer = null;
     let destroyed = false;
     const setEditingEnabled = (editorView, enabled) => {
         if (editingEnabled === enabled) return;
@@ -104,9 +110,13 @@ export function createInlineMarkdownEditor({
         ownerWindow,
         event => {
             if (!view) return;
-            if (citationPopup.contains(event.target)) return;
+            if (citationPopup.contains(event.target)
+                || tablePreviewPopup.contains(event.target)) {
+                return;
+            }
             if (event.type === 'scroll' || event.type === 'wheel') {
                 citationPopup.close();
+                tablePreviewPopup.close();
             }
             view.requestMeasure();
             if (event.type === 'scroll'
@@ -127,6 +137,7 @@ export function createInlineMarkdownEditor({
                     onSaveRequest,
                     openImagePreview: imagePreview.open,
                     citationPopup,
+                    tablePreviewPopup,
                     activateCitation(editorView, target) {
                         if (citationHighlightTimer !== null) {
                             ownerWindow.clearTimeout(citationHighlightTimer);
@@ -144,6 +155,26 @@ export function createInlineMarkdownEditor({
                             if (destroyed) return;
                             editorView.dispatch({
                                 effects: setReferenceHighlight.of(null),
+                            });
+                        }, 3000);
+                    },
+                    activateTableReference(editorView, target) {
+                        if (tableHighlightTimer !== null) {
+                            ownerWindow.clearTimeout(tableHighlightTimer);
+                        }
+                        editorView.dispatch({
+                            effects: setTableHighlight.of(target.id),
+                        });
+                        requestEditorScroll(
+                            editorView,
+                            target.from,
+                            editorView.state.doc
+                        );
+                        tableHighlightTimer = ownerWindow.setTimeout(() => {
+                            tableHighlightTimer = null;
+                            if (destroyed) return;
+                            editorView.dispatch({
+                                effects: setTableHighlight.of(null),
                             });
                         }, 3000);
                     },
@@ -187,6 +218,7 @@ export function createInlineMarkdownEditor({
         });
     }
     catch (error) {
+        tablePreviewPopup.destroy();
         citationPopup.destroy();
         imagePreview.destroy();
         removeDOMActivation();
@@ -200,13 +232,23 @@ export function createInlineMarkdownEditor({
         setMarkdown(markdown) {
             activateDOMGlobals(ownerWindow);
             citationPopup.close();
+            tablePreviewPopup.close();
             if (citationHighlightTimer !== null) {
                 ownerWindow.clearTimeout(citationHighlightTimer);
                 citationHighlightTimer = null;
             }
+            if (tableHighlightTimer !== null) {
+                ownerWindow.clearTimeout(tableHighlightTimer);
+                tableHighlightTimer = null;
+            }
             const value = String(markdown || '');
             if (value === view.state.doc.toString()) {
-                view.dispatch({ effects: setReferenceHighlight.of(null) });
+                view.dispatch({
+                    effects: [
+                        setReferenceHighlight.of(null),
+                        setTableHighlight.of(null),
+                    ],
+                });
                 return;
             }
             setEditingEnabled(view, false);
@@ -215,6 +257,7 @@ export function createInlineMarkdownEditor({
                 effects: [
                     clearInlineEditing.of(null),
                     setReferenceHighlight.of(null),
+                    setTableHighlight.of(null),
                 ],
                 annotations: [
                     externalUpdate.of(true),
@@ -259,7 +302,12 @@ export function createInlineMarkdownEditor({
                     ownerWindow.clearTimeout(citationHighlightTimer);
                     citationHighlightTimer = null;
                 }
+                if (tableHighlightTimer !== null) {
+                    ownerWindow.clearTimeout(tableHighlightTimer);
+                    tableHighlightTimer = null;
+                }
                 citationPopup.destroy();
+                tablePreviewPopup.destroy();
                 imagePreview.destroy();
                 view.destroy();
             }

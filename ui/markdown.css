@@ -515,6 +515,23 @@ main {
     outline-offset: 2px;
 }
 
+.markdown-editor-host > .cm-editor .cm-mktero-table-reference {
+    border-radius: 3px;
+    color: var(--accent);
+    font-weight: 650;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-table-reference:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-table-reference:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: 2px;
+}
+
 .markdown-editor-host > .cm-editor .cm-mktero-reference-highlight {
     border-radius: 4px;
     background: color-mix(in srgb, var(--accent) 28%, transparent);
@@ -546,7 +563,7 @@ main {
 
 .mktero-citation-popup::after {
     position: absolute;
-    left: var(--citation-arrow-left, 50%);
+    left: var(--anchored-popup-arrow-left, 50%);
     width: 10px;
     height: 10px;
     background: var(--citation-popup-surface);
@@ -628,9 +645,110 @@ main {
     overflow-wrap: anywhere;
 }
 
+.mktero-table-preview-popup {
+    --table-preview-surface: #fff;
+    --table-preview-text: #24292f;
+    --table-preview-muted: #57606a;
+    --table-preview-border: #d8dee4;
+    --table-preview-header: #f6f8fa;
+    position: fixed;
+    z-index: 900;
+    width: min(720px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    color: var(--table-preview-text);
+    background: var(--table-preview-surface);
+    border: 1px solid var(--table-preview-border);
+    border-radius: 8px;
+    box-shadow:
+        0 16px 40px rgb(31 35 40 / 16%),
+        0 3px 10px rgb(31 35 40 / 8%);
+    font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
+}
+
+.mktero-table-preview-popup::after {
+    position: absolute;
+    left: var(--anchored-popup-arrow-left, 50%);
+    width: 10px;
+    height: 10px;
+    background: var(--table-preview-surface);
+    content: "";
+    transform: translateX(-50%) rotate(45deg);
+}
+
+.mktero-table-preview-popup[data-placement="top"]::after {
+    bottom: -5px;
+    border-right: 1px solid var(--table-preview-border);
+    border-bottom: 1px solid var(--table-preview-border);
+}
+
+.mktero-table-preview-popup[data-placement="bottom"]::after {
+    top: -5px;
+    border-top: 1px solid var(--table-preview-border);
+    border-left: 1px solid var(--table-preview-border);
+}
+
+.mktero-table-preview-content {
+    min-width: 0;
+}
+
+.mktero-table-preview-caption {
+    padding: 9px 11px;
+    border-bottom: 1px solid var(--table-preview-border);
+    color: var(--table-preview-muted);
+    font-weight: 650;
+}
+
+.mktero-table-preview-viewport {
+    max-height: min(420px, calc(100vh - 120px));
+    overflow: auto;
+    scrollbar-width: thin;
+}
+
+.mktero-table-preview-viewport table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+    color: var(--table-preview-text);
+    background: var(--table-preview-surface);
+}
+
+.mktero-table-preview-viewport th,
+.mktero-table-preview-viewport td {
+    min-width: 88px;
+    max-width: 280px;
+    padding: 7px 9px;
+    border: 1px solid var(--table-preview-border);
+    overflow-wrap: anywhere;
+    text-align: start;
+    vertical-align: top;
+}
+
+.mktero-table-preview-viewport th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--table-preview-header);
+    font-weight: 650;
+}
+
 @keyframes mktero-reference-highlight {
     0%, 70% { background: color-mix(in srgb, var(--accent) 32%, transparent); }
     100% { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-table-target-highlight {
+    animation: mktero-table-target-highlight 3s ease-out;
+}
+
+@keyframes mktero-table-target-highlight {
+    0%, 70% {
+        border-color: color-mix(in srgb, var(--accent) 75%, var(--border));
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+    }
+    100% {
+        border-color: var(--border);
+        box-shadow: 0 0 0 0 transparent;
+    }
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-blockquote {

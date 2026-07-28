@@ -11,6 +11,7 @@ import {
     findAcademicTableGroups,
 } from '../markdown/markdown-figures.js';
 import { analyzeMarkdownCitations } from '../markdown/markdown-citations.js';
+import { analyzeMarkdownTableReferences } from '../markdown/markdown-table-references.js';
 import { EditableTableWidget } from './editable-table-widget.js';
 import {
     appendRenderedMarkdown,
@@ -22,6 +23,7 @@ import {
 const setInlineEditingRange = StateEffect.define();
 export const clearInlineEditing = StateEffect.define();
 export const setReferenceHighlight = StateEffect.define();
+export const setTableHighlight = StateEffect.define();
 
 class RenderedMarkdownWidget extends WidgetType {
     constructor({
@@ -169,7 +171,9 @@ export function createInlineRenderingExtension({
     onSaveRequest,
     openImagePreview,
     citationPopup,
+    tablePreviewPopup,
     activateCitation,
+    activateTableReference,
     enterEditing,
     exitEditing,
 }) {
@@ -179,15 +183,21 @@ export function createInlineRenderingExtension({
         onSaveRequest,
         openImagePreview,
         citationPopup,
+        tablePreviewPopup,
         activateCitation,
+        activateTableReference,
         enterEditing,
         exitEditing,
         renderVersion: 0,
         editingRange: null,
         highlightedReferenceID: null,
+        highlightedTableID: null,
         citationAnalysisDocument: null,
         citationAnalysis: null,
         citationTargets: new Map(),
+        tableReferenceAnalysisDocument: null,
+        tableReferenceAnalysis: null,
+        tableTargets: new Map(),
     };
     const renderingField = StateField.define({
         create(state) {
@@ -199,6 +209,7 @@ export function createInlineRenderingExtension({
             ));
             let editingRangeChanged = false;
             let referenceHighlightChanged = false;
+            let tableHighlightChanged = false;
             if (shouldRefresh) context.renderVersion++;
             if (transaction.docChanged && context.editingRange) {
                 context.editingRange = {
@@ -219,10 +230,15 @@ export function createInlineRenderingExtension({
                     context.highlightedReferenceID = effect.value;
                     referenceHighlightChanged = true;
                 }
+                else if (effect.is(setTableHighlight)) {
+                    context.highlightedTableID = effect.value;
+                    tableHighlightChanged = true;
+                }
             }
             if (transaction.docChanged
                 || editingRangeChanged
                 || referenceHighlightChanged
+                || tableHighlightChanged
                 || shouldRefresh) {
                 return buildDecorations(transaction.state, context);
             }
@@ -235,34 +251,62 @@ export function createInlineRenderingExtension({
         Prec.highest(EditorView.domEventHandlers({
             mouseover(event, view) {
                 const citation = citationElement(event, view);
-                if (!citation) return false;
-                openCitationPopup(citation, view, context);
+                if (citation) {
+                    openCitationPopup(citation, view, context);
+                    return false;
+                }
+                const tableReference = tableReferenceElement(event, view);
+                if (tableReference) {
+                    openTablePreviewPopup(tableReference, context);
+                }
                 return false;
             },
             mouseout(event, view) {
                 const citation = citationElement(event, view);
-                if (!citation) return false;
-                if (citation.contains(event.relatedTarget)
-                    || context.citationPopup?.contains(event.relatedTarget)) {
+                if (citation) {
+                    if (citation.contains(event.relatedTarget)
+                        || context.citationPopup?.contains(event.relatedTarget)) {
+                        return false;
+                    }
+                    context.citationPopup?.scheduleClose();
                     return false;
                 }
-                context.citationPopup?.scheduleClose();
+                const tableReference = tableReferenceElement(event, view);
+                if (!tableReference) return false;
+                if (tableReference.contains(event.relatedTarget)
+                    || context.tablePreviewPopup?.contains(event.relatedTarget)) {
+                    return false;
+                }
+                context.tablePreviewPopup?.scheduleClose();
                 return false;
             },
             focusin(event, view) {
                 const citation = citationElement(event, view);
-                if (!citation) return false;
-                openCitationPopup(citation, view, context);
+                if (citation) {
+                    openCitationPopup(citation, view, context);
+                    return false;
+                }
+                const tableReference = tableReferenceElement(event, view);
+                if (tableReference) {
+                    openTablePreviewPopup(tableReference, context);
+                }
                 return false;
             },
             focusout(event, view) {
                 const citation = citationElement(event, view);
-                if (!citation) return false;
-                context.citationPopup?.scheduleClose();
+                if (citation) {
+                    context.citationPopup?.scheduleClose();
+                    return false;
+                }
+                if (tableReferenceElement(event, view)) {
+                    context.tablePreviewPopup?.scheduleClose();
+                }
                 return false;
             },
             mousedown(event, view) {
-                if (event.button === 0 && citationElement(event, view)) {
+                if (event.button === 0
+                    && (citationElement(event, view)
+                        || tableReferenceElement(event, view))) {
                     event.preventDefault();
                     return true;
                 }
@@ -286,6 +330,16 @@ export function createInlineRenderingExtension({
                     activateCitationElement(citation, view, context);
                     return true;
                 }
+                const tableReference = tableReferenceElement(event, view);
+                if (tableReference && event.button === 0) {
+                    event.preventDefault();
+                    activateTableReferenceElement(
+                        tableReference,
+                        view,
+                        context
+                    );
+                    return true;
+                }
                 if (!context.editingRange || event.button !== 0) return false;
                 const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
                 if (position === null || positionInsideRange(position, context.editingRange)) {
@@ -296,7 +350,8 @@ export function createInlineRenderingExtension({
                 return false;
             },
             dblclick(event, view) {
-                if (citationElement(event, view)) {
+                if (citationElement(event, view)
+                    || tableReferenceElement(event, view)) {
                     event.preventDefault();
                     return true;
                 }
@@ -315,20 +370,32 @@ export function createInlineRenderingExtension({
             },
             keydown(event, view) {
                 const citation = citationElement(event, view);
-                if (!citation) return false;
-                if (event.key === 'ArrowDown') {
+                if (citation) {
+                    if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        openCitationPopup(citation, view, context, true);
+                        return true;
+                    }
+                    if (!['Enter', ' '].includes(event.key)) return false;
                     event.preventDefault();
-                    openCitationPopup(citation, view, context, true);
+                    activateCitationElement(citation, view, context);
                     return true;
                 }
-                if (!['Enter', ' '].includes(event.key)) return false;
+                const tableReference = tableReferenceElement(event, view);
+                if (!tableReference
+                    || !['Enter', ' '].includes(event.key)) {
+                    return false;
+                }
                 event.preventDefault();
-                activateCitationElement(citation, view, context);
+                activateTableReferenceElement(tableReference, view, context);
                 return true;
             },
             blur(event, view) {
                 if (!context.citationPopup?.contains(event.relatedTarget)) {
                     context.citationPopup?.close();
+                }
+                if (!context.tablePreviewPopup?.contains(event.relatedTarget)) {
+                    context.tablePreviewPopup?.close();
                 }
                 if (context.editingRange) {
                     view.dispatch({ effects: setInlineEditingRange.of(null) });
@@ -400,6 +467,10 @@ function positionInsideRange(position, range) {
 function buildDecorations(state, context) {
     const decorations = [];
     const excludedMathRanges = collectExcludedMathRanges(state);
+    const analyzedTableReferences = tableReferenceAnalysis(state, context);
+    const tableTargetsByFrom = new Map(
+        analyzedTableReferences.targets.map(target => [target.from, target])
+    );
     const figureGroups = findAcademicFigureGroups(state.doc.toString())
         .filter(group => !editingRangeIntersects(context, group.from, group.to));
     const tableGroups = findAcademicTableGroups(state.doc.toString())
@@ -410,7 +481,10 @@ function buildDecorations(state, context) {
     }
     for (const group of tableGroups) {
         decorations.push(renderedRange(
-            group,
+            {
+                ...group,
+                tableTarget: tableTargetsByFrom.get(group.from),
+            },
             state,
             group.table.kind === 'gfm' ? 'table' : 'html-block',
             context
@@ -439,6 +513,7 @@ function buildDecorations(state, context) {
         },
     });
     decorateCitations(state, decorations, context);
+    decorateTableReferences(state, decorations, context);
     return Decoration.set(decorations, true);
 }
 
@@ -533,6 +608,51 @@ function citationAnalysis(state, context) {
     return result;
 }
 
+function tableReferenceAnalysis(state, context) {
+    if (context.tableReferenceAnalysisDocument === state.doc) {
+        return context.tableReferenceAnalysis;
+    }
+    const result = analyzeMarkdownTableReferences(state.doc.toString());
+    context.tableReferenceAnalysisDocument = state.doc;
+    context.tableReferenceAnalysis = result;
+    context.tableTargets = new Map(
+        result.targets.map(target => [target.id, target])
+    );
+    return result;
+}
+
+function decorateTableReferences(state, decorations, context) {
+    for (const reference of tableReferenceAnalysis(state, context).references) {
+        if (editingRangeIntersects(context, reference.from, reference.to)
+            || tableReferenceRangeIsExcluded(state, reference.from)) {
+            continue;
+        }
+        const target = context.tableTargets.get(reference.targetId);
+        if (!target) continue;
+        decorations.push(Decoration.mark({
+            class: 'cm-mktero-table-reference',
+            attributes: {
+                role: 'link',
+                tabindex: '0',
+                'aria-label': `预览并跳转到 ${target.label}`,
+                'data-table-target-id': target.id,
+            },
+        }).range(reference.from, reference.to));
+    }
+}
+
+function tableReferenceRangeIsExcluded(state, position) {
+    let node = syntaxTree(state).resolveInner(position, 1);
+    while (node) {
+        if (['InlineCode', 'FencedCode', 'CodeBlock', 'Image', 'URL',
+            'HTMLBlock', 'Link'].includes(node.name)) {
+            return true;
+        }
+        node = node.parent;
+    }
+    return false;
+}
+
 function citationRangeIsExcluded(state, position) {
     let node = syntaxTree(state).resolveInner(position, 1);
     while (node) {
@@ -570,6 +690,23 @@ function citationElement(event, view) {
     return citation && view.dom.contains(citation) ? citation : null;
 }
 
+function tableReferenceElement(event, view) {
+    const reference = event.target?.closest?.('.cm-mktero-table-reference');
+    return reference && view.dom.contains(reference) ? reference : null;
+}
+
+function tableTargetForReference(reference, context) {
+    return context.tableTargets.get(
+        reference.getAttribute('data-table-target-id') || ''
+    );
+}
+
+function openTablePreviewPopup(reference, context) {
+    const target = tableTargetForReference(reference, context);
+    if (!target) return;
+    context.tablePreviewPopup?.open({ anchor: reference, target });
+}
+
 function targetsForCitation(citation, context) {
     return (citation.getAttribute('data-citation-ids') || '')
         .split(/\s+/)
@@ -595,6 +732,14 @@ function activateCitationElement(citation, view, context) {
     if (!target) return false;
     context.citationPopup?.close();
     context.activateCitation?.(view, target);
+    return true;
+}
+
+function activateTableReferenceElement(reference, view, context) {
+    const target = tableTargetForReference(reference, context);
+    if (!target) return false;
+    context.tablePreviewPopup?.close();
+    context.activateTableReference?.(view, target);
     return true;
 }
 
@@ -893,6 +1038,8 @@ function dollarWrappedNumericCitationContent(source) {
 
 function renderedRange(node, state, display, context) {
     const source = node.table?.source || state.sliceDoc(node.from, node.to);
+    const tableIsHighlighted = node.tableTarget?.id
+        && node.tableTarget.id === context.highlightedTableID;
     if (display === 'table') {
         return Decoration.replace({
             widget: new EditableTableWidget({
@@ -900,6 +1047,7 @@ function renderedRange(node, state, display, context) {
                 from: node.table?.from ?? node.from,
                 to: node.table?.to ?? node.to,
                 caption: node.caption,
+                highlighted: tableIsHighlighted,
                 ...context,
             }),
             block: true,
@@ -918,10 +1066,16 @@ function renderedRange(node, state, display, context) {
                     node.to
                 )
                 : [],
-            extraClassName: display === 'html-block'
-                && (node.table?.kind === 'html' || /^\s*<table\b/i.test(source))
-                ? 'cm-mktero-html-table'
-                : '',
+            extraClassName: [
+                display === 'html-block'
+                    && (node.table?.kind === 'html'
+                        || /^\s*<table\b/i.test(source))
+                    ? 'cm-mktero-html-table'
+                    : '',
+                tableIsHighlighted
+                    ? 'cm-mktero-table-target-highlight'
+                    : '',
+            ].filter(Boolean).join(' '),
             ...context,
         }),
         block: true,

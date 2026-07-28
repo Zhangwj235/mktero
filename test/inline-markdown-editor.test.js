@@ -492,6 +492,215 @@ test('renders a MinerU HTML table and its preceding caption as one table', () =>
     dom.window.close();
 });
 
+test('previews a uniquely captioned table from its prose reference', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Results',
+        '',
+        'Model performance is reported in Table 5.',
+        '',
+        'Table 5. Open-source model performance',
+        '',
+        '| Model | Accuracy |',
+        '| --- | ---: |',
+        '| LLaMA | 0.72 |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => null,
+        onChange: assert.fail,
+        onSaveRequest: assert.fail,
+    });
+    const reference = document.querySelector('.cm-mktero-table-reference');
+
+    assert.equal(reference?.textContent, 'Table 5');
+    assert.equal(reference?.getAttribute('role'), 'link');
+    assert.equal(reference?.getAttribute('tabindex'), '0');
+
+    reference.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+
+    const popup = document.querySelector('.mktero-table-preview-popup');
+    assert.equal(popup?.getAttribute('aria-label'), '表格预览');
+    assert.equal(
+        popup?.querySelector('.mktero-table-preview-caption')?.textContent,
+        'Table 5. Open-source model performance'
+    );
+    assert.deepEqual(
+        [...popup.querySelectorAll('th, td')].map(cell => cell.textContent),
+        ['Model', 'Accuracy', 'LLaMA', '0.72']
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('jumps to and highlights a clicked table reference for three seconds', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Results',
+        '',
+        'Model performance is reported in Table 5.',
+        '',
+        'Table 5. Open-source model performance',
+        '',
+        '| Model | Accuracy |',
+        '| --- | ---: |',
+        '| LLaMA | 0.72 |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const tableOffset = markdown.indexOf('Table 5. Open-source');
+    const scheduled = [];
+    const originalSetTimeout = dom.window.setTimeout;
+    const originalClearTimeout = dom.window.clearTimeout;
+    dom.window.setTimeout = (callback, delay) => {
+        scheduled.push({ callback, delay });
+        return scheduled.length;
+    };
+    dom.window.clearTimeout = () => {};
+    view.lineBlockAt = position => {
+        assert.equal(position, tableOffset);
+        return { top: 720 };
+    };
+    view.requestMeasure = request => {
+        if (!request?.read) return;
+        request.write?.(request.read(view), view);
+    };
+    view.scrollDOM.scrollTop = 0;
+    const reference = document.querySelector('.cm-mktero-table-reference');
+    reference.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+
+    reference.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    assert.equal(view.scrollDOM.scrollTop, 720);
+    assert.equal(document.querySelector('.mktero-table-preview-popup'), null);
+    assert.match(
+        document.querySelector('.cm-mktero-table-target-highlight')?.textContent
+            || '',
+        /Open-source model performance[\s\S]*LLaMA[\s\S]*0\.72/
+    );
+    assert.equal(scheduled.at(-1)?.delay, 3000);
+
+    scheduled.at(-1).callback();
+    assert.equal(
+        document.querySelector('.cm-mktero-table-target-highlight'),
+        null
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    dom.window.setTimeout = originalSetTimeout;
+    dom.window.clearTimeout = originalClearTimeout;
+    editor.destroy();
+    dom.window.close();
+});
+
+test('activates a table reference from the keyboard', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'See Table S2 for the supplemental result.',
+        '',
+        'Table S2. Supplemental result',
+        '',
+        '| Measure | Value |',
+        '| --- | ---: |',
+        '| Recall | 0.91 |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const tableOffset = markdown.indexOf('Table S2. Supplemental');
+    let navigatedOffset = null;
+    view.lineBlockAt = position => {
+        navigatedOffset = position;
+        return { top: 440 };
+    };
+    view.requestMeasure = request => {
+        if (request?.read) request.write?.(request.read(view), view);
+    };
+    const reference = document.querySelector('.cm-mktero-table-reference');
+
+    reference.focus();
+    reference.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'Enter',
+    }));
+
+    assert.equal(navigatedOffset, tableOffset);
+    assert.ok(document.querySelector('.cm-mktero-table-target-highlight'));
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('previews and highlights a referenced raw HTML table', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'The comparison appears in Table IV.',
+        '',
+        'Table IV. Cohort comparison',
+        '',
+        '<table><tr><th>Cohort</th><th>Score</th></tr>',
+        '<tr><td>Control</td><td>82</td></tr></table>',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const reference = document.querySelector('.cm-mktero-table-reference');
+
+    reference.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.deepEqual(
+        [...document.querySelectorAll(
+            '.mktero-table-preview-popup th, .mktero-table-preview-popup td'
+        )].map(cell => cell.textContent),
+        ['Cohort', 'Score', 'Control', '82']
+    );
+
+    reference.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.ok(document.querySelector(
+        '.cm-mktero-html-table.cm-mktero-table-target-highlight'
+    ));
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('commits a rendered table cell before handling its save shortcut', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

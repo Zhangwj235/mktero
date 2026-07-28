@@ -219,3 +219,25 @@ test('styles citation popups and temporary reference highlights', () => {
     );
     assert.match(highlight, /animation:\s*mktero-reference-highlight 3s ease-out/);
 });
+
+test('styles table references, previews, and target highlights', () => {
+    const reference = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-table-reference'
+    );
+    assert.match(reference, /color:\s*var\(--accent\)/);
+    assert.match(reference, /cursor:\s*pointer/);
+
+    const popup = ruleBody('.mktero-table-preview-popup');
+    assert.match(popup, /position:\s*fixed/);
+    assert.match(popup, /width:\s*min\(720px, calc\(100vw - 24px\)\)/);
+    assert.match(popup, /z-index:\s*900/);
+
+    const viewport = ruleBody('.mktero-table-preview-viewport');
+    assert.match(viewport, /max-height:\s*min\(420px, calc\(100vh - 120px\)\)/);
+    assert.match(viewport, /overflow:\s*auto/);
+
+    const highlight = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-table-target-highlight'
+    );
+    assert.match(highlight, /animation:\s*mktero-table-target-highlight 3s ease-out/);
+});
