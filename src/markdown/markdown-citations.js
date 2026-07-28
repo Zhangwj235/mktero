@@ -381,7 +381,9 @@ function findNumericCitations(markdown, bodyFrom, bodyEnd, references) {
             const after = body[match.index + match[0].length] || '';
             const before = body[match.index - 1] || '';
             if (squareBrackets
-                && (before === '!' || ['(', '[', ':'].includes(after))) {
+                && (before === '!'
+                    || ['(', '[', ':'].includes(after)
+                    || squareBracketLooksStatistical(body, match))) {
                 continue;
             }
             if (!squareBrackets
@@ -446,6 +448,14 @@ function hasParentheticalCitationStyle(containerCount) {
 
 function hasNumericCitationStyle(containerCount) {
     return containerCount >= MIN_NUMERIC_CITATION_STYLE_CONTAINERS;
+}
+
+function squareBracketLooksStatistical(body, match) {
+    if (!/^\s*\d+\s*[,;，；]\s*\d+\s*$/.test(match[1])) return false;
+    const preceding = body.slice(Math.max(0, match.index - 12), match.index);
+    if (!/\bF\s*$/i.test(preceding)) return false;
+    const following = body.slice(match.index + match[0].length);
+    return /^\s*=\s*-?\d/.test(following);
 }
 
 function findNumericEnumerationStarts(body) {

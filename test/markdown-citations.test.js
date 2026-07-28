@@ -224,6 +224,23 @@ test('does not treat numbered list markers as citations in bracket-style papers'
     );
 });
 
+test('does not treat ANOVA degrees of freedom as bracket citations', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'The recovery activities differed significantly (F[11,5341] = 162.70, '
+            + 'p < 0.001).',
+        '',
+        '## References',
+        '',
+        '[11] Alpha A. Recovery activity study. 2020.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(result.citations, []);
+});
+
 test('keeps numeric parentheses for parenthetical-style reference papers', () => {
     const markdown = [
         '# Paper',
