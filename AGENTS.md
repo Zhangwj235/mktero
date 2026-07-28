@@ -16,7 +16,7 @@ extension, including `Zotero`, `IOUtils`, `PathUtils`, `Components`,
 
 ## Commands
 
-Use Node.js 20 or newer. The build also requires the `zip` executable.
+Use Node.js 20 or newer.
 
 ```bash
 npm ci
@@ -28,9 +28,10 @@ npm run build
 - Run one test file with `node --test test/<name>.test.js` while iterating.
 - `npm run check` syntax-checks every source module explicitly. Add new source
   files to the `check` script in `package.json`.
-- `npm run build` recreates `build/package` and
-  `build/mktero-<version>.xpi`. Both `build/` and `node_modules/` are generated
-  and ignored; never edit or commit them.
+- `npm run build` recreates `build/package`, the reproducible
+  `build/mktero-<version>.xpi`, its `.sha256` checksum, and `build/updates.json`.
+  Both `build/` and `node_modules/` are generated and ignored; never edit or
+  commit them.
 - `scripts/build.mjs` has an explicit list of copied runtime assets. Update it
   when adding a non-imported file required by the packaged extension.
 
@@ -144,7 +145,6 @@ preference values as untrusted input.
 - Dependency change: update both `package.json` and `package-lock.json`, then
   verify the Firefox 115 bundle.
 - Version change: keep `manifest.json`, `package.json`, `package-lock.json`, XPI
-  naming, and update metadata consistent.
+  naming, release URLs, and generated update metadata consistent.
 - User-visible behavior, requirements, storage, or privacy change: update
   `README.md` in the same change.
-

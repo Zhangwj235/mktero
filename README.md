@@ -43,10 +43,14 @@ Zotero 本地 PDF -> MinerU VLM 解析 -> full.md 与图片 -> 规范化与安�
 
 ### 安装 XPI
 
-1. 获取与当前版本对应的 `mktero-<version>.xpi`。
+1. 从 [GitHub Releases](https://github.com/tenglvjun/mktero/releases) 下载与当前版本对应的
+   `mktero-<version>.xpi`。
 2. 在 Zotero 中打开 `工具 -> 插件`。
 3. 点击插件管理器右上角的齿轮按钮，选择 `Install Add-on From File...`。
 4. 选择 XPI 文件并按 Zotero 提示完成安装。
+
+通过 GitHub Release 安装后，Zotero 会读取最新正式 Release 中的 `updates.json` 检查更新。
+草稿和预发布版本不会成为自动更新目标。
 
 当前仓库也可以直接从源码构建 XPI，参见[开发](#开发)。
 
@@ -106,7 +110,6 @@ Markdown 标签页和本地缓存，不会导入为 Zotero 附件。
 开发环境要求：
 
 - Node.js 20 或更高版本
-- `zip` 命令
 - 使用独立开发配置文件的 Zotero 7、8 或 9
 
 安装依赖并完成全部验证：
@@ -122,6 +125,10 @@ npm run build
 
 - `build/package/`：未压缩插件目录
 - `build/mktero-0.1.0.xpi`：可安装插件包
+- `build/mktero-0.1.0.xpi.sha256`：只引用 XPI 文件名的 SHA-256 校验文件
+- `build/updates.json`：与当前版本、下载地址和 XPI 哈希一致的 Zotero 更新清单
+
+XPI 中的文件顺序和时间戳固定；相同源码与依赖连续构建会得到相同的 XPI 哈希。
 
 源码调试时，可在 Zotero 配置文件的 `extensions` 目录中新建名为
 `mktero@tenglvjun.github.io` 的扩展代理文件，文件内容为本仓库
@@ -142,6 +149,26 @@ scripts/build.mjs  esbuild 与 XPI 打包脚本
 ```
 
 更完整的修改约束与验证清单见 [AGENTS.md](./AGENTS.md)。
+
+### 发布新版本
+
+发布前必须同步更新 `manifest.json`、`package.json` 和 `package-lock.json` 中的版本号并提交。
+随后创建带 `v` 前缀、与清单版本完全一致的标签：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+标签推送后，[Release 工作流](./.github/workflows/release.yml)会自动执行语法检查、完整测试
+和可复现 XPI 构建，生成构建来源证明，然后创建对应的 GitHub Release，并上传 XPI、
+SHA-256 校验文件和 Zotero 更新清单。标签与 `manifest.json` 版本不一致，或同名 Release
+已经存在时，工作流会直接失败，不会覆盖已发布资产。
+
+日常推送到 `main` 或向 `main` 提交 Pull Request 时，[Test 工作流](./.github/workflows/test.yml)
+会自动执行相同的语法检查、完整测试和构建，但不会创建 Release；
+[CodeQL 工作流](./.github/workflows/codeql.yml)会分析 JavaScript 安全问题。Dependabot 每周
+检查 npm 与 GitHub Actions 依赖更新。
 
 ## 转换排障
 

@@ -22,7 +22,10 @@ test('allows installation on the tested Zotero 9 minor version', () => {
 test('provides the update URL required by Zotero 9', () => {
     const updateURL = manifest.applications.zotero.update_url;
     assert.doesNotThrow(() => new URL(updateURL));
-    assert.match(updateURL, /^https:\/\//);
+    assert.equal(
+        updateURL,
+        'https://github.com/tenglvjun/mktero/releases/latest/download/updates.json'
+    );
 });
 
 test('keeps the installable package version metadata consistent', () => {
