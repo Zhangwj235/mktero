@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { renderMarkdownHTML } from '../src/markdown/markdown-html.js';
 import { normalizeMinerUMarkdown } from '../src/mineru/markdown-normalizer.js';
 
 test('converts consecutive MinerU OCR bullets into a Markdown list', () => {
@@ -246,6 +247,73 @@ test('moves a blank-line-separated figure caption into the image description', (
         '![Figure S1A: Participant flow through the study.]'
             + '(images/figure.jpg)\n\nThe article continues here.'
     );
+});
+
+test('moves a figure caption above its image into the image description', () => {
+    const markdown = 'Figure 2. Symptom reduction over time in the full sample. '
+        + 'The gray shaded region indicates bootstrapped SEs. Model details '
+        + 'are described in the Results for Aim 2.\n\n'
+        + '![](images/figure.jpg)';
+    const normalized = normalizeMinerUMarkdown(markdown);
+
+    assert.equal(
+        normalized,
+        '![Figure 2. Symptom reduction over time in the full sample. '
+            + 'The gray shaded region indicates bootstrapped SEs. Model details '
+            + 'are described in the Results for Aim 2.]'
+            + '(images/figure.jpg)'
+    );
+    assert.match(
+        renderMarkdownHTML(normalized, {
+            resolveImageURL: () => 'blob:mktero-figure',
+        }),
+        /<span class="mktero-figure-label">Figure 2\.<\/span>/
+    );
+});
+
+test('moves a figure caption immediately above its image', () => {
+    const markdown = 'Fig. 1 Participant flow through the study.\n'
+        + '![](images/figure.jpg)';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        '![Fig. 1 Participant flow through the study.](images/figure.jpg)'
+    );
+});
+
+test('does not assign a caption above multiple panels to only the first image', () => {
+    const markdown = 'Figure 1. Results for panels A and B.\n'
+        + '![](images/panel-a.jpg)\n'
+        + '![](images/panel-b.jpg)';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('preserves CRLF when normalizing a caption above its image', () => {
+    const markdown = 'Figure 3. Outcome by treatment group.\r\n\r\n'
+        + '![](images/figure.jpg)\r\n\r\nNext paragraph.';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        '![Figure 3. Outcome by treatment group.](images/figure.jpg)'
+            + '\r\n\r\nNext paragraph.'
+    );
+});
+
+test('does not move a caption above an image inside fenced code', () => {
+    const markdown = '```md\n'
+        + 'Figure 1. This is syntax shown inside a code sample.\n'
+        + '![](images/example.jpg)\n'
+        + '```';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
+});
+
+test('does not move an indented caption above an image', () => {
+    const markdown = '    Figure 1. This is an indented code sample.\n'
+        + '![](images/example.jpg)';
+
+    assert.equal(normalizeMinerUMarkdown(markdown), markdown);
 });
 
 test('does not move example figure captions inside fenced code', () => {

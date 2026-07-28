@@ -112,6 +112,13 @@ test('styles academic figure captions as distinct labels', () => {
     assert.match(label, /font-weight:\s*650/);
 });
 
+test('separates panels inside a shared academic figure', () => {
+    const panels = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure-group img + img'
+    );
+    assert.match(panels, /margin-top:\s*12px/);
+});
+
 test('lays out a responsive scrollable outline beside the editor', () => {
     const workspace = ruleBody('.markdown-workspace');
     assert.match(workspace, /display:\s*flex/);

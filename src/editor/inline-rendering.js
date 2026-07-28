@@ -6,6 +6,7 @@ import {
     findInlineMathMatches,
     safeMarkdownLinkURL,
 } from '../markdown/markdown-html.js';
+import { findAcademicFigureGroups } from '../markdown/markdown-figures.js';
 import { analyzeMarkdownCitations } from '../markdown/markdown-citations.js';
 import { EditableTableWidget } from './editable-table-widget.js';
 import {
@@ -390,9 +391,17 @@ function positionInsideRange(position, range) {
 function buildDecorations(state, context) {
     const decorations = [];
     const excludedMathRanges = collectExcludedMathRanges(state);
+    const figureGroups = findAcademicFigureGroups(state.doc.toString())
+        .filter(group => !editingRangeIntersects(context, group.from, group.to));
+    for (const group of figureGroups) {
+        decorations.push(renderedRange(group, state, 'image', context));
+    }
 
     syntaxTree(state).iterate({
         enter(node) {
+            if (figureGroups.some(group => rangeContains(group, node))) {
+                return false;
+            }
             const result = decorateSyntaxNode(node, state, decorations, context);
             if (result === false) return false;
             const paragraph = node.name === 'Paragraph';
@@ -411,6 +420,10 @@ function buildDecorations(state, context) {
     });
     decorateCitations(state, decorations, context);
     return Decoration.set(decorations, true);
+}
+
+function rangeContains(outer, inner) {
+    return inner.from >= outer.from && inner.to <= outer.to;
 }
 
 function decorateCitations(state, decorations, context) {

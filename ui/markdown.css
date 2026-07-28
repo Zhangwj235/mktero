@@ -687,6 +687,10 @@ main {
     margin: 0 auto;
 }
 
+.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure-group img + img {
+    margin-top: 12px;
+}
+
 .markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure figcaption {
     max-width: 100%;
     margin: 10px auto 0;

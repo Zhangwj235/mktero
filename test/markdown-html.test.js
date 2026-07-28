@@ -394,6 +394,30 @@ test('renders a standalone academic image description as a visible figure captio
     );
 });
 
+test('renders consecutive image panels with one shared academic caption', () => {
+    const caption = 'Figure 2. Anxiety & depression outcomes.';
+    const html = renderMarkdownHTML([
+        `${caption}  `,
+        '![](images/panel-a.jpg)',
+        '',
+        '![](images/panel-b.jpg)',
+    ].join('\n'), {
+        resolveImageURL: path => `blob:mktero-${path}`,
+    });
+
+    assert.equal(
+        html,
+        '<figure class="mktero-figure mktero-figure-group">'
+            + '<img src="blob:mktero-images/panel-a.jpg" alt="">'
+            + '<img src="blob:mktero-images/panel-b.jpg" alt="">'
+            + '<figcaption>'
+            + '<span class="mktero-figure-label">Figure 2.</span>'
+            + ' Anxiety &amp; depression outcomes.'
+            + '</figcaption>'
+            + '</figure>\n'
+    );
+});
+
 test('keeps academic-looking descriptions on inline images inline', () => {
     const html = renderMarkdownHTML(
         'See ![Figure 1. Participant flow.](images/figure.png) for details.',

@@ -1372,6 +1372,40 @@ test('renders an academic image description as a selectable editable caption', (
     dom.window.close();
 });
 
+test('renders one shared caption for consecutive MinerU figure panels', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const captionText = 'Figure 2. Symptom reduction over time in the full sample. '
+        + 'The gray shaded region indicates bootstrapped SEs. Model details '
+        + 'are described in the Results for Aim 2.';
+    const markdown = `${captionText}  \n`
+        + '![](images/panel-a.jpg)\n\n'
+        + '![](images/panel-b.jpg)';
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: path => `blob:mktero-${path}`,
+        openLink: () => {},
+        onChange: assert.fail,
+        onSaveRequest: assert.fail,
+    });
+
+    const figure = document.querySelector('.mktero-figure-group');
+    assert.equal(figure?.querySelectorAll('img').length, 2);
+    assert.equal(figure?.querySelector('figcaption')?.textContent, captionText);
+    assert.equal(
+        figure?.querySelector('.mktero-figure-label')?.textContent,
+        'Figure 2.'
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('previews a rendered image with zoom and drag controls', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

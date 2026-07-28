@@ -1,6 +1,9 @@
 import { Marked } from 'marked';
 import katex from 'katex';
-import { parseAcademicFigureCaption } from './markdown-figures.js';
+import {
+    findAcademicFigureGroups,
+    parseAcademicFigureCaption,
+} from './markdown-figures.js';
 
 const MAX_MATH_EXPRESSIONS = 1000;
 const MAX_MATH_OUTPUT_LENGTH = 250_000;
@@ -47,6 +50,12 @@ export function renderMarkdownHTML(markdown, { resolveImageURL = () => null } = 
             createMathInlineExtension(mathBudget),
         ],
     });
+    const figureGroupHTML = renderStandaloneAcademicFigureGroup(
+        markdown,
+        parser,
+        resolveImageURL
+    );
+    if (figureGroupHTML) return figureGroupHTML;
     const tokens = parser.lexer(markdown);
     const transformedTokens = transformBlockTokens(tokens, parser.Lexer, parser.defaults, {
         links: tokens.links,
@@ -83,25 +92,57 @@ function createSafeRenderer(resolveImageURL, mathBudget) {
             if (!caption) return `<p>${content}</p>\n`;
             return '<figure class="mktero-figure">'
                 + content
-                + '<figcaption>'
-                + `<span class="mktero-figure-label">${escapeHTML(caption.label)}</span>`
-                + ` ${escapeHTML(caption.description)}`
-                + '</figcaption>'
+                + renderFigureCaption(caption)
                 + '</figure>\n';
         },
 
-        image({ href, title, text, tokens }) {
-            const alt = imageTokenDescription({ text, tokens });
-            const resolved = resolveImageURL(href);
-            if (!resolved || !String(resolved).startsWith('blob:')) {
-                return `<span class="missing-image">${escapeHTML(alt || 'Image')}</span>`;
-            }
-            const titleAttribute = title
-                ? ` title="${escapeAttribute(title)}"`
-                : '';
-            return `<img src="${escapeAttribute(resolved)}" alt="${escapeAttribute(alt)}"${titleAttribute}>`;
+        image(token) {
+            return renderImageToken(token, resolveImageURL);
         },
     };
+}
+
+function renderStandaloneAcademicFigureGroup(markdown, parser, resolveImageURL) {
+    const groups = findAcademicFigureGroups(markdown);
+    if (groups.length !== 1) return null;
+    const group = groups[0];
+    if (markdown.slice(0, group.from).trim()
+        || markdown.slice(group.to).trim()) {
+        return null;
+    }
+
+    const images = group.images.map(image => {
+        const tokens = parser.lexer(image.source);
+        const paragraph = tokens.find(token => token.type !== 'space');
+        return paragraph?.type === 'paragraph'
+            ? standaloneImageToken(paragraph.tokens)
+            : null;
+    });
+    if (images.some(image => !image)) return null;
+
+    return '<figure class="mktero-figure mktero-figure-group">'
+        + images.map(image => renderImageToken(image, resolveImageURL)).join('')
+        + renderFigureCaption(group.caption)
+        + '</figure>\n';
+}
+
+function renderImageToken({ href, title, text, tokens }, resolveImageURL) {
+    const alt = imageTokenDescription({ text, tokens });
+    const resolved = resolveImageURL(href);
+    if (!resolved || !String(resolved).startsWith('blob:')) {
+        return `<span class="missing-image">${escapeHTML(alt || 'Image')}</span>`;
+    }
+    const titleAttribute = title
+        ? ` title="${escapeAttribute(title)}"`
+        : '';
+    return `<img src="${escapeAttribute(resolved)}" alt="${escapeAttribute(alt)}"${titleAttribute}>`;
+}
+
+function renderFigureCaption(caption) {
+    return '<figcaption>'
+        + `<span class="mktero-figure-label">${escapeHTML(caption.label)}</span>`
+        + ` ${escapeHTML(caption.description)}`
+        + '</figcaption>';
 }
 
 function standaloneImageToken(tokens) {
