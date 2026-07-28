@@ -250,63 +250,31 @@ export function createInlineRenderingExtension({
         renderingField,
         Prec.highest(EditorView.domEventHandlers({
             mouseover(event, view) {
-                const citation = citationElement(event, view);
-                if (citation) {
-                    openCitationPopup(citation, view, context);
-                    return false;
-                }
-                const tableReference = tableReferenceElement(event, view);
-                if (tableReference) {
-                    openTablePreviewPopup(tableReference, context);
-                }
+                referenceInteraction(event, view, context)?.open();
                 return false;
             },
             mouseout(event, view) {
-                const citation = citationElement(event, view);
-                if (citation) {
-                    if (citation.contains(event.relatedTarget)
-                        || context.citationPopup?.contains(event.relatedTarget)) {
-                        return false;
-                    }
-                    context.citationPopup?.scheduleClose();
+                const interaction = referenceInteraction(event, view, context);
+                if (!interaction
+                    || interaction.element.contains(event.relatedTarget)
+                    || interaction.popup?.contains(event.relatedTarget)) {
                     return false;
                 }
-                const tableReference = tableReferenceElement(event, view);
-                if (!tableReference) return false;
-                if (tableReference.contains(event.relatedTarget)
-                    || context.tablePreviewPopup?.contains(event.relatedTarget)) {
-                    return false;
-                }
-                context.tablePreviewPopup?.scheduleClose();
+                interaction.popup?.scheduleClose();
                 return false;
             },
             focusin(event, view) {
-                const citation = citationElement(event, view);
-                if (citation) {
-                    openCitationPopup(citation, view, context);
-                    return false;
-                }
-                const tableReference = tableReferenceElement(event, view);
-                if (tableReference) {
-                    openTablePreviewPopup(tableReference, context);
-                }
+                referenceInteraction(event, view, context)?.open();
                 return false;
             },
             focusout(event, view) {
-                const citation = citationElement(event, view);
-                if (citation) {
-                    context.citationPopup?.scheduleClose();
-                    return false;
-                }
-                if (tableReferenceElement(event, view)) {
-                    context.tablePreviewPopup?.scheduleClose();
-                }
+                referenceInteraction(event, view, context)
+                    ?.popup?.scheduleClose();
                 return false;
             },
             mousedown(event, view) {
                 if (event.button === 0
-                    && (citationElement(event, view)
-                        || tableReferenceElement(event, view))) {
+                    && referenceInteraction(event, view, context)) {
                     event.preventDefault();
                     return true;
                 }
@@ -324,20 +292,10 @@ export function createInlineRenderingExtension({
                 return true;
             },
             click(event, view) {
-                const citation = citationElement(event, view);
-                if (citation && event.button === 0) {
+                const interaction = referenceInteraction(event, view, context);
+                if (interaction && event.button === 0) {
                     event.preventDefault();
-                    activateCitationElement(citation, view, context);
-                    return true;
-                }
-                const tableReference = tableReferenceElement(event, view);
-                if (tableReference && event.button === 0) {
-                    event.preventDefault();
-                    activateTableReferenceElement(
-                        tableReference,
-                        view,
-                        context
-                    );
+                    interaction.activate();
                     return true;
                 }
                 if (!context.editingRange || event.button !== 0) return false;
@@ -350,8 +308,7 @@ export function createInlineRenderingExtension({
                 return false;
             },
             dblclick(event, view) {
-                if (citationElement(event, view)
-                    || tableReferenceElement(event, view)) {
+                if (referenceInteraction(event, view, context)) {
                     event.preventDefault();
                     return true;
                 }
@@ -369,33 +326,21 @@ export function createInlineRenderingExtension({
                 return true;
             },
             keydown(event, view) {
-                const citation = citationElement(event, view);
-                if (citation) {
-                    if (event.key === 'ArrowDown') {
-                        event.preventDefault();
-                        openCitationPopup(citation, view, context, true);
-                        return true;
-                    }
-                    if (!['Enter', ' '].includes(event.key)) return false;
+                const interaction = referenceInteraction(event, view, context);
+                if (!interaction) return false;
+                if (event.key === 'ArrowDown' && interaction.focusPopup) {
                     event.preventDefault();
-                    activateCitationElement(citation, view, context);
+                    interaction.focusPopup();
                     return true;
                 }
-                const tableReference = tableReferenceElement(event, view);
-                if (!tableReference
-                    || !['Enter', ' '].includes(event.key)) {
-                    return false;
-                }
+                if (!['Enter', ' '].includes(event.key)) return false;
                 event.preventDefault();
-                activateTableReferenceElement(tableReference, view, context);
+                interaction.activate();
                 return true;
             },
             blur(event, view) {
-                if (!context.citationPopup?.contains(event.relatedTarget)) {
-                    context.citationPopup?.close();
-                }
-                if (!context.tablePreviewPopup?.contains(event.relatedTarget)) {
-                    context.tablePreviewPopup?.close();
+                for (const popup of referencePopups(context)) {
+                    if (!popup?.contains(event.relatedTarget)) popup?.close();
                 }
                 if (context.editingRange) {
                     view.dispatch({ effects: setInlineEditingRange.of(null) });
@@ -623,8 +568,7 @@ function tableReferenceAnalysis(state, context) {
 
 function decorateTableReferences(state, decorations, context) {
     for (const reference of tableReferenceAnalysis(state, context).references) {
-        if (editingRangeIntersects(context, reference.from, reference.to)
-            || tableReferenceRangeIsExcluded(state, reference.from)) {
+        if (editingRangeIntersects(context, reference.from, reference.to)) {
             continue;
         }
         const target = context.tableTargets.get(reference.targetId);
@@ -639,18 +583,6 @@ function decorateTableReferences(state, decorations, context) {
             },
         }).range(reference.from, reference.to));
     }
-}
-
-function tableReferenceRangeIsExcluded(state, position) {
-    let node = syntaxTree(state).resolveInner(position, 1);
-    while (node) {
-        if (['InlineCode', 'FencedCode', 'CodeBlock', 'Image', 'URL',
-            'HTMLBlock', 'Link'].includes(node.name)) {
-            return true;
-        }
-        node = node.parent;
-    }
-    return false;
 }
 
 function citationRangeIsExcluded(state, position) {
@@ -693,6 +625,44 @@ function citationElement(event, view) {
 function tableReferenceElement(event, view) {
     const reference = event.target?.closest?.('.cm-mktero-table-reference');
     return reference && view.dom.contains(reference) ? reference : null;
+}
+
+function referenceInteraction(event, view, context) {
+    const citation = citationElement(event, view);
+    if (citation) {
+        return {
+            element: citation,
+            popup: context.citationPopup,
+            open() {
+                context.tablePreviewPopup?.close();
+                openCitationPopup(citation, view, context);
+            },
+            focusPopup() {
+                context.tablePreviewPopup?.close();
+                openCitationPopup(citation, view, context, true);
+            },
+            activate() {
+                activateCitationElement(citation, view, context);
+            },
+        };
+    }
+    const tableReference = tableReferenceElement(event, view);
+    if (!tableReference) return null;
+    return {
+        element: tableReference,
+        popup: context.tablePreviewPopup,
+        open() {
+            context.citationPopup?.close();
+            openTablePreviewPopup(tableReference, context);
+        },
+        activate() {
+            activateTableReferenceElement(tableReference, view, context);
+        },
+    };
+}
+
+function referencePopups(context) {
+    return [context.citationPopup, context.tablePreviewPopup];
 }
 
 function tableTargetForReference(reference, context) {

@@ -91,9 +91,17 @@ export function createInlineMarkdownEditor({
     });
     const editingMode = new Compartment();
     let editingEnabled = false;
-    let citationHighlightTimer = null;
-    let tableHighlightTimer = null;
     let destroyed = false;
+    const citationHighlight = createTimedTargetHighlight({
+        ownerWindow,
+        effect: setReferenceHighlight,
+        isDestroyed: () => destroyed,
+    });
+    const tableHighlight = createTimedTargetHighlight({
+        ownerWindow,
+        effect: setTableHighlight,
+        isDestroyed: () => destroyed,
+    });
     const setEditingEnabled = (editorView, enabled) => {
         if (editingEnabled === enabled) return;
         editingEnabled = enabled;
@@ -138,46 +146,8 @@ export function createInlineMarkdownEditor({
                     openImagePreview: imagePreview.open,
                     citationPopup,
                     tablePreviewPopup,
-                    activateCitation(editorView, target) {
-                        if (citationHighlightTimer !== null) {
-                            ownerWindow.clearTimeout(citationHighlightTimer);
-                        }
-                        editorView.dispatch({
-                            effects: setReferenceHighlight.of(target.id),
-                        });
-                        requestEditorScroll(
-                            editorView,
-                            target.from,
-                            editorView.state.doc
-                        );
-                        citationHighlightTimer = ownerWindow.setTimeout(() => {
-                            citationHighlightTimer = null;
-                            if (destroyed) return;
-                            editorView.dispatch({
-                                effects: setReferenceHighlight.of(null),
-                            });
-                        }, 3000);
-                    },
-                    activateTableReference(editorView, target) {
-                        if (tableHighlightTimer !== null) {
-                            ownerWindow.clearTimeout(tableHighlightTimer);
-                        }
-                        editorView.dispatch({
-                            effects: setTableHighlight.of(target.id),
-                        });
-                        requestEditorScroll(
-                            editorView,
-                            target.from,
-                            editorView.state.doc
-                        );
-                        tableHighlightTimer = ownerWindow.setTimeout(() => {
-                            tableHighlightTimer = null;
-                            if (destroyed) return;
-                            editorView.dispatch({
-                                effects: setTableHighlight.of(null),
-                            });
-                        }, 3000);
-                    },
+                    activateCitation: citationHighlight.activate,
+                    activateTableReference: tableHighlight.activate,
                     enterEditing: editorView => setEditingEnabled(editorView, true),
                     exitEditing: editorView => setEditingEnabled(editorView, false),
                 }),
@@ -233,14 +203,8 @@ export function createInlineMarkdownEditor({
             activateDOMGlobals(ownerWindow);
             citationPopup.close();
             tablePreviewPopup.close();
-            if (citationHighlightTimer !== null) {
-                ownerWindow.clearTimeout(citationHighlightTimer);
-                citationHighlightTimer = null;
-            }
-            if (tableHighlightTimer !== null) {
-                ownerWindow.clearTimeout(tableHighlightTimer);
-                tableHighlightTimer = null;
-            }
+            citationHighlight.cancel();
+            tableHighlight.cancel();
             const value = String(markdown || '');
             if (value === view.state.doc.toString()) {
                 view.dispatch({
@@ -298,14 +262,8 @@ export function createInlineMarkdownEditor({
             destroyed = true;
             activateDOMGlobals(ownerWindow);
             try {
-                if (citationHighlightTimer !== null) {
-                    ownerWindow.clearTimeout(citationHighlightTimer);
-                    citationHighlightTimer = null;
-                }
-                if (tableHighlightTimer !== null) {
-                    ownerWindow.clearTimeout(tableHighlightTimer);
-                    tableHighlightTimer = null;
-                }
+                citationHighlight.cancel();
+                tableHighlight.cancel();
                 citationPopup.destroy();
                 tablePreviewPopup.destroy();
                 imagePreview.destroy();
@@ -317,6 +275,34 @@ export function createInlineMarkdownEditor({
             }
         },
     };
+}
+
+function createTimedTargetHighlight({
+    ownerWindow,
+    effect,
+    isDestroyed,
+}) {
+    let timer = null;
+    const cancel = () => {
+        if (timer === null) return;
+        ownerWindow.clearTimeout(timer);
+        timer = null;
+    };
+    const activate = (editorView, target) => {
+        cancel();
+        editorView.dispatch({ effects: effect.of(target.id) });
+        requestEditorScroll(
+            editorView,
+            target.from,
+            editorView.state.doc
+        );
+        timer = ownerWindow.setTimeout(() => {
+            timer = null;
+            if (isDestroyed()) return;
+            editorView.dispatch({ effects: effect.of(null) });
+        }, 3000);
+    };
+    return { activate, cancel };
 }
 
 function acquireDOMGlobals(ownerWindow) {
