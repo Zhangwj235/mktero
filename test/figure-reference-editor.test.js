@@ -18,8 +18,6 @@ test('previews a captioned image from its prose figure reference', () => {
         parent: document.querySelector('#editor'),
         initialMarkdown: markdown,
         resolveImageURL: path => `blob:mktero-${path}`,
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
     const reference = document.querySelector('.cm-mktero-figure-reference');
 

@@ -6,7 +6,6 @@
     --text: #202124;
     --muted: #65666b;
     --accent: #2f6feb;
-    --accent-strong: #245fd1;
     --editor-background: #fbfbfc;
     --success: #237a45;
     --warning: #7a4a00;
@@ -22,7 +21,6 @@
         --text: #f1f1f2;
         --muted: #aaaab1;
         --accent: #75a7ff;
-        --accent-strong: #8bb5ff;
         --editor-background: #242429;
         --success: #67c587;
         --warning: #ffd27a;
@@ -43,80 +41,6 @@
     overflow: hidden;
     color: var(--text);
     background: var(--background);
-}
-
-.app-header {
-    z-index: 10;
-    display: flex;
-    min-height: 40px;
-    flex: none;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 10px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-}
-
-.editor-toolbar {
-    display: flex;
-    min-width: 0;
-    flex: 1;
-    align-items: center;
-    overflow-x: auto;
-    scrollbar-width: thin;
-}
-
-.editor-toolbar-group {
-    display: flex;
-    flex: none;
-    align-items: center;
-    gap: 1px;
-    padding: 0 5px;
-}
-
-.editor-toolbar-group:first-child { padding-left: 0; }
-
-.editor-toolbar-group:not(:last-child) {
-    border-right: 1px solid var(--border);
-}
-
-.editor-toolbar-button {
-    display: grid;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    border: 0;
-    border-radius: 5px;
-    place-items: center;
-    color: var(--muted);
-    background: transparent;
-    cursor: pointer;
-}
-
-.editor-toolbar-button:hover:not(:disabled) {
-    color: var(--text);
-    background: color-mix(in srgb, var(--text) 8%, transparent);
-}
-
-.editor-toolbar-button[aria-pressed="true"] {
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.editor-toolbar-button:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-    outline-offset: -1px;
-}
-
-.editor-toolbar-button:disabled {
-    cursor: default;
-    opacity: 0.38;
-}
-
-.editor-toolbar-icon {
-    width: 18px;
-    height: 18px;
-    pointer-events: none;
 }
 
 #mktero-progress {
@@ -161,12 +85,47 @@ main {
 .markdown-outline {
     display: flex;
     min-width: 0;
-    flex: 0 0 256px;
+    flex: 0 0 var(--outline-width, 256px);
     flex-direction: column;
     overflow: hidden;
-    border-right: 1px solid var(--border);
     background: color-mix(in srgb, var(--surface) 68%, var(--background));
     font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.markdown-outline-resizer {
+    position: relative;
+    z-index: 2;
+    width: 7px;
+    min-width: 7px;
+    flex: 0 0 7px;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.markdown-outline-resizer::before {
+    position: absolute;
+    inset: 0 3px;
+    background: var(--border);
+    content: "";
+}
+
+.markdown-outline-resizer:hover::before,
+.markdown-outline-resizer:focus-visible::before,
+.is-resizing-outline .markdown-outline-resizer::before {
+    inset-inline: 2px;
+    background: var(--accent);
+}
+
+.markdown-outline-resizer:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline-offset: -2px;
+}
+
+.markdown-outline-resizer.is-outline-collapsed { cursor: e-resize; }
+
+.markdown-workspace.is-resizing-outline {
+    cursor: col-resize;
+    user-select: none;
 }
 
 .markdown-outline-title {
@@ -997,12 +956,6 @@ main {
     background: color-mix(in srgb, var(--surface) 45%, var(--background));
 }
 
-.markdown-editor-host > .cm-editor .cm-mktero-table [contenteditable="true"]:focus {
-    outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
-    outline-offset: -2px;
-    background: color-mix(in srgb, var(--accent) 6%, var(--background));
-}
-
 .markdown-editor-host > .cm-editor .cm-mktero-math {
     display: inline-block;
     max-width: 100%;
@@ -1048,42 +1001,6 @@ main {
     text-transform: uppercase;
 }
 
-.source-actions {
-    display: flex;
-    flex: none;
-    align-items: center;
-    gap: 12px;
-    margin-left: auto;
-    padding-left: 8px;
-}
-
-.save-button {
-    min-width: 58px;
-    min-height: 30px;
-    padding: 5px 14px;
-    border: 1px solid var(--accent);
-    border-radius: 7px;
-    color: #fff;
-    background: var(--accent);
-    font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
-    cursor: pointer;
-}
-
-.save-button:hover:not(:disabled) { background: var(--accent-strong); }
-
-.save-button:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-    outline-offset: 2px;
-}
-
-.save-button:disabled {
-    border-color: var(--border);
-    color: var(--muted);
-    background: var(--surface);
-    cursor: default;
-    opacity: 0.72;
-}
-
 @media (max-width: 720px) {
     .loading-state { margin-top: 32px; padding: 20px; }
     .markdown-editor-host > .cm-editor .cm-content {
@@ -1093,7 +1010,9 @@ main {
 }
 
 @media (max-width: 760px) {
-    .markdown-outline { flex-basis: min(220px, 42vw); }
+    .markdown-outline {
+        flex-basis: min(var(--outline-width, 256px), 42vw);
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

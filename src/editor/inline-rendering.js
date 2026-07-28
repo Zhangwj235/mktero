@@ -15,7 +15,7 @@ import {
     analyzeMarkdownFigureReferences,
 } from '../markdown/markdown-figure-references.js';
 import { analyzeMarkdownTableReferences } from '../markdown/markdown-table-references.js';
-import { EditableTableWidget } from './editable-table-widget.js';
+import { RenderedTableWidget } from './rendered-table-widget.js';
 import {
     appendRenderedMarkdown,
     installRenderedCitations,
@@ -23,8 +23,6 @@ import {
     openRenderedLink,
 } from './rendered-markdown-dom.js';
 
-const setInlineEditingRange = StateEffect.define();
-export const clearInlineEditing = StateEffect.define();
 export const setReferenceHighlight = StateEffect.define();
 export const setTableHighlight = StateEffect.define();
 export const setFigureHighlight = StateEffect.define();
@@ -37,7 +35,6 @@ class RenderedMarkdownWidget extends WidgetType {
         resolveImageURL,
         openLink,
         openImagePreview,
-        enterEditing,
         renderVersion,
         citations = [],
         extraClassName = '',
@@ -49,7 +46,6 @@ class RenderedMarkdownWidget extends WidgetType {
         this.resolveImageURL = resolveImageURL;
         this.openLink = openLink;
         this.openImagePreview = openImagePreview;
-        this.enterEditing = enterEditing;
         this.renderVersion = renderVersion;
         this.citations = citations;
         this.citationKey = citations.map(citation => citation.key).join('|');
@@ -87,21 +83,6 @@ class RenderedMarkdownWidget extends WidgetType {
             openRenderedLink(event, this.openLink);
         });
         installRenderedImagePreview(container, this.openImagePreview);
-        container.addEventListener('dblclick', event => {
-            if (event.target?.closest?.('img')) return;
-            if (event.target?.closest?.('a[href]')) return;
-            if (event.button !== 0 || event.metaKey || event.ctrlKey) return;
-            event.preventDefault();
-            this.enterEditing?.(view);
-            view.dispatch({
-                selection: { anchor: this.from },
-                effects: setInlineEditingRange.of({
-                    from: this.from,
-                    to: this.from + this.source.length,
-                }),
-            });
-            view.focus();
-        });
         return container;
     }
 
@@ -130,17 +111,13 @@ class TextMarkerWidget extends WidgetType {
 }
 
 class TaskCheckboxWidget extends WidgetType {
-    constructor({ checked, from, to }) {
+    constructor(checked) {
         super();
         this.checked = checked;
-        this.from = from;
-        this.to = to;
     }
 
     eq(other) {
-        return this.checked === other.checked
-            && this.from === other.from
-            && this.to === other.to;
+        return this.checked === other.checked;
     }
 
     toDOM(view) {
@@ -150,16 +127,8 @@ class TaskCheckboxWidget extends WidgetType {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = this.checked;
-        checkbox.setAttribute('aria-label', 'Toggle Markdown task');
-        checkbox.addEventListener('change', () => {
-            view.dispatch({
-                changes: {
-                    from: this.from,
-                    to: this.to,
-                    insert: checkbox.checked ? '[x]' : '[ ]',
-                },
-            });
-        });
+        checkbox.disabled = true;
+        checkbox.setAttribute('aria-label', 'Markdown task item');
         wrapper.appendChild(checkbox);
         return wrapper;
     }
@@ -172,7 +141,6 @@ class TaskCheckboxWidget extends WidgetType {
 export function createInlineRenderingExtension({
     resolveImageURL,
     openLink,
-    onSaveRequest,
     openImagePreview,
     citationPopup,
     tablePreviewPopup,
@@ -180,13 +148,10 @@ export function createInlineRenderingExtension({
     activateCitation,
     activateTableReference,
     activateFigureReference,
-    enterEditing,
-    exitEditing,
 }) {
     const context = {
         resolveImageURL,
         openLink,
-        onSaveRequest,
         openImagePreview,
         citationPopup,
         tablePreviewPopup,
@@ -194,10 +159,7 @@ export function createInlineRenderingExtension({
         activateCitation,
         activateTableReference,
         activateFigureReference,
-        enterEditing,
-        exitEditing,
         renderVersion: 0,
-        editingRange: null,
         highlightedReferenceID: null,
         highlightedTableID: null,
         highlightedFigureID: null,
@@ -220,27 +182,12 @@ export function createInlineRenderingExtension({
             const shouldRefresh = transaction.effects.some(effect => (
                 effect.is(refreshInlineRendering)
             ));
-            let editingRangeChanged = false;
             let referenceHighlightChanged = false;
             let tableHighlightChanged = false;
             let figureHighlightChanged = false;
             if (shouldRefresh) context.renderVersion++;
-            if (transaction.docChanged && context.editingRange) {
-                context.editingRange = {
-                    from: transaction.changes.mapPos(context.editingRange.from, -1),
-                    to: transaction.changes.mapPos(context.editingRange.to, 1),
-                };
-            }
             for (const effect of transaction.effects) {
-                if (effect.is(setInlineEditingRange)) {
-                    context.editingRange = effect.value;
-                    editingRangeChanged = true;
-                }
-                else if (effect.is(clearInlineEditing)) {
-                    context.editingRange = null;
-                    editingRangeChanged = true;
-                }
-                else if (effect.is(setReferenceHighlight)) {
+                if (effect.is(setReferenceHighlight)) {
                     context.highlightedReferenceID = effect.value;
                     referenceHighlightChanged = true;
                 }
@@ -254,7 +201,6 @@ export function createInlineRenderingExtension({
                 }
             }
             if (transaction.docChanged
-                || editingRangeChanged
                 || referenceHighlightChanged
                 || tableHighlightChanged
                 || figureHighlightChanged
@@ -317,13 +263,6 @@ export function createInlineRenderingExtension({
                     interaction.activate();
                     return true;
                 }
-                if (!context.editingRange || event.button !== 0) return false;
-                const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
-                if (position === null || positionInsideRange(position, context.editingRange)) {
-                    return false;
-                }
-                view.dispatch({ effects: setInlineEditingRange.of(null) });
-                context.exitEditing?.(view);
                 return false;
             },
             dblclick(event, view) {
@@ -331,18 +270,7 @@ export function createInlineRenderingExtension({
                     event.preventDefault();
                     return true;
                 }
-                if (event.button !== 0 || event.target?.closest?.('img')) return false;
-                const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
-                if (position === null) return false;
-                const line = view.state.doc.lineAt(position);
-                event.preventDefault();
-                context.enterEditing?.(view);
-                view.dispatch({
-                    selection: { anchor: position },
-                    effects: setInlineEditingRange.of({ from: line.from, to: line.to }),
-                });
-                view.focus();
-                return true;
+                return false;
             },
             keydown(event, view) {
                 const interaction = referenceInteraction(event, view, context);
@@ -361,10 +289,6 @@ export function createInlineRenderingExtension({
                 for (const popup of referencePopups(context)) {
                     if (!popup?.contains(event.relatedTarget)) popup?.close();
                 }
-                if (context.editingRange) {
-                    view.dispatch({ effects: setInlineEditingRange.of(null) });
-                }
-                context.exitEditing?.(view);
                 return false;
             },
         })),
@@ -424,10 +348,6 @@ function normalizeLinkLabel(label) {
         .toLowerCase();
 }
 
-function positionInsideRange(position, range) {
-    return position >= range.from && position <= range.to;
-}
-
 function buildDecorations(state, context) {
     const decorations = [];
     const excludedMathRanges = collectExcludedMathRanges(state);
@@ -439,10 +359,8 @@ function buildDecorations(state, context) {
         analyzedTableReferences.targets.map(target => [target.from, target])
     );
     referenceAnalysis(state, context.figureReferences);
-    const figureGroups = findAcademicFigureGroups(state.doc.toString())
-        .filter(group => !editingRangeIntersects(context, group.from, group.to));
-    const tableGroups = findAcademicTableGroups(state.doc.toString())
-        .filter(group => !editingRangeIntersects(context, group.from, group.to));
+    const figureGroups = findAcademicFigureGroups(state.doc.toString());
+    const tableGroups = findAcademicTableGroups(state.doc.toString());
     const renderedGroups = [...figureGroups, ...tableGroups];
     for (const group of figureGroups) {
         decorations.push(renderedRange(group, state, 'image', context));
@@ -496,13 +414,7 @@ function decorateCitations(state, decorations, context) {
     const superscriptContent = new Map();
     for (const affiliation of result.affiliations) {
         const markup = affiliation.markerMarkup;
-        if (!markup
-            || editingRangeIntersects(
-                context,
-                markup.wrapperFrom,
-                affiliation.to
-            )
-            || citationRangeIsExcluded(state, markup.contentFrom)) {
+        if (!markup || citationRangeIsExcluded(state, markup.contentFrom)) {
             continue;
         }
         hideSuperscriptMarkup(decorations, markup, hiddenSuperscriptMarkup);
@@ -517,10 +429,7 @@ function decorateCitations(state, decorations, context) {
     }
     for (const citation of result.citations) {
         const markup = citation.superscriptMarkup;
-        const decoratedFrom = markup?.wrapperFrom ?? citation.from;
-        const decoratedTo = markup?.wrapperTo ?? citation.to;
-        if (editingRangeIntersects(context, decoratedFrom, decoratedTo)
-            || citationRangeIsExcluded(state, citation.from)) {
+        if (citationRangeIsExcluded(state, citation.from)) {
             continue;
         }
         if (markup) {
@@ -679,9 +588,6 @@ function decoratePreviewReferences(
     { className, targetAttribute }
 ) {
     for (const reference of references) {
-        if (editingRangeIntersects(context, reference.from, reference.to)) {
-            continue;
-        }
         const target = targets.get(reference.targetId);
         if (!target) continue;
         decorations.push(Decoration.mark({
@@ -863,7 +769,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
 
     if (['HeaderMark', 'EmphasisMark', 'StrikethroughMark', 'CodeMark'].includes(node.name)) {
         const parent = node.node.parent;
-        if (parent && !editingRangeIntersects(context, parent.from, parent.to)) {
+        if (parent) {
             let to = node.to;
             if (node.name === 'HeaderMark' && state.sliceDoc(to, to + 1) === ' ') to++;
             decorations.push(Decoration.replace({}).range(node.from, to));
@@ -872,13 +778,12 @@ function decorateSyntaxNode(node, state, decorations, context) {
     }
 
     if (node.name === 'Escape'
-        && !editingRangeIntersects(context, node.from, node.to)
         && state.sliceDoc(node.from, node.from + 1) === '\\') {
         decorations.push(Decoration.replace({}).range(node.from, node.from + 1));
         return;
     }
 
-    if (node.name === 'Link' && !editingRangeIntersects(context, node.from, node.to)) {
+    if (node.name === 'Link') {
         const source = state.sliceDoc(node.from, node.to);
         if (!isBracketedNumericCitation(source)) {
             decorateLink(node, state, decorations);
@@ -886,8 +791,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
         return;
     }
 
-    if (node.name === 'Autolink'
-        && !editingRangeIntersects(context, node.from, node.to)) {
+    if (node.name === 'Autolink') {
         const url = node.node.getChild('URL');
         if (url) {
             decorations.push(Decoration.mark({
@@ -905,8 +809,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
 
     if (node.name === 'URL') {
         const parentName = node.node.parent?.name;
-        if (!['Link', 'Autolink', 'LinkReference'].includes(parentName)
-            && !editingRangeIntersects(context, node.from, node.to)) {
+        if (!['Link', 'Autolink', 'LinkReference'].includes(parentName)) {
             decorations.push(Decoration.mark({
                 class: 'cm-mktero-link',
             }).range(node.from, node.to));
@@ -915,11 +818,8 @@ function decorateSyntaxNode(node, state, decorations, context) {
     }
 
     if (node.name === 'LinkReference') {
-        if (!editingRangeIntersects(context, node.from, node.to)) {
-            decorations.push(Decoration.replace({}).range(node.from, node.to));
-            return false;
-        }
-        return;
+        decorations.push(Decoration.replace({}).range(node.from, node.to));
+        return false;
     }
 
     if (node.name === 'QuoteMark') {
@@ -928,7 +828,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
         decorations.push(Decoration.line({
             class: 'cm-mktero-blockquote',
         }).range(line.from));
-        if (parent && !editingRangeIntersects(context, parent.from, parent.to)) {
+        if (parent) {
             let to = node.to;
             if (state.sliceDoc(to, to + 1) === ' ') to++;
             decorations.push(Decoration.replace({}).range(node.from, to));
@@ -938,7 +838,7 @@ function decorateSyntaxNode(node, state, decorations, context) {
 
     if (node.name === 'ListMark') {
         const item = node.node.parent;
-        if (item && !editingRangeIntersects(context, item.from, item.to)) {
+        if (item) {
             const listType = item.parent?.name;
             const ordered = listType === 'OrderedList';
             decorations.push(Decoration.replace({
@@ -953,25 +853,22 @@ function decorateSyntaxNode(node, state, decorations, context) {
 
     if (node.name === 'TaskMarker') {
         const task = node.node.parent;
-        if (task && !editingRangeIntersects(context, task.from, task.to)) {
+        if (task) {
             decorations.push(Decoration.replace({
-                widget: new TaskCheckboxWidget({
-                    checked: /x/i.test(state.sliceDoc(node.from, node.to)),
-                    from: node.from,
-                    to: node.to,
-                }),
+                widget: new TaskCheckboxWidget(
+                    /x/i.test(state.sliceDoc(node.from, node.to))
+                ),
             }).range(node.from, node.to));
         }
         return;
     }
 
-    if (node.name === 'HorizontalRule'
-        && !editingRangeIntersects(context, node.from, node.to)) {
+    if (node.name === 'HorizontalRule') {
         decorations.push(renderedRange(node, state, 'divider', context));
         return false;
     }
 
-    if (node.name === 'Table' && !editingRangeIntersects(context, node.from, node.to)) {
+    if (node.name === 'Table') {
         decorations.push(renderedRange(node, state, 'table', context));
         return false;
     }
@@ -979,15 +876,11 @@ function decorateSyntaxNode(node, state, decorations, context) {
         const range = node.name === 'CodeBlock'
             ? { from: state.doc.lineAt(node.from).from, to: node.to }
             : node;
-        if (!editingRangeIntersects(context, range.from, range.to)) {
-            decorations.push(renderedRange(range, state, 'code-block', context));
-            return false;
-        }
-        return;
+        decorations.push(renderedRange(range, state, 'code-block', context));
+        return false;
     }
     if (['HTMLBlock', 'CommentBlock'].includes(node.name)
-        && shouldRenderHTMLBlock(state.sliceDoc(node.from, node.to))
-        && !editingRangeIntersects(context, node.from, node.to)) {
+        && shouldRenderHTMLBlock(state.sliceDoc(node.from, node.to))) {
         decorations.push(renderedRange(node, state, 'html-block', context));
         return false;
     }
@@ -996,22 +889,19 @@ function decorateSyntaxNode(node, state, decorations, context) {
         const blockRange = parent?.name === 'Paragraph'
             ? standaloneImageLineRange(node, state)
             : null;
-        if (blockRange
-            && !editingRangeIntersects(context, blockRange.from, blockRange.to)) {
+        if (blockRange) {
             decorations.push(renderedRange(blockRange, state, 'image', context));
             return false;
         }
-        if (!editingRangeIntersects(context, node.from, node.to)) {
-            decorations.push(Decoration.replace({
-                widget: new RenderedMarkdownWidget({
-                    source: state.sliceDoc(node.from, node.to),
-                    display: 'image-inline',
-                    from: node.from,
-                    ...context,
-                }),
-            }).range(node.from, node.to));
-            return false;
-        }
+        decorations.push(Decoration.replace({
+            widget: new RenderedMarkdownWidget({
+                source: state.sliceDoc(node.from, node.to),
+                display: 'image-inline',
+                from: node.from,
+                ...context,
+            }),
+        }).range(node.from, node.to));
+        return false;
     }
     return undefined;
 }
@@ -1057,7 +947,6 @@ function decorateMath(
         for (const match of displayMatches) {
             const matchFrom = node.from + match.start;
             const matchTo = node.from + match.end;
-            if (editingRangeIntersects(context, matchFrom, matchTo)) continue;
             decorations.push(renderedMathRange(
                 match.raw,
                 matchFrom,
@@ -1072,8 +961,7 @@ function decorateMath(
         const matchFrom = node.from + match.start;
         const matchTo = node.from + match.end;
         if (rangeOverlapsAny(matchFrom, matchTo, displayRanges)
-            || rangeOverlapsAny(matchFrom, matchTo, excludedRanges)
-            || editingRangeIntersects(context, matchFrom, matchTo)) continue;
+            || rangeOverlapsAny(matchFrom, matchTo, excludedRanges)) continue;
         if (hasSuperscriptCitationMarkup(
             state,
             context,
@@ -1140,10 +1028,8 @@ function renderedRange(node, state, display, context) {
         ?.get(node.from)?.id === context.highlightedFigureID;
     if (display === 'table') {
         return Decoration.replace({
-            widget: new EditableTableWidget({
+            widget: new RenderedTableWidget({
                 source,
-                from: node.table?.from ?? node.from,
-                to: node.table?.to ?? node.to,
                 caption: node.caption,
                 highlighted: tableIsHighlighted,
                 ...context,
@@ -1311,11 +1197,6 @@ function findAncestorAt(state, position, name) {
     let node = syntaxTree(state).resolveInner(position, 1);
     while (node && node.name !== name) node = node.parent;
     return node;
-}
-
-function editingRangeIntersects(context, from, to) {
-    const range = context.editingRange;
-    return Boolean(range && range.from < to && range.to > from);
 }
 
 function rangeOverlapsAny(from, to, ranges) {

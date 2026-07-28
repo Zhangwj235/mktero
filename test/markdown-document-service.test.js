@@ -142,25 +142,6 @@ test('passes through Markdown produced by MinerU', async () => {
     assert.equal(result.cacheKey, 'a'.repeat(64));
 });
 
-test('persists edited Markdown through the configured extractor', async () => {
-    const saved = [];
-    const service = new MarkdownDocumentService({
-        extractor: {
-            extract: async () => assert.fail('conversion should not run'),
-            save: async result => saved.push(result),
-        },
-    });
-    const result = {
-        cacheKey: 'a'.repeat(64),
-        markdown: '# Edited',
-        assets: [],
-    };
-
-    await service.save(result);
-
-    assert.deepEqual(saved, [result]);
-});
-
 test('reopens an intentionally empty user-edited Markdown document', async () => {
     const service = new MarkdownDocumentService({
         extractor: {

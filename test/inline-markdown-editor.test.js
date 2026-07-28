@@ -12,13 +12,11 @@ function enterTableCellEditing(cell, ownerWindow) {
     }));
 }
 
-test('keeps Markdown as the source of truth and saves it through one editor surface', () => {
+test('keeps Markdown as the source of truth in a read-only surface', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
     const { document } = dom.window;
-    const changes = [];
-    const saves = [];
     const initialMarkdown = '# Paper\n\n**Unchanged** source.';
     const editor = createInlineMarkdownEditor({
         document,
@@ -26,24 +24,22 @@ test('keeps Markdown as the source of truth and saves it through one editor surf
         initialMarkdown,
         resolveImageURL: () => null,
         openLink: () => {},
-        onChange: markdown => changes.push(markdown),
-        onSaveRequest: markdown => saves.push(markdown),
     });
 
     assert.ok(document.querySelector('.cm-editor'));
     assert.equal(editor.getMarkdown(), initialMarkdown);
-    assert.deepEqual(changes, []);
+    assert.equal(
+        document.querySelector('.cm-content').getAttribute('contenteditable'),
+        'false'
+    );
 
     const updatedMarkdown = '# Updated\n\n$E = mc^2$';
     editor.setMarkdown(updatedMarkdown);
     assert.equal(editor.getMarkdown(), updatedMarkdown);
-    assert.deepEqual(changes, []);
-
-    document.querySelector('.cm-content').dispatchEvent(new dom.window.KeyboardEvent(
-        'keydown',
-        { key: 's', ctrlKey: true, bubbles: true, cancelable: true }
-    ));
-    assert.deepEqual(saves, [updatedMarkdown]);
+    assert.equal(
+        document.querySelector('.cm-content').getAttribute('contenteditable'),
+        'false'
+    );
 
     editor.destroy();
     assert.doesNotThrow(() => editor.destroy());
@@ -63,8 +59,6 @@ test('renders inactive Markdown formatting and formulas without rewriting source
         initialMarkdown: markdown,
         resolveImageURL: () => null,
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     assert.equal(editor.getMarkdown(), markdown);
@@ -76,7 +70,7 @@ test('renders inactive Markdown formatting and formulas without rewriting source
     dom.window.close();
 });
 
-test('hides Markdown escape slashes until the line is edited', () => {
+test('keeps Markdown escape slashes hidden in the read-only view', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -87,8 +81,6 @@ test('hides Markdown escape slashes until the line is edited', () => {
         parent: document.querySelector('#editor'),
         initialMarkdown: markdown,
         resolveImageURL: () => null,
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
     const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
     const content = document.querySelector('.cm-content');
@@ -103,8 +95,8 @@ test('hides Markdown escape slashes until the line is edited', () => {
         button: 0,
     }));
 
-    assert.equal(content.getAttribute('contenteditable'), 'true');
-    assert.equal(content.textContent, markdown);
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+    assert.equal(content.textContent, '- fast, convenient online submission');
     assert.equal(editor.getMarkdown(), markdown);
 
     editor.destroy();
@@ -134,7 +126,7 @@ test('keeps inline formulas in the prose flow without block paragraph wrappers',
     dom.window.close();
 });
 
-test('keeps inline Markdown rendered until its line is double-clicked', () => {
+test('keeps rendered Markdown read-only on double-click', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -176,18 +168,16 @@ test('keeps inline Markdown rendered until its line is double-clicked', () => {
         cancelable: true,
         button: 0,
     }));
-    assert.match(document.querySelector('.cm-content').textContent, /\*\*Bold\*\*/);
-    assert.equal(content.getAttribute('contenteditable'), 'true');
-    assert.equal(editor.getMarkdown(), markdown);
-
-    content.blur();
+    assert.ok(document.querySelector('.cm-mktero-strong'));
+    assert.doesNotMatch(document.querySelector('.cm-content').textContent, /\*\*Bold\*\*/);
     assert.equal(content.getAttribute('contenteditable'), 'false');
+    assert.equal(editor.getMarkdown(), markdown);
 
     editor.destroy();
     dom.window.close();
 });
 
-test('returns to rendered read mode when Markdown is replaced externally', () => {
+test('renders externally replaced Markdown in read-only mode', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -198,17 +188,6 @@ test('returns to rendered read mode when Markdown is replaced externally', () =>
         initialMarkdown: markdown,
         resolveImageURL: () => null,
     });
-    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
-    view.posAtCoords = () => markdown.indexOf('Bold');
-    document.querySelector('.cm-mktero-strong').dispatchEvent(
-        new dom.window.MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            button: 0,
-        })
-    );
-    assert.equal(document.querySelector('.cm-content').getAttribute('contenteditable'), 'true');
-
     editor.setMarkdown('# New document');
 
     assert.equal(document.querySelector('.cm-content').getAttribute('contenteditable'), 'false');
@@ -258,8 +237,6 @@ test('renders formulas in headings and link labels', () => {
         initialMarkdown: markdown,
         resolveImageURL: () => null,
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     assert.equal(document.querySelectorAll('.cm-mktero-math math').length, 2);
@@ -297,8 +274,6 @@ test('renders paper tables, cached images, page markers, and safe links inline',
             ? 'blob:mktero-figure'
             : null,
         openLink: url => opened.push(url),
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     assert.equal(document.querySelector('.cm-mktero-table table th').textContent, 'Source');
@@ -326,12 +301,11 @@ test('renders paper tables, cached images, page markers, and safe links inline',
     dom.window.close();
 });
 
-test('edits a rendered GFM table cell while keeping the document Markdown-backed', () => {
+test('keeps rendered GFM table cells read-only', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
     const { document } = dom.window;
-    const changes = [];
     const markdown = [
         'Before',
         '',
@@ -347,43 +321,26 @@ test('edits a rendered GFM table cell while keeping the document Markdown-backed
         initialMarkdown: markdown,
         resolveImageURL: () => null,
         openLink: () => {},
-        onChange: value => changes.push(value),
-        onSaveRequest: assert.fail,
     });
     const valueCell = document.querySelector('.cm-mktero-table tbody td:last-child');
 
     assert.equal(valueCell.getAttribute('contenteditable'), 'false');
     enterTableCellEditing(valueCell, dom.window);
-    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
-    valueCell.textContent = '43';
-    valueCell.dispatchEvent(new dom.window.FocusEvent('blur', { bubbles: true }));
-
-    assert.equal(editor.getMarkdown(), markdown.replace('| Score | 42 |', '| Score | 43 |'));
-    assert.equal(changes.at(-1), editor.getMarkdown());
-
-    const keyboardCell = document.querySelector('.cm-mktero-table tbody td:last-child');
-    keyboardCell.focus();
-    keyboardCell.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+    assert.equal(valueCell.getAttribute('contenteditable'), 'false');
+    valueCell.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
         key: 'F2',
         bubbles: true,
         cancelable: true,
     }));
-    assert.equal(keyboardCell.getAttribute('contenteditable'), 'true');
-    keyboardCell.textContent = 'Discarded';
-    keyboardCell.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
-        key: 'Escape',
-        bubbles: true,
-        cancelable: true,
-    }));
-    assert.equal(keyboardCell.getAttribute('contenteditable'), 'false');
-    assert.equal(keyboardCell.textContent, '43');
-    assert.match(editor.getMarkdown(), /\| Score \| 43 \|/);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'false');
+    assert.equal(valueCell.textContent, '42');
+    assert.equal(editor.getMarkdown(), markdown);
 
     editor.destroy();
     dom.window.close();
 });
 
-test('renders and preserves an academic caption above an editable GFM table', () => {
+test('renders an academic caption above a read-only GFM table', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -401,8 +358,6 @@ test('renders and preserves an academic caption above an editable GFM table', ()
         initialMarkdown: markdown,
         resolveImageURL: () => null,
         openLink: () => {},
-        onChange: () => {},
-        onSaveRequest: assert.fail,
     });
     const caption = document.querySelector('.cm-mktero-table caption');
 
@@ -416,10 +371,9 @@ test('renders and preserves an academic caption above an editable GFM table', ()
         '.cm-mktero-table tbody td:last-child'
     );
     enterTableCellEditing(valueCell, dom.window);
-    valueCell.textContent = '90.00';
-    valueCell.dispatchEvent(new dom.window.FocusEvent('blur', { bubbles: true }));
-
-    assert.equal(editor.getMarkdown(), markdown.replace('87.37', '90.00'));
+    assert.equal(valueCell.getAttribute('contenteditable'), 'false');
+    assert.equal(valueCell.textContent, '87.37');
+    assert.equal(editor.getMarkdown(), markdown);
 
     editor.destroy();
     dom.window.close();
@@ -443,8 +397,6 @@ test('renders an academic caption above a one-column GFM table', () => {
         initialMarkdown: markdown,
         resolveImageURL: () => null,
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     assert.equal(
@@ -473,8 +425,6 @@ test('renders a MinerU HTML table and its preceding caption as one table', () =>
         initialMarkdown: markdown,
         resolveImageURL: () => null,
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
     const table = document.querySelector('.cm-mktero-html-table table');
 
@@ -512,8 +462,6 @@ test('previews a uniquely captioned table from its prose reference', () => {
         parent: document.querySelector('#editor'),
         initialMarkdown: markdown,
         resolveImageURL: () => null,
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
     const reference = document.querySelector('.cm-mktero-table-reference');
 
@@ -701,172 +649,11 @@ test('previews and highlights a referenced raw HTML table', () => {
     dom.window.close();
 });
 
-test('commits a rendered table cell before handling its save shortcut', () => {
+test('renders quotes, lists, read-only tasks, and dividers', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
     const { document } = dom.window;
-    const saves = [];
-    const markdown = [
-        'Before',
-        '',
-        '| Name | Value |',
-        '| --- | ---: |',
-        '| Score | 42 |',
-    ].join('\n');
-    const editor = createInlineMarkdownEditor({
-        document,
-        parent: document.querySelector('#editor'),
-        initialMarkdown: markdown,
-        resolveImageURL: () => null,
-        openLink: () => {},
-        onChange: () => {},
-        onSaveRequest: value => saves.push(value),
-    });
-    const valueCell = document.querySelector('.cm-mktero-table tbody td:last-child');
-
-    enterTableCellEditing(valueCell, dom.window);
-    valueCell.textContent = '43';
-    valueCell.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
-        key: 's',
-        ctrlKey: true,
-        bubbles: true,
-        cancelable: true,
-    }));
-
-    assert.match(editor.getMarkdown(), /\| Score \| 43 \|/);
-    assert.deepEqual(saves, [editor.getMarkdown()]);
-
-    editor.destroy();
-    dom.window.close();
-});
-
-test('applies inline toolbar formatting to a rendered table cell selection', () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    const markdown = [
-        'Intro',
-        '',
-        '| Name | Value |',
-        '| --- | ---: |',
-        '| Paper | 42 |',
-    ].join('\n');
-    const editor = createInlineMarkdownEditor({
-        parent: document.querySelector('#editor'),
-        initialMarkdown: markdown,
-        resolveImageURL: () => null,
-    });
-    const nameCell = document.querySelector('.cm-mktero-table tbody td:first-child');
-    enterTableCellEditing(nameCell, dom.window);
-    const range = document.createRange();
-    range.selectNodeContents(nameCell);
-    document.getSelection().removeAllRanges();
-    document.getSelection().addRange(range);
-
-    assert.equal(editor.runCommand('bold'), true);
-    assert.equal(
-        editor.getMarkdown(),
-        markdown.replace('| Paper | 42 |', '| **Paper** | 42 |')
-    );
-    assert.doesNotMatch(editor.getMarkdown(), /^\*\*粗体文字\*\*/);
-
-    const formattedCell = document.querySelector(
-        '.cm-mktero-table tbody td:first-child'
-    );
-    enterTableCellEditing(formattedCell, dom.window);
-    const formattedRange = document.createRange();
-    formattedRange.selectNodeContents(formattedCell);
-    document.getSelection().removeAllRanges();
-    document.getSelection().addRange(formattedRange);
-    const formattedMarkdown = editor.getMarkdown();
-    assert.equal(editor.runCommand('heading'), false);
-    assert.equal(editor.getMarkdown(), formattedMarkdown);
-
-    editor.destroy();
-    dom.window.close();
-});
-
-test('commits a pending rendered table edit before toolbar undo', () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    const markdown = [
-        'Intro',
-        '',
-        '| Name | Value |',
-        '| --- | ---: |',
-        '| Paper | 42 |',
-    ].join('\n');
-    const editor = createInlineMarkdownEditor({
-        parent: document.querySelector('#editor'),
-        initialMarkdown: markdown,
-        resolveImageURL: () => null,
-    });
-    const nameCell = document.querySelector('.cm-mktero-table tbody td:first-child');
-    enterTableCellEditing(nameCell, dom.window);
-    nameCell.textContent = 'Changed';
-
-    assert.equal(editor.runCommand('undo'), true);
-    assert.equal(editor.getMarkdown(), markdown);
-    assert.equal(
-        document.querySelector('.cm-mktero-table tbody td:first-child').textContent,
-        'Paper'
-    );
-
-    editor.destroy();
-    dom.window.close();
-});
-
-test('routes table toolbar commands through the editor shadow root', () => {
-    const dom = new JSDOM('<!doctype html><div id="host"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    const shadowRoot = document.querySelector('#host').attachShadow({ mode: 'open' });
-    const editorHost = document.createElement('div');
-    shadowRoot.appendChild(editorHost);
-    const markdown = [
-        'Intro',
-        '',
-        '| Name | Value |',
-        '| --- | ---: |',
-        '| Paper | 42 |',
-    ].join('\n');
-    const editor = createInlineMarkdownEditor({
-        parent: editorHost,
-        initialMarkdown: markdown,
-        resolveImageURL: () => null,
-    });
-    const nameCell = shadowRoot.querySelector(
-        '.cm-mktero-table tbody td:first-child'
-    );
-    enterTableCellEditing(nameCell, dom.window);
-    const range = document.createRange();
-    range.selectNodeContents(nameCell);
-    shadowRoot.getSelection = () => ({
-        rangeCount: 1,
-        getRangeAt: () => range,
-    });
-
-    assert.equal(editor.runCommand('bold'), true);
-    assert.equal(
-        editor.getMarkdown(),
-        markdown.replace('| Paper | 42 |', '| **Paper** | 42 |')
-    );
-
-    editor.destroy();
-    dom.window.close();
-});
-
-test('renders quotes, lists, task controls, and dividers while retaining Markdown', () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    const changes = [];
     const markdown = [
         'Intro',
         '',
@@ -883,19 +670,17 @@ test('renders quotes, lists, task controls, and dividers while retaining Markdow
         initialMarkdown: markdown,
         resolveImageURL: () => null,
         openLink: () => {},
-        onChange: value => changes.push(value),
-        onSaveRequest: assert.fail,
     });
 
     assert.equal(document.querySelector('.cm-mktero-blockquote').textContent, 'Quoted finding');
     assert.equal(document.querySelector('.cm-mktero-list-bullet').textContent, '•');
     const checkbox = document.querySelector('.cm-mktero-task input');
     assert.equal(checkbox.checked, false);
+    assert.equal(checkbox.disabled, true);
     assert.ok(document.querySelector('.cm-mktero-divider hr'));
 
     checkbox.click();
-    assert.match(editor.getMarkdown(), /- \[x\] Verify result/);
-    assert.equal(changes.at(-1), editor.getMarkdown());
+    assert.equal(editor.getMarkdown(), markdown);
 
     editor.destroy();
     dom.window.close();
@@ -913,8 +698,6 @@ test('opens an inline Markdown link through the host on modifier-click', () => {
         initialMarkdown: 'Intro\n\n[Open paper](https://example.com/paper)',
         resolveImageURL: () => null,
         openLink: url => opened.push(url),
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     document.querySelector('.cm-mktero-link').dispatchEvent(
@@ -943,8 +726,6 @@ test('does not open an unsafe inline Markdown link', () => {
         initialMarkdown: 'Intro\n\n[Unsafe](javascript:alert(1))',
         resolveImageURL: () => null,
         openLink: url => opened.push(url),
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     document.querySelector('.cm-mktero-link').dispatchEvent(
@@ -989,8 +770,6 @@ test('opens all reference, autolink, and bare URL Markdown links', () => {
         ].join('\n'),
         resolveImageURL: () => null,
         openLink: url => opened.push(url),
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     for (const link of document.querySelectorAll('.cm-mktero-link')) {
@@ -1422,8 +1201,6 @@ test('links an author affiliation before a corresponding-author symbol', () => {
     const editor = createInlineMarkdownEditor({
         parent: document.querySelector('#editor'),
         initialMarkdown: markdown,
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
     const authorLine = [...document.querySelectorAll('.cm-line')]
         .find(line => line.textContent.includes('Lingfeng Xu'));
@@ -1608,8 +1385,6 @@ test('refreshes rendered assets without changing the Markdown document', () => {
         initialMarkdown: markdown,
         resolveImageURL: () => imageURL,
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     assert.equal(document.querySelector('.cm-mktero-image img'), null);
@@ -1638,8 +1413,6 @@ test('renders a cached image inside paragraph text', () => {
         initialMarkdown: markdown,
         resolveImageURL: () => 'blob:mktero-inline-figure',
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     assert.equal(
@@ -1669,8 +1442,6 @@ test('renders an image on its own hard-break line at reading width', () => {
         initialMarkdown: markdown,
         resolveImageURL: () => 'blob:mktero-figure',
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     assert.equal(
@@ -1685,7 +1456,7 @@ test('renders an image on its own hard-break line at reading width', () => {
     dom.window.close();
 });
 
-test('renders an academic image description as a selectable editable caption', () => {
+test('renders an academic image description as a selectable read-only caption', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -1698,8 +1469,6 @@ test('renders an academic image description as a selectable editable caption', (
         initialMarkdown: markdown,
         resolveImageURL: () => 'blob:mktero-captioned-figure',
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
     const figure = document.querySelector('.cm-mktero-image .mktero-figure');
     const image = figure?.querySelector('img');
@@ -1730,8 +1499,11 @@ test('renders an academic image description as a selectable editable caption', (
         cancelable: true,
         button: 0,
     }));
-    assert.equal(document.querySelector('.cm-mktero-image .mktero-figure'), null);
-    assert.match(document.querySelector('.cm-content').textContent, /PRISMA flowchart/);
+    assert.ok(document.querySelector('.cm-mktero-image .mktero-figure'));
+    assert.equal(
+        document.querySelector('.cm-mktero-image figcaption').textContent,
+        captionText
+    );
     assert.equal(editor.getMarkdown(), markdown);
 
     editor.destroy();
@@ -1755,8 +1527,6 @@ test('renders one shared caption for consecutive MinerU figure panels', () => {
         initialMarkdown: markdown,
         resolveImageURL: path => `blob:mktero-${path}`,
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     const figure = document.querySelector('.mktero-figure-group');
@@ -1797,8 +1567,6 @@ test('shows resolved references cited inside a shared figure caption', () => {
         initialMarkdown: markdown,
         resolveImageURL: path => `blob:mktero-${path}`,
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
     const citation = document.querySelector(
         '.mktero-figure-group figcaption .cm-mktero-citation'
@@ -1959,8 +1727,6 @@ test('allows rendered block text to be selected without revealing its source', (
         initialMarkdown: markdown,
         resolveImageURL: () => null,
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
     const code = document.querySelector('.cm-mktero-code-block pre');
     const range = document.createRange();
@@ -1989,7 +1755,7 @@ test('allows rendered block text to be selected without revealing its source', (
     dom.window.close();
 });
 
-test('enters rendered Markdown editing only on double-click', () => {
+test('keeps rendered block Markdown read-only on double-click', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -2001,8 +1767,6 @@ test('enters rendered Markdown editing only on double-click', () => {
         initialMarkdown: markdown,
         resolveImageURL: () => null,
         openLink: () => {},
-        onChange: assert.fail,
-        onSaveRequest: assert.fail,
     });
 
     assert.match(
@@ -2027,8 +1791,15 @@ test('enters rendered Markdown editing only on double-click', () => {
             button: 0,
         })
     );
-    assert.equal(document.querySelector('.cm-mktero-code-block'), null);
-    assert.match(document.querySelector('.cm-content').textContent, /    const answer/);
+    assert.ok(document.querySelector('.cm-mktero-code-block'));
+    assert.match(
+        document.querySelector('.cm-mktero-code-block pre').textContent,
+        /const answer = 42;/
+    );
+    assert.equal(
+        document.querySelector('.cm-content').getAttribute('contenteditable'),
+        'false'
+    );
 
     editor.destroy();
     dom.window.close();
@@ -2271,167 +2042,4 @@ test('observes editor visibility through the owning Zotero window', () => {
     dom.window.close();
 
     assert.equal(observedEditorContent, true);
-});
-
-test('applies toolbar bold formatting and can undo it', () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    const changes = [];
-    const editor = createInlineMarkdownEditor({
-        parent: document.querySelector('#editor'),
-        initialMarkdown: 'Plain text',
-        resolveImageURL: () => null,
-        onChange: markdown => changes.push(markdown),
-    });
-
-    assert.equal(editor.runCommand('bold'), true);
-    assert.equal(editor.getMarkdown(), '**粗体文字**Plain text');
-    assert.equal(changes.at(-1), '**粗体文字**Plain text');
-    assert.equal(document.querySelector('.cm-content').getAttribute('contenteditable'), 'false');
-
-    assert.equal(editor.runCommand('undo'), true);
-    assert.equal(editor.getMarkdown(), 'Plain text');
-
-    editor.destroy();
-    dom.window.close();
-});
-
-test('toggles toolbar formatting around the selected Markdown text', () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    dom.window.Range.prototype.getClientRects = () => [];
-    dom.window.Range.prototype.getBoundingClientRect = () => ({
-        left: 0,
-        right: 0,
-        top: 0,
-        bottom: 0,
-        width: 0,
-        height: 0,
-    });
-    const { document } = dom.window;
-    const editor = createInlineMarkdownEditor({
-        parent: document.querySelector('#editor'),
-        initialMarkdown: 'Plain text',
-        resolveImageURL: () => null,
-    });
-    const content = document.querySelector('.cm-content');
-    for (let index = 0; index < 5; index++) {
-        content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
-            key: 'ArrowRight',
-            code: 'ArrowRight',
-            shiftKey: true,
-            bubbles: true,
-            cancelable: true,
-        }));
-    }
-
-    editor.runCommand('bold');
-    assert.equal(editor.getMarkdown(), '**Plain** text');
-    editor.runCommand('bold');
-    assert.equal(editor.getMarkdown(), 'Plain text');
-
-    editor.runCommand('bold');
-    editor.runCommand('italic');
-    assert.equal(editor.getMarkdown(), '***Plain*** text');
-    editor.runCommand('italic');
-    assert.equal(editor.getMarkdown(), '**Plain** text');
-
-    editor.destroy();
-    dom.window.close();
-});
-
-test('applies Joplin-style inline formatting toolbar commands', () => {
-    const dom = new JSDOM(
-        '<!doctype html><div id="italic"></div><div id="link"></div><div id="code"></div>',
-        { pretendToBeVisual: true }
-    );
-    const { document } = dom.window;
-    const createEditor = id => createInlineMarkdownEditor({
-        parent: document.querySelector(id),
-        initialMarkdown: 'Plain text',
-        resolveImageURL: () => null,
-    });
-    const italicEditor = createEditor('#italic');
-    const linkEditor = createEditor('#link');
-    const codeEditor = createEditor('#code');
-
-    assert.equal(italicEditor.runCommand('italic'), true);
-    assert.equal(italicEditor.getMarkdown(), '*斜体文字*Plain text');
-    assert.equal(linkEditor.runCommand('link'), true);
-    assert.equal(linkEditor.getMarkdown(), '[链接文字](https://)Plain text');
-    assert.equal(codeEditor.runCommand('code'), true);
-    assert.equal(codeEditor.getMarkdown(), '`代码`Plain text');
-
-    codeEditor.destroy();
-    linkEditor.destroy();
-    italicEditor.destroy();
-    dom.window.close();
-});
-
-test('applies Joplin-style block formatting toolbar commands', () => {
-    const dom = new JSDOM([
-        '<!doctype html>',
-        '<div id="bullet"></div>',
-        '<div id="number"></div>',
-        '<div id="task"></div>',
-        '<div id="heading"></div>',
-    ].join(''), { pretendToBeVisual: true });
-    const { document } = dom.window;
-    const createEditor = id => createInlineMarkdownEditor({
-        parent: document.querySelector(id),
-        initialMarkdown: 'Item',
-        resolveImageURL: () => null,
-    });
-    const bulletEditor = createEditor('#bullet');
-    const numberEditor = createEditor('#number');
-    const taskEditor = createEditor('#task');
-    const headingEditor = createEditor('#heading');
-
-    assert.equal(bulletEditor.runCommand('bullet-list'), true);
-    assert.equal(bulletEditor.getMarkdown(), '- Item');
-    assert.equal(numberEditor.runCommand('numbered-list'), true);
-    assert.equal(numberEditor.getMarkdown(), '1. Item');
-    assert.equal(taskEditor.runCommand('task-list'), true);
-    assert.equal(taskEditor.getMarkdown(), '- [ ] Item');
-    assert.equal(headingEditor.runCommand('heading'), true);
-    assert.equal(headingEditor.getMarkdown(), '## Item');
-
-    headingEditor.destroy();
-    taskEditor.destroy();
-    numberEditor.destroy();
-    bulletEditor.destroy();
-    dom.window.close();
-});
-
-test('inserts horizontal rules and Markdown tables from the toolbar', () => {
-    const dom = new JSDOM(
-        '<!doctype html><div id="rule"></div><div id="table"></div>',
-        { pretendToBeVisual: true }
-    );
-    const { document } = dom.window;
-    const createEditor = id => createInlineMarkdownEditor({
-        parent: document.querySelector(id),
-        initialMarkdown: 'Plain text',
-        resolveImageURL: () => null,
-    });
-    const ruleEditor = createEditor('#rule');
-    const tableEditor = createEditor('#table');
-
-    assert.equal(ruleEditor.runCommand('horizontal-rule'), true);
-    assert.equal(ruleEditor.getMarkdown(), '---\n\nPlain text');
-    assert.equal(tableEditor.runCommand('table'), true);
-    assert.equal(tableEditor.getMarkdown(), [
-        '| 列 1 | 列 2 |',
-        '| --- | --- |',
-        '|  |  |',
-        '',
-        'Plain text',
-    ].join('\n'));
-
-    tableEditor.destroy();
-    ruleEditor.destroy();
-    dom.window.close();
 });

@@ -30,13 +30,6 @@ export class MarkdownDocumentService {
         return entry.promise;
     }
 
-    async save(result) {
-        if (!this.extractor.save) {
-            throw new Error('This Markdown source cannot be saved locally.');
-        }
-        return this.extractor.save(result);
-    }
-
     async #convert(itemID, options) {
         const extracted = await this.extractor.extract(itemID, options);
         const markdown = extracted.kind === 'markdown'

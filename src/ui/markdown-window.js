@@ -1,21 +1,15 @@
 import { createInlineMarkdownEditor } from '../editor/inline-markdown-editor.js';
 import { extractMarkdownOutline } from '../markdown/markdown-outline.js';
-import {
-    bindEditorToolbar,
-    createEditorToolbar,
-    createToolbarButton,
-} from './editor-toolbar.js';
 import { createLoadingPresentation } from './markdown-loading-state.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const BUNDLED_MARKDOWN_STYLES = typeof __MKTERO_MARKDOWN_STYLES__ === 'string'
     ? __MKTERO_MARKDOWN_STYLES__
     : null;
-const OUTLINE_ICON = [
-    ['rect', { x: '2.5', y: '3', width: '15', height: '14', rx: '1.5' }],
-    ['path', { d: 'M7.5 3v14M4.5 7h.01M4.5 10h.01M4.5 13h.01' }],
-];
-
+const DEFAULT_OUTLINE_WIDTH = 256;
+const MIN_OUTLINE_WIDTH = 180;
+const MAX_OUTLINE_WIDTH = 480;
+const OUTLINE_KEYBOARD_STEP = 16;
 export function createMarkdownTabView({
     document,
     model,
@@ -48,11 +42,9 @@ class MarkdownTabView {
         this.renderedAssets = undefined;
         this.assetURLs = new Map();
         this.listeners = [];
-        this.draftMarkdown = '';
-        this.savedMarkdown = '';
-        this.saving = false;
-        this.saveState = 'unavailable';
         this.outlineVisible = true;
+        this.outlineWidth = DEFAULT_OUTLINE_WIDTH;
+        this.outlineResize = null;
 
         this.host = this.createElement('div', {
             class: 'mktero-tab-host',
@@ -82,11 +74,6 @@ class MarkdownTabView {
             initialMarkdown: '',
             resolveImageURL: source => this.resolveImageURL(source),
             openLink: href => this.openLink(href),
-            onChange: markdown => this.updateMarkdownSource(markdown),
-            onSaveRequest: markdown => {
-                this.updateMarkdownSource(markdown);
-                this.saveMarkdownSource();
-            },
         });
         this.syncOutline('');
         this.bindActions();
@@ -127,15 +114,11 @@ class MarkdownTabView {
         }
 
         if (model.status === 'ready') {
-            this.draftMarkdown = model.markdown || '';
-            this.savedMarkdown = this.draftMarkdown;
+            const markdown = model.markdown || '';
             const assetsChanged = this.syncAssetURLs();
-            this.editor.setMarkdown(this.draftMarkdown);
-            this.syncOutline(this.draftMarkdown);
+            this.editor.setMarkdown(markdown);
+            this.syncOutline(markdown);
             if (assetsChanged) this.editor.refreshRendering();
-            this.setSaveState(
-                this.canSave() ? 'clean' : 'unavailable'
-            );
             return;
         }
 
@@ -196,13 +179,6 @@ class MarkdownTabView {
             class: 'message error',
         });
         error.hidden = true;
-        const saveError = this.createElement('div', {
-            id: 'mktero-save-error',
-            class: 'message error',
-            role: 'alert',
-        });
-        saveError.hidden = true;
-
         const spinner = this.createElement('div', {
             class: 'loading-spinner',
             'aria-hidden': 'true',
@@ -260,45 +236,13 @@ class MarkdownTabView {
         });
         appendChildren(loading, spinner, loadingContent);
 
-        const saveButton = this.createElement(
-            'button',
-            {
-                id: 'mktero-save',
-                class: 'save-button',
-                type: 'button',
-                title: '保存 Markdown（⌘/Ctrl + S）',
-            },
-            '保存'
-        );
-        saveButton.disabled = true;
-        const sourceActions = this.createElement('div', { class: 'source-actions' });
-        sourceActions.appendChild(saveButton);
-        const outlineToggleButton = createToolbarButton(this.document, {
-            id: 'mktero-toggle-outline',
-            label: '隐藏目录',
-            icon: OUTLINE_ICON,
-            pressed: true,
-        });
-        outlineToggleButton.disabled = true;
-        outlineToggleButton.setAttribute('aria-controls', 'mktero-outline');
-        const outlineToolbarGroup = this.createElement('div', {
-            class: 'editor-toolbar-group editor-toolbar-view-group',
-            role: 'group',
-            'aria-label': '视图',
-        });
-        outlineToolbarGroup.appendChild(outlineToggleButton);
-        const { editorToolbar, toolbarButtons } = createEditorToolbar(this.document);
-        editorToolbar.insertBefore(outlineToolbarGroup, editorToolbar.firstChild);
-        const header = this.createElement('header', { class: 'app-header' });
-        appendChildren(header, editorToolbar, sourceActions);
-
         const editorHost = this.createElement('div', {
             id: 'mktero-editor',
             class: 'markdown-editor-host',
         });
         const editorSection = this.createElement('section', {
             class: 'markdown-editor',
-            'aria-label': 'Markdown 所见即所得编辑器',
+            'aria-label': 'Markdown 只读视图',
         });
         editorSection.appendChild(editorHost);
         const outlineTitle = this.createElement(
@@ -315,9 +259,26 @@ class MarkdownTabView {
             'aria-label': 'Markdown 目录',
         });
         appendChildren(outline, outlineTitle, outlineList);
+        outline.style.setProperty(
+            '--outline-width',
+            `${this.outlineWidth}px`
+        );
+        const outlineResizer = this.createElement('div', {
+            id: 'mktero-outline-resizer',
+            class: 'markdown-outline-resizer',
+            role: 'separator',
+            tabindex: '0',
+            'aria-controls': 'mktero-outline',
+            'aria-orientation': 'vertical',
+            'aria-valuemin': String(MIN_OUTLINE_WIDTH),
+            'aria-valuemax': String(MAX_OUTLINE_WIDTH),
+            'aria-valuenow': String(this.outlineWidth),
+            'aria-label': '调整目录宽度，双击收起',
+            title: '调整目录宽度，双击收起',
+        });
         const workspace = this.createElement('div', { class: 'markdown-workspace' });
         workspace.hidden = true;
-        appendChildren(workspace, outline, editorSection);
+        appendChildren(workspace, outline, outlineResizer, editorSection);
         const content = this.createElement('main', {
             id: 'mktero-content',
             'aria-busy': 'true',
@@ -325,13 +286,12 @@ class MarkdownTabView {
         appendChildren(content, loading, workspace);
 
         const view = this.createElement('div', { class: 'mktero-tab-view' });
-        appendChildren(view, header, progress, warning, error, saveError, content);
+        appendChildren(view, progress, warning, error, content);
         return {
             view,
             progress,
             warning,
             error,
-            saveError,
             content,
             loading,
             loadingTitle,
@@ -342,12 +302,9 @@ class MarkdownTabView {
             workspace,
             outline,
             outlineList,
+            outlineResizer,
             editorHost,
             editorSection,
-            saveButton,
-            editorToolbar,
-            toolbarButtons,
-            outlineToggleButton,
         };
     }
 
@@ -361,29 +318,27 @@ class MarkdownTabView {
     }
 
     bindActions() {
-        this.listen(this.elements.saveButton, 'click', () => this.saveMarkdownSource());
-        this.listen(
-            this.elements.outlineToggleButton,
-            'mousedown',
-            event => event.preventDefault()
-        );
-        this.listen(this.elements.outlineToggleButton, 'click', () => {
-            this.setOutlineVisibility(!this.outlineVisible);
-        });
         this.listen(this.elements.outlineList, 'click', event => {
             const button = event.target?.closest?.('.markdown-outline-link');
             if (!button || !this.elements.outlineList.contains(button)) return;
             const offset = Number(button.getAttribute('data-offset'));
             if (Number.isFinite(offset)) this.editor.scrollToOffset?.(offset);
         });
-        bindEditorToolbar({
-            toolbarButtons: this.elements.toolbarButtons,
-            runCommand: command => this.editor.runCommand(command),
-            listen: (element, type, listener) => this.listen(
-                element,
-                type,
-                listener
-            ),
+        this.listen(this.elements.outlineResizer, 'dblclick', event => {
+            event.preventDefault();
+            this.setOutlineVisibility(!this.outlineVisible);
+        });
+        this.listen(this.elements.outlineResizer, 'mousedown', event => {
+            this.startOutlineResize(event);
+        });
+        this.listen(this.ownerWindow, 'mousemove', event => {
+            this.resizeOutline(event);
+        });
+        this.listen(this.ownerWindow, 'mouseup', () => {
+            this.finishOutlineResize();
+        });
+        this.listen(this.elements.outlineResizer, 'keydown', event => {
+            this.handleOutlineResizeKey(event);
         });
     }
 
@@ -394,38 +349,84 @@ class MarkdownTabView {
 
     syncContentVisibility(visible) {
         this.elements.workspace.hidden = !visible;
-        this.elements.outlineToggleButton.disabled = !visible;
-        for (const { button } of this.elements.toolbarButtons) {
-            button.disabled = !visible;
+    }
+
+    startOutlineResize(event) {
+        if (event.button !== 0
+            || !this.outlineVisible
+            || this.elements.workspace.hidden) {
+            return;
         }
+        event.preventDefault();
+        this.outlineResize = {
+            pointerStartX: event.clientX,
+            widthAtStart: this.outlineWidth,
+        };
+        this.elements.workspace.classList.add('is-resizing-outline');
+    }
+
+    resizeOutline(event) {
+        if (!this.outlineResize || !Number.isFinite(event.clientX)) return;
+        this.setOutlineWidth(
+            this.outlineResize.widthAtStart
+                + event.clientX
+                - this.outlineResize.pointerStartX
+        );
+    }
+
+    finishOutlineResize() {
+        if (!this.outlineResize) return;
+        this.outlineResize = null;
+        this.elements.workspace.classList.remove('is-resizing-outline');
+    }
+
+    setOutlineWidth(width) {
+        const nextWidth = Math.min(
+            MAX_OUTLINE_WIDTH,
+            Math.max(MIN_OUTLINE_WIDTH, Math.round(width))
+        );
+        this.outlineWidth = nextWidth;
+        this.elements.outline.style.setProperty(
+            '--outline-width',
+            `${nextWidth}px`
+        );
+        this.elements.outlineResizer.setAttribute(
+            'aria-valuenow',
+            String(nextWidth)
+        );
     }
 
     setOutlineVisibility(visible) {
+        this.finishOutlineResize();
         this.outlineVisible = visible;
         this.elements.outline.hidden = !visible;
-        const label = visible ? '隐藏目录' : '显示目录';
-        this.elements.outlineToggleButton.setAttribute(
-            'aria-pressed',
-            String(visible)
+        this.elements.outlineResizer.classList.toggle(
+            'is-outline-collapsed',
+            !visible
         );
-        this.elements.outlineToggleButton.setAttribute('aria-label', label);
-        this.elements.outlineToggleButton.setAttribute('title', label);
+        const label = visible
+            ? '调整目录宽度，双击收起'
+            : '展开目录';
+        this.elements.outlineResizer.setAttribute('aria-label', label);
+        this.elements.outlineResizer.setAttribute('title', label);
     }
 
-    updateMarkdownSource(markdown) {
-        this.draftMarkdown = markdown;
-        this.syncOutline(markdown);
-        if (!this.canSave()) {
-            this.setSaveState('unavailable');
+    handleOutlineResizeKey(event) {
+        if (['Enter', ' '].includes(event.key)) {
+            event.preventDefault();
+            this.setOutlineVisibility(!this.outlineVisible);
             return;
         }
-        if (this.saving) {
-            this.setSaveState('saving');
-            return;
-        }
-        this.setSaveState(
-            this.draftMarkdown === this.savedMarkdown ? 'clean' : 'dirty'
-        );
+        if (!this.outlineVisible) return;
+        const widths = {
+            ArrowLeft: this.outlineWidth - OUTLINE_KEYBOARD_STEP,
+            ArrowRight: this.outlineWidth + OUTLINE_KEYBOARD_STEP,
+            Home: MIN_OUTLINE_WIDTH,
+            End: MAX_OUTLINE_WIDTH,
+        };
+        if (!(event.key in widths)) return;
+        event.preventDefault();
+        this.setOutlineWidth(widths[event.key]);
     }
 
     syncOutline(markdown) {
@@ -459,63 +460,6 @@ class MarkdownTabView {
             item.appendChild(button);
             list.appendChild(item);
         }
-    }
-
-    async saveMarkdownSource() {
-        if (this.saving || this.draftMarkdown === this.savedMarkdown) return;
-        if (!this.canSave()) {
-            this.setSaveState('unavailable');
-            return;
-        }
-
-        const markdown = this.draftMarkdown;
-        this.saving = true;
-        this.setSaveState('saving');
-        try {
-            await this.model.onSave(markdown, this.model);
-            this.savedMarkdown = markdown;
-            this.model.markdown = markdown;
-            this.setSaveState(
-                this.draftMarkdown === this.savedMarkdown ? 'saved' : 'dirty'
-            );
-        }
-        catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.setSaveState('error', message || '未知错误');
-        }
-        finally {
-            this.saving = false;
-            if (this.draftMarkdown !== this.savedMarkdown
-                && this.saveState === 'saving') {
-                this.setSaveState('dirty');
-            }
-        }
-    }
-
-    setSaveState(state, detail = '') {
-        const errorMessage = detail ? `保存失败：${detail}` : '保存失败';
-        const titles = {
-            clean: '保存 Markdown（⌘/Ctrl + S）',
-            dirty: '保存 Markdown（⌘/Ctrl + S）',
-            saving: '正在保存 Markdown…',
-            saved: '保存 Markdown（⌘/Ctrl + S）',
-            unavailable: '当前内容无法保存到本地缓存',
-            error: `${errorMessage}。点击重试`,
-        };
-        this.saveState = state;
-        this.elements.saveError.hidden = state !== 'error';
-        this.elements.saveError.textContent = state === 'error' ? errorMessage : '';
-        this.elements.saveButton.setAttribute('data-state', state);
-        this.elements.saveButton.setAttribute('title', titles[state] || titles.clean);
-        this.elements.saveButton.setAttribute('aria-label', titles[state] || titles.clean);
-        this.elements.saveButton.disabled = state === 'clean'
-            || state === 'saved'
-            || state === 'saving'
-            || state === 'unavailable';
-    }
-
-    canSave() {
-        return Boolean(this.model.onSave && this.model.cacheKey);
     }
 
     openLink(href) {

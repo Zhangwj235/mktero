@@ -22,14 +22,13 @@ test('ships an accessible, visible loading UI for MinerU conversion', async () =
     assert.doesNotMatch(styles, /\.loading-eyebrow/);
 });
 
-test('styles the Joplin-like Markdown toolbar as a compact grouped row', async () => {
+test('styles a read-only Markdown workspace without editing controls', async () => {
     const styles = await readFile(new URL('../ui/markdown.css', import.meta.url), 'utf8');
 
-    assert.match(styles, /\.app-header\s*\{[^}]*min-height: 40px;/s);
-    assert.match(styles, /\.editor-toolbar\s*\{[^}]*display: flex;/s);
-    assert.match(styles, /\.editor-toolbar\s*\{[^}]*overflow-x: auto;/s);
-    assert.match(styles, /\.editor-toolbar-group:not\(:last-child\)\s*\{[^}]*border-right:/s);
-    assert.match(styles, /\.editor-toolbar-button\s*\{[^}]*width: 30px;[^}]*height: 30px;/s);
+    assert.doesNotMatch(styles, /\.app-header\s*\{/);
+    assert.doesNotMatch(styles, /\.editor-toolbar\s*\{/);
+    assert.doesNotMatch(styles, /\.save-button\s*\{/);
+    assert.match(styles, /\.markdown-outline-resizer\s*\{[^}]*width: 7px;/s);
     assert.match(styles, /\.markdown-editor-host\s*\{[^}]*min-height: 0;/s);
     assert.doesNotMatch(styles, /\.mode-switch/);
 });

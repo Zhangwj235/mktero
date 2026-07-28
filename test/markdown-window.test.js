@@ -25,7 +25,6 @@ function createModel(changes = {}) {
         warnings: [],
         error: '',
         onReparse: null,
-        onSave: null,
         ...changes,
     };
 }
@@ -53,20 +52,13 @@ function createView(model = createModel(), zotero = {}, options = {}) {
     return { document, view, shadow: view.host.shadowRoot };
 }
 
-function createTestInlineEditor({ document, parent, initialMarkdown, onChange, onSaveRequest }) {
+function createTestInlineEditor({ document, parent, initialMarkdown }) {
     const editor = document.createElement('div');
     editor.className = 'cm-editor';
     const content = document.createElement('div');
     content.className = 'cm-content';
-    content.setAttribute('contenteditable', 'true');
+    content.setAttribute('contenteditable', 'false');
     content.textContent = initialMarkdown;
-    content.addEventListener('input', () => onChange(content.textContent));
-    content.addEventListener('keydown', event => {
-        if (event.key?.toLowerCase() === 's' && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            onSaveRequest(content.textContent);
-        }
-    });
     editor.appendChild(content);
     parent.appendChild(editor);
     return {
@@ -76,18 +68,24 @@ function createTestInlineEditor({ document, parent, initialMarkdown, onChange, o
         },
         focus: () => content.focus(),
         refreshRendering: () => {},
-        runCommand: () => false,
         destroy: () => editor.remove(),
     };
 }
 
-function editMarkdown(document, shadow, markdown) {
-    const content = shadow.querySelector('.cm-content');
-    content.textContent = markdown;
-    content.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+function dispatchMouseEvent(target, type, clientX) {
+    const ownerWindow = target.ownerDocument?.defaultView || target;
+    const event = new ownerWindow.Event(type, {
+        bubbles: true,
+        cancelable: true,
+    });
+    Object.defineProperties(event, {
+        button: { value: 0 },
+        clientX: { value: clientX },
+    });
+    target.dispatchEvent(event);
 }
 
-test('uses one inline Markdown editor instead of separate preview and source modes', () => {
+test('shows Markdown without editing controls', () => {
     const { view, shadow } = createView(createModel({
         status: 'ready',
         progress: 100,
@@ -95,98 +93,76 @@ test('uses one inline Markdown editor instead of separate preview and source mod
         sourceKind: 'markdown',
     }));
 
-    assert.ok(shadow.querySelector('#mktero-editor .cm-editor'));
-    assert.equal(shadow.querySelector('.cm-content').textContent, '# Paper\n\nEditable.');
-    assert.equal(shadow.querySelector('#mktero-show-preview'), null);
-    assert.equal(shadow.querySelector('#mktero-show-source'), null);
-    assert.equal(shadow.querySelector('#mktero-preview'), null);
-    assert.equal(shadow.querySelector('#mktero-source'), null);
-    const saveStatus = shadow.querySelector('#mktero-save-status');
-    assert.equal(shadow.querySelector('#mktero-save').textContent, '保存');
-    view.destroy();
-    assert.equal(saveStatus, null);
+    try {
+        assert.ok(shadow.querySelector('#mktero-editor .cm-editor'));
+        assert.equal(
+            shadow.querySelector('.cm-content').textContent,
+            '# Paper\n\nEditable.'
+        );
+        assert.equal(shadow.querySelector('#mktero-show-preview'), null);
+        assert.equal(shadow.querySelector('#mktero-show-source'), null);
+        assert.equal(shadow.querySelector('#mktero-preview'), null);
+        assert.equal(shadow.querySelector('#mktero-source'), null);
+        assert.ok(!shadow.querySelector('.app-header'));
+        assert.ok(!shadow.querySelector('#mktero-editor-toolbar'));
+        assert.ok(!shadow.querySelector('#mktero-save'));
+    }
+    finally {
+        view.destroy();
+    }
 });
 
-test('uses a Joplin-style editing toolbar to run inline editor commands', () => {
-    const commands = [];
-    const { document, view, shadow } = createView(createModel({
-        status: 'ready',
-        progress: 100,
-        markdown: 'Editable.',
-        sourceKind: 'markdown',
-    }), {}, {
-        editorFactory(options) {
-            const editor = createTestInlineEditor(options);
-            editor.runCommand = command => {
-                commands.push(command);
-                return true;
-            };
-            return editor;
-        },
-    });
-    const toolbar = shadow.querySelector('#mktero-editor-toolbar');
-
-    assert.equal(toolbar.getAttribute('role'), 'toolbar');
-    assert.equal(toolbar.getAttribute('aria-label'), 'Markdown 编辑工具');
-    assert.deepEqual(
-        [...toolbar.querySelectorAll('button[data-command]')]
-            .map(button => button.getAttribute('data-command')),
-        [
-            'undo',
-            'redo',
-            'bold',
-            'italic',
-            'link',
-            'code',
-            'bullet-list',
-            'numbered-list',
-            'task-list',
-            'heading',
-            'horizontal-rule',
-            'table',
-        ]
-    );
-    assert.equal(shadow.querySelector('#mktero-show-preview'), null);
-    assert.equal(shadow.querySelector('#mktero-show-source'), null);
-
-    shadow.querySelector('button[data-command="bold"]').dispatchEvent(
-        new document.defaultView.Event('click', { bubbles: true })
-    );
-    assert.deepEqual(commands, ['bold']);
-    view.destroy();
-});
-
-test('toggles the Markdown outline from the first toolbar button', () => {
+test('resizes and toggles the Markdown outline from its edge', () => {
     const { document, view, shadow } = createView(createModel({
         status: 'ready',
         progress: 100,
         markdown: '# Overview\n\n## Methods',
         sourceKind: 'markdown',
     }));
-    const toolbar = shadow.querySelector('#mktero-editor-toolbar');
-    const toggle = shadow.querySelector('#mktero-toggle-outline');
     const outline = shadow.querySelector('#mktero-outline');
+    const resizer = shadow.querySelector('#mktero-outline-resizer');
 
-    assert.equal(toolbar.querySelector('button'), toggle);
-    assert.equal(toggle.getAttribute('aria-controls'), 'mktero-outline');
-    assert.equal(toggle.getAttribute('aria-pressed'), 'true');
-    assert.equal(toggle.getAttribute('aria-label'), '隐藏目录');
-    assert.equal(toggle.getAttribute('title'), '隐藏目录');
-    assert.equal(outline.hidden, false);
+    try {
+        assert.ok(resizer);
+        assert.equal(resizer.getAttribute('role'), 'separator');
+        assert.equal(resizer.getAttribute('aria-controls'), 'mktero-outline');
+        assert.equal(resizer.getAttribute('aria-orientation'), 'vertical');
+        assert.equal(resizer.getAttribute('aria-valuemin'), '180');
+        assert.equal(resizer.getAttribute('aria-valuemax'), '480');
+        assert.equal(resizer.getAttribute('aria-valuenow'), '256');
+        assert.equal(outline.hidden, false);
 
-    toggle.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
+        dispatchMouseEvent(resizer, 'mousedown', 256);
+        dispatchMouseEvent(document.defaultView, 'mousemove', 376);
+        dispatchMouseEvent(document.defaultView, 'mouseup', 376);
 
-    assert.equal(toggle.getAttribute('aria-pressed'), 'false');
-    assert.equal(toggle.getAttribute('aria-label'), '显示目录');
-    assert.equal(toggle.getAttribute('title'), '显示目录');
-    assert.equal(outline.hidden, true);
+        assert.equal(resizer.getAttribute('aria-valuenow'), '376');
+        assert.equal(
+            outline.style.getPropertyValue('--outline-width'),
+            '376px'
+        );
 
-    toggle.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
+        resizer.dispatchEvent(new document.defaultView.Event('dblclick', {
+            bubbles: true,
+            cancelable: true,
+        }));
+        assert.equal(outline.hidden, true);
+        assert.equal(resizer.getAttribute('aria-label'), '展开目录');
 
-    assert.equal(toggle.getAttribute('aria-pressed'), 'true');
-    assert.equal(toggle.getAttribute('aria-label'), '隐藏目录');
-    assert.equal(outline.hidden, false);
-    view.destroy();
+        resizer.dispatchEvent(new document.defaultView.Event('dblclick', {
+            bubbles: true,
+            cancelable: true,
+        }));
+        assert.equal(outline.hidden, false);
+        assert.equal(resizer.getAttribute('aria-valuenow'), '376');
+        assert.equal(
+            outline.style.getPropertyValue('--outline-width'),
+            '376px'
+        );
+    }
+    finally {
+        view.destroy();
+    }
 });
 
 test('shows a live Markdown outline and scrolls to the selected heading', () => {
@@ -228,7 +204,12 @@ test('shows a live Markdown outline and scrolls to the selected heading', () => 
     buttons[1].dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
     assert.deepEqual(scrolledOffsets, [markdown.indexOf('## Methods')]);
 
-    editMarkdown(document, shadow, '# Renamed\n\n## Updated');
+    view.render(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Renamed\n\n## Updated',
+        sourceKind: 'markdown',
+    }));
     assert.deepEqual(
         [...outline.querySelectorAll('.markdown-outline-link')]
             .map(button => button.textContent),
@@ -268,13 +249,14 @@ test('mounts the Markdown UI in an isolated inline shadow root', () => {
     assert.equal(shadow.querySelector('#mktero-copy'), null);
     assert.equal(shadow.querySelector('#mktero-show-preview'), null);
     assert.equal(shadow.querySelector('#mktero-show-source'), null);
-    assert.equal(shadow.querySelector('.app-header').children.length, 2);
-    assert.equal(shadow.querySelector('.source-actions').children.length, 1);
-    assert.ok(shadow.querySelector('#mktero-editor-toolbar'));
+    assert.ok(!shadow.querySelector('.app-header'));
+    assert.ok(!shadow.querySelector('.source-actions'));
+    assert.ok(!shadow.querySelector('#mktero-editor-toolbar'));
     assert.ok(shadow.querySelector('#mktero-editor .cm-content'));
     assert.equal(shadow.querySelector('.markdown-workspace').hidden, true);
-    assert.equal(shadow.querySelector('#mktero-toggle-outline').disabled, true);
-    assert.equal(shadow.querySelector('#mktero-save').textContent, '保存');
+    assert.ok(shadow.querySelector('#mktero-outline-resizer'));
+    assert.ok(!shadow.querySelector('#mktero-toggle-outline'));
+    assert.ok(!shadow.querySelector('#mktero-save'));
     view.destroy();
 });
 
@@ -328,106 +310,6 @@ test('replaces loading state with cached Markdown as soon as the model is ready'
         shadow.querySelector('.cm-content').textContent,
         '# Example Paper\n\nConverted.'
     );
-    view.destroy();
-});
-
-test('edits Markdown directly in the inline rendered surface', () => {
-    const model = createModel({
-        title: 'Editable paper',
-        status: 'ready',
-        progress: 100,
-        markdown: '# Original',
-        sourceKind: 'markdown',
-    });
-    const { document, view, shadow } = createView(model);
-
-    editMarkdown(document, shadow, '# Edited\n\nNow editable.');
-
-    assert.equal(model.markdown, '# Original');
-    assert.equal(shadow.querySelector('.cm-content').textContent, '# Edited\n\nNow editable.');
-    assert.equal(
-        shadow.querySelector('#mktero-save').getAttribute('data-state'),
-        'unavailable'
-    );
-    view.destroy();
-});
-
-test('saves an edited Markdown draft and reports the saved state', async () => {
-    const saved = [];
-    const model = createModel({
-        status: 'ready',
-        progress: 100,
-        markdown: '# Original',
-        sourceKind: 'markdown',
-        cacheKey: 'a'.repeat(64),
-        onSave: async markdown => saved.push(markdown),
-    });
-    const { document, view, shadow } = createView(model);
-    const saveButton = shadow.querySelector('#mktero-save');
-
-    assert.equal(saveButton.disabled, true);
-    assert.equal(saveButton.getAttribute('data-state'), 'clean');
-
-    editMarkdown(document, shadow, '# Edited');
-    assert.equal(saveButton.disabled, false);
-    assert.equal(saveButton.getAttribute('data-state'), 'dirty');
-
-    saveButton.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
-    await new Promise(resolve => setImmediate(resolve));
-
-    assert.deepEqual(saved, ['# Edited']);
-    assert.equal(model.markdown, '# Edited');
-    assert.equal(saveButton.disabled, true);
-    assert.equal(saveButton.getAttribute('data-state'), 'saved');
-    assert.equal(shadow.querySelector('#mktero-save-status'), null);
-    view.destroy();
-});
-
-test('keeps an edited Markdown draft when saving fails', async () => {
-    const model = createModel({
-        status: 'ready',
-        progress: 100,
-        markdown: '# Original',
-        sourceKind: 'markdown',
-        cacheKey: 'a'.repeat(64),
-        onSave: async () => { throw new Error('disk full'); },
-    });
-    const { document, view, shadow } = createView(model);
-    const saveButton = shadow.querySelector('#mktero-save');
-
-    editMarkdown(document, shadow, '# Unsaved');
-    saveButton.dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
-    await new Promise(resolve => setImmediate(resolve));
-
-    assert.equal(model.markdown, '# Original');
-    assert.equal(shadow.querySelector('.cm-content').textContent, '# Unsaved');
-    assert.equal(saveButton.disabled, false);
-    assert.equal(saveButton.getAttribute('data-state'), 'error');
-    assert.match(saveButton.getAttribute('title'), /disk full/);
-    const saveError = shadow.querySelector('#mktero-save-error');
-    view.destroy();
-
-    assert.ok(saveError);
-    assert.equal(saveError.hidden, false);
-    assert.match(saveError.textContent, /disk full/);
-});
-
-test('explains when Markdown edits cannot be saved to a local cache entry', () => {
-    const model = createModel({
-        status: 'ready',
-        progress: 100,
-        markdown: '# Draft only',
-        sourceKind: 'markdown',
-        onSave: async () => assert.fail('save must remain unavailable'),
-    });
-    const { document, view, shadow } = createView(model);
-    const saveButton = shadow.querySelector('#mktero-save');
-
-    editMarkdown(document, shadow, '# Edited draft');
-
-    assert.equal(saveButton.disabled, true);
-    assert.equal(saveButton.getAttribute('data-state'), 'unavailable');
-    assert.match(saveButton.getAttribute('title'), /无法保存/);
     view.destroy();
 });
 

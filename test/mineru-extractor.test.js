@@ -169,67 +169,6 @@ test('stores a successful MinerU result after a cache miss', async () => {
     assert.equal(stored.value, minerUResult);
 });
 
-test('saves edited Markdown to the original cache entry with its assets', async () => {
-    const cacheKey = 'f'.repeat(64);
-    let stored;
-    const assets = [{
-        path: 'images/figure.png',
-        mimeType: 'image/png',
-        data: new Uint8Array([1, 2, 3]),
-    }];
-    const extractor = new MinerUDocumentExtractor({
-        zotero: { Items: { getAsync: async () => createPDFItem() } },
-        client: { parse: async () => assert.fail('MinerU should not be called') },
-        getApiKey: () => '',
-        readFile: async () => new Uint8Array(),
-        cache: {
-            put: async (key, value) => { stored = { key, value }; },
-        },
-        createCacheKey: async () => cacheKey,
-        isCacheEnabled: () => true,
-    });
-
-    await extractor.save({
-        cacheKey,
-        markdown: '# Edited',
-        assets,
-        assetBasePath: 'result',
-        extractedPages: 2,
-        totalPages: 3,
-    });
-
-    assert.equal(stored.key, cacheKey);
-    assert.equal(stored.value.markdown, '# Edited');
-    assert.equal(stored.value.assets, assets);
-    assert.equal(stored.value.assetBasePath, 'result');
-    assert.equal(stored.value.extractedPages, 2);
-    assert.equal(stored.value.totalPages, 3);
-});
-
-test('saves explicit edits even when automatic caching is disabled', async () => {
-    let stored;
-    const extractor = new MinerUDocumentExtractor({
-        zotero: { Items: { getAsync: async () => createPDFItem() } },
-        client: { parse: async () => {} },
-        getApiKey: () => '',
-        readFile: async () => new Uint8Array(),
-        cache: {
-            put: async (key, value, options) => {
-                stored = { key, value, options };
-            },
-        },
-        createCacheKey: async () => 'f'.repeat(64),
-        isCacheEnabled: () => false,
-    });
-
-    await extractor.save({ cacheKey: 'f'.repeat(64), markdown: '' });
-
-    assert.equal(stored.key, 'f'.repeat(64));
-    assert.equal(stored.value.markdown, '');
-    assert.equal(stored.value.userEdited, true);
-    assert.deepEqual(stored.options, { allowEmptyMarkdown: true });
-});
-
 test('reopens explicit saved edits while automatic caching is disabled', async () => {
     const cacheKey = '9'.repeat(64);
     const extractor = new MinerUDocumentExtractor({

@@ -108,25 +108,6 @@ export class MinerUDocumentExtractor {
         return createResult(title, result, false, warnings, cacheKey);
     }
 
-    async save(cacheEntry) {
-        if (!this.cache) {
-            throw new Error('The local Markdown cache is unavailable.');
-        }
-        if (!cacheEntry?.cacheKey) {
-            throw new Error('This Markdown document has no local cache entry to update.');
-        }
-        try {
-            await this.cache.put(cacheEntry.cacheKey, {
-                ...cacheEntry,
-                userEdited: true,
-            }, { allowEmptyMarkdown: true });
-        }
-        catch (error) {
-            this.#reportCacheError(error);
-            throw error;
-        }
-    }
-
     #reportCacheError(error) {
         try {
             this.onCacheError(error);

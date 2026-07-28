@@ -145,8 +145,15 @@ test('lays out a responsive scrollable outline beside the editor', () => {
     assert.match(workspace, /min-width:\s*0/);
 
     const outline = ruleBody('.markdown-outline');
-    assert.match(outline, /flex:\s*0 0 256px/);
-    assert.match(outline, /border-right:\s*1px solid var\(--border\)/);
+    assert.match(outline, /flex:\s*0 0 var\(--outline-width, 256px\)/);
+
+    const resizer = ruleBody('.markdown-outline-resizer');
+    assert.match(resizer, /width:\s*7px/);
+    assert.match(resizer, /flex:\s*0 0 7px/);
+    assert.match(resizer, /cursor:\s*col-resize/);
+
+    const resizing = ruleBody('.markdown-workspace.is-resizing-outline');
+    assert.match(resizing, /user-select:\s*none/);
 
     const outlineList = ruleBody('.markdown-outline-list');
     assert.match(outlineList, /overflow-y:\s*auto/);
@@ -159,7 +166,7 @@ test('lays out a responsive scrollable outline beside the editor', () => {
 
     assert.match(
         MARKDOWN_STYLES,
-        /@media\s*\(max-width:\s*760px\)[\s\S]*\.markdown-outline\s*\{[^}]*flex-basis:\s*min\(220px, 42vw\)/
+        /@media\s*\(max-width:\s*760px\)[\s\S]*\.markdown-outline\s*\{[^}]*flex-basis:\s*min\(var\(--outline-width, 256px\), 42vw\)/
     );
 });
 

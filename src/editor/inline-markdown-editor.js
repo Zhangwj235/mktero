@@ -1,24 +1,20 @@
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { searchKeymap } from '@codemirror/search';
-import { Annotation, Compartment, EditorState, Transaction } from '@codemirror/state';
+import { EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { GFM } from '@lezer/markdown';
 import {
-    clearInlineEditing,
     createInlineRenderingExtension,
     refreshInlineRendering,
     setFigureHighlight,
     setReferenceHighlight,
     setTableHighlight,
 } from './inline-rendering.js';
-import { runEditorCommand, runSaveShortcut } from './editor-commands.js';
 import { createImagePreview } from './image-preview.js';
 import { createCitationPopup } from './citation-popup.js';
 import { createFigurePreviewPopup } from './figure-preview-popup.js';
 import { createTablePreviewPopup } from './table-preview-popup.js';
 
-const externalUpdate = Annotation.define();
 const editorNavigationMeasureKey = {};
 const DOM_GLOBAL_NAMES = [
     'document',
@@ -79,8 +75,6 @@ export function createInlineMarkdownEditor({
     initialMarkdown,
     resolveImageURL,
     openLink,
-    onChange,
-    onSaveRequest,
 }) {
     if (!parent) throw new Error('An editor parent element is required');
     const ownerWindow = parent.ownerDocument?.defaultView;
@@ -94,8 +88,6 @@ export function createInlineMarkdownEditor({
     const figurePreviewPopup = createFigurePreviewPopup(parent, {
         resolveImageURL,
     });
-    const editingMode = new Compartment();
-    let editingEnabled = false;
     let destroyed = false;
     const citationHighlight = createTimedTargetHighlight({
         ownerWindow,
@@ -130,16 +122,6 @@ export function createInlineMarkdownEditor({
         },
     };
     const referenceFeatureList = Object.values(referenceFeatures);
-    const setEditingEnabled = (editorView, enabled) => {
-        if (editingEnabled === enabled) return;
-        editingEnabled = enabled;
-        editorView.dispatch({
-            effects: editingMode.reconfigure([
-                EditorView.editable.of(enabled),
-                EditorState.readOnly.of(!enabled),
-            ]),
-        });
-    };
     let view;
     const removeDOMActivation = installDOMActivation(
         parent,
@@ -172,7 +154,6 @@ export function createInlineMarkdownEditor({
                 createInlineRenderingExtension({
                     resolveImageURL,
                     openLink,
-                    onSaveRequest,
                     openImagePreview: imagePreview.open,
                     citationPopup,
                     tablePreviewPopup,
@@ -183,36 +164,11 @@ export function createInlineMarkdownEditor({
                         referenceFeatures.table.highlight.activate,
                     activateFigureReference:
                         referenceFeatures.figure.highlight.activate,
-                    enterEditing: editorView => setEditingEnabled(editorView, true),
-                    exitEditing: editorView => setEditingEnabled(editorView, false),
                 }),
-                editingMode.of([
-                    EditorView.editable.of(false),
-                    EditorState.readOnly.of(true),
-                ]),
-                history(),
-                keymap.of([
-                    ...defaultKeymap,
-                    ...historyKeymap,
-                    ...searchKeymap,
-                ]),
-                EditorView.domEventHandlers({
-                    keydown(event, editorView) {
-                        return runSaveShortcut(
-                            event,
-                            () => editorView.state.doc.toString(),
-                            onSaveRequest
-                        );
-                    },
-                }),
+                EditorView.editable.of(false),
+                EditorState.readOnly.of(true),
+                keymap.of(searchKeymap),
                 EditorView.lineWrapping,
-                EditorView.updateListener.of(update => {
-                    if (!update.docChanged) return;
-                    const isExternal = update.transactions.some(transaction => (
-                        transaction.annotation(externalUpdate)
-                    ));
-                    if (!isExternal) onChange?.(update.state.doc.toString());
-                }),
             ],
         });
         const root = parent.getRootNode?.();
@@ -248,16 +204,10 @@ export function createInlineMarkdownEditor({
                 });
                 return;
             }
-            setEditingEnabled(view, false);
             view.dispatch({
                 changes: { from: 0, to: view.state.doc.length, insert: value },
                 effects: [
-                    clearInlineEditing.of(null),
                     ...referenceFeatureList.map(feature => feature.effect.of(null)),
-                ],
-                annotations: [
-                    externalUpdate.of(true),
-                    Transaction.addToHistory.of(false),
                 ],
             });
         },
@@ -277,17 +227,6 @@ export function createInlineMarkdownEditor({
         refreshRendering() {
             activateDOMGlobals(ownerWindow);
             view.dispatch({ effects: refreshInlineRendering.of(null) });
-        },
-        runCommand(command) {
-            activateDOMGlobals(ownerWindow);
-            const enteredForCommand = !editingEnabled;
-            if (enteredForCommand) setEditingEnabled(view, true);
-            try {
-                return runEditorCommand(view, command);
-            }
-            finally {
-                if (enteredForCommand) setEditingEnabled(view, false);
-            }
         },
         destroy() {
             if (destroyed) return;
