@@ -34,6 +34,11 @@ export function createAnchoredPopup(parent, {
         closeTimer = ownerWindow.setTimeout(close, 120);
     };
 
+    const reposition = () => {
+        if (!popup || !anchor) return;
+        positionPopup(popup, anchor, ownerWindow, viewportPadding);
+    };
+
     const open = ({
         anchor: nextAnchor,
         label,
@@ -57,7 +62,7 @@ export function createAnchoredPopup(parent, {
         popup.className = className;
         popup.setAttribute('role', 'dialog');
         popup.setAttribute('aria-label', label);
-        const content = renderContent({ document, close });
+        const content = renderContent({ document, close, reposition });
         if (!content) {
             close();
             return;
@@ -85,7 +90,7 @@ export function createAnchoredPopup(parent, {
         });
         parent.appendChild(popup);
         anchor.setAttribute('aria-describedby', popup.id);
-        positionPopup(popup, anchor, ownerWindow, viewportPadding);
+        reposition();
         focusContent?.(popup);
     };
 

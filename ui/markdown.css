@@ -515,7 +515,8 @@ main {
     outline-offset: 2px;
 }
 
-.markdown-editor-host > .cm-editor .cm-mktero-table-reference {
+.markdown-editor-host > .cm-editor .cm-mktero-table-reference,
+.markdown-editor-host > .cm-editor .cm-mktero-figure-reference {
     border-radius: 3px;
     color: var(--accent);
     font-weight: 650;
@@ -523,11 +524,13 @@ main {
     cursor: pointer;
 }
 
-.markdown-editor-host > .cm-editor .cm-mktero-table-reference:hover {
+.markdown-editor-host > .cm-editor .cm-mktero-table-reference:hover,
+.markdown-editor-host > .cm-editor .cm-mktero-figure-reference:hover {
     background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
-.markdown-editor-host > .cm-editor .cm-mktero-table-reference:focus-visible {
+.markdown-editor-host > .cm-editor .cm-mktero-table-reference:focus-visible,
+.markdown-editor-host > .cm-editor .cm-mktero-figure-reference:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
     outline-offset: 2px;
 }
@@ -646,19 +649,27 @@ main {
 }
 
 .mktero-table-preview-popup {
-    --table-preview-surface: #fff;
-    --table-preview-text: #24292f;
-    --table-preview-muted: #57606a;
-    --table-preview-border: #d8dee4;
-    --table-preview-header: #f6f8fa;
+    width: min(700px, calc(100vw - 48px));
+}
+
+.mktero-figure-preview-popup {
+    width: min(620px, calc(100vw - 48px));
+}
+
+.mktero-table-preview-popup,
+.mktero-figure-preview-popup {
+    --reference-preview-surface: #fff;
+    --reference-preview-text: #24292f;
+    --reference-preview-muted: #57606a;
+    --reference-preview-border: #d8dee4;
+    --reference-preview-header: #f6f8fa;
     position: fixed;
     z-index: 900;
     box-sizing: border-box;
-    width: min(700px, calc(100vw - 48px));
     max-width: calc(100vw - 48px);
-    color: var(--table-preview-text);
-    background: var(--table-preview-surface);
-    border: 1px solid var(--table-preview-border);
+    color: var(--reference-preview-text);
+    background: var(--reference-preview-surface);
+    border: 1px solid var(--reference-preview-border);
     border-radius: 8px;
     box-shadow:
         0 16px 40px rgb(31 35 40 / 16%),
@@ -666,26 +677,29 @@ main {
     font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
 }
 
-.mktero-table-preview-popup::after {
+.mktero-table-preview-popup::after,
+.mktero-figure-preview-popup::after {
     position: absolute;
     left: var(--anchored-popup-arrow-left, 50%);
     width: 10px;
     height: 10px;
-    background: var(--table-preview-surface);
+    background: var(--reference-preview-surface);
     content: "";
     transform: translateX(-50%) rotate(45deg);
 }
 
-.mktero-table-preview-popup[data-placement="top"]::after {
+.mktero-table-preview-popup[data-placement="top"]::after,
+.mktero-figure-preview-popup[data-placement="top"]::after {
     bottom: -5px;
-    border-right: 1px solid var(--table-preview-border);
-    border-bottom: 1px solid var(--table-preview-border);
+    border-right: 1px solid var(--reference-preview-border);
+    border-bottom: 1px solid var(--reference-preview-border);
 }
 
-.mktero-table-preview-popup[data-placement="bottom"]::after {
+.mktero-table-preview-popup[data-placement="bottom"]::after,
+.mktero-figure-preview-popup[data-placement="bottom"]::after {
     top: -5px;
-    border-top: 1px solid var(--table-preview-border);
-    border-left: 1px solid var(--table-preview-border);
+    border-top: 1px solid var(--reference-preview-border);
+    border-left: 1px solid var(--reference-preview-border);
 }
 
 .mktero-table-preview-content {
@@ -695,7 +709,7 @@ main {
 
 .mktero-table-preview-caption {
     padding: 0 1px 9px;
-    color: var(--table-preview-muted);
+    color: var(--reference-preview-muted);
     font-weight: 650;
 }
 
@@ -709,8 +723,8 @@ main {
     width: max-content;
     min-width: 100%;
     border-collapse: collapse;
-    color: var(--table-preview-text);
-    background: var(--table-preview-surface);
+    color: var(--reference-preview-text);
+    background: var(--reference-preview-surface);
 }
 
 .mktero-table-preview-viewport th,
@@ -718,7 +732,7 @@ main {
     min-width: 88px;
     max-width: 280px;
     padding: 7px 9px;
-    border: 1px solid var(--table-preview-border);
+    border: 1px solid var(--reference-preview-border);
     overflow-wrap: anywhere;
     text-align: start;
     vertical-align: top;
@@ -728,7 +742,47 @@ main {
     position: sticky;
     top: 0;
     z-index: 1;
-    background: var(--table-preview-header);
+    background: var(--reference-preview-header);
+    font-weight: 650;
+}
+
+.mktero-figure-preview-content {
+    min-width: 0;
+    padding: 10px;
+}
+
+.mktero-figure-preview-viewport {
+    max-height: min(440px, calc(100vh - 144px));
+    overflow: auto;
+    scrollbar-width: thin;
+}
+
+.mktero-figure-preview-viewport .mktero-figure {
+    margin: 0;
+}
+
+.mktero-figure-preview-viewport img {
+    display: block;
+    max-width: 100%;
+    max-height: 340px;
+    margin: 0 auto;
+    border-radius: 4px;
+    object-fit: contain;
+}
+
+.mktero-figure-preview-viewport .mktero-figure-group img + img {
+    margin-top: 10px;
+}
+
+.mktero-figure-preview-viewport figcaption {
+    margin: 9px 2px 0;
+    color: var(--reference-preview-muted);
+    line-height: 1.5;
+    text-align: left;
+}
+
+.mktero-figure-preview-viewport .mktero-figure-label {
+    color: var(--reference-preview-text);
     font-weight: 650;
 }
 
@@ -741,6 +795,11 @@ main {
     animation: mktero-table-target-highlight 3s ease-out;
 }
 
+.markdown-editor-host > .cm-editor .cm-mktero-figure-target-highlight {
+    border-radius: 8px;
+    animation: mktero-figure-target-highlight 3s ease-out;
+}
+
 @keyframes mktero-table-target-highlight {
     0%, 70% {
         border-color: color-mix(in srgb, var(--accent) 75%, var(--border));
@@ -748,6 +807,15 @@ main {
     }
     100% {
         border-color: var(--border);
+        box-shadow: 0 0 0 0 transparent;
+    }
+}
+
+@keyframes mktero-figure-target-highlight {
+    0%, 70% {
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+    }
+    100% {
         box-shadow: 0 0 0 0 transparent;
     }
 }

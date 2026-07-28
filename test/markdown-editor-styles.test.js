@@ -222,17 +222,25 @@ test('styles citation popups and temporary reference highlights', () => {
 
 test('styles table references, previews, and target highlights', () => {
     const reference = ruleBody(
-        '.markdown-editor-host > .cm-editor .cm-mktero-table-reference'
+        [
+            '.markdown-editor-host > .cm-editor .cm-mktero-table-reference,',
+            '.markdown-editor-host > .cm-editor .cm-mktero-figure-reference',
+        ].join('\n')
     );
     assert.match(reference, /color:\s*var\(--accent\)/);
     assert.match(reference, /cursor:\s*pointer/);
 
+    const popupShell = ruleBody([
+        '.mktero-table-preview-popup,',
+        '.mktero-figure-preview-popup',
+    ].join('\n'));
+    assert.match(popupShell, /position:\s*fixed/);
+    assert.match(popupShell, /max-width:\s*calc\(100vw - 48px\)/);
+    assert.match(popupShell, /box-sizing:\s*border-box/);
+    assert.match(popupShell, /z-index:\s*900/);
+
     const popup = ruleBody('.mktero-table-preview-popup');
-    assert.match(popup, /position:\s*fixed/);
     assert.match(popup, /width:\s*min\(700px, calc\(100vw - 48px\)\)/);
-    assert.match(popup, /max-width:\s*calc\(100vw - 48px\)/);
-    assert.match(popup, /box-sizing:\s*border-box/);
-    assert.match(popup, /z-index:\s*900/);
 
     const content = ruleBody('.mktero-table-preview-content');
     assert.match(content, /padding:\s*10px/);
@@ -245,4 +253,34 @@ test('styles table references, previews, and target highlights', () => {
         '.markdown-editor-host > .cm-editor .cm-mktero-table-target-highlight'
     );
     assert.match(highlight, /animation:\s*mktero-table-target-highlight 3s ease-out/);
+});
+
+test('styles figure references, previews, and target highlights', () => {
+    const reference = ruleBody(
+        [
+            '.markdown-editor-host > .cm-editor .cm-mktero-table-reference,',
+            '.markdown-editor-host > .cm-editor .cm-mktero-figure-reference',
+        ].join('\n')
+    );
+    assert.match(reference, /color:\s*var\(--accent\)/);
+    assert.match(reference, /cursor:\s*pointer/);
+
+    const popup = ruleBody('.mktero-figure-preview-popup');
+    assert.match(popup, /width:\s*min\(620px, calc\(100vw - 48px\)\)/);
+
+    const content = ruleBody('.mktero-figure-preview-content');
+    assert.match(content, /padding:\s*10px/);
+
+    const viewport = ruleBody('.mktero-figure-preview-viewport');
+    assert.match(viewport, /max-height:\s*min\(440px, calc\(100vh - 144px\)\)/);
+    assert.match(viewport, /overflow:\s*auto/);
+
+    const image = ruleBody('.mktero-figure-preview-viewport img');
+    assert.match(image, /max-width:\s*100%/);
+    assert.match(image, /object-fit:\s*contain/);
+
+    const highlight = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-figure-target-highlight'
+    );
+    assert.match(highlight, /animation:\s*mktero-figure-target-highlight 3s ease-out/);
 });

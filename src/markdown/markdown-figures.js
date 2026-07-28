@@ -4,6 +4,7 @@ const ACADEMIC_FIGURE_CAPTION_PATTERN = /^((?:(?:algorithm|chart|fig\.?|figure|s
 const ACADEMIC_TABLE_CAPTION_PATTERN = /^(table[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?))([.:])?[ \t]+(\S[\s\S]*)$/iu;
 const EMPTY_IMAGE_LINE_PATTERN = /^( {0,3})!\[[ \t]*\](\([^\r\n]+\))[ \t]*(?:\r?\n)?$/;
 const MARKDOWN_IMAGE_LINE_PATTERN = /^ {0,3}!\[[^\]\r\n]*\]\([^\r\n]+\)[ \t]*(?:\r?\n)?$/;
+const CAPTIONED_IMAGE_LINE_PATTERN = /^ {0,3}!\[((?:\\.|[^\]\\])*)\]\([^\r\n]+\)[ \t]*(?:\r?\n)?$/;
 const RAW_HTML_TABLE_START_PATTERN = /^ {0,3}<table(?:\s|>)/i;
 const RAW_HTML_TABLE_END_PATTERN = /<\/table>[ \t]*$/i;
 const BLANK_LINE_PATTERN = /^[ \t]*(?:\r?\n)?$/;
@@ -146,6 +147,38 @@ export function findAcademicFigureGroups(markdown) {
     }
 
     return groups;
+}
+
+export function findAcademicFigures(markdown) {
+    const source = String(markdown || '');
+    const lines = markdownLineRecords(source);
+    const blockedLines = findBlockedLines(lines);
+    const groups = findAcademicFigureGroups(source);
+    const figures = groups.map(group => ({
+        ...group,
+        source: source.slice(group.from, group.to),
+    }));
+
+    for (const [index, line] of lines.entries()) {
+        if (blockedLines.has(index)
+            || groups.some(group => rangeContainsLine(group, line))) {
+            continue;
+        }
+        const match = CAPTIONED_IMAGE_LINE_PATTERN.exec(line.raw);
+        const caption = match
+            ? parseAcademicFigureCaption(unescapeImageDescription(match[1]))
+            : null;
+        if (!caption) continue;
+        figures.push({
+            from: line.from,
+            to: line.to,
+            caption,
+            images: [{ index, source: line.text.trim() }],
+            source: line.text.trim(),
+        });
+    }
+
+    return figures.sort((left, right) => left.from - right.from);
 }
 
 export function findAcademicTableGroups(markdown) {
@@ -331,6 +364,14 @@ function isIndentedCodeLine(line) {
 
 function lineEnding(line) {
     return /\r?\n$/.exec(line || '')?.[0] || '';
+}
+
+function rangeContainsLine(range, line) {
+    return line.from >= range.from && line.to <= range.to;
+}
+
+function unescapeImageDescription(value) {
+    return String(value).replace(/\\([\\\[\]])/g, '$1');
 }
 
 function formatCaptionedImage(image, caption, ending) {

@@ -11,6 +11,9 @@ import {
     findAcademicTableGroups,
 } from '../markdown/markdown-figures.js';
 import { analyzeMarkdownCitations } from '../markdown/markdown-citations.js';
+import {
+    analyzeMarkdownFigureReferences,
+} from '../markdown/markdown-figure-references.js';
 import { analyzeMarkdownTableReferences } from '../markdown/markdown-table-references.js';
 import { EditableTableWidget } from './editable-table-widget.js';
 import {
@@ -24,6 +27,7 @@ const setInlineEditingRange = StateEffect.define();
 export const clearInlineEditing = StateEffect.define();
 export const setReferenceHighlight = StateEffect.define();
 export const setTableHighlight = StateEffect.define();
+export const setFigureHighlight = StateEffect.define();
 
 class RenderedMarkdownWidget extends WidgetType {
     constructor({
@@ -172,8 +176,10 @@ export function createInlineRenderingExtension({
     openImagePreview,
     citationPopup,
     tablePreviewPopup,
+    figurePreviewPopup,
     activateCitation,
     activateTableReference,
+    activateFigureReference,
     enterEditing,
     exitEditing,
 }) {
@@ -184,20 +190,27 @@ export function createInlineRenderingExtension({
         openImagePreview,
         citationPopup,
         tablePreviewPopup,
+        figurePreviewPopup,
         activateCitation,
         activateTableReference,
+        activateFigureReference,
         enterEditing,
         exitEditing,
         renderVersion: 0,
         editingRange: null,
         highlightedReferenceID: null,
         highlightedTableID: null,
+        highlightedFigureID: null,
         citationAnalysisDocument: null,
         citationAnalysis: null,
         citationTargets: new Map(),
-        tableReferenceAnalysisDocument: null,
-        tableReferenceAnalysis: null,
-        tableTargets: new Map(),
+        tableReferences: createReferenceAnalysisCache(
+            analyzeMarkdownTableReferences
+        ),
+        figureReferences: createReferenceAnalysisCache(
+            analyzeMarkdownFigureReferences,
+            { indexTargetsByFrom: true }
+        ),
     };
     const renderingField = StateField.define({
         create(state) {
@@ -210,6 +223,7 @@ export function createInlineRenderingExtension({
             let editingRangeChanged = false;
             let referenceHighlightChanged = false;
             let tableHighlightChanged = false;
+            let figureHighlightChanged = false;
             if (shouldRefresh) context.renderVersion++;
             if (transaction.docChanged && context.editingRange) {
                 context.editingRange = {
@@ -234,11 +248,16 @@ export function createInlineRenderingExtension({
                     context.highlightedTableID = effect.value;
                     tableHighlightChanged = true;
                 }
+                else if (effect.is(setFigureHighlight)) {
+                    context.highlightedFigureID = effect.value;
+                    figureHighlightChanged = true;
+                }
             }
             if (transaction.docChanged
                 || editingRangeChanged
                 || referenceHighlightChanged
                 || tableHighlightChanged
+                || figureHighlightChanged
                 || shouldRefresh) {
                 return buildDecorations(transaction.state, context);
             }
@@ -412,10 +431,14 @@ function positionInsideRange(position, range) {
 function buildDecorations(state, context) {
     const decorations = [];
     const excludedMathRanges = collectExcludedMathRanges(state);
-    const analyzedTableReferences = tableReferenceAnalysis(state, context);
+    const analyzedTableReferences = referenceAnalysis(
+        state,
+        context.tableReferences
+    );
     const tableTargetsByFrom = new Map(
         analyzedTableReferences.targets.map(target => [target.from, target])
     );
+    referenceAnalysis(state, context.figureReferences);
     const figureGroups = findAcademicFigureGroups(state.doc.toString())
         .filter(group => !editingRangeIntersects(context, group.from, group.to));
     const tableGroups = findAcademicTableGroups(state.doc.toString())
@@ -459,6 +482,7 @@ function buildDecorations(state, context) {
     });
     decorateCitations(state, decorations, context);
     decorateTableReferences(state, decorations, context);
+    decorateFigureReferences(state, decorations, context);
     return Decoration.set(decorations, true);
 }
 
@@ -553,33 +577,83 @@ function citationAnalysis(state, context) {
     return result;
 }
 
-function tableReferenceAnalysis(state, context) {
-    if (context.tableReferenceAnalysisDocument === state.doc) {
-        return context.tableReferenceAnalysis;
-    }
-    const result = analyzeMarkdownTableReferences(state.doc.toString());
-    context.tableReferenceAnalysisDocument = state.doc;
-    context.tableReferenceAnalysis = result;
-    context.tableTargets = new Map(
+function createReferenceAnalysisCache(analyze, {
+    indexTargetsByFrom = false,
+} = {}) {
+    return {
+        analyze,
+        document: null,
+        result: null,
+        targets: new Map(),
+        targetsByFrom: indexTargetsByFrom ? new Map() : null,
+    };
+}
+
+function referenceAnalysis(state, cache) {
+    if (cache.document === state.doc) return cache.result;
+    const result = cache.analyze(state.doc.toString());
+    cache.document = state.doc;
+    cache.result = result;
+    cache.targets = new Map(
         result.targets.map(target => [target.id, target])
     );
+    if (cache.targetsByFrom) {
+        cache.targetsByFrom = new Map(
+            result.targets.map(target => [target.from, target])
+        );
+    }
     return result;
 }
 
 function decorateTableReferences(state, decorations, context) {
-    for (const reference of tableReferenceAnalysis(state, context).references) {
+    decoratePreviewReferences(
+        state,
+        decorations,
+        context,
+        referenceAnalysis(state, context.tableReferences).references,
+        context.tableReferences.targets,
+        {
+            className: 'cm-mktero-table-reference',
+            targetAttribute: 'data-table-target-id',
+        }
+    );
+}
+
+function decorateFigureReferences(state, decorations, context) {
+    decoratePreviewReferences(
+        state,
+        decorations,
+        context,
+        referenceAnalysis(state, context.figureReferences).references,
+        context.figureReferences.targets,
+        {
+            className: 'cm-mktero-figure-reference',
+            targetAttribute: 'data-figure-target-id',
+        }
+    );
+}
+
+function decoratePreviewReferences(
+    state,
+    decorations,
+    context,
+    references,
+    targets,
+    { className, targetAttribute }
+) {
+    for (const reference of references) {
         if (editingRangeIntersects(context, reference.from, reference.to)) {
             continue;
         }
-        const target = context.tableTargets.get(reference.targetId);
+        const target = targets.get(reference.targetId);
         if (!target) continue;
         decorations.push(Decoration.mark({
-            class: 'cm-mktero-table-reference',
+            class: className,
             attributes: {
                 role: 'link',
                 tabindex: '0',
                 'aria-label': `预览并跳转到 ${target.label}`,
-                'data-table-target-id': target.id,
+                [targetAttribute]: target.id,
             },
         }).range(reference.from, reference.to));
     }
@@ -622,11 +696,6 @@ function citationElement(event, view) {
     return citation && view.dom.contains(citation) ? citation : null;
 }
 
-function tableReferenceElement(event, view) {
-    const reference = event.target?.closest?.('.cm-mktero-table-reference');
-    return reference && view.dom.contains(reference) ? reference : null;
-}
-
 function referenceInteraction(event, view, context) {
     const citation = citationElement(event, view);
     if (citation) {
@@ -634,11 +703,11 @@ function referenceInteraction(event, view, context) {
             element: citation,
             popup: context.citationPopup,
             open() {
-                context.tablePreviewPopup?.close();
+                closeReferencePopupsExcept(context, context.citationPopup);
                 openCitationPopup(citation, view, context);
             },
             focusPopup() {
-                context.tablePreviewPopup?.close();
+                closeReferencePopupsExcept(context, context.citationPopup);
                 openCitationPopup(citation, view, context, true);
             },
             activate() {
@@ -646,35 +715,63 @@ function referenceInteraction(event, view, context) {
             },
         };
     }
-    const tableReference = tableReferenceElement(event, view);
-    if (!tableReference) return null;
-    return {
-        element: tableReference,
-        popup: context.tablePreviewPopup,
-        open() {
-            context.citationPopup?.close();
-            openTablePreviewPopup(tableReference, context);
-        },
-        activate() {
-            activateTableReferenceElement(tableReference, view, context);
-        },
-    };
+    return previewReferenceInteraction(event, view, context);
 }
 
 function referencePopups(context) {
-    return [context.citationPopup, context.tablePreviewPopup];
+    return [
+        context.citationPopup,
+        ...previewReferenceTypes(context).map(type => type.popup),
+    ];
 }
 
-function tableTargetForReference(reference, context) {
-    return context.tableTargets.get(
-        reference.getAttribute('data-table-target-id') || ''
-    );
+function closeReferencePopupsExcept(context, retainedPopup) {
+    for (const popup of referencePopups(context)) {
+        if (popup !== retainedPopup) popup?.close();
+    }
 }
 
-function openTablePreviewPopup(reference, context) {
-    const target = tableTargetForReference(reference, context);
-    if (!target) return;
-    context.tablePreviewPopup?.open({ anchor: reference, target });
+function previewReferenceTypes(context) {
+    return [
+        {
+            selector: '.cm-mktero-table-reference',
+            targetAttribute: 'data-table-target-id',
+            targets: context.tableReferences.targets,
+            popup: context.tablePreviewPopup,
+            activate: context.activateTableReference,
+        },
+        {
+            selector: '.cm-mktero-figure-reference',
+            targetAttribute: 'data-figure-target-id',
+            targets: context.figureReferences.targets,
+            popup: context.figurePreviewPopup,
+            activate: context.activateFigureReference,
+        },
+    ];
+}
+
+function previewReferenceInteraction(event, view, context) {
+    for (const type of previewReferenceTypes(context)) {
+        const element = event.target?.closest?.(type.selector);
+        if (!element || !view.dom.contains(element)) continue;
+        const target = type.targets.get(
+            element.getAttribute(type.targetAttribute) || ''
+        );
+        if (!target) return null;
+        return {
+            element,
+            popup: type.popup,
+            open() {
+                closeReferencePopupsExcept(context, type.popup);
+                type.popup?.open({ anchor: element, target });
+            },
+            activate() {
+                type.popup?.close();
+                type.activate?.(view, target);
+            },
+        };
+    }
+    return null;
 }
 
 function targetsForCitation(citation, context) {
@@ -702,14 +799,6 @@ function activateCitationElement(citation, view, context) {
     if (!target) return false;
     context.citationPopup?.close();
     context.activateCitation?.(view, target);
-    return true;
-}
-
-function activateTableReferenceElement(reference, view, context) {
-    const target = tableTargetForReference(reference, context);
-    if (!target) return false;
-    context.tablePreviewPopup?.close();
-    context.activateTableReference?.(view, target);
     return true;
 }
 
@@ -1010,6 +1099,8 @@ function renderedRange(node, state, display, context) {
     const source = node.table?.source || state.sliceDoc(node.from, node.to);
     const tableIsHighlighted = node.tableTarget?.id
         && node.tableTarget.id === context.highlightedTableID;
+    const figureIsHighlighted = context.figureReferences.targetsByFrom
+        ?.get(node.from)?.id === context.highlightedFigureID;
     if (display === 'table') {
         return Decoration.replace({
             widget: new EditableTableWidget({
@@ -1044,6 +1135,9 @@ function renderedRange(node, state, display, context) {
                     : '',
                 tableIsHighlighted
                     ? 'cm-mktero-table-target-highlight'
+                    : '',
+                figureIsHighlighted
+                    ? 'cm-mktero-figure-target-highlight'
                     : '',
             ].filter(Boolean).join(' '),
             ...context,

@@ -8,12 +8,14 @@ import {
     clearInlineEditing,
     createInlineRenderingExtension,
     refreshInlineRendering,
+    setFigureHighlight,
     setReferenceHighlight,
     setTableHighlight,
 } from './inline-rendering.js';
 import { runEditorCommand, runSaveShortcut } from './editor-commands.js';
 import { createImagePreview } from './image-preview.js';
 import { createCitationPopup } from './citation-popup.js';
+import { createFigurePreviewPopup } from './figure-preview-popup.js';
 import { createTablePreviewPopup } from './table-preview-popup.js';
 
 const externalUpdate = Annotation.define();
@@ -89,6 +91,9 @@ export function createInlineMarkdownEditor({
     const tablePreviewPopup = createTablePreviewPopup(parent, {
         resolveImageURL,
     });
+    const figurePreviewPopup = createFigurePreviewPopup(parent, {
+        resolveImageURL,
+    });
     const editingMode = new Compartment();
     let editingEnabled = false;
     let destroyed = false;
@@ -102,6 +107,29 @@ export function createInlineMarkdownEditor({
         effect: setTableHighlight,
         isDestroyed: () => destroyed,
     });
+    const figureHighlight = createTimedTargetHighlight({
+        ownerWindow,
+        effect: setFigureHighlight,
+        isDestroyed: () => destroyed,
+    });
+    const referenceFeatures = {
+        citation: {
+            popup: citationPopup,
+            highlight: citationHighlight,
+            effect: setReferenceHighlight,
+        },
+        table: {
+            popup: tablePreviewPopup,
+            highlight: tableHighlight,
+            effect: setTableHighlight,
+        },
+        figure: {
+            popup: figurePreviewPopup,
+            highlight: figureHighlight,
+            effect: setFigureHighlight,
+        },
+    };
+    const referenceFeatureList = Object.values(referenceFeatures);
     const setEditingEnabled = (editorView, enabled) => {
         if (editingEnabled === enabled) return;
         editingEnabled = enabled;
@@ -118,13 +146,15 @@ export function createInlineMarkdownEditor({
         ownerWindow,
         event => {
             if (!view) return;
-            if (citationPopup.contains(event.target)
-                || tablePreviewPopup.contains(event.target)) {
+            if (referenceFeatureList.some(feature => (
+                feature.popup.contains(event.target)
+            ))) {
                 return;
             }
             if (event.type === 'scroll' || event.type === 'wheel') {
-                citationPopup.close();
-                tablePreviewPopup.close();
+                for (const feature of referenceFeatureList) {
+                    feature.popup.close();
+                }
             }
             view.requestMeasure();
             if (event.type === 'scroll'
@@ -146,8 +176,13 @@ export function createInlineMarkdownEditor({
                     openImagePreview: imagePreview.open,
                     citationPopup,
                     tablePreviewPopup,
-                    activateCitation: citationHighlight.activate,
-                    activateTableReference: tableHighlight.activate,
+                    figurePreviewPopup,
+                    activateCitation:
+                        referenceFeatures.citation.highlight.activate,
+                    activateTableReference:
+                        referenceFeatures.table.highlight.activate,
+                    activateFigureReference:
+                        referenceFeatures.figure.highlight.activate,
                     enterEditing: editorView => setEditingEnabled(editorView, true),
                     exitEditing: editorView => setEditingEnabled(editorView, false),
                 }),
@@ -188,8 +223,7 @@ export function createInlineMarkdownEditor({
         });
     }
     catch (error) {
-        tablePreviewPopup.destroy();
-        citationPopup.destroy();
+        for (const feature of referenceFeatureList) feature.popup.destroy();
         imagePreview.destroy();
         removeDOMActivation();
         releaseDOMGlobals(ownerWindow);
@@ -201,17 +235,16 @@ export function createInlineMarkdownEditor({
         },
         setMarkdown(markdown) {
             activateDOMGlobals(ownerWindow);
-            citationPopup.close();
-            tablePreviewPopup.close();
-            citationHighlight.cancel();
-            tableHighlight.cancel();
+            for (const feature of referenceFeatureList) {
+                feature.popup.close();
+                feature.highlight.cancel();
+            }
             const value = String(markdown || '');
             if (value === view.state.doc.toString()) {
                 view.dispatch({
-                    effects: [
-                        setReferenceHighlight.of(null),
-                        setTableHighlight.of(null),
-                    ],
+                    effects: referenceFeatureList.map(feature => (
+                        feature.effect.of(null)
+                    )),
                 });
                 return;
             }
@@ -220,8 +253,7 @@ export function createInlineMarkdownEditor({
                 changes: { from: 0, to: view.state.doc.length, insert: value },
                 effects: [
                     clearInlineEditing.of(null),
-                    setReferenceHighlight.of(null),
-                    setTableHighlight.of(null),
+                    ...referenceFeatureList.map(feature => feature.effect.of(null)),
                 ],
                 annotations: [
                     externalUpdate.of(true),
@@ -262,10 +294,10 @@ export function createInlineMarkdownEditor({
             destroyed = true;
             activateDOMGlobals(ownerWindow);
             try {
-                citationHighlight.cancel();
-                tableHighlight.cancel();
-                citationPopup.destroy();
-                tablePreviewPopup.destroy();
+                for (const feature of referenceFeatureList) {
+                    feature.highlight.cancel();
+                    feature.popup.destroy();
+                }
                 imagePreview.destroy();
                 view.destroy();
             }
