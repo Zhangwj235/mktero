@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     getMinerUCacheEnabled,
     getMinerUApiKey,
+    getZoteroLocale,
     MINERU_API_KEY_PREF,
     MINERU_CACHE_ENABLED_PREF,
     MINERU_PREFERENCE_PANE_ID,
@@ -38,6 +39,36 @@ test('reads whether the local MinerU cache is enabled', () => {
 
     assert.equal(getMinerUCacheEnabled(zotero), false);
     assert.deepEqual(calls, [{ key: MINERU_CACHE_ENABLED_PREF, global: true }]);
+});
+
+test('uses the Zotero locale and ignores the operating system locale', () => {
+    assert.equal(
+        getZoteroLocale(
+            { locale: 'zh-CN' },
+            {
+                locale: {
+                    systemLocaleAsBCP47: 'en-GB',
+                    appLocaleAsBCP47: 'fr-FR',
+                },
+            }
+        ),
+        'zh-CN'
+    );
+    assert.equal(
+        getZoteroLocale(
+            {},
+            { locale: { appLocaleAsBCP47: 'fr-FR' } }
+        ),
+        'fr-FR'
+    );
+    assert.equal(
+        getZoteroLocale(
+            {},
+            { locale: { systemLocaleAsBCP47: 'zh-CN' } }
+        ),
+        ''
+    );
+    assert.equal(getZoteroLocale({}, null), '');
 });
 
 test('registers and opens the Mktero preference pane', async () => {

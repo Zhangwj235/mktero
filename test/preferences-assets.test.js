@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('ships MinerU token, cache preferences, and Markdown UI assets', async () => {
+test('ships MinerU token, cache preferences, and localized Markdown UI assets', async () => {
     const [
         prefs,
         pane,
@@ -23,6 +23,9 @@ test('ships MinerU token, cache preferences, and Markdown UI assets', async () =
 
     assert.match(prefs, /pref\("extensions\.mktero\.mineruApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.cacheEnabled", true\)/);
+    assert.doesNotMatch(prefs, /extensions\.mktero\.language/);
+    assert.doesNotMatch(pane, /id="mktero-language"/);
+    assert.doesNotMatch(pane, /preference="extensions\.mktero\.language"/);
     assert.match(pane, /preference="extensions\.mktero\.mineruApiKey"/);
     assert.match(pane, /preference="extensions\.mktero\.cacheEnabled"/);
     assert.match(pane, /id="mktero-clear-cache"/);
@@ -31,13 +34,15 @@ test('ships MinerU token, cache preferences, and Markdown UI assets', async () =
     const visiblePreferenceText = pane.replace(/<[^>]+>/g, ' ');
     assert.doesNotMatch(visiblePreferenceText, /mineru/i);
     assert.match(script, /createZoteroMarkdownCache/);
+    assert.doesNotMatch(script, /setMkteroLanguagePreference/);
     assert.match(bootstrap, /new MinerUClient/);
+    assert.doesNotMatch(bootstrap, /observeMkteroLanguagePreference/);
     assert.match(markdownView, /createInlineMarkdownEditor/);
     assert.doesNotMatch(markdownView, /'mktero-show-source'/);
     assert.doesNotMatch(markdownView, /'mktero-reparse'/);
     assert.match(markdownView, /__MKTERO_MARKDOWN_STYLES__/);
     assert.doesNotMatch(markdownView, /STYLESHEET_CACHE_KEY/);
-    assert.match(markdownView, /bundled Markdown styles are unavailable/);
+    assert.match(markdownView, /error\.markdownStylesUnavailable/);
     assert.match(tabPresenter, /TAB_ICON = 'markdown'/);
     assert.match(buildScript, /ui\/preferences\.js/);
     assert.match(buildScript, /ui\/icons\/markdown\.svg/);

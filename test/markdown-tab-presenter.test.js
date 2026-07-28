@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
+import { createLocalization } from '../src/i18n/localization.js';
 import { MarkdownTabPresenter } from '../src/ui/markdown-tab-presenter.js';
 
 function createMainWindow(document = {}) {
@@ -287,5 +288,23 @@ test('ignores conversion updates after the Markdown tab is closed', () => {
     assert.equal(presentation.model.status, 'loading');
     assert.equal(presentation.model.markdown, '');
     assert.deepEqual(mainWindow.renamed, []);
+    assert.equal(presentation.view.renderCalls.length, 1);
+});
+
+test('localizes new loading tabs from the Zotero locale', () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const localization = createLocalization({ zoteroLocale: 'zh-CN' });
+    const presenter = new MarkdownTabPresenter({
+        zotero: { getMainWindow: () => mainWindow },
+        rootURI: 'resource://mktero/',
+        createView: harness.createView.bind(harness),
+        localization,
+    });
+
+    const presentation = presenter.open(42);
+    assert.equal(mainWindow.added[0].options.title, '正在转换 PDF…');
+    assert.equal(harness.calls[0].localization, localization);
+
     assert.equal(presentation.view.renderCalls.length, 1);
 });
