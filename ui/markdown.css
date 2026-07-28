@@ -697,7 +697,6 @@ main {
     padding: 8px 10px;
     border-radius: 4px;
     color: var(--muted);
-    background: color-mix(in srgb, var(--surface) 88%, transparent);
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 12px;
     line-height: 1.5;
@@ -765,6 +764,23 @@ main {
     font-family: ui-sans-serif, system-ui, sans-serif;
     font-size: 13px;
     line-height: 1.45;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-table table caption,
+.markdown-editor-host > .cm-editor .cm-mktero-html-block table caption {
+    caption-side: top;
+    padding: 8px 10px;
+    color: var(--muted);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    letter-spacing: 0;
+    text-align: center;
+}
+
+.markdown-editor-host > .cm-editor .mktero-table-label {
+    color: var(--text);
+    font-weight: 650;
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-table th,

@@ -1,4 +1,5 @@
 import { WidgetType } from '@codemirror/view';
+import { parseGFMTableRow } from '../markdown/markdown-tables.js';
 import {
     appendRenderedMarkdown,
     installRenderedImagePreview,
@@ -12,6 +13,7 @@ export class EditableTableWidget extends WidgetType {
         source,
         from,
         to,
+        caption,
         resolveImageURL,
         openLink,
         openImagePreview,
@@ -22,6 +24,7 @@ export class EditableTableWidget extends WidgetType {
         this.source = source;
         this.from = from;
         this.to = to;
+        this.caption = caption;
         this.resolveImageURL = resolveImageURL;
         this.openLink = openLink;
         this.openImagePreview = openImagePreview;
@@ -33,6 +36,7 @@ export class EditableTableWidget extends WidgetType {
         return this.source === other.source
             && this.from === other.from
             && this.to === other.to
+            && this.caption?.text === other.caption?.text
             && this.renderVersion === other.renderVersion;
     }
 
@@ -44,6 +48,9 @@ export class EditableTableWidget extends WidgetType {
         const tableModel = parseGFMTable(this.source);
         const table = container.querySelector('table');
         if (!tableModel || !table) return container;
+        if (this.caption) {
+            table.prepend(createTableCaption(document, this.caption));
+        }
 
         const columnCount = tableModel.header.length;
         const values = [tableModel.header, ...tableModel.body].flat();
@@ -146,11 +153,20 @@ export class EditableTableWidget extends WidgetType {
     }
 }
 
+function createTableCaption(document, caption) {
+    const element = document.createElement('caption');
+    const label = document.createElement('span');
+    label.className = 'mktero-table-label';
+    label.textContent = caption.label;
+    element.append(label, ` ${caption.description}`);
+    return element;
+}
+
 function parseGFMTable(source) {
     const lines = source.trim().split(/\r?\n/);
     if (lines.length < 2) return null;
-    const header = parseTableRow(lines[0]);
-    const separator = parseTableRow(lines[1]);
+    const header = parseGFMTableRow(lines[0]);
+    const separator = parseGFMTableRow(lines[1]);
     if (!header.length || separator.length !== header.length) return null;
     const alignment = separator.map(cell => {
         const value = cell.trim();
@@ -163,36 +179,11 @@ function parseGFMTable(source) {
     if (alignment.includes(null)) return null;
 
     const body = lines.slice(2).map(line => {
-        const cells = parseTableRow(line);
+        const cells = parseGFMTableRow(line);
         while (cells.length < header.length) cells.push('');
         return cells.slice(0, header.length);
     });
     return { header, alignment, body };
-}
-
-function parseTableRow(line) {
-    let source = line.trim();
-    if (source.startsWith('|')) source = source.slice(1);
-    if (source.endsWith('|') && !source.endsWith('\\|')) {
-        source = source.slice(0, -1);
-    }
-    const cells = [];
-    let cell = '';
-    for (let index = 0; index < source.length; index++) {
-        if (source[index] === '\\' && source[index + 1] === '|') {
-            cell += '|';
-            index++;
-        }
-        else if (source[index] === '|') {
-            cells.push(cell.trim());
-            cell = '';
-        }
-        else {
-            cell += source[index];
-        }
-    }
-    cells.push(cell.trim());
-    return cells;
 }
 
 function serializeGFMTable(table) {

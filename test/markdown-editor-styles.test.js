@@ -99,7 +99,7 @@ test('styles academic figure captions as distinct labels', () => {
     assert.match(caption, /padding:\s*8px 10px/);
     assert.doesNotMatch(caption, /border-left/);
     assert.match(caption, /border-radius:\s*4px/);
-    assert.match(caption, /background:\s*color-mix\(/);
+    assert.doesNotMatch(caption, /background\s*:/);
     assert.match(caption, /font-family:\s*ui-sans-serif/);
     assert.match(caption, /font-size:\s*12px/);
     assert.match(caption, /letter-spacing:\s*0/);
@@ -107,6 +107,26 @@ test('styles academic figure captions as distinct labels', () => {
 
     const label = ruleBody(
         '.markdown-editor-host > .cm-editor .mktero-figure-label'
+    );
+    assert.match(label, /color:\s*var\(--text\)/);
+    assert.match(label, /font-weight:\s*650/);
+});
+
+test('styles academic table captions above tables without a background', () => {
+    const caption = ruleBody([
+        '.markdown-editor-host > .cm-editor .cm-mktero-table table caption,',
+        '.markdown-editor-host > .cm-editor .cm-mktero-html-block table caption',
+    ].join('\n'));
+    assert.match(caption, /caption-side:\s*top/);
+    assert.match(caption, /padding:\s*8px 10px/);
+    assert.match(caption, /color:\s*var\(--muted\)/);
+    assert.match(caption, /font-size:\s*12px/);
+    assert.match(caption, /letter-spacing:\s*0/);
+    assert.match(caption, /text-align:\s*center/);
+    assert.doesNotMatch(caption, /background\s*:/);
+
+    const label = ruleBody(
+        '.markdown-editor-host > .cm-editor .mktero-table-label'
     );
     assert.match(label, /color:\s*var\(--text\)/);
     assert.match(label, /font-weight:\s*650/);

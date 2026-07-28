@@ -6,7 +6,10 @@ import {
     findInlineMathMatches,
     safeMarkdownLinkURL,
 } from '../markdown/markdown-html.js';
-import { findAcademicFigureGroups } from '../markdown/markdown-figures.js';
+import {
+    findAcademicFigureGroups,
+    findAcademicTableGroups,
+} from '../markdown/markdown-figures.js';
 import { analyzeMarkdownCitations } from '../markdown/markdown-citations.js';
 import { EditableTableWidget } from './editable-table-widget.js';
 import {
@@ -393,13 +396,24 @@ function buildDecorations(state, context) {
     const excludedMathRanges = collectExcludedMathRanges(state);
     const figureGroups = findAcademicFigureGroups(state.doc.toString())
         .filter(group => !editingRangeIntersects(context, group.from, group.to));
+    const tableGroups = findAcademicTableGroups(state.doc.toString())
+        .filter(group => !editingRangeIntersects(context, group.from, group.to));
+    const renderedGroups = [...figureGroups, ...tableGroups];
     for (const group of figureGroups) {
         decorations.push(renderedRange(group, state, 'image', context));
+    }
+    for (const group of tableGroups) {
+        decorations.push(renderedRange(
+            group,
+            state,
+            group.table.kind === 'gfm' ? 'table' : 'html-block',
+            context
+        ));
     }
 
     syntaxTree(state).iterate({
         enter(node) {
-            if (figureGroups.some(group => rangeContains(group, node))) {
+            if (renderedGroups.some(group => rangeContains(group, node))) {
                 return false;
             }
             const result = decorateSyntaxNode(node, state, decorations, context);
@@ -886,13 +900,14 @@ function dollarWrappedNumericCitationContent(source) {
 }
 
 function renderedRange(node, state, display, context) {
-    const source = state.sliceDoc(node.from, node.to);
+    const source = node.table?.source || state.sliceDoc(node.from, node.to);
     if (display === 'table') {
         return Decoration.replace({
             widget: new EditableTableWidget({
                 source,
-                from: node.from,
-                to: node.to,
+                from: node.table?.from ?? node.from,
+                to: node.table?.to ?? node.to,
+                caption: node.caption,
                 ...context,
             }),
             block: true,
@@ -900,10 +915,11 @@ function renderedRange(node, state, display, context) {
     }
     return Decoration.replace({
         widget: new RenderedMarkdownWidget({
-            source,
+            source: state.sliceDoc(node.from, node.to),
             display,
             from: node.from,
-            extraClassName: display === 'html-block' && /^\s*<table\b/i.test(source)
+            extraClassName: display === 'html-block'
+                && (node.table?.kind === 'html' || /^\s*<table\b/i.test(source))
                 ? 'cm-mktero-html-table'
                 : '',
             ...context,

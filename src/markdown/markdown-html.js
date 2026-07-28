@@ -2,6 +2,7 @@ import { Marked } from 'marked';
 import katex from 'katex';
 import {
     findAcademicFigureGroups,
+    findAcademicTableGroups,
     parseAcademicFigureCaption,
 } from './markdown-figures.js';
 
@@ -48,6 +49,7 @@ export function renderMarkdownHTML(markdown, { resolveImageURL = () => null } = 
         extensions: [
             createMathBlockExtension(mathBudget),
             createMathInlineExtension(mathBudget),
+            createAcademicTableExtension(),
         ],
     });
     const figureGroupHTML = renderStandaloneAcademicFigureGroup(
@@ -56,12 +58,18 @@ export function renderMarkdownHTML(markdown, { resolveImageURL = () => null } = 
         resolveImageURL
     );
     if (figureGroupHTML) return figureGroupHTML;
+    return renderParsedMarkdown(markdown, parser);
+}
+
+function renderParsedMarkdown(markdown, parser) {
+    if (!markdown) return '';
     const tokens = parser.lexer(markdown);
     const transformedTokens = transformBlockTokens(tokens, parser.Lexer, parser.defaults, {
         links: tokens.links,
     });
-    transformedTokens.links = tokens.links;
-    return parser.parser(transformedTokens);
+    const groupedTokens = groupAcademicTableTokens(transformedTokens);
+    groupedTokens.links = tokens.links;
+    return parser.parser(groupedTokens);
 }
 
 function createSafeRenderer(resolveImageURL, mathBudget) {
@@ -143,6 +151,71 @@ function renderFigureCaption(caption) {
         + `<span class="mktero-figure-label">${escapeHTML(caption.label)}</span>`
         + ` ${escapeHTML(caption.description)}`
         + '</figcaption>';
+}
+
+function renderTableCaption(caption) {
+    return '<caption>'
+        + `<span class="mktero-table-label">${escapeHTML(caption.label)}</span>`
+        + ` ${escapeHTML(caption.description)}`
+        + '</caption>';
+}
+
+function createAcademicTableExtension() {
+    return {
+        name: 'mkteroAcademicTable',
+        renderer(token) {
+            const table = this.parser.parse([token.table]).trim();
+            return table.replace(
+                /^<table>/,
+                `<table>${renderTableCaption(token.caption)}`
+            );
+        },
+    };
+}
+
+function groupAcademicTableTokens(tokens) {
+    const grouped = [];
+    for (let index = 0; index < tokens.length; index++) {
+        const captionToken = tokens[index];
+        if (captionToken.type !== 'paragraph') {
+            grouped.push(captionToken);
+            continue;
+        }
+
+        let tableIndex = index + 1;
+        while (tokens[tableIndex]?.type === 'space') tableIndex++;
+        const tableToken = tokens[tableIndex];
+        if (!['html', 'table'].includes(tableToken?.type)) {
+            grouped.push(captionToken);
+            continue;
+        }
+
+        const source = tokens
+            .slice(index, tableIndex + 1)
+            .map(token => token.raw || '')
+            .join('');
+        const groups = findAcademicTableGroups(source);
+        const group = groups.length === 1 ? groups[0] : null;
+        const kindMatches = group?.table.kind === 'html'
+            ? tableToken.type === 'html'
+            : group?.table.kind === 'gfm' && tableToken.type === 'table';
+        if (!group
+            || !kindMatches
+            || source.slice(0, group.from).trim()
+            || source.slice(group.to).trim()) {
+            grouped.push(captionToken);
+            continue;
+        }
+
+        grouped.push({
+            type: 'mkteroAcademicTable',
+            raw: source,
+            caption: group.caption,
+            table: tableToken,
+        });
+        index = tableIndex;
+    }
+    return grouped;
 }
 
 function standaloneImageToken(tokens) {

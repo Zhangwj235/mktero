@@ -1,6 +1,11 @@
+import { parseGFMTableRow } from './markdown-tables.js';
+
 const ACADEMIC_FIGURE_CAPTION_PATTERN = /^((?:(?:algorithm|chart|fig\.?|figure|scheme|table)[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?)[.:]|fig\.[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?)))[ \t]+(\S[\s\S]*)$/iu;
+const ACADEMIC_TABLE_CAPTION_PATTERN = /^(table[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?))([.:])?[ \t]+(\S[\s\S]*)$/iu;
 const EMPTY_IMAGE_LINE_PATTERN = /^( {0,3})!\[[ \t]*\](\([^\r\n]+\))[ \t]*(?:\r?\n)?$/;
 const MARKDOWN_IMAGE_LINE_PATTERN = /^ {0,3}!\[[^\]\r\n]*\]\([^\r\n]+\)[ \t]*(?:\r?\n)?$/;
+const RAW_HTML_TABLE_START_PATTERN = /^ {0,3}<table(?:\s|>)/i;
+const RAW_HTML_TABLE_END_PATTERN = /<\/table>[ \t]*$/i;
 const BLANK_LINE_PATTERN = /^[ \t]*(?:\r?\n)?$/;
 
 export function parseAcademicFigureCaption(value) {
@@ -11,6 +16,17 @@ export function parseAcademicFigureCaption(value) {
         text,
         label: match[1],
         description: match[2],
+    };
+}
+
+export function parseAcademicTableCaption(value) {
+    const text = String(value || '').trim();
+    const match = ACADEMIC_TABLE_CAPTION_PATTERN.exec(text);
+    if (!match) return null;
+    return {
+        text,
+        label: match[1] + (match[2] || ''),
+        description: match[3],
     };
 }
 
@@ -130,6 +146,93 @@ export function findAcademicFigureGroups(markdown) {
     }
 
     return groups;
+}
+
+export function findAcademicTableGroups(markdown) {
+    const source = String(markdown || '');
+    const lines = markdownLineRecords(source);
+    const blockedLines = findBlockedLines(lines);
+    const groups = [];
+
+    for (let index = 0; index < lines.length; index++) {
+        if (blockedLines.has(index)) continue;
+        const caption = parseAcademicTableCaption(lines[index].text);
+        if (!caption) continue;
+
+        const tableIndex = nearbyLineIndex(lines, index + 1);
+        const table = academicTableAt(lines, tableIndex, blockedLines);
+        if (!table) continue;
+        groups.push({
+            from: lines[index].from,
+            to: table.to,
+            caption,
+            table,
+        });
+        index = table.lastLineIndex;
+    }
+
+    return groups;
+}
+
+function academicTableAt(lines, index, blockedLines) {
+    if (index >= lines.length || blockedLines.has(index)) return null;
+    const htmlTable = rawHTMLTableAt(lines, index, blockedLines);
+    if (htmlTable) return htmlTable;
+    const header = parseGFMTableRow(lines[index]?.text);
+    const separator = parseGFMTableRow(lines[index + 1]?.text);
+    if (!header.length
+        || blockedLines.has(index + 1)
+        || separator.length !== header.length
+        || separator.some(cell => !/^:?-{3,}:?$/.test(cell))) {
+        return null;
+    }
+
+    let lastLineIndex = index + 1;
+    while (lastLineIndex + 1 < lines.length
+        && !blockedLines.has(lastLineIndex + 1)
+        && isGFMTableRow(lines[lastLineIndex + 1].text)) {
+        lastLineIndex++;
+    }
+    return {
+        kind: 'gfm',
+        from: lines[index].from,
+        to: lines[lastLineIndex].to,
+        source: lines
+            .slice(index, lastLineIndex + 1)
+            .map(line => line.text)
+            .join('\n'),
+        lastLineIndex,
+    };
+}
+
+function rawHTMLTableAt(lines, index, blockedLines) {
+    if (!RAW_HTML_TABLE_START_PATTERN.test(lines[index]?.text || '')) {
+        return null;
+    }
+    for (let lastLineIndex = index;
+        lastLineIndex < lines.length;
+        lastLineIndex++) {
+        if (blockedLines.has(lastLineIndex)) return null;
+        if (!RAW_HTML_TABLE_END_PATTERN.test(lines[lastLineIndex].text)) {
+            continue;
+        }
+        return {
+            kind: 'html',
+            from: lines[index].from,
+            to: lines[lastLineIndex].to,
+            source: lines
+                .slice(index, lastLineIndex + 1)
+                .map(line => line.text)
+                .join('\n')
+                .trim(),
+            lastLineIndex,
+        };
+    }
+    return null;
+}
+
+function isGFMTableRow(line) {
+    return /\|/.test(line || '') && !BLANK_LINE_PATTERN.test(line || '');
 }
 
 function markdownLineRecords(markdown) {

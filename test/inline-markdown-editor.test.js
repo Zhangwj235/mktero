@@ -383,6 +383,115 @@ test('edits a rendered GFM table cell while keeping the document Markdown-backed
     dom.window.close();
 });
 
+test('renders and preserves an academic caption above an editable GFM table', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Table 3 Means and standard deviations',
+        '',
+        '| Measure | m | SD |',
+        '| --- | ---: | ---: |',
+        '| Valence | 414.55 | 87.37 |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => null,
+        openLink: () => {},
+        onChange: () => {},
+        onSaveRequest: assert.fail,
+    });
+    const caption = document.querySelector('.cm-mktero-table caption');
+
+    assert.equal(caption?.textContent, 'Table 3 Means and standard deviations');
+    assert.equal(
+        caption?.querySelector('.mktero-table-label')?.textContent,
+        'Table 3'
+    );
+
+    const valueCell = document.querySelector(
+        '.cm-mktero-table tbody td:last-child'
+    );
+    enterTableCellEditing(valueCell, dom.window);
+    valueCell.textContent = '90.00';
+    valueCell.dispatchEvent(new dom.window.FocusEvent('blur', { bubbles: true }));
+
+    assert.equal(editor.getMarkdown(), markdown.replace('87.37', '90.00'));
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('renders an academic caption above a one-column GFM table', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Table 1 Scores',
+        '',
+        '| Value |',
+        '| --- |',
+        '| 42 |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => null,
+        openLink: () => {},
+        onChange: assert.fail,
+        onSaveRequest: assert.fail,
+    });
+
+    assert.equal(
+        document.querySelector('.cm-mktero-table caption')?.textContent,
+        'Table 1 Scores'
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('renders a MinerU HTML table and its preceding caption as one table', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Table 3 Means and standard deviations of desired emotions',
+        '',
+        '<table><tr><td>Measure</td><td>m</td><td>SD</td></tr></table>',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => null,
+        openLink: () => {},
+        onChange: assert.fail,
+        onSaveRequest: assert.fail,
+    });
+    const table = document.querySelector('.cm-mktero-html-table table');
+
+    assert.equal(
+        table?.querySelector('caption')?.textContent,
+        'Table 3 Means and standard deviations of desired emotions'
+    );
+    assert.equal(
+        table?.querySelector('.mktero-table-label')?.textContent,
+        'Table 3'
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('commits a rendered table cell before handling its save shortcut', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

@@ -482,6 +482,90 @@ test('renders compact raw HTML tables emitted by MinerU', () => {
     assert.doesNotMatch(html, /&lt;table&gt;/);
 });
 
+test('renders a MinerU table caption as the native table caption', () => {
+    const html = renderMarkdownHTML([
+        'Table 3 Means & standard deviations of desired emotions',
+        '',
+        '<table><tr><td>Measure</td><td>m</td><td>SD</td></tr></table>',
+    ].join('\n'));
+
+    assert.equal(
+        html,
+        '<table><caption>'
+            + '<span class="mktero-table-label">Table 3</span>'
+            + ' Means &amp; standard deviations of desired emotions'
+            + '</caption><tr><td>Measure</td><td>m</td><td>SD</td></tr></table>'
+    );
+});
+
+test('renders academic table captions throughout a Markdown document', () => {
+    const html = renderMarkdownHTML([
+        'Before',
+        '',
+        'Table 1 First results',
+        '',
+        '<table><tr><td>One</td></tr></table>',
+        '',
+        'Between',
+        '',
+        'Table 2 Second results',
+        '',
+        '<table><tr><td>Two</td></tr></table>',
+        '',
+        'After',
+    ].join('\n'));
+
+    assert.match(html, /^<p>Before<\/p>/);
+    assert.match(html, /<p>Between<\/p>/);
+    assert.match(html, /<p>After<\/p>\n$/);
+    assert.equal(html.match(/<caption>/g)?.length, 2);
+    assert.match(
+        html,
+        /<caption><span class="mktero-table-label">Table 1<\/span> First results<\/caption>/
+    );
+    assert.match(
+        html,
+        /<caption><span class="mktero-table-label">Table 2<\/span> Second results<\/caption>/
+    );
+    assert.doesNotMatch(html, /<p>Table [12]/);
+});
+
+test('preserves reference definitions across a captioned table', () => {
+    const html = renderMarkdownHTML([
+        'Read [the results][results].',
+        '',
+        'Table 1 Results',
+        '',
+        '<table><tr><td>Score</td><td>42</td></tr></table>',
+        '',
+        '[results]: https://example.com/results',
+    ].join('\n'));
+
+    assert.match(
+        html,
+        /<a href="https:\/\/example\.com\/results" rel="noreferrer">the results<\/a>/
+    );
+    assert.match(html, /<caption>/);
+});
+
+test('renders a caption above a multiline raw HTML table', () => {
+    const html = renderMarkdownHTML([
+        'Table 3 Multiline results',
+        '',
+        '<table>',
+        '<tr><td>Measure</td><td>Value</td></tr>',
+        '<tr><td>Score</td><td>42</td></tr>',
+        '</table>',
+    ].join('\n'));
+
+    assert.match(
+        html,
+        /^<table><caption><span class="mktero-table-label">Table 3<\/span> Multiline results<\/caption>/
+    );
+    assert.match(html, /<tr><td>Score<\/td><td>42<\/td><\/tr>/);
+    assert.doesNotMatch(html, /<p>Table 3/);
+});
+
 test('renders inline LaTeX inside raw HTML table cells', () => {
     const html = renderMarkdownHTML(
         '<table><tr><td>Key</td><td>C major is $C^{\\#}/D^b$</td></tr></table>'
