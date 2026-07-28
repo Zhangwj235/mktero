@@ -9,8 +9,8 @@ const YEAR_PATTERN = /(?:^|[^\d])((?:18|19|20)\d{2}[a-z]?)(?=$|[^\d])/i;
 const UNICODE_SUPERSCRIPT_PATTERN = /[⁰¹²³⁴⁵⁶⁷⁸⁹]+(?:\s*(?:[,;，；]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+|[-–—⁻]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+))*/g;
 const WRAPPED_SUPERSCRIPT_PATTERNS = [
     /<sup(?:\s[^>]*)?>([^<>\r\n]{1,80})<\/sup\s*>/gi,
-    /\$(?:\{\})?\^\{\s*(\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*)\s*\}\$/g,
-    /\\\((?:\{\})?\^\{\s*(\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*)\s*\}\\\)/g,
+    /\$(?:\{\})?\^\{\s*([^{}\r\n]{1,80}?)\s*\}\$/g,
+    /\\\((?:\{\})?\^\{\s*([^{}\r\n]{1,80}?)\s*\}\\\)/g,
 ];
 const UNICODE_SUPERSCRIPT_CHARACTERS = {
     '⁰': '0',
@@ -595,7 +595,9 @@ function numericCitationsInText(
     superscriptMarkup = null,
     kind = 'reference'
 ) {
-    if (!/^\s*\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*\s*$/.test(value)) {
+    const numericOnly = /^\s*\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*\s*$/
+        .test(value);
+    if (!numericOnly && kind !== 'affiliation') {
         return [];
     }
     const citations = [];

@@ -493,6 +493,7 @@ function rangeContains(outer, inner) {
 function decorateCitations(state, decorations, context) {
     const result = citationAnalysis(state, context);
     const hiddenSuperscriptMarkup = new Set();
+    const superscriptContent = new Map();
     for (const affiliation of result.affiliations) {
         const markup = affiliation.markerMarkup;
         if (!markup
@@ -528,12 +529,18 @@ function decorateCitations(state, decorations, context) {
                 markup,
                 hiddenSuperscriptMarkup
             );
+            rememberSuperscriptContent(
+                superscriptContent,
+                markup,
+                citation
+            );
         }
         decorations.push(Decoration.mark({
             class: citationClassName(citation),
             attributes: citationAttributes(citation),
         }).range(citation.from, citation.to));
     }
+    decorateSuperscriptResidue(decorations, superscriptContent);
 
     const highlighted = context.citationTargets.get(
         context.highlightedReferenceID
@@ -542,6 +549,36 @@ function decorateCitations(state, decorations, context) {
         decorations.push(Decoration.mark({
             class: 'cm-mktero-reference-highlight',
         }).range(highlighted.from, highlighted.to));
+    }
+}
+
+function rememberSuperscriptContent(content, markup, citation) {
+    if (!markup.raiseContent) return;
+    const key = `${markup.wrapperFrom}:${markup.wrapperTo}`;
+    const entry = content.get(key) || { markup, citationRanges: [] };
+    entry.citationRanges.push({ from: citation.from, to: citation.to });
+    content.set(key, entry);
+}
+
+function decorateSuperscriptResidue(decorations, content) {
+    for (const { markup, citationRanges } of content.values()) {
+        let from = markup.contentFrom;
+        const ranges = citationRanges.sort((left, right) => (
+            left.from - right.from || left.to - right.to
+        ));
+        for (const range of ranges) {
+            if (from < range.from) {
+                decorations.push(Decoration.mark({
+                    class: 'cm-mktero-citation-superscript',
+                }).range(from, range.from));
+            }
+            from = Math.max(from, range.to);
+        }
+        if (from < markup.contentTo) {
+            decorations.push(Decoration.mark({
+                class: 'cm-mktero-citation-superscript',
+            }).range(from, markup.contentTo));
+        }
     }
 }
 

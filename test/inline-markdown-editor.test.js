@@ -1405,6 +1405,54 @@ test('shows author affiliations instead of references for front-matter superscri
     dom.window.close();
 });
 
+test('links an author affiliation before a corresponding-author symbol', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# AI-based Cognitive-linguistic Features',
+        '',
+        'Lingfeng Xu $^{1,**}$',
+        '',
+        '$^{1}$ College of Health Solutions, Arizona State University, USA',
+        '',
+        '## Abstract',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onChange: assert.fail,
+        onSaveRequest: assert.fail,
+    });
+    const authorLine = [...document.querySelectorAll('.cm-line')]
+        .find(line => line.textContent.includes('Lingfeng Xu'));
+    const citations = [
+        ...authorLine.querySelectorAll('.cm-mktero-citation'),
+    ];
+
+    assert.deepEqual(
+        citations.map(citation => citation.textContent),
+        ['1']
+    );
+    assert.deepEqual(
+        [...authorLine.querySelectorAll('.cm-mktero-citation-superscript')]
+            .map(element => element.textContent),
+        ['1', ',**']
+    );
+    citations[0].dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-citation-popup')?.textContent || '',
+        /College of Health Solutions, Arizona State University, USA/
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('opens every reference in a grouped citation from its popup', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
