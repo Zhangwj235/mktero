@@ -3,6 +3,7 @@ let nextPopupID = 1;
 export function createAnchoredPopup(parent, {
     className,
     idPrefix,
+    viewportPadding = 12,
 }) {
     const document = parent.ownerDocument;
     const ownerWindow = document.defaultView;
@@ -84,7 +85,7 @@ export function createAnchoredPopup(parent, {
         });
         parent.appendChild(popup);
         anchor.setAttribute('aria-describedby', popup.id);
-        positionPopup(popup, anchor, ownerWindow);
+        positionPopup(popup, anchor, ownerWindow, viewportPadding);
         focusContent?.(popup);
     };
 
@@ -100,9 +101,8 @@ export function createAnchoredPopup(parent, {
     };
 }
 
-function positionPopup(popup, anchor, ownerWindow) {
+function positionPopup(popup, anchor, ownerWindow, viewportPadding) {
     const gap = 10;
-    const viewportPadding = 12;
     const anchorRect = anchor.getBoundingClientRect();
     const popupRect = popup.getBoundingClientRect();
     const viewportWidth = ownerWindow.innerWidth || 1024;

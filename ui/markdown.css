@@ -653,8 +653,9 @@ main {
     --table-preview-header: #f6f8fa;
     position: fixed;
     z-index: 900;
-    width: min(720px, calc(100vw - 24px));
-    max-width: calc(100vw - 24px);
+    box-sizing: border-box;
+    width: min(700px, calc(100vw - 48px));
+    max-width: calc(100vw - 48px);
     color: var(--table-preview-text);
     background: var(--table-preview-surface);
     border: 1px solid var(--table-preview-border);
@@ -689,17 +690,17 @@ main {
 
 .mktero-table-preview-content {
     min-width: 0;
+    padding: 10px;
 }
 
 .mktero-table-preview-caption {
-    padding: 9px 11px;
-    border-bottom: 1px solid var(--table-preview-border);
+    padding: 0 1px 9px;
     color: var(--table-preview-muted);
     font-weight: 650;
 }
 
 .mktero-table-preview-viewport {
-    max-height: min(420px, calc(100vh - 120px));
+    max-height: min(390px, calc(100vh - 144px));
     overflow: auto;
     scrollbar-width: thin;
 }

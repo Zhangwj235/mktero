@@ -229,11 +229,16 @@ test('styles table references, previews, and target highlights', () => {
 
     const popup = ruleBody('.mktero-table-preview-popup');
     assert.match(popup, /position:\s*fixed/);
-    assert.match(popup, /width:\s*min\(720px, calc\(100vw - 24px\)\)/);
+    assert.match(popup, /width:\s*min\(700px, calc\(100vw - 48px\)\)/);
+    assert.match(popup, /max-width:\s*calc\(100vw - 48px\)/);
+    assert.match(popup, /box-sizing:\s*border-box/);
     assert.match(popup, /z-index:\s*900/);
 
+    const content = ruleBody('.mktero-table-preview-content');
+    assert.match(content, /padding:\s*10px/);
+
     const viewport = ruleBody('.mktero-table-preview-viewport');
-    assert.match(viewport, /max-height:\s*min\(420px, calc\(100vh - 120px\)\)/);
+    assert.match(viewport, /max-height:\s*min\(390px, calc\(100vh - 144px\)\)/);
     assert.match(viewport, /overflow:\s*auto/);
 
     const highlight = ruleBody(

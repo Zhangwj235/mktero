@@ -5,6 +5,7 @@ export function createTablePreviewPopup(parent, { resolveImageURL } = {}) {
     const anchoredPopup = createAnchoredPopup(parent, {
         className: 'mktero-table-preview-popup',
         idPrefix: 'mktero-table-preview-popup',
+        viewportPadding: 24,
     });
 
     return {
