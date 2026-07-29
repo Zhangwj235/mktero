@@ -1,3 +1,6 @@
+import {
+    createEmptyAnnotationOverlay,
+} from '../core/markdown-annotation-overlay.js';
 import { translateEnglish } from '../i18n/localization.js';
 
 const READY_RESULT_FIELDS = [
@@ -10,6 +13,7 @@ const READY_RESULT_FIELDS = [
     'cacheKey',
     'extractedPages',
     'totalPages',
+    'annotationOverlay',
     'warnings',
 ];
 
@@ -43,6 +47,7 @@ export function createConversionLoadingChanges(
         assetBasePath: '',
         cacheHit: false,
         cacheKey: null,
+        annotationOverlay: createEmptyAnnotationOverlay(),
         warnings: [],
         error: '',
         preserveContent: false,
@@ -54,6 +59,7 @@ export function createConversionReadyChanges(result) {
         assets: [],
         assetBasePath: '',
         cacheKey: null,
+        annotationOverlay: createEmptyAnnotationOverlay(),
         ...result,
         status: 'ready',
         progress: 100,

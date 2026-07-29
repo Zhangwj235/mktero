@@ -1,6 +1,9 @@
 import { syntaxTree } from '@codemirror/language';
 import { Prec, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
+import {
+    createEmptyAnnotationOverlay,
+} from '../core/markdown-annotation-overlay.js';
 import { findMinerUAlgorithmGroups } from '../markdown/markdown-algorithms.js';
 import {
     findDisplayMathMatches,
@@ -24,10 +27,20 @@ import {
     installRenderedImagePreview,
     openRenderedLink,
 } from './rendered-markdown-dom.js';
+import {
+    annotationHasComment,
+    annotationAttributes,
+    annotationClassName,
+    createAnnotationNoteMarker,
+    installRenderedAnnotations,
+} from './pdf-annotations.js';
+
+const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 
 export const setReferenceHighlight = StateEffect.define();
 export const setTableHighlight = StateEffect.define();
 export const setFigureHighlight = StateEffect.define();
+export const setAnnotationOverlay = StateEffect.define();
 
 class RenderedMarkdownWidget extends WidgetType {
     constructor({
@@ -39,6 +52,7 @@ class RenderedMarkdownWidget extends WidgetType {
         openImagePreview,
         renderVersion,
         citations = [],
+        annotations = [],
         extraClassName = '',
         translate = translateEnglish,
     }) {
@@ -52,6 +66,8 @@ class RenderedMarkdownWidget extends WidgetType {
         this.renderVersion = renderVersion;
         this.citations = citations;
         this.citationKey = citations.map(citation => citation.key).join('|');
+        this.annotations = annotations;
+        this.annotationKey = JSON.stringify(annotations);
         this.extraClassName = extraClassName;
         this.translate = translate;
     }
@@ -62,6 +78,7 @@ class RenderedMarkdownWidget extends WidgetType {
             && this.from === other.from
             && this.renderVersion === other.renderVersion
             && this.citationKey === other.citationKey
+            && this.annotationKey === other.annotationKey
             && this.extraClassName === other.extraClassName;
     }
 
@@ -81,6 +98,21 @@ class RenderedMarkdownWidget extends WidgetType {
             inline
         );
         installRenderedCitations(container, this.citations);
+        if (['math', 'math-display'].includes(this.display)) {
+            wrapRenderedMathAnnotations(
+                container,
+                this.annotations,
+                this.translate
+            );
+        }
+        else {
+            installRenderedAnnotations(
+                container,
+                this.annotations,
+                this.translate,
+                { source: this.source, sourceFrom: this.from }
+            );
+        }
 
         container.addEventListener('mousedown', event => {
             if (event.target?.closest?.('img')) return;
@@ -95,7 +127,13 @@ class RenderedMarkdownWidget extends WidgetType {
     }
 
     ignoreEvent(event) {
-        return !event.target?.closest?.('.cm-mktero-citation');
+        if (event.type === 'mousedown'
+            && event.target?.closest?.('.cm-mktero-pdf-annotation')) {
+            return true;
+        }
+        return !event.target?.closest?.(
+            '.cm-mktero-citation, .cm-mktero-pdf-annotation'
+        );
     }
 }
 
@@ -147,6 +185,32 @@ class TaskCheckboxWidget extends WidgetType {
     }
 }
 
+class AnnotationNoteWidget extends WidgetType {
+    constructor(annotation) {
+        super();
+        this.annotation = annotation;
+        this.key = JSON.stringify([
+            String(annotation.id || ''),
+            String(annotation.color || ''),
+        ]);
+    }
+
+    eq(other) {
+        return this.key === other.key;
+    }
+
+    toDOM(view) {
+        return createAnnotationNoteMarker(
+            view.dom.ownerDocument,
+            this.annotation
+        );
+    }
+
+    ignoreEvent() {
+        return false;
+    }
+}
+
 export function createInlineRenderingExtension({
     resolveImageURL,
     openLink,
@@ -154,6 +218,7 @@ export function createInlineRenderingExtension({
     citationPopup,
     tablePreviewPopup,
     figurePreviewPopup,
+    annotationPopup,
     activateCitation,
     activateTableReference,
     activateFigureReference,
@@ -166,6 +231,7 @@ export function createInlineRenderingExtension({
         citationPopup,
         tablePreviewPopup,
         figurePreviewPopup,
+        annotationPopup,
         activateCitation,
         activateTableReference,
         activateFigureReference,
@@ -174,6 +240,8 @@ export function createInlineRenderingExtension({
         highlightedReferenceID: null,
         highlightedTableID: null,
         highlightedFigureID: null,
+        annotationOverlay: createEmptyAnnotationOverlay(),
+        annotationTargets: new Map(),
         citationAnalysisDocument: null,
         citationAnalysis: null,
         citationTargets: new Map(),
@@ -196,6 +264,7 @@ export function createInlineRenderingExtension({
             let referenceHighlightChanged = false;
             let tableHighlightChanged = false;
             let figureHighlightChanged = false;
+            let annotationOverlayChanged = false;
             if (shouldRefresh) context.renderVersion++;
             for (const effect of transaction.effects) {
                 if (effect.is(setReferenceHighlight)) {
@@ -210,11 +279,22 @@ export function createInlineRenderingExtension({
                     context.highlightedFigureID = effect.value;
                     figureHighlightChanged = true;
                 }
+                else if (effect.is(setAnnotationOverlay)) {
+                    context.annotationOverlay = effect.value
+                        || createEmptyAnnotationOverlay();
+                    context.annotationTargets = new Map(
+                        (context.annotationOverlay.matched || []).map(
+                            annotation => [String(annotation.id || ''), annotation]
+                        )
+                    );
+                    annotationOverlayChanged = true;
+                }
             }
             if (transaction.docChanged
                 || referenceHighlightChanged
                 || tableHighlightChanged
                 || figureHighlightChanged
+                || annotationOverlayChanged
                 || shouldRefresh) {
                 return buildDecorations(transaction.state, context);
             }
@@ -249,8 +329,10 @@ export function createInlineRenderingExtension({
                 return false;
             },
             mousedown(event, view) {
+                const interaction = referenceInteraction(event, view, context);
                 if (event.button === 0
-                    && referenceInteraction(event, view, context)) {
+                    && interaction
+                    && !interaction.allowTextSelection) {
                     event.preventDefault();
                     return true;
                 }
@@ -277,7 +359,8 @@ export function createInlineRenderingExtension({
                 return false;
             },
             dblclick(event, view) {
-                if (referenceInteraction(event, view, context)) {
+                const interaction = referenceInteraction(event, view, context);
+                if (interaction && !interaction.allowTextSelection) {
                     event.preventDefault();
                     return true;
                 }
@@ -362,6 +445,7 @@ function normalizeLinkLabel(label) {
 function buildDecorations(state, context) {
     const decorations = [];
     const excludedMathRanges = collectExcludedMathRanges(state);
+    const renderedMathRanges = [];
     const analyzedTableReferences = referenceAnalysis(
         state,
         context.tableReferences
@@ -411,7 +495,8 @@ function buildDecorations(state, context) {
                     decorations,
                     excludedMathRanges,
                     context,
-                    paragraph
+                    paragraph,
+                    renderedMathRanges
                 );
             }
             return undefined;
@@ -420,11 +505,74 @@ function buildDecorations(state, context) {
     decorateCitations(state, decorations, context);
     decorateTableReferences(state, decorations, context);
     decorateFigureReferences(state, decorations, context);
+    decoratePDFAnnotations(
+        state,
+        decorations,
+        context,
+        [...renderedGroups, ...renderedMathRanges]
+    );
     return Decoration.set(decorations, true);
+}
+
+function decoratePDFAnnotations(state, decorations, context, renderedRanges) {
+    for (const annotation of context.annotationOverlay?.matched || []) {
+        const validRanges = (annotation.ranges || []).filter(range => (
+            validAnnotationRange(range, state.doc.length)
+        ));
+        const noteOffset = annotationStartOffset(validRanges);
+        for (const range of annotation.ranges || []) {
+            if (!validAnnotationRange(range, state.doc.length)) continue;
+            if (renderedRanges.some(rendered => rangeContains(rendered, range))) {
+                continue;
+            }
+            decorations.push(Decoration.mark({
+                class: annotationClassName(annotation),
+                attributes: annotationAttributes(annotation, context.translate),
+            }).range(range.from, range.to));
+        }
+        const noteRendered = renderedRanges.some(range => (
+            rangeContainsStartOffset(range, noteOffset)
+        ));
+        if (noteOffset !== null
+            && !noteRendered
+            && annotationHasComment(annotation)) {
+            decorations.push(Decoration.widget({
+                widget: new AnnotationNoteWidget(annotation),
+                side: -1,
+            }).range(noteOffset));
+        }
+    }
+}
+
+function validAnnotationRange(range, documentLength) {
+    return Number.isInteger(range?.from)
+        && Number.isInteger(range?.to)
+        && range.from >= 0
+        && range.to > range.from
+        && range.to <= documentLength;
 }
 
 function rangeContains(outer, inner) {
     return inner.from >= outer.from && inner.to <= outer.to;
+}
+
+function rangeContainsStartOffset(range, offset) {
+    return Number.isInteger(offset)
+        && offset >= range.from
+        && offset < range.to;
+}
+
+function annotationStartOffset(ranges) {
+    let startOffset = null;
+    for (const range of ranges || []) {
+        if (!Number.isInteger(range?.from)
+            || !Number.isInteger(range?.to)
+            || range.to <= range.from) {
+            continue;
+        }
+        startOffset = Math.min(startOffset ?? range.from, range.from);
+    }
+    return startOffset;
 }
 
 function decorateCitations(state, decorations, context) {
@@ -665,6 +813,27 @@ function citationElement(event, view) {
 }
 
 function referenceInteraction(event, view, context) {
+    const annotation = annotationElement(event, view);
+    if (annotation) {
+        const target = context.annotationTargets.get(
+            annotation.getAttribute('data-annotation-id') || ''
+        );
+        if (!target) return null;
+        const open = () => {
+            closeReferencePopupsExcept(context, context.annotationPopup);
+            context.annotationPopup?.open({
+                anchor: annotation,
+                annotation: target,
+            });
+        };
+        return {
+            element: annotation,
+            popup: context.annotationPopup,
+            open,
+            activate: open,
+            allowTextSelection: true,
+        };
+    }
     const citation = citationElement(event, view);
     if (citation) {
         return {
@@ -688,9 +857,18 @@ function referenceInteraction(event, view, context) {
 
 function referencePopups(context) {
     return [
+        context.annotationPopup,
         context.citationPopup,
         ...previewReferenceTypes(context).map(type => type.popup),
     ];
+}
+
+function annotationElement(event, view) {
+    const annotation = event.target?.closest?.([
+        '.cm-mktero-pdf-annotation',
+        '.cm-mktero-pdf-annotation-note',
+    ].join(', '));
+    return annotation && view.dom.contains(annotation) ? annotation : null;
 }
 
 function closeReferencePopupsExcept(context, retainedPopup) {
@@ -964,7 +1142,8 @@ function decorateMath(
     decorations,
     excludedRanges,
     context,
-    renderDisplayMath
+    renderDisplayMath,
+    renderedMathRanges
 ) {
     const source = state.sliceDoc(node.from, node.to);
     const displayMatches = findDisplayMathMatches(source);
@@ -983,6 +1162,7 @@ function decorateMath(
                 'math-display',
                 context
             ));
+            renderedMathRanges.push({ from: matchFrom, to: matchTo });
         }
     }
 
@@ -1020,6 +1200,7 @@ function decorateMath(
             true,
             findAncestorAt(state, matchFrom, 'Link') ? 'cm-mktero-link' : ''
         ));
+        renderedMathRanges.push({ from: matchFrom, to: matchTo });
     }
 }
 
@@ -1055,12 +1236,20 @@ function renderedRange(node, state, display, context) {
         && node.tableTarget.id === context.highlightedTableID;
     const figureIsHighlighted = context.figureReferences.targetsByFrom
         ?.get(node.from)?.id === context.highlightedFigureID;
+    const annotations = annotationsForRange(
+        context.annotationOverlay,
+        node.from,
+        node.to
+    );
     if (display === 'table') {
         return Decoration.replace({
             widget: new RenderedTableWidget({
                 source,
+                annotationSource: state.sliceDoc(node.from, node.to),
+                annotationSourceFrom: node.from,
                 caption: node.caption,
                 highlighted: tableIsHighlighted,
+                annotations,
                 ...context,
             }),
             block: true,
@@ -1079,6 +1268,7 @@ function renderedRange(node, state, display, context) {
                     node.to
                 )
                 : [],
+            annotations,
             extraClassName: [
                 display === 'html-block'
                     && (node.table?.kind === 'html'
@@ -1096,6 +1286,26 @@ function renderedRange(node, state, display, context) {
         }),
         block: true,
     }).range(node.from, node.to);
+}
+
+function annotationsForRange(overlay, from, to) {
+    return (overlay?.matched || []).flatMap(annotation => {
+        const contained = (annotation.ranges || []).some(range => (
+            Number.isInteger(range?.from)
+            && Number.isInteger(range?.to)
+            && range.from >= from
+            && range.to > range.from
+            && range.to <= to
+        ));
+        if (!contained) return [];
+        return [{
+            ...annotation,
+            showNoteMarker: rangeContainsStartOffset(
+                { from, to },
+                annotationStartOffset(annotation.ranges)
+            ),
+        }];
+    });
 }
 
 function renderedCitationDescriptors(state, context, from, to) {
@@ -1205,11 +1415,59 @@ function renderedMathRange(
             source,
             display,
             from,
+            annotations: annotationsOverlappingRange(
+                context.annotationOverlay,
+                from,
+                to
+            ),
             extraClassName,
             ...context,
         }),
         block: !inline,
     }).range(from, to);
+}
+
+function annotationsOverlappingRange(overlay, from, to) {
+    return (overlay?.matched || []).flatMap(annotation => {
+        const overlaps = (annotation.ranges || []).some(range => (
+            Number.isInteger(range?.from)
+            && Number.isInteger(range?.to)
+            && range.from < to
+            && range.to > from
+        ));
+        return overlaps ? [{
+            ...annotation,
+            ranges: [{ from, to }],
+            showNoteMarker: rangeContainsStartOffset(
+                { from, to },
+                annotationStartOffset(annotation.ranges)
+            ),
+        }] : [];
+    });
+}
+
+function wrapRenderedMathAnnotations(container, annotations, translate) {
+    for (const annotation of annotations) {
+        const wrapper = container.ownerDocument.createElementNS(
+            XHTML_NAMESPACE,
+            'span'
+        );
+        wrapper.className = annotationClassName(annotation);
+        for (const [name, value] of Object.entries(
+            annotationAttributes(annotation, translate)
+        )) {
+            wrapper.setAttribute(name, value);
+        }
+        if (annotation.showNoteMarker) {
+            const noteMarker = createAnnotationNoteMarker(
+                container.ownerDocument,
+                annotation
+            );
+            if (noteMarker) wrapper.append(noteMarker);
+        }
+        wrapper.append(...container.childNodes);
+        container.append(wrapper);
+    }
 }
 
 function collectExcludedMathRanges(state) {

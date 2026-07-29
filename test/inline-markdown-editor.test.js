@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorView } from '@codemirror/view';
 import { JSDOM } from 'jsdom';
+import {
+    MarkdownAnnotationOverlay,
+} from '../src/core/markdown-annotation-overlay.js';
 import { createInlineMarkdownEditor } from '../src/editor/inline-markdown-editor.js';
 
 function enterTableCellEditing(cell, ownerWindow) {
@@ -44,6 +47,533 @@ test('keeps Markdown as the source of truth in a read-only surface', () => {
     editor.destroy();
     assert.doesNotThrow(() => editor.destroy());
     assert.equal(document.querySelector('.cm-editor'), null);
+    dom.window.close();
+});
+
+test('renders matched PDF annotations with their Zotero colors', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+    });
+
+    editor.setDocument({
+        markdown: 'Important result.',
+        annotationOverlay: {
+            matched: [{
+                id: 'HIGH0001',
+                type: 'highlight',
+                text: 'Important',
+                comment: 'Review this',
+                color: '#ffd400',
+                pageLabel: '4',
+                ranges: [{ from: 0, to: 9 }],
+            }],
+            unmatched: [],
+        },
+    });
+
+    const annotation = document.querySelector('.cm-mktero-pdf-annotation');
+    assert.equal(annotation.textContent, 'Important');
+    assert.ok(annotation.classList.contains(
+        'cm-mktero-pdf-annotation--highlight'
+    ));
+    assert.equal(annotation.getAttribute('data-annotation-id'), 'HIGH0001');
+    assert.match(
+        annotation.getAttribute('style'),
+        /--mktero-annotation-color:\s*#ffd400/
+    );
+    assert.equal(editor.getMarkdown(), 'Important result.');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('shows one note marker for a commented multiline PDF annotation', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'First line\nsecond line';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+    });
+
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'NOTE0001',
+                type: 'highlight',
+                text: markdown,
+                comment: 'Remember this finding',
+                color: '#ffd400',
+                pageLabel: '4',
+                ranges: [{ from: 0, to: markdown.length }],
+            }],
+            unmatched: [],
+        },
+    });
+
+    const markers = document.querySelectorAll(
+        '.cm-mktero-pdf-annotation-note'
+    );
+    assert.equal(markers.length, 1);
+    assert.equal(markers[0].getAttribute('data-annotation-id'), 'NOTE0001');
+    assert.equal(markers[0].getAttribute('aria-hidden'), 'true');
+    assert.equal(markers[0].textContent, '');
+    assert.equal(
+        markers[0].namespaceURI,
+        'http://www.w3.org/1999/xhtml'
+    );
+    assert.ok(markers[0].querySelector(
+        '.cm-mktero-pdf-annotation-note-icon'
+    ));
+    assert.match(
+        markers[0].getAttribute('style') || '',
+        /--mktero-annotation-color:\s*#ffd400/
+    );
+    assert.match(
+        document.querySelector('.cm-mktero-pdf-annotation')
+            ?.getAttribute('aria-label') || '',
+        /with note/
+    );
+    const firstHighlight = document.querySelector(
+        '.cm-mktero-pdf-annotation'
+    );
+    assert.ok(markers[0].compareDocumentPosition(firstHighlight)
+        & dom.window.Node.DOCUMENT_POSITION_FOLLOWING);
+
+    markers[0].dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-annotation-popup')?.textContent || '',
+        /Remember this finding/
+    );
+    const click = new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    });
+    markers[0].dispatchEvent(click);
+    assert.equal(click.defaultPrevented, true);
+
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'NOTE0001',
+                type: 'highlight',
+                text: markdown,
+                comment: '',
+                color: '#ffd400',
+                pageLabel: '4',
+                ranges: [{ from: 0, to: markdown.length }],
+            }],
+            unmatched: [],
+        },
+    });
+    assert.equal(
+        document.querySelector('.cm-mktero-pdf-annotation-note'),
+        null
+    );
+    assert.equal(document.querySelector('.mktero-annotation-popup'), null);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not show a note marker for a whitespace-only comment', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+    });
+
+    editor.setDocument({
+        markdown: 'Important result.',
+        annotationOverlay: {
+            matched: [{
+                id: 'NOTE0002',
+                type: 'highlight',
+                text: 'Important',
+                comment: ' \n\t ',
+                color: '#ffd400',
+                pageLabel: '4',
+                ranges: [{ from: 0, to: 9 }],
+            }],
+            unmatched: [],
+        },
+    });
+
+    assert.equal(
+        document.querySelector('.cm-mktero-pdf-annotation-note'),
+        null
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('renders a PDF trademark annotation over MinerU superscript markup', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'BOSE $^{®}$ headphones';
+    const annotation = {
+        id: 'MARK0005',
+        type: 'highlight',
+        text: '®',
+        comment: 'Trademark note',
+        color: '#ffd400',
+        pageLabel: '4',
+        pageIndex: 3,
+        sortIndex: '00010',
+    };
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => [annotation] },
+    });
+    const annotationOverlay = await overlay.resolve(42, markdown);
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+    });
+
+    editor.setDocument({ markdown, annotationOverlay });
+
+    const rendered = document.querySelector('.cm-mktero-pdf-annotation');
+    assert.ok(rendered);
+    assert.match(rendered.textContent, /®/);
+    assert.match(
+        rendered.getAttribute('style'),
+        /--mktero-annotation-color:\s*#ffd400/
+    );
+    const noteMarker = document.querySelectorAll(
+        '.cm-mktero-pdf-annotation-note'
+    );
+    assert.equal(noteMarker.length, 1);
+    noteMarker[0].dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-annotation-popup')?.textContent || '',
+        /Trademark note/
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('shows one note marker when an annotation covers formula content', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Result $x+y$ observed.';
+    const from = markdown.indexOf('x+y');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+    });
+
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'MATH0001',
+                type: 'highlight',
+                text: 'x+y',
+                comment: 'Formula note',
+                color: '#ff6666',
+                pageLabel: '7',
+                ranges: [{ from, to: from + 3 }],
+            }],
+            unmatched: [],
+        },
+    });
+
+    const rendered = document.querySelector(
+        '.cm-mktero-math .cm-mktero-pdf-annotation'
+    );
+    assert.ok(rendered);
+    assert.match(rendered.textContent, /x\s*\+\s*y/);
+    const noteMarkers = document.querySelectorAll(
+        '.cm-mktero-pdf-annotation-note'
+    );
+    assert.equal(noteMarkers.length, 1);
+    assert.ok(rendered.contains(noteMarkers[0]));
+    assert.equal(rendered.firstElementChild, noteMarkers[0]);
+
+    noteMarkers[0].dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-annotation-popup')?.textContent || '',
+        /Formula note/
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('shows PDF annotation notes safely on hover', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+    });
+    editor.setDocument({
+        markdown: 'Important result.',
+        annotationOverlay: {
+            matched: [{
+                id: 'HIGH0001',
+                type: 'highlight',
+                text: 'Important',
+                comment: '<img src=x onerror=alert(1)> Review this',
+                color: '#ffd400',
+                pageLabel: '4',
+                ranges: [{ from: 0, to: 9 }],
+            }],
+            unmatched: [],
+        },
+    });
+    const annotation = document.querySelector('.cm-mktero-pdf-annotation');
+
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+
+    const popup = document.querySelector('.mktero-annotation-popup');
+    assert.equal(annotation.getAttribute('role'), 'button');
+    assert.equal(annotation.getAttribute('tabindex'), '0');
+    assert.equal(popup.getAttribute('role'), 'dialog');
+    assert.match(popup.textContent, /Page 4/);
+    assert.match(popup.textContent, /<img src=x onerror=alert\(1\)> Review this/);
+    assert.equal(popup.querySelector('img'), null);
+
+    editor.destroy();
+    assert.equal(document.querySelector('.mktero-annotation-popup'), null);
+    dom.window.close();
+});
+
+test('renders PDF annotations inside a rendered Markdown table', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Claim |',
+        '| --- |',
+        '| Important result |',
+    ].join('\n');
+    const from = 20;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+    });
+
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'TABLE001',
+                type: 'underline',
+                text: 'Important',
+                comment: 'Table note',
+                color: '#2ea8e5',
+                pageLabel: '5',
+                ranges: [{ from, to: from + 9 }],
+            }],
+            unmatched: [],
+        },
+    });
+
+    const annotation = document.querySelector(
+        '.cm-mktero-table td .cm-mktero-pdf-annotation'
+    );
+    assert.equal(annotation.textContent, 'Important');
+    assert.ok(annotation.classList.contains(
+        'cm-mktero-pdf-annotation--underline'
+    ));
+    assert.equal(annotation.getAttribute('data-annotation-id'), 'TABLE001');
+    const noteMarker = annotation.querySelector(
+        '.cm-mktero-pdf-annotation-note'
+    );
+    assert.ok(noteMarker);
+    assert.equal(annotation.firstElementChild, noteMarker);
+    noteMarker.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-annotation-popup').textContent,
+        /Table note/
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('uses the resolved source range for repeated text in rendered widgets', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Claim | Claim |',
+        '| --- | --- |',
+        '| repeated | repeated |',
+    ].join('\n');
+    const from = markdown.lastIndexOf('repeated');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+    });
+
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'TABLE003',
+                type: 'highlight',
+                text: 'repeated',
+                comment: '',
+                color: '#ffd400',
+                pageLabel: '5',
+                ranges: [{ from, to: from + 'repeated'.length }],
+            }],
+            unmatched: [],
+        },
+    });
+
+    const cells = [...document.querySelectorAll('.cm-mktero-table td')];
+    assert.equal(cells[0].querySelector('.cm-mktero-pdf-annotation'), null);
+    const annotation = cells[1].querySelector(
+        '.cm-mktero-pdf-annotation'
+    );
+    assert.equal(annotation?.textContent, 'repeated');
+
+    const range = document.createRange();
+    range.selectNodeContents(annotation);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+    const mouseDown = new dom.window.MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    });
+    annotation.dispatchEvent(mouseDown);
+
+    assert.equal(mouseDown.defaultPrevented, false);
+    assert.equal(document.getSelection().toString(), 'repeated');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('renders PDF annotations inside an academic figure caption', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = '![Figure 1. Important result.](images/figure.png)';
+    const from = markdown.indexOf('Important result');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => 'blob:mktero-figure',
+    });
+
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'FIGURE01',
+                type: 'highlight',
+                text: 'Important result',
+                comment: 'Figure note',
+                color: '#a28ae5',
+                pageLabel: '6',
+                ranges: [{ from, to: from + 'Important result'.length }],
+            }],
+            unmatched: [],
+        },
+    });
+
+    const annotation = document.querySelector(
+        '.mktero-figure figcaption .cm-mktero-pdf-annotation'
+    );
+    assert.equal(annotation?.textContent, 'Important result');
+    assert.match(
+        annotation?.getAttribute('style') || '',
+        /--mktero-annotation-color:\s*#a28ae5/
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('normalizes PDF annotation whitespace inside rendered widgets', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Claim |',
+        '| --- |',
+        '| Important result |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+    });
+
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'TABLE002',
+                type: 'highlight',
+                text: 'Important\nresult',
+                comment: '',
+                color: '#ffd400',
+                pageLabel: '5',
+                matchKind: 'normalized',
+                ranges: [{ from: 20, to: 36 }],
+            }],
+            unmatched: [],
+        },
+    });
+
+    assert.equal(
+        document.querySelector(
+            '.cm-mktero-table td .cm-mktero-pdf-annotation'
+        ).textContent,
+        'Important result'
+    );
+
+    editor.destroy();
     dom.window.close();
 });
 

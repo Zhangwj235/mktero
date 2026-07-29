@@ -165,11 +165,11 @@ test('lays out a responsive scrollable outline beside the editor', () => {
     const outline = ruleBody('.markdown-outline');
     assert.match(outline, /flex:\s*0 0 var\(--outline-width, 256px\)/);
 
-    const edge = ruleBody('.markdown-outline-edge');
+    const edge = ruleBody('.markdown-side-panel-edge');
     assert.match(edge, /width:\s*7px/);
     assert.match(edge, /flex:\s*0 0 7px/);
 
-    const resizer = ruleBody('.markdown-outline-resizer');
+    const resizer = ruleBody('.markdown-side-panel-resizer');
     assert.match(resizer, /inset:\s*0/);
     assert.match(resizer, /cursor:\s*col-resize/);
 
@@ -189,6 +189,28 @@ test('lays out a responsive scrollable outline beside the editor', () => {
         MARKDOWN_STYLES,
         /@media\s*\(max-width:\s*760px\)[\s\S]*\.markdown-outline\s*\{[^}]*flex-basis:\s*min\(var\(--outline-width, 256px\), 42vw\)/
     );
+});
+
+test('styles a responsive PDF notes panel beside the editor', () => {
+    const notes = ruleBody('.markdown-notes');
+    assert.match(notes, /flex:\s*0 0 var\(--notes-width, 300px\)/);
+    assert.match(notes, /overflow:\s*hidden/);
+
+    const list = ruleBody('.markdown-notes-list');
+    assert.match(list, /overflow-y:\s*auto/);
+    assert.match(list, /scrollbar-width:\s*thin/);
+
+    const link = ruleBody('.markdown-note-link');
+    assert.match(link, /width:\s*100%/);
+    assert.match(link, /text-align:\s*left/);
+    assert.match(link, /cursor:\s*pointer/);
+
+    const color = ruleBody('.markdown-note-color');
+    assert.match(color, /background:\s*var\(--mktero-annotation-color\)/);
+
+    const comment = ruleBody('.markdown-note-comment');
+    assert.match(comment, /white-space:\s*pre-wrap/);
+    assert.match(comment, /overflow-wrap:\s*anywhere/);
 });
 
 test('styles citation popups and temporary reference highlights', () => {
@@ -249,6 +271,63 @@ test('styles citation popups and temporary reference highlights', () => {
         '.markdown-editor-host > .cm-editor .cm-mktero-reference-highlight'
     );
     assert.match(highlight, /animation:\s*mktero-reference-highlight 3s ease-out/);
+});
+
+test('styles Zotero-colored PDF annotations and their note popup', () => {
+    const annotation = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation'
+    );
+    assert.match(annotation, /border-radius:\s*3px/);
+    assert.match(annotation, /box-decoration-break:\s*clone/);
+    assert.match(annotation, /cursor:\s*pointer/);
+
+    const highlight = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation--highlight'
+    );
+    assert.match(
+        highlight,
+        /background:\s*color-mix\([\s\S]*?var\(--mktero-annotation-color\) 32%[\s\S]*?transparent/
+    );
+
+    const underline = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation--underline'
+    );
+    assert.match(underline, /text-decoration-line:\s*underline/);
+    assert.match(
+        underline,
+        /text-decoration-color:\s*var\(--mktero-annotation-color\)/
+    );
+
+    const noteMarker = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation-note'
+    );
+    assert.match(noteMarker, /position:\s*relative/);
+    assert.match(noteMarker, /display:\s*inline/);
+    assert.match(noteMarker, /width:\s*0/);
+    assert.match(noteMarker, /height:\s*0/);
+
+    const noteIcon = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation-note-icon'
+    );
+    assert.match(noteIcon, /position:\s*absolute/);
+    assert.match(noteIcon, /top:\s*-1\.05em/);
+    assert.match(noteIcon, /left:\s*-6px/);
+    assert.match(noteIcon, /width:\s*15px/);
+    assert.match(noteIcon, /height:\s*15px/);
+
+    const noteBubble = ruleBody([
+        '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation-note-bubble,',
+        '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation-note-line',
+    ].join('\n'));
+    assert.match(noteBubble, /stroke:\s*currentColor/);
+
+    const popup = ruleBody('.mktero-annotation-popup');
+    assert.match(popup, /position:\s*fixed/);
+    assert.match(popup, /z-index:\s*900/);
+    assert.match(popup, /background:\s*var\(--surface\)/);
+
+    const swatch = ruleBody('.mktero-annotation-popup-swatch');
+    assert.match(swatch, /background:\s*var\(--mktero-annotation-color\)/);
 });
 
 test('styles table references, previews, and target highlights', () => {

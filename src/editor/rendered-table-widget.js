@@ -4,34 +4,45 @@ import {
     installRenderedImagePreview,
     openRenderedLink,
 } from './rendered-markdown-dom.js';
+import { installRenderedAnnotations } from './pdf-annotations.js';
 
 export class RenderedTableWidget extends WidgetType {
     constructor({
         source,
+        annotationSource,
+        annotationSourceFrom,
         caption,
         resolveImageURL,
         openLink,
         openImagePreview,
         renderVersion,
         highlighted = false,
+        annotations = [],
         translate,
     }) {
         super();
         this.source = source;
+        this.annotationSource = annotationSource;
+        this.annotationSourceFrom = annotationSourceFrom;
         this.caption = caption;
         this.resolveImageURL = resolveImageURL;
         this.openLink = openLink;
         this.openImagePreview = openImagePreview;
         this.renderVersion = renderVersion;
         this.highlighted = highlighted;
+        this.annotations = annotations;
+        this.annotationKey = JSON.stringify(annotations);
         this.translate = translate;
     }
 
     eq(other) {
         return this.source === other.source
+            && this.annotationSource === other.annotationSource
+            && this.annotationSourceFrom === other.annotationSourceFrom
             && this.caption?.text === other.caption?.text
             && this.renderVersion === other.renderVersion
-            && this.highlighted === other.highlighted;
+            && this.highlighted === other.highlighted
+            && this.annotationKey === other.annotationKey;
     }
 
     toDOM(view) {
@@ -51,6 +62,15 @@ export class RenderedTableWidget extends WidgetType {
             cell.setAttribute('contenteditable', 'false');
             cell.setAttribute('aria-readonly', 'true');
         }
+        installRenderedAnnotations(
+            container,
+            this.annotations,
+            this.translate,
+            {
+                source: this.annotationSource,
+                sourceFrom: this.annotationSourceFrom,
+            }
+        );
         container.addEventListener('mousedown', event => {
             if (event.target?.closest?.('img')) return;
             openRenderedLink(event, this.openLink);
@@ -63,8 +83,12 @@ export class RenderedTableWidget extends WidgetType {
         return container;
     }
 
-    ignoreEvent() {
-        return true;
+    ignoreEvent(event) {
+        if (event.type === 'mousedown'
+            && event.target?.closest?.('.cm-mktero-pdf-annotation')) {
+            return true;
+        }
+        return !event.target?.closest?.('.cm-mktero-pdf-annotation');
     }
 }
 
