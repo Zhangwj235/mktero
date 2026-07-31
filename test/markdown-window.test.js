@@ -166,6 +166,255 @@ test('updates Markdown and PDF annotations as one editor document', () => {
     view.destroy();
 });
 
+test('updates the visible annotation after Zotero saves a new color', async () => {
+    const updates = [];
+    const saved = [];
+    let editorOptions;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Important result.',
+        annotationOverlay: {
+            matched: [{
+                id: 'HIGH0001',
+                type: 'highlight',
+                text: 'Important',
+                comment: 'Review this',
+                color: '#ffd400',
+                pageLabel: '4',
+                ranges: [{ from: 0, to: 9 }],
+            }],
+            unmatched: [],
+        },
+        async onChangeAnnotationColor(annotationID, color) {
+            saved.push({ annotationID, color });
+        },
+    });
+    const { view } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument(document) {
+                    updates.push(document);
+                },
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    await editorOptions.changeAnnotationColor('HIGH0001', '#ff6666');
+
+    assert.deepEqual(saved, [{
+        annotationID: 'HIGH0001',
+        color: '#ff6666',
+    }]);
+    assert.equal(model.annotationOverlay.matched[0].color, '#ff6666');
+    assert.equal(
+        updates.at(-1).annotationOverlay.matched[0].color,
+        '#ff6666'
+    );
+    view.destroy();
+});
+
+test('updates the visible note after Zotero saves an annotation comment', async () => {
+    const updates = [];
+    const saved = [];
+    let editorOptions;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Important result.',
+        annotationOverlay: {
+            matched: [{
+                id: 'HIGH0001',
+                type: 'highlight',
+                text: 'Important',
+                comment: '',
+                color: '#ffd400',
+                pageLabel: '4',
+                ranges: [{ from: 0, to: 9 }],
+            }],
+            unmatched: [],
+        },
+        async onUpdateAnnotationComment(annotationID, comment) {
+            saved.push({ annotationID, comment });
+        },
+    });
+    const { view, shadow } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument(document) {
+                    updates.push(document);
+                },
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    await editorOptions.updateAnnotationComment(
+        'HIGH0001',
+        'Review this argument'
+    );
+
+    assert.deepEqual(saved, [{
+        annotationID: 'HIGH0001',
+        comment: 'Review this argument',
+    }]);
+    assert.equal(
+        model.annotationOverlay.matched[0].comment,
+        'Review this argument'
+    );
+    assert.equal(
+        updates.at(-1).annotationOverlay.matched[0].comment,
+        'Review this argument'
+    );
+    assert.match(
+        shadow.querySelector('.markdown-notes-list').textContent,
+        /Review this argument/
+    );
+
+    await editorOptions.updateAnnotationComment('HIGH0001', '');
+
+    assert.deepEqual(saved.at(-1), {
+        annotationID: 'HIGH0001',
+        comment: '',
+    });
+    assert.equal(model.annotationOverlay.matched.length, 1);
+    assert.equal(model.annotationOverlay.matched[0].comment, '');
+    assert.doesNotMatch(
+        shadow.querySelector('.markdown-notes-list').textContent,
+        /Review this argument/
+    );
+    view.destroy();
+});
+
+test('creates and edits persistent local Markdown annotations', async () => {
+    const updates = [];
+    const actions = [];
+    let editorOptions;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Important result.',
+        annotationOverlay: { matched: [], unmatched: [] },
+        async onCreateMarkdownAnnotation(annotation) {
+            actions.push({ action: 'create', annotation });
+            return {
+                ...annotation,
+                id: 'mktero-local-1',
+                source: 'markdown',
+                type: 'highlight',
+                matchKind: 'local',
+                sortIndex: '000000000000',
+            };
+        },
+        async onUpdateMarkdownAnnotation(annotationID, changes) {
+            actions.push({ action: 'update', annotationID, changes });
+            const current = model.annotationOverlay.matched.find(annotation => (
+                annotation.id === annotationID
+            ));
+            return { ...current, ...changes };
+        },
+        async onDeleteMarkdownAnnotation(annotationID) {
+            actions.push({ action: 'delete', annotationID });
+        },
+    });
+    const { view, shadow } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument(document) {
+                    updates.push(document);
+                },
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    await editorOptions.createMarkdownAnnotation({
+        text: 'Important',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 0, to: 9 }],
+    });
+    await editorOptions.updateAnnotationComment(
+        'mktero-local-1',
+        'Local note'
+    );
+    await editorOptions.changeAnnotationColor(
+        'mktero-local-1',
+        '#ff6666'
+    );
+
+    assert.equal(model.annotationOverlay.matched[0].comment, 'Local note');
+    assert.equal(model.annotationOverlay.matched[0].color, '#ff6666');
+    assert.match(shadow.querySelector('.markdown-notes-list').textContent, /Local note/);
+    assert.deepEqual(actions.map(({ action }) => action), [
+        'create',
+        'update',
+        'update',
+    ]);
+    assert.equal(updates.at(-1).annotationOverlay.matched[0].source, 'markdown');
+
+    await editorOptions.deleteAnnotation('mktero-local-1');
+
+    assert.deepEqual(actions.at(-1), {
+        action: 'delete',
+        annotationID: 'mktero-local-1',
+    });
+    assert.deepEqual(model.annotationOverlay.matched, []);
+    view.destroy();
+});
+
+test('removes the visible annotation after Zotero deletes it', async () => {
+    const deleted = [];
+    let editorOptions;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Important result.',
+        annotationOverlay: {
+            matched: [{
+                id: 'HIGH0001',
+                type: 'highlight',
+                text: 'Important',
+                comment: 'Review this',
+                color: '#ffd400',
+                pageLabel: '4',
+                ranges: [{ from: 0, to: 9 }],
+            }],
+            unmatched: [],
+        },
+        async onDeleteAnnotation(annotationID) {
+            deleted.push(annotationID);
+        },
+    });
+    const { view, shadow } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    await editorOptions.deleteAnnotation('HIGH0001');
+
+    assert.deepEqual(deleted, ['HIGH0001']);
+    assert.deepEqual(model.annotationOverlay, { matched: [], unmatched: [] });
+    assert.match(
+        shadow.querySelector('.markdown-notes-list').textContent,
+        /No notes/
+    );
+    view.destroy();
+});
+
 test('resizes and toggles the Markdown outline from its edge', () => {
     const { document, view, shadow } = createView(createModel({
         status: 'ready',
@@ -188,7 +437,11 @@ test('resizes and toggles the Markdown outline from its edge', () => {
         assert.equal(resizer.getAttribute('aria-valuemin'), '180');
         assert.equal(resizer.getAttribute('aria-valuemax'), '480');
         assert.equal(resizer.getAttribute('aria-valuenow'), '256');
-        assert.equal(toggle.textContent, '‹');
+        assert.equal(toggle.textContent, '');
+        assert.equal(
+            toggle.querySelector('svg')?.getAttribute('data-lucide'),
+            'chevron-left'
+        );
         assert.equal(toggle.getAttribute('aria-controls'), 'mktero-outline');
         assert.equal(toggle.getAttribute('aria-expanded'), 'true');
         assert.equal(toggle.getAttribute('aria-label'), 'Collapse outline');
@@ -216,14 +469,22 @@ test('resizes and toggles the Markdown outline from its edge', () => {
 
         toggle.click();
         assert.equal(outline.hidden, true);
-        assert.equal(toggle.textContent, '›');
+        assert.equal(toggle.textContent, '');
+        assert.equal(
+            toggle.querySelector('svg')?.getAttribute('data-lucide'),
+            'chevron-right'
+        );
         assert.equal(toggle.getAttribute('aria-expanded'), 'false');
         assert.equal(toggle.getAttribute('aria-label'), 'Expand outline');
         assert.equal(resizer.getAttribute('aria-label'), 'Expand outline');
 
         toggle.click();
         assert.equal(outline.hidden, false);
-        assert.equal(toggle.textContent, '‹');
+        assert.equal(toggle.textContent, '');
+        assert.equal(
+            toggle.querySelector('svg')?.getAttribute('data-lucide'),
+            'chevron-left'
+        );
         assert.equal(toggle.getAttribute('aria-expanded'), 'true');
         assert.equal(resizer.getAttribute('aria-valuenow'), '376');
         assert.equal(
@@ -264,9 +525,13 @@ test('resizes and toggles PDF notes from the right edge', () => {
         assert.equal(resizer.getAttribute('aria-valuemin'), '220');
         assert.equal(resizer.getAttribute('aria-valuemax'), '480');
         assert.equal(resizer.getAttribute('aria-valuenow'), '300');
-        assert.equal(toggle.textContent, '›');
+        assert.equal(toggle.textContent, '');
+        assert.equal(
+            toggle.querySelector('svg')?.getAttribute('data-lucide'),
+            'chevron-right'
+        );
         assert.equal(toggle.getAttribute('aria-expanded'), 'true');
-        assert.equal(toggle.getAttribute('aria-label'), 'Collapse PDF notes');
+        assert.equal(toggle.getAttribute('aria-label'), 'Collapse notes');
         assert.equal(notes.hidden, false);
 
         dispatchMouseEvent(resizer, 'mousedown', 1000);
@@ -290,14 +555,22 @@ test('resizes and toggles PDF notes from the right edge', () => {
 
         toggle.click();
         assert.equal(notes.hidden, true);
-        assert.equal(toggle.textContent, '‹');
+        assert.equal(toggle.textContent, '');
+        assert.equal(
+            toggle.querySelector('svg')?.getAttribute('data-lucide'),
+            'chevron-left'
+        );
         assert.equal(toggle.getAttribute('aria-expanded'), 'false');
-        assert.equal(toggle.getAttribute('aria-label'), 'Expand PDF notes');
-        assert.equal(resizer.getAttribute('aria-label'), 'Expand PDF notes');
+        assert.equal(toggle.getAttribute('aria-label'), 'Expand notes');
+        assert.equal(resizer.getAttribute('aria-label'), 'Expand notes');
 
         toggle.click();
         assert.equal(notes.hidden, false);
-        assert.equal(toggle.textContent, '›');
+        assert.equal(toggle.textContent, '');
+        assert.equal(
+            toggle.querySelector('svg')?.getAttribute('data-lucide'),
+            'chevron-right'
+        );
         assert.equal(resizer.getAttribute('aria-valuenow'), '480');
 
         resizer.dispatchEvent(new document.defaultView.Event('dblclick', {
@@ -354,10 +627,10 @@ test('shows PDF notes safely and jumps matched notes to Markdown', () => {
     const buttons = [...notes.querySelectorAll('.markdown-note-link')];
 
     try {
-        assert.equal(notes.getAttribute('aria-label'), 'PDF notes');
+        assert.equal(notes.getAttribute('aria-label'), 'Notes');
         assert.equal(
             notes.querySelector('.markdown-notes-title').textContent,
-            'PDF Notes'
+            'Notes'
         );
         assert.equal(buttons.length, 2);
         assert.equal(buttons[0].hasAttribute('disabled'), true);
@@ -480,7 +753,7 @@ test('shows an empty outline state when Markdown has no headings', () => {
     assert.equal(shadow.querySelectorAll('.markdown-outline-link').length, 0);
     assert.equal(shadow.querySelector('.markdown-outline-empty').textContent, 'No headings');
     assert.equal(shadow.querySelectorAll('.markdown-note-link').length, 0);
-    assert.equal(shadow.querySelector('.markdown-notes-empty').textContent, 'No PDF notes');
+    assert.equal(shadow.querySelector('.markdown-notes-empty').textContent, 'No notes');
     view.destroy();
 });
 
@@ -572,6 +845,9 @@ test('updates conversion progress directly in the inline view', () => {
 
     view.render(createModel({ progress: 10 }));
 
+    const spinner = shadow.querySelector('.loading-spinner');
+    assert.equal(spinner?.localName, 'svg');
+    assert.equal(spinner?.getAttribute('data-lucide'), 'loader-circle');
     assert.equal(
         shadow.querySelector('#mktero-loading-detail').textContent,
         'The PDF is being converted to Markdown.'
@@ -596,8 +872,8 @@ test('localizes the Markdown viewer chrome from the Zotero locale', () => {
     );
     assert.equal(shadow.querySelector('.markdown-outline-title').textContent, '目录');
     assert.equal(shadow.querySelector('.markdown-outline-empty').textContent, '暂无目录');
-    assert.equal(shadow.querySelector('.markdown-notes-title').textContent, 'PDF 笔记');
-    assert.equal(shadow.querySelector('.markdown-notes-empty').textContent, '暂无 PDF 笔记');
+    assert.equal(shadow.querySelector('.markdown-notes-title').textContent, '笔记');
+    assert.equal(shadow.querySelector('.markdown-notes-empty').textContent, '暂无笔记');
 
     view.destroy();
 });

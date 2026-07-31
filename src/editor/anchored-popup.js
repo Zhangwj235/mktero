@@ -22,8 +22,8 @@ export function createAnchoredPopup(parent, {
     const close = () => {
         cancelClose();
         if (anchor && popup
-            && anchor.getAttribute('aria-describedby') === popup.id) {
-            anchor.removeAttribute('aria-describedby');
+            && anchor.getAttribute?.('aria-describedby') === popup.id) {
+            anchor.removeAttribute?.('aria-describedby');
         }
         popup?.remove();
         popup = null;
@@ -32,6 +32,9 @@ export function createAnchoredPopup(parent, {
 
     const scheduleClose = () => {
         cancelClose();
+        const root = parent.getRootNode?.();
+        const activeElement = root?.activeElement || document.activeElement;
+        if (popup?.contains(activeElement)) return;
         closeTimer = ownerWindow.setTimeout(close, 120);
     };
 
@@ -45,6 +48,7 @@ export function createAnchoredPopup(parent, {
         label,
         renderContent,
         focusContent,
+        popupClassName,
     }) => {
         if (!nextAnchor || typeof renderContent !== 'function') return;
         if (ignoredOpenAnchor === nextAnchor) {
@@ -60,7 +64,9 @@ export function createAnchoredPopup(parent, {
         anchor = nextAnchor;
         popup = document.createElementNS(XHTML_NAMESPACE, 'div');
         popup.id = `${idPrefix}-${nextPopupID++}`;
-        popup.className = className;
+        popup.className = [className, popupClassName]
+            .filter(Boolean)
+            .join(' ');
         popup.setAttribute('role', 'dialog');
         popup.setAttribute('aria-label', label);
         const content = renderContent({ document, close, reposition });
@@ -82,7 +88,7 @@ export function createAnchoredPopup(parent, {
             event.stopPropagation();
             close();
             ignoredOpenAnchor = returnFocus;
-            returnFocus?.focus();
+            returnFocus?.focus?.();
             ownerWindow.setTimeout(() => {
                 if (ignoredOpenAnchor === returnFocus) {
                     ignoredOpenAnchor = null;
@@ -90,7 +96,7 @@ export function createAnchoredPopup(parent, {
             }, 0);
         });
         parent.appendChild(popup);
-        anchor.setAttribute('aria-describedby', popup.id);
+        anchor.setAttribute?.('aria-describedby', popup.id);
         reposition();
         focusContent?.(popup);
     };

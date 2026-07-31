@@ -226,6 +226,66 @@ test('exposes and refreshes the reparse action on the tab model', async () => {
     assert.equal(second.model.cacheKey, null);
 });
 
+test('exposes and refreshes PDF annotation actions on the tab model', async () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const calls = [];
+    const presenter = createPresenter(mainWindow, harness);
+    const first = presenter.open(42, {
+        onChangeAnnotationColor: () => calls.push('stale-color'),
+        onUpdateAnnotationComment: () => calls.push('stale-comment'),
+        onDeleteAnnotation: () => calls.push('stale-delete'),
+    });
+    const second = presenter.open(42, {
+        onChangeAnnotationColor: (id, color) => calls.push({ id, color }),
+        onUpdateAnnotationComment: (id, comment) => calls.push({ id, comment }),
+        onDeleteAnnotation: id => calls.push({ deleted: id }),
+    });
+
+    await second.model.onChangeAnnotationColor('ANN00001', '#ff6666');
+    await second.model.onUpdateAnnotationComment('ANN00001', 'Review this');
+    await second.model.onDeleteAnnotation('ANN00001');
+
+    assert.equal(first.model, second.model);
+    assert.deepEqual(calls, [
+        { id: 'ANN00001', color: '#ff6666' },
+        { id: 'ANN00001', comment: 'Review this' },
+        { deleted: 'ANN00001' },
+    ]);
+});
+
+test('exposes and refreshes local Markdown annotation actions', async () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const calls = [];
+    const presenter = createPresenter(mainWindow, harness);
+    const first = presenter.open(42, {
+        onCreateMarkdownAnnotation: () => calls.push('stale-create'),
+        onUpdateMarkdownAnnotation: () => calls.push('stale-update'),
+        onDeleteMarkdownAnnotation: () => calls.push('stale-delete'),
+    });
+    const second = presenter.open(42, {
+        onCreateMarkdownAnnotation: draft => calls.push({ draft }),
+        onUpdateMarkdownAnnotation: (id, changes) => calls.push({ id, changes }),
+        onDeleteMarkdownAnnotation: id => calls.push({ deleted: id }),
+    });
+    const draft = { text: 'Selected', ranges: [{ from: 0, to: 8 }] };
+
+    await second.model.onCreateMarkdownAnnotation(draft);
+    await second.model.onUpdateMarkdownAnnotation(
+        'mktero-local-1',
+        { comment: 'Review this' }
+    );
+    await second.model.onDeleteMarkdownAnnotation('mktero-local-1');
+
+    assert.equal(first.model, second.model);
+    assert.deepEqual(calls, [
+        { draft },
+        { id: 'mktero-local-1', changes: { comment: 'Review this' } },
+        { deleted: 'mktero-local-1' },
+    ]);
+});
+
 test('removes stale Mktero tabs before Zotero restores the previous session', () => {
     const mainWindow = createMainWindow();
     const harness = createViewHarness();

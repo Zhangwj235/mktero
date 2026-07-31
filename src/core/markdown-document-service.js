@@ -3,14 +3,20 @@ import {
     renderPlainText,
     renderStructuredDocument,
 } from '../markdown/structured-renderer.js';
+import { mergeAnnotationOverlays } from './markdown-local-annotations.js';
 
 export class MarkdownDocumentService {
-    constructor({ extractor, annotationOverlay = null }) {
+    constructor({
+        extractor,
+        annotationOverlay = null,
+        localAnnotations = null,
+    }) {
         if (!extractor) {
             throw new TypeError('A document extractor is required');
         }
         this.extractor = extractor;
         this.annotationOverlay = annotationOverlay;
+        this.localAnnotations = localAnnotations;
         this.inFlight = new Map();
     }
 
@@ -49,7 +55,7 @@ export class MarkdownDocumentService {
             sourceKind: extracted.kind,
             extractedPages: extracted.extractedPages,
             totalPages: extracted.totalPages,
-            warnings: extracted.warnings,
+            warnings: extracted.warnings || [],
         };
         if ('cacheHit' in extracted) {
             result.cacheHit = Boolean(extracted.cacheHit);
@@ -61,16 +67,51 @@ export class MarkdownDocumentService {
             result.assets = extracted.assets;
             result.assetBasePath = extracted.assetBasePath || '';
         }
+        const annotationResult = await this.resolveAnnotations(
+            itemID,
+            markdown,
+            { retryLocalAnnotations: true },
+        );
+        result.warnings = [
+            ...result.warnings,
+            ...annotationResult.warnings,
+        ];
+        if (annotationResult.annotationOverlay) {
+            result.annotationOverlay = annotationResult.annotationOverlay;
+        }
+        return result;
+    }
+
+    async resolveAnnotations(itemID, markdown, {
+        retryLocalAnnotations = false,
+    } = {}) {
+        const overlays = [];
+        const warnings = [];
         if (this.annotationOverlay) {
             const annotationResult = await this.annotationOverlay.resolve(
                 itemID,
                 markdown
             );
             const { warning, ...annotationOverlay } = annotationResult;
-            result.annotationOverlay = annotationOverlay;
-            if (warning) result.warnings = [...result.warnings, warning];
+            overlays.push(annotationOverlay);
+            if (warning) warnings.push(warning);
         }
-        return result;
+        if (this.localAnnotations) {
+            const localResult = await this.localAnnotations.resolve(
+                itemID,
+                markdown,
+                { retryFailed: retryLocalAnnotations },
+            );
+            const { warning, ...localOverlay } = localResult;
+            overlays.push(localOverlay);
+            if (warning) warnings.push(warning);
+        }
+        return {
+            annotationOverlay: overlays.length
+                ? mergeAnnotationOverlays(...overlays)
+                : null,
+            warnings,
+        };
     }
 }
 

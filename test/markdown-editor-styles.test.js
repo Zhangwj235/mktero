@@ -273,7 +273,7 @@ test('styles citation popups and temporary reference highlights', () => {
     assert.match(highlight, /animation:\s*mktero-reference-highlight 3s ease-out/);
 });
 
-test('styles Zotero-colored PDF annotations and their note popup', () => {
+test('styles Zotero-colored PDF annotations and their action popup', () => {
     const annotation = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation'
     );
@@ -314,20 +314,92 @@ test('styles Zotero-colored PDF annotations and their note popup', () => {
     assert.match(noteIcon, /left:\s*-6px/);
     assert.match(noteIcon, /width:\s*15px/);
     assert.match(noteIcon, /height:\s*15px/);
-
-    const noteBubble = ruleBody([
-        '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation-note-bubble,',
-        '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation-note-line',
-    ].join('\n'));
-    assert.match(noteBubble, /stroke:\s*currentColor/);
+    assert.match(noteIcon, /filter:\s*drop-shadow/);
 
     const popup = ruleBody('.mktero-annotation-popup');
     assert.match(popup, /position:\s*fixed/);
     assert.match(popup, /z-index:\s*900/);
     assert.match(popup, /background:\s*var\(--surface\)/);
 
+    const actionsPopup = ruleBody('.mktero-annotation-popup--actions');
+    assert.match(actionsPopup, /width:\s*max-content/);
+    assert.match(actionsPopup, /max-width:\s*calc\(100vw - 24px\)/);
+    assert.match(actionsPopup, /box-sizing:\s*border-box/);
+
+    const notePopup = ruleBody('.mktero-annotation-popup--note-editor');
+    assert.match(
+        notePopup,
+        /width:\s*min\(360px, calc\(100vw - 24px\)\)/
+    );
+
+    const noteInput = ruleBody('.mktero-annotation-note-input');
+    assert.match(noteInput, /width:\s*100%/);
+    assert.match(noteInput, /min-height:\s*82px/);
+    assert.match(noteInput, /resize:\s*vertical/);
+    assert.match(noteInput, /border-radius:\s*6px/);
+
+    const noteFooter = ruleBody('.mktero-annotation-note-footer');
+    assert.match(noteFooter, /display:\s*flex/);
+    assert.match(noteFooter, /justify-content:\s*flex-end/);
+    assert.match(noteFooter, /gap:\s*6px/);
+
+    const noteButtons = ruleBody([
+        '.mktero-annotation-note-cancel,',
+        '.mktero-annotation-note-save',
+    ].join('\n'));
+    assert.match(noteButtons, /height:\s*28px/);
+    assert.match(noteButtons, /border-radius:\s*6px/);
+
     const swatch = ruleBody('.mktero-annotation-popup-swatch');
     assert.match(swatch, /background:\s*var\(--mktero-annotation-color\)/);
+
+    const actions = ruleBody('.mktero-annotation-actions');
+    assert.match(actions, /display:\s*flex/);
+    assert.match(actions, /flex-wrap:\s*wrap/);
+    assert.match(actions, /gap:\s*6px/);
+    assert.match(actions, /padding:\s*8px 9px/);
+
+    const colorButton = ruleBody([
+        '.mktero-annotation-color-button,',
+        '.mktero-annotation-delete-button,',
+        '.mktero-annotation-note-button',
+    ].join('\n'));
+    assert.match(colorButton, /width:\s*25px/);
+    assert.match(colorButton, /height:\s*25px/);
+    assert.match(colorButton, /box-sizing:\s*border-box/);
+    assert.match(colorButton, /cursor:\s*pointer/);
+
+    const colorSwatch = ruleBody(
+        '.mktero-annotation-color-button::before'
+    );
+    assert.match(
+        colorSwatch,
+        /background:\s*var\(--mktero-annotation-color\)/
+    );
+    assert.match(colorSwatch, /width:\s*15px/);
+    assert.match(colorSwatch, /height:\s*15px/);
+
+    const deleteButton = ruleBody('\n\n.mktero-annotation-delete-button');
+    assert.match(deleteButton, /position:\s*relative/);
+    assert.doesNotMatch(deleteButton, /border-left-color/);
+
+    const deleteSeparator = ruleBody(
+        '.mktero-annotation-delete-button::before'
+    );
+    assert.match(deleteSeparator, /width:\s*1px/);
+    assert.match(deleteSeparator, /top:\s*3px/);
+    assert.match(deleteSeparator, /bottom:\s*3px/);
+    assert.match(deleteSeparator, /background:\s*color-mix/);
+
+    const noteAction = ruleBody('\n\n.mktero-annotation-note-button');
+    assert.match(noteAction, /position:\s*relative/);
+    assert.match(noteAction, /border-radius:\s*6px/);
+    const noteSeparator = ruleBody(
+        '.mktero-annotation-note-button::before'
+    );
+    assert.match(noteSeparator, /width:\s*1px/);
+    assert.match(noteSeparator, /top:\s*3px/);
+    assert.match(noteSeparator, /bottom:\s*3px/);
 });
 
 test('styles table references, previews, and target highlights', () => {

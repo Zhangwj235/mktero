@@ -10,6 +10,8 @@ import { createLocalization } from '../i18n/localization.js';
 import {
     createInlineRenderingExtension,
     refreshInlineRendering,
+    selectedMarkdownAnnotation,
+    selectionAnchor,
     setAnnotationOverlay,
     setFigureHighlight,
     setReferenceHighlight,
@@ -81,6 +83,10 @@ export function createInlineMarkdownEditor({
     initialMarkdown,
     resolveImageURL,
     openLink,
+    createMarkdownAnnotation,
+    changeAnnotationColor,
+    updateAnnotationComment,
+    deleteAnnotation,
     localization = createLocalization(),
 }) {
     const t = localization.t.bind(localization);
@@ -90,7 +96,19 @@ export function createInlineMarkdownEditor({
     acquireDOMGlobals(ownerWindow);
     const imagePreview = createImagePreview(parent, { localization });
     const citationPopup = createCitationPopup(parent, { localization });
-    const annotationPopup = createAnnotationPopup(parent, { localization });
+    const annotationPopup = createAnnotationPopup(parent, {
+        localization,
+        createMarkdownAnnotation: typeof createMarkdownAnnotation === 'function'
+            ? async annotation => {
+                const saved = await createMarkdownAnnotation(annotation);
+                ownerWindow.getSelection?.()?.removeAllRanges?.();
+                return saved;
+            }
+            : undefined,
+        changeAnnotationColor,
+        updateAnnotationComment,
+        deleteAnnotation,
+    });
     const tablePreviewPopup = createTablePreviewPopup(parent, {
         resolveImageURL,
         localization,
@@ -199,6 +217,32 @@ export function createInlineMarkdownEditor({
         releaseDOMGlobals(ownerWindow);
         throw error;
     }
+    const openSelectedMarkdownActions = event => {
+        if (event.button !== 0) return;
+        if (interactionPopups.some(popup => popup.contains(event.target))) {
+            return;
+        }
+        activateDOMGlobals(ownerWindow);
+        const selection = selectedMarkdownAnnotation(view);
+        if (!selection) return;
+        for (const popup of interactionPopups) {
+            if (popup !== annotationPopup) popup.close();
+        }
+        annotationPopup.openSelection({
+            anchor: selectionAnchor(
+                ownerWindow.document.getSelection?.(),
+                event.target
+            ),
+            selection,
+        });
+    };
+    const closeSelectionActions = event => {
+        if (event.button === 0 && !annotationPopup.contains(event.target)) {
+            annotationPopup.close();
+        }
+    };
+    parent.addEventListener('mousedown', closeSelectionActions, true);
+    parent.addEventListener('mouseup', openSelectedMarkdownActions, true);
     const setDocument = ({ markdown, annotationOverlay }) => {
         activateDOMGlobals(ownerWindow);
         for (const feature of referenceFeatureList) {
@@ -259,6 +303,16 @@ export function createInlineMarkdownEditor({
                     feature.highlight.cancel();
                     feature.popup.destroy();
                 }
+                parent.removeEventListener(
+                    'mousedown',
+                    closeSelectionActions,
+                    true
+                );
+                parent.removeEventListener(
+                    'mouseup',
+                    openSelectedMarkdownActions,
+                    true
+                );
                 annotationPopup.destroy();
                 imagePreview.destroy();
                 view.destroy();

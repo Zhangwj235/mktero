@@ -16,8 +16,13 @@ function createDocument() {
                 type: '',
                 dataset: {},
                 attributes: {},
+                children: [],
                 setAttribute(name, value) {
                     this.attributes[name] = String(value);
+                },
+                appendChild(child) {
+                    this.children.push(child);
+                    return child;
                 },
                 addEventListener(type, handler) {
                     listeners.set(type, handler);
@@ -26,6 +31,9 @@ function createDocument() {
                     listeners.get('click')?.();
                 },
             };
+        },
+        createElementNS(_namespace, tagName) {
+            return this.createElement(tagName);
         },
     };
 }
@@ -60,8 +68,115 @@ test('adds an action to PDF reader toolbars and opens that reader item', async (
     assert.equal(registered.type, 'renderToolbar');
     assert.equal(registered.pluginID, 'mktero@example.com');
     assert.equal(appended.length, 1);
-    assert.equal(appended[0].textContent, 'MD');
+    assert.equal(appended[0].textContent, '');
+    assert.equal(appended[0].children[0].tagName, 'svg');
+    assert.equal(
+        appended[0].children[0].attributes['data-lucide'],
+        'file-text'
+    );
     assert.deepEqual(opened, [42]);
+});
+
+test('synchronizes pending annotations when a PDF reader opens', async () => {
+    let handler;
+    const zotero = {
+        Reader: {
+            registerEventListener(_type, value) {
+                handler = value;
+            },
+            unregisterEventListener() {},
+        },
+    };
+    const ready = [];
+    registerReaderToolbar({
+        zotero,
+        pluginID: 'mktero@example.com',
+        onOpen: () => {},
+        onPDFReaderAvailable: async reader => ready.push(reader.itemID),
+    });
+    const reader = { type: 'pdf', itemID: 42 };
+
+    handler({
+        reader,
+        doc: createDocument(),
+        append: () => {},
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(ready, [42]);
+});
+
+test('routes deferred synchronization errors through the toolbar handler', async () => {
+    let handler;
+    const zotero = {
+        Reader: {
+            registerEventListener(_type, value) {
+                handler = value;
+            },
+            unregisterEventListener() {},
+        },
+    };
+    const errors = [];
+    const reader = { type: 'pdf', itemID: 42 };
+    registerReaderToolbar({
+        zotero,
+        pluginID: 'mktero@example.com',
+        onOpen: () => {},
+        onPDFReaderAvailable: async () => {
+            throw new Error('Could not load pending annotations');
+        },
+        onError: (error, failedReader) => {
+            errors.push({ message: error.message, failedReader });
+        },
+    });
+
+    handler({
+        reader,
+        doc: createDocument(),
+        append: () => {},
+    });
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(errors, [{
+        message: 'Could not load pending annotations',
+        failedReader: reader,
+    }]);
+});
+
+test('synchronizes an open PDF even before its toolbar document exists', async () => {
+    let handler;
+    const reader = { type: 'pdf', itemID: 42 };
+    const zotero = {
+        Reader: {
+            _readers: [reader],
+            registerEventListener(_type, value) {
+                handler = value;
+            },
+            unregisterEventListener() {},
+        },
+    };
+    const opened = [];
+    registerReaderToolbar({
+        zotero,
+        pluginID: 'mktero@example.com',
+        onOpen: () => {},
+        onPDFReaderAvailable: openReader => opened.push(openReader.itemID),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(opened, [42]);
+
+    handler({
+        reader,
+        doc: createDocument(),
+        append: () => {},
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(opened, [42, 42]);
 });
 
 test('localizes the reader toolbar action', () => {
@@ -102,10 +217,12 @@ test('does not add the action to non-PDF readers', () => {
             unregisterEventListener() {},
         },
     };
+    const ready = [];
     registerReaderToolbar({
         zotero,
         pluginID: 'mktero@example.com',
         onOpen: async () => {},
+        onPDFReaderAvailable: reader => ready.push(reader.itemID),
     });
     const appended = [];
 
@@ -116,6 +233,7 @@ test('does not add the action to non-PDF readers', () => {
     });
 
     assert.deepEqual(appended, []);
+    assert.deepEqual(ready, []);
 });
 
 test('uses Zotero plugin cleanup instead of the broken 9.0 listener unregister API', () => {
@@ -140,7 +258,33 @@ test('uses Zotero plugin cleanup instead of the broken 9.0 listener unregister A
     assert.equal(unregisterCalls, 0);
 });
 
-test('adds and removes the toolbar action without restarting Zotero', () => {
+test('cancels a queued PDF availability notification during cleanup', async () => {
+    const reader = { type: 'pdf', itemID: 42 };
+    const zotero = {
+        Reader: {
+            _readers: [reader],
+            registerEventListener() {},
+            unregisterEventListener() {},
+        },
+    };
+    const available = [];
+    const dispose = registerReaderToolbar({
+        zotero,
+        pluginID: 'mktero@example.com',
+        onOpen: () => {},
+        onPDFReaderAvailable: openReader => {
+            available.push(openReader.itemID);
+        },
+    });
+
+    dispose();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(available, []);
+});
+
+test('adds and removes the toolbar action without restarting Zotero', async () => {
     const { document } = parseHTML([
         '<html><body>',
         '<div class="toolbar"><div class="end">',
@@ -167,12 +311,13 @@ test('adds and removes the toolbar action without restarting Zotero', () => {
             },
         },
     };
-
     const dispose = registerReaderToolbar({
         zotero,
         pluginID: 'mktero@example.com',
         onOpen: async () => {},
     });
+    await Promise.resolve();
+    await Promise.resolve();
 
     assert.ok(document.querySelector('.mktero-markdown-button'));
     toolbarHandler({
@@ -190,6 +335,59 @@ test('adds and removes the toolbar action without restarting Zotero', () => {
     });
     assert.equal(document.querySelector('.mktero-markdown-button'), null);
     assert.deepEqual(cleanedPluginIDs, ['mktero@example.com']);
+});
+
+test('synchronizes and cleans up PDF readers across Zotero windows', async () => {
+    const documents = [1, 2].map(() => parseHTML([
+        '<html><body>',
+        '<div class="toolbar"><div class="end">',
+        '<div class="custom-sections"></div>',
+        '</div></div>',
+        '</body></html>',
+    ].join('')).document);
+    const readers = documents.map((document, index) => ({
+        type: 'pdf',
+        itemID: 42 + index,
+        _iframeWindow: { document },
+    }));
+    let toolbarHandler;
+    const zotero = {
+        version: '9.0.6',
+        Reader: {
+            _readers: readers,
+            registerEventListener(_type, handler) {
+                toolbarHandler = handler;
+            },
+            _unregisterEventListenerByPluginID() {},
+        },
+    };
+    const synchronized = [];
+    const dispose = registerReaderToolbar({
+        zotero,
+        pluginID: 'mktero@example.com',
+        onOpen: () => {},
+        onPDFReaderAvailable: reader => synchronized.push(reader.itemID),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(synchronized, [42, 43]);
+    for (const document of documents) {
+        assert.ok(document.querySelector('.mktero-markdown-button'));
+    }
+
+    dispose();
+    for (const document of documents) {
+        assert.equal(document.querySelector('.mktero-markdown-button'), null);
+    }
+    toolbarHandler({
+        reader: readers[0],
+        doc: documents[0],
+        append: () => {},
+    });
+    await Promise.resolve();
+
+    assert.deepEqual(synchronized, [42, 43]);
 });
 
 test('replaces a stale toolbar action during a hot plugin update', () => {

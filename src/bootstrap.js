@@ -9,8 +9,12 @@ import {
     createMinerUCacheKey,
     createZoteroMarkdownCache,
 } from './cache/markdown-cache.js';
+import {
+    createZoteroMarkdownAnnotationStore,
+} from './cache/markdown-annotation-store.js';
 import { MarkdownDocumentService } from './core/markdown-document-service.js';
 import { MarkdownAnnotationOverlay } from './core/markdown-annotation-overlay.js';
+import { MarkdownLocalAnnotations } from './core/markdown-local-annotations.js';
 import {
     CONVERSION_PROGRESS,
     normalizeConversionProgress,
@@ -23,6 +27,12 @@ import { ZoteroAnnotationExtractor } from './extractors/zotero-annotation-extrac
 import { MinerUClient } from './mineru/mineru-client.js';
 import { createRuntimeAbortController } from './platform/abort-controller.js';
 import {
+    createZoteroAnnotationActions,
+} from './platform/zotero-annotation-actions.js';
+import {
+    registerZoteroAnnotationObserver,
+} from './platform/zotero-annotation-observer.js';
+import {
     createLocalization,
     translateEnglish,
 } from './i18n/localization.js';
@@ -33,6 +43,9 @@ import {
 import { registerItemContextMenu } from './ui/item-context-menu.js';
 import { registerReaderToolbar } from './ui/reader-toolbar.js';
 import { MarkdownTabPresenter } from './ui/markdown-tab-presenter.js';
+import {
+    createAnnotationOverlayRefresher,
+} from './ui/annotation-overlay-refresher.js';
 import {
     createConversionFailureChanges,
     createConversionLoadingChanges,
@@ -48,6 +61,10 @@ const runtime = {
     rootURI: null,
     preferencePaneID: null,
     localization: null,
+    annotationActions: null,
+    disposeAnnotationObserver: null,
+    annotationOverlayRefresher: null,
+    localAnnotations: null,
     disposeToolbar: null,
     contextMenus: new Map(),
     controllers: new Map(),
@@ -65,6 +82,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
         ),
     });
     runtime.localization = localization;
+    runtime.annotationActions = createZoteroAnnotationActions(Zotero);
     runtime.presenter = new MarkdownTabPresenter({
         zotero: Zotero,
         rootURI,
@@ -84,6 +102,24 @@ globalThis.startup = async function startup({ id, rootURI }) {
         extractor: new ZoteroAnnotationExtractor(Zotero),
         onError: error => Zotero.logError?.(error),
     });
+    const localAnnotations = new MarkdownLocalAnnotations({
+        store: createZoteroMarkdownAnnotationStore({
+            zotero: Zotero,
+            ioUtils: IOUtils,
+            pathUtils: PathUtils,
+        }),
+        createPDFAnnotation: (itemID, draft, context) => (
+            runtime.annotationActions.createFromText(itemID, draft, context)
+        ),
+        deletePDFAnnotation: (itemID, annotationID) => (
+            runtime.annotationActions.deleteAnnotation(itemID, annotationID)
+        ),
+        onSynchronizationChange: itemID => (
+            runtime.annotationOverlayRefresher?.refresh([itemID])
+        ),
+        onError: error => Zotero.logError?.(error),
+    });
+    runtime.localAnnotations = localAnnotations;
     runtime.service = new MarkdownDocumentService({
         extractor: new MinerUDocumentExtractor({
             zotero: Zotero,
@@ -97,7 +133,21 @@ globalThis.startup = async function startup({ id, rootURI }) {
             isCacheEnabled: () => getMinerUCacheEnabled(Zotero),
         }),
         annotationOverlay,
+        localAnnotations,
     });
+    runtime.annotationOverlayRefresher = createAnnotationOverlayRefresher({
+        presenter,
+        service: runtime.service,
+    });
+    runtime.disposeAnnotationObserver = registerZoteroAnnotationObserver(
+        Zotero,
+        {
+            onChange: itemIDs => (
+                runtime.annotationOverlayRefresher?.refresh(itemIDs)
+            ),
+            onError: error => Zotero.logError?.(error),
+        }
+    );
     cache.prune().catch(error => Zotero.logError(error));
     presenter.ensureSessionStateFilter();
     const preferencePaneID = await registerMinerUPreferencesPane({
@@ -119,6 +169,9 @@ globalThis.startup = async function startup({ id, rootURI }) {
 
 globalThis.shutdown = function shutdown() {
     abortAllConversions();
+    runtime.disposeAnnotationObserver?.();
+    runtime.localAnnotations?.dispose();
+    runtime.annotationOverlayRefresher?.dispose();
     runtime.disposeToolbar?.();
     disposeAllContextMenus();
     runtime.presenter?.dispose();
@@ -131,6 +184,10 @@ globalThis.shutdown = function shutdown() {
     runtime.cache = null;
     runtime.rootURI = null;
     runtime.localization = null;
+    runtime.annotationActions = null;
+    runtime.disposeAnnotationObserver = null;
+    runtime.annotationOverlayRefresher = null;
+    runtime.localAnnotations = null;
     runtime.preferencePaneID = null;
     runtime.id = null;
 };
@@ -151,6 +208,29 @@ async function openItemAsMarkdown(itemID, { forceRefresh = false } = {}) {
     const presentation = runtime.presenter.open(itemID, {
         onClose: () => abortConversion(itemID),
         onReparse: () => openItemAsMarkdown(itemID, { forceRefresh: true }),
+        onChangeAnnotationColor: (annotationID, color) => (
+            runAnnotationAction('changeColor', itemID, annotationID, color)
+        ),
+        onUpdateAnnotationComment: (annotationID, comment) => (
+            runAnnotationAction('updateComment', itemID, annotationID, comment)
+        ),
+        onDeleteAnnotation: annotationID => (
+            runAnnotationAction('deleteAnnotation', itemID, annotationID)
+        ),
+        onCreateMarkdownAnnotation: draft => (
+            runMarkdownAnnotationAction('create', itemID, draft)
+        ),
+        onUpdateMarkdownAnnotation: (annotationID, changes) => (
+            runMarkdownAnnotationAction(
+                'update',
+                itemID,
+                annotationID,
+                changes
+            )
+        ),
+        onDeleteMarkdownAnnotation: annotationID => (
+            runMarkdownAnnotationAction('delete', itemID, annotationID)
+        ),
     });
     if (!presentation.created
         && presentation.model.status !== 'error'
@@ -227,6 +307,34 @@ async function openItemAsMarkdown(itemID, { forceRefresh = false } = {}) {
         if (runtime.controllers.get(itemID) === controller) {
             runtime.controllers.delete(itemID);
         }
+    }
+}
+
+async function runAnnotationAction(action, ...args) {
+    try {
+        const handler = runtime.annotationActions?.[action];
+        if (typeof handler !== 'function') {
+            throw new Error('PDF annotation actions are unavailable');
+        }
+        await handler(...args);
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        throw error;
+    }
+}
+
+async function runMarkdownAnnotationAction(action, ...args) {
+    try {
+        const handler = runtime.localAnnotations?.[action];
+        if (typeof handler !== 'function') {
+            throw new Error('Markdown annotation actions are unavailable');
+        }
+        return await handler.call(runtime.localAnnotations, ...args);
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        throw error;
     }
 }
 
@@ -308,6 +416,12 @@ function registerReaderToolbarAction() {
         zotero: Zotero,
         pluginID: runtime.id,
         onOpen: openReaderAsMarkdown,
+        onPDFReaderAvailable: reader => (
+            runtime.localAnnotations?.synchronizePending(
+                reader.itemID,
+                { reader }
+            )
+        ),
         onError: handleOpenError,
         translate: runtimeTranslate,
     });

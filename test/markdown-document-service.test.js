@@ -190,6 +190,53 @@ test('adds current Zotero PDF annotations without changing Markdown', async () =
     });
 });
 
+test('combines Zotero PDF annotations with local Markdown annotations', async () => {
+    const localResolveOptions = [];
+    const service = new MarkdownDocumentService({
+        extractor: {
+            extract: async () => ({
+                kind: 'markdown',
+                title: 'Annotated paper',
+                markdown: 'Important result.',
+                warnings: [],
+            }),
+        },
+        annotationOverlay: {
+            async resolve() {
+                return {
+                    matched: [{ id: 'PDF1', ranges: [{ from: 0, to: 9 }] }],
+                    unmatched: [],
+                };
+            },
+        },
+        localAnnotations: {
+            async resolve(_itemID, _markdown, options) {
+                localResolveOptions.push(options);
+                return {
+                    matched: [{
+                        id: 'mktero-local-1',
+                        source: 'markdown',
+                        ranges: [{ from: 10, to: 16 }],
+                    }],
+                    unmatched: [],
+                };
+            },
+        },
+    });
+
+    const result = await service.convert(42);
+    await service.resolveAnnotations(42, 'Important result.');
+
+    assert.deepEqual(result.annotationOverlay.matched.map(({ id }) => id), [
+        'PDF1',
+        'mktero-local-1',
+    ]);
+    assert.deepEqual(localResolveOptions, [
+        { retryFailed: true },
+        { retryFailed: false },
+    ]);
+});
+
 test('keeps a successful conversion when Zotero annotations cannot be read', async () => {
     const annotationOverlay = new MarkdownAnnotationOverlay({
         extractor: {

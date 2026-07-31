@@ -1,4 +1,8 @@
 import { translateEnglish } from '../i18n/localization.js';
+import {
+    createLucideIcon,
+    LUCIDE_ICONS,
+} from '../icons/lucide-icon.js';
 
 const BUTTON_SELECTOR = '.mktero-markdown-button';
 const CUSTOM_SECTIONS_SELECTOR = '.toolbar .end .custom-sections';
@@ -7,6 +11,7 @@ export function registerReaderToolbar({
     zotero,
     pluginID,
     onOpen,
+    onPDFReaderAvailable = null,
     onError = defaultErrorHandler,
     translate = translateEnglish,
 }) {
@@ -15,14 +20,36 @@ export function registerReaderToolbar({
     }
 
     let active = true;
-    const handler = ({ reader, doc, append }) => {
+    const notifyPDFReaderAvailable = reader => {
+        if (!active
+            || reader?.type !== 'pdf'
+            || typeof onPDFReaderAvailable !== 'function') {
+            return;
+        }
+        Promise.resolve()
+            .then(() => {
+                if (!active) return;
+                return onPDFReaderAvailable(reader);
+            })
+            .catch(error => onError(error, reader));
+    };
+    const handler = ({
+        reader,
+        doc,
+        append,
+        suppressAvailableNotification = false,
+    }) => {
         if (!active || reader?.type !== 'pdf') return;
+        if (!suppressAvailableNotification) notifyPDFReaderAvailable(reader);
         if (doc.querySelector?.(BUTTON_SELECTOR)) return;
 
         const button = doc.createElement('button');
         button.type = 'button';
         button.className = 'toolbar-button mktero-markdown-button';
-        button.textContent = 'MD';
+        button.appendChild(createLucideIcon(doc, LUCIDE_ICONS.fileText, {
+            className: 'mktero-reader-toolbar-icon',
+            size: 16,
+        }));
         button.title = translate('toolbar.openMarkdown');
         button.dataset.mkteroItemID = String(reader.itemID);
         button.setAttribute?.('aria-label', translate('toolbar.openMarkdownAria'));
@@ -33,7 +60,7 @@ export function registerReaderToolbar({
     };
 
     zotero.Reader.registerEventListener('renderToolbar', handler, pluginID);
-    injectOpenReaderToolbars(zotero, handler);
+    injectOpenReaderToolbars(zotero, handler, notifyPDFReaderAvailable);
     return () => {
         if (!active) return;
         active = false;
@@ -48,8 +75,9 @@ export function registerReaderToolbar({
     };
 }
 
-function injectOpenReaderToolbars(zotero, handler) {
+function injectOpenReaderToolbars(zotero, handler, notifyPDFReaderAvailable) {
     for (const reader of getOpenReaders(zotero)) {
+        notifyPDFReaderAvailable(reader);
         try {
             const doc = getReaderDocument(reader);
             removeToolbarButtonsFromDocument(doc);
@@ -58,6 +86,7 @@ function injectOpenReaderToolbars(zotero, handler) {
             handler({
                 reader,
                 doc,
+                suppressAvailableNotification: true,
                 append(element) {
                     const section = doc.createElement('div');
                     section.className = 'section';
