@@ -1,4 +1,5 @@
 import { GFM, parser } from '@lezer/markdown';
+import { findInlineMathMatches } from './markdown-html.js';
 import { isNumericCitationContent } from './text-normalization.js';
 
 const MARKDOWN_PARSER = parser.configure(GFM);
@@ -21,6 +22,12 @@ const HIDDEN_URL_PARENT_NAMES = new Set([
     'Link',
     'LinkReference',
 ]);
+const MATH_EXCLUDED_NODE_NAMES = new Set([
+    'CodeBlock',
+    'FencedCode',
+    'HTMLBlock',
+    'InlineCode',
+]);
 
 export function createVisibleMarkdownTextIndex(markdown) {
     const hiddenRanges = collectHiddenRanges(markdown);
@@ -36,6 +43,7 @@ export function createVisibleMarkdownTextIndex(markdown) {
                 visibleFrom,
                 visibleTo: visibleFrom + chunk.length,
                 sourceFrom,
+                sourceTo: hidden.from,
             });
             visibleFrom += chunk.length;
         }
@@ -48,10 +56,12 @@ export function createVisibleMarkdownTextIndex(markdown) {
             visibleFrom,
             visibleTo: visibleFrom + chunk.length,
             sourceFrom,
+            sourceTo: markdown.length,
         });
     }
+    const text = chunks.join('');
     return {
-        text: chunks.join(''),
+        text,
         sourceOffsetAt(offset) {
             const segment = findSegment(segments, offset);
             return segment
@@ -64,13 +74,44 @@ export function createVisibleMarkdownTextIndex(markdown) {
                 to: this.sourceOffsetAt(from + length - 1) + 1,
             };
         },
+        textForSourceRange(from, to) {
+            if (!Number.isSafeInteger(from)
+                || !Number.isSafeInteger(to)
+                || from < 0
+                || to <= from
+                || to > markdown.length) {
+                return '';
+            }
+            const output = [];
+            let index = findFirstSourceSegment(segments, from);
+            while (index < segments.length) {
+                const segment = segments[index];
+                if (segment.sourceFrom >= to) break;
+                const overlapFrom = Math.max(from, segment.sourceFrom);
+                const overlapTo = Math.min(to, segment.sourceTo);
+                if (overlapFrom < overlapTo) {
+                    const visibleFrom = segment.visibleFrom
+                        + overlapFrom - segment.sourceFrom;
+                    output.push(text.slice(
+                        visibleFrom,
+                        visibleFrom + overlapTo - overlapFrom
+                    ));
+                }
+                index++;
+            }
+            return output.join('');
+        },
     };
 }
 
 function collectHiddenRanges(markdown) {
     const ranges = [];
+    const mathExcludedRanges = [];
     MARKDOWN_PARSER.parse(markdown).iterate({
         enter(node) {
+            if (MATH_EXCLUDED_NODE_NAMES.has(node.name)) {
+                mathExcludedRanges.push({ from: node.from, to: node.to });
+            }
             if (HIDDEN_SUBTREE_NAMES.has(node.name)) {
                 ranges.push({ from: node.from, to: node.to });
                 return false;
@@ -83,6 +124,20 @@ function collectHiddenRanges(markdown) {
             return undefined;
         },
     });
+    for (const match of findInlineMathMatches(markdown)) {
+        if (overlapsAnyRange(match, mathExcludedRanges)) continue;
+        if (match.text.startsWith('^')) continue;
+        const contentOffset = match.raw.indexOf(match.text);
+        if (contentOffset < 0) continue;
+        const contentFrom = match.start + contentOffset;
+        const contentTo = contentFrom + match.text.length;
+        if (match.start < contentFrom) {
+            ranges.push({ from: match.start, to: contentFrom });
+        }
+        if (contentTo < match.end) {
+            ranges.push({ from: contentTo, to: match.end });
+        }
+    }
     ranges.sort((left, right) => left.from - right.from || left.to - right.to);
     const merged = [];
     for (const range of ranges) {
@@ -95,6 +150,10 @@ function collectHiddenRanges(markdown) {
         }
     }
     return merged;
+}
+
+function overlapsAnyRange(target, ranges) {
+    return ranges.some(range => target.start < range.to && target.end > range.from);
 }
 
 function isVisibleNumericCitationMark(node, markdown) {
@@ -130,4 +189,15 @@ function findSegment(segments, offset) {
         }
     }
     return null;
+}
+
+function findFirstSourceSegment(segments, offset) {
+    let low = 0;
+    let high = segments.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if (segments[middle].sourceTo <= offset) low = middle + 1;
+        else high = middle;
+    }
+    return low;
 }
