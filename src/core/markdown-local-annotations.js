@@ -8,6 +8,7 @@ import {
     createPdfAnnotationTextIndex,
     normalizePdfAnnotationText,
 } from '../markdown/pdf-annotation-text.js';
+import { resolvePDFPageIndexHint } from './markdown-source-map.js';
 
 const DEFAULT_ANNOTATION_COLOR = '#ffd400';
 const MAX_LOCAL_ANNOTATIONS = 5_000;
@@ -15,6 +16,7 @@ const MAX_TOTAL_ANNOTATION_TEXT_LENGTH = 2_000_000;
 const MAX_MATCH_CANDIDATES = 10_000;
 const MAX_MATCHABLE_MARKDOWN_LENGTH = 8 * 1024 * 1024;
 const MAX_TOTAL_SOURCE_RANGE_LENGTH = 8 * 1024 * 1024;
+const MAX_SOURCE_MAP_PAGE_HINT_WORK = 10_000_000;
 const LOCAL_ANNOTATION_ID = /^mktero-[a-z0-9-]{1,128}$/i;
 const SYNCHRONIZATION_FAILURE_REASONS = new Map([
     ['MKTERO_PDF_TEXT_NOT_FOUND', 'text-not-found'],
@@ -49,12 +51,15 @@ export class MarkdownLocalAnnotations {
         this.active = true;
     }
 
-    async resolve(itemID, markdown, { retryFailed = false } = {}) {
+    async resolve(itemID, markdown, {
+        retryFailed = false,
+        sourceMap = null,
+    } = {}) {
         if (typeof markdown !== 'string') {
             throw new TypeError('Markdown must be a string');
         }
         let result = await this.#withOperation(itemID, () => (
-            this.#resolve(itemID, markdown)
+            this.#resolve(itemID, markdown, sourceMap)
         ));
         const failures = this.synchronizationFailures.get(itemID);
         result = applySynchronizationStates(result, failures);
@@ -70,11 +75,33 @@ export class MarkdownLocalAnnotations {
         return result;
     }
 
-    async #resolve(itemID, markdown) {
+    async #resolve(itemID, markdown, sourceMap) {
         try {
             const annotations = normalizeCollection(await this.store.get(itemID));
             const resolved = resolveAnnotations(markdown, annotations);
-            return resolved;
+            const refreshed = refreshPDFPageIndexHints(
+                annotations,
+                resolved.matched,
+                sourceMap,
+                markdown.length
+            );
+            if (!refreshed.changed) return resolved;
+            await this.store.put(itemID, refreshed.annotations);
+            return {
+                ...resolved,
+                matched: resolved.matched.map(annotation => {
+                    const current = refreshed.byID.get(annotation.id);
+                    const withoutHint = annotationWithoutPDFPageIndexHint(
+                        annotation
+                    );
+                    return current?.pdfPageIndexHint === undefined
+                        ? withoutHint
+                        : {
+                            ...withoutHint,
+                            pdfPageIndexHint: current.pdfPageIndexHint,
+                        };
+                }),
+            };
         }
         catch (error) {
             this.#reportError(error);
@@ -241,6 +268,9 @@ export class MarkdownLocalAnnotations {
                 comment: annotation.comment,
                 color: annotation.color,
                 ranges: annotation.ranges,
+                ...(annotation.pdfPageIndexHint === undefined
+                    ? {}
+                    : { pdfPageIndexHint: annotation.pdfPageIndexHint }),
             }, context);
             if (saved?.deferred) return;
             const status = await this.#withOperation(itemID, async () => {
@@ -450,6 +480,7 @@ function sameAnnotation(left, right) {
         && left.text === right.text
         && left.comment === right.comment
         && left.color === right.color
+        && left.pdfPageIndexHint === right.pdfPageIndexHint
         && left.ranges[0].from === right.ranges[0].from
         && left.ranges[0].to === right.ranges[0].to;
 }
@@ -469,6 +500,7 @@ function normalizeAnnotation(value) {
     const comment = String(value?.comment || '');
     const color = String(value?.color || DEFAULT_ANNOTATION_COLOR).toLowerCase();
     const range = value?.ranges?.[0];
+    const pdfPageIndexHint = value?.pdfPageIndexHint;
     if (!LOCAL_ANNOTATION_ID.test(id)
         || value?.source !== 'markdown'
         || value?.type !== 'highlight'
@@ -476,6 +508,9 @@ function normalizeAnnotation(value) {
         || text.length > MAX_PDF_ANNOTATION_TEXT_LENGTH
         || comment.length > MAX_PDF_ANNOTATION_TEXT_LENGTH
         || !isZoteroAnnotationColor(color)
+        || (pdfPageIndexHint !== undefined
+            && (!Number.isSafeInteger(pdfPageIndexHint)
+                || pdfPageIndexHint < 0))
         || !validRange(range)) {
         throw new Error('Invalid Markdown annotation');
     }
@@ -487,7 +522,63 @@ function normalizeAnnotation(value) {
         comment,
         color,
         ranges: [{ from: range.from, to: range.to }],
+        ...(pdfPageIndexHint === undefined ? {} : { pdfPageIndexHint }),
     };
+}
+
+function refreshPDFPageIndexHints(
+    annotations,
+    matched,
+    sourceMap,
+    documentLength
+) {
+    const byID = new Map(annotations.map(annotation => (
+        [annotation.id, annotation]
+    )));
+    if (!Array.isArray(sourceMap)) {
+        return { annotations, byID, changed: false };
+    }
+    const matchedRanges = new Map(matched.map(annotation => (
+        [annotation.id, annotation.ranges[0]]
+    )));
+    let remainingWork = MAX_SOURCE_MAP_PAGE_HINT_WORK;
+    let changed = false;
+    const updated = annotations.map(annotation => {
+        const range = matchedRanges.get(annotation.id);
+        if (!range) return annotation;
+        if (remainingWork < sourceMap.length) {
+            if (annotation.pdfPageIndexHint === undefined) return annotation;
+            changed = true;
+            const refreshed = annotationWithoutPDFPageIndexHint(annotation);
+            byID.set(annotation.id, refreshed);
+            return refreshed;
+        }
+        remainingWork -= sourceMap.length;
+        const pdfPageIndexHint = resolvePDFPageIndexHint(
+            sourceMap,
+            range,
+            documentLength
+        );
+        const currentHint = annotation.pdfPageIndexHint ?? null;
+        if (pdfPageIndexHint === currentHint) return annotation;
+        changed = true;
+        const withoutHint = annotationWithoutPDFPageIndexHint(annotation);
+        const refreshed = pdfPageIndexHint === null
+            ? withoutHint
+            : { ...withoutHint, pdfPageIndexHint };
+        byID.set(annotation.id, refreshed);
+        return refreshed;
+    });
+    return {
+        annotations: updated,
+        byID,
+        changed,
+    };
+}
+
+function annotationWithoutPDFPageIndexHint(annotation) {
+    const { pdfPageIndexHint: _staleHint, ...withoutHint } = annotation;
+    return withoutHint;
 }
 
 function validRange(range, documentLength = Number.MAX_SAFE_INTEGER) {

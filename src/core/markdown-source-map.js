@@ -272,6 +272,49 @@ export function isValidSourceMapEntry(value, documentLength = Infinity) {
         && value.locations.every(isValidSourceLocation);
 }
 
+export function resolvePDFPageIndexHint(
+    sourceMap,
+    range,
+    documentLength = Infinity
+) {
+    const match = findUniqueContainingSourceMapEntry(
+        sourceMap,
+        range,
+        documentLength
+    );
+    if (!match) return null;
+    const pageIndex = match.locations[0].pageIndex;
+    return match.locations.every(location => location.pageIndex === pageIndex)
+        ? pageIndex
+        : null;
+}
+
+export function findUniqueContainingSourceMapEntry(
+    sourceMap,
+    range,
+    documentLength = Infinity
+) {
+    if (!Array.isArray(sourceMap)
+        || !Number.isSafeInteger(range?.from)
+        || !Number.isSafeInteger(range?.to)
+        || range.from < 0
+        || range.to <= range.from
+        || range.to > documentLength) {
+        return null;
+    }
+    let match = null;
+    for (const entry of sourceMap) {
+        if (!isValidSourceMapEntry(entry, documentLength)
+            || entry.markdownFrom > range.from
+            || entry.markdownTo < range.to) {
+            continue;
+        }
+        if (match) return null;
+        match = entry;
+    }
+    return match;
+}
+
 export function isValidNormalizedSourceBBox(value) {
     return Array.isArray(value)
         && value.length === 4

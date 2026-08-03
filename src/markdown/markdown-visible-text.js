@@ -106,6 +106,8 @@ export function createVisibleMarkdownTextIndex(markdown) {
 
 function collectHiddenRanges(markdown) {
     const ranges = [];
+    const escapeRanges = [];
+    const inlineMathRanges = [];
     const mathExcludedRanges = [];
     MARKDOWN_PARSER.parse(markdown).iterate({
         enter(node) {
@@ -115,6 +117,9 @@ function collectHiddenRanges(markdown) {
             if (HIDDEN_SUBTREE_NAMES.has(node.name)) {
                 ranges.push({ from: node.from, to: node.to });
                 return false;
+            }
+            if (node.name === 'Escape') {
+                escapeRanges.push({ from: node.from, to: node.from + 1 });
             }
             if ((HIDDEN_NODE_NAMES.has(node.name)
                 && !isVisibleNumericCitationMark(node, markdown))
@@ -126,6 +131,7 @@ function collectHiddenRanges(markdown) {
     });
     for (const match of findInlineMathMatches(markdown)) {
         if (overlapsAnyRange(match, mathExcludedRanges)) continue;
+        inlineMathRanges.push({ from: match.start, to: match.end });
         if (match.text.startsWith('^')) continue;
         const contentOffset = match.raw.indexOf(match.text);
         if (contentOffset < 0) continue;
@@ -138,6 +144,7 @@ function collectHiddenRanges(markdown) {
             ranges.push({ from: contentTo, to: match.end });
         }
     }
+    appendMarkdownEscapeRanges(ranges, escapeRanges, inlineMathRanges);
     ranges.sort((left, right) => left.from - right.from || left.to - right.to);
     const merged = [];
     for (const range of ranges) {
@@ -154,6 +161,19 @@ function collectHiddenRanges(markdown) {
 
 function overlapsAnyRange(target, ranges) {
     return ranges.some(range => target.start < range.to && target.end > range.from);
+}
+
+function appendMarkdownEscapeRanges(output, escapeRanges, inlineMathRanges) {
+    let mathIndex = 0;
+    for (const escapeRange of escapeRanges) {
+        while (inlineMathRanges[mathIndex]?.to <= escapeRange.from) {
+            mathIndex++;
+        }
+        const mathRange = inlineMathRanges[mathIndex];
+        if (!mathRange || escapeRange.to <= mathRange.from) {
+            output.push(escapeRange);
+        }
+    }
 }
 
 function isVisibleNumericCitationMark(node, markdown) {
