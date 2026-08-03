@@ -155,6 +155,20 @@ test('separates panels inside a shared academic figure', () => {
         '.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure-panel-label'
     );
     assert.match(panelLabel, /text-align:\s*center/);
+
+    const leadingPanelLabel = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure-panel-label-before'
+    );
+    assert.match(leadingPanelLabel, /margin:\s*0 auto 6px/);
+
+    const horizontalPanels = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure-panels-horizontal'
+    );
+    assert.match(horizontalPanels, /display:\s*grid/);
+    assert.match(
+        horizontalPanels,
+        /grid-template-columns:\s*repeat\(auto-fit, minmax\(min\(260px, 100%\), 1fr\)\)/
+    );
 });
 
 test('lays out a responsive scrollable outline beside the editor', () => {
