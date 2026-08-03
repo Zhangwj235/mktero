@@ -167,6 +167,38 @@ test('maps unique MinerU content to Markdown blocks and keeps merged locations',
     ]);
 });
 
+test('keeps matched text ranges for page-specific source navigation', () => {
+    const first = 'The first mapped segment has enough words to identify it';
+    const second = 'the second segment continues this same paragraph safely.';
+    const markdown = `${first} ${second}`;
+    const sourceMap = createMarkdownSourceMap(markdown, [{
+        type: 'text',
+        text: first,
+        pageIndex: 0,
+        bbox: [100, 400, 900, 500],
+    }, {
+        type: 'text',
+        text: second,
+        pageIndex: 1,
+        bbox: [100, 100, 900, 180],
+    }], { includeMatchedTextRanges: true });
+
+    assert.deepEqual(sourceMap[0].locationRanges, [{
+        markdownFrom: 0,
+        markdownTo: first.length,
+        location: { pageIndex: 0, bbox: [100, 400, 900, 500] },
+    }, {
+        markdownFrom: first.length + 1,
+        markdownTo: markdown.length,
+        location: { pageIndex: 1, bbox: [100, 100, 900, 180] },
+    }]);
+    assert.equal(resolvePDFPageIndexHint(
+        sourceMap,
+        { from: first.length + 1, to: markdown.length },
+        markdown.length
+    ), 1);
+});
+
 test('maps unique prose across PDF and Markdown notation differences', () => {
     const markdown = 'The Kaiser-Meyer result used Bartlett\'s statistic '
         + '$\\chi^2(12) = 34.5$ , explaining $46.48\\%$ of the variance.';

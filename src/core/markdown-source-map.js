@@ -18,6 +18,7 @@ export function createMarkdownSourceMap(markdown, contentList, {
     maxMarkdownLength = DEFAULT_MAX_SOURCE_MAP_MARKDOWN_LENGTH,
     maxContentBlocks = DEFAULT_MAX_SOURCE_MAP_BLOCKS,
     maxMatchWork = DEFAULT_MAX_SOURCE_MAP_MATCH_WORK,
+    includeMatchedTextRanges = false,
 } = {}) {
     if (typeof markdown !== 'string' || !Array.isArray(contentList)) return [];
     if (markdown.length > normalizedLimit(maxMarkdownLength)) return [];
@@ -75,7 +76,10 @@ export function createMarkdownSourceMap(markdown, contentList, {
             };
             entries.set(key, entry);
         }
-        appendUniqueLocation(entry.locations, contentBlock);
+        const location = appendUniqueLocation(entry.locations, contentBlock);
+        if (includeMatchedTextRanges && contentBlock.type === 'text') {
+            appendMatchedTextRange(entry, matchedRange, location);
+        }
     }
 
     return [...entries.values()]
@@ -269,7 +273,8 @@ export function isValidSourceMapEntry(value, documentLength = Infinity) {
         && value.markdownTo <= documentLength
         && Array.isArray(value.locations)
         && value.locations.length > 0
-        && value.locations.every(isValidSourceLocation);
+        && value.locations.every(isValidSourceLocation)
+        && validMatchedTextRanges(value);
 }
 
 export function resolvePDFPageIndexHint(
@@ -283,10 +288,40 @@ export function resolvePDFPageIndexHint(
         documentLength
     );
     if (!match) return null;
+    const rangeLocation = resolveSourceMapLocation(
+        match,
+        range,
+        documentLength
+    );
+    if (rangeLocation) return rangeLocation.pageIndex;
     const pageIndex = match.locations[0].pageIndex;
     return match.locations.every(location => location.pageIndex === pageIndex)
         ? pageIndex
         : null;
+}
+
+export function resolveSourceMapLocation(
+    entry,
+    range,
+    documentLength = Infinity
+) {
+    if (!isValidSourceMapEntry(entry, documentLength)
+        || !Number.isSafeInteger(range?.from)
+        || !Number.isSafeInteger(range?.to)
+        || range.from < entry.markdownFrom
+        || range.to > entry.markdownTo
+        || range.to <= range.from) {
+        return null;
+    }
+    const matches = (entry.locationRanges || []).filter(locationRange => (
+        locationRange.markdownFrom <= range.from
+        && locationRange.markdownTo >= range.to
+    ));
+    if (matches.length !== 1) return null;
+    return {
+        pageIndex: matches[0].location.pageIndex,
+        bbox: [...matches[0].location.bbox],
+    };
 }
 
 export function findUniqueContainingSourceMapEntry(
@@ -330,10 +365,45 @@ function appendUniqueLocation(locations, contentBlock) {
         pageIndex: contentBlock.pageIndex,
         bbox: [...contentBlock.bbox],
     };
-    if (!locations.some(existing => (
+    const existing = locations.find(existing => (
         existing.pageIndex === location.pageIndex
         && existing.bbox.every((value, index) => value === location.bbox[index])
-    ))) {
-        locations.push(location);
-    }
+    ));
+    if (existing) return existing;
+    locations.push(location);
+    return location;
+}
+
+function appendMatchedTextRange(entry, matchedRange, location) {
+    if (!Array.isArray(entry.locationRanges)) entry.locationRanges = [];
+    if (entry.locationRanges.some(existing => (
+        existing.markdownFrom === matchedRange.from
+        && existing.markdownTo === matchedRange.to
+        && existing.location.pageIndex === location.pageIndex
+        && existing.location.bbox.every((value, index) => (
+            value === location.bbox[index]
+        ))
+    ))) return;
+    entry.locationRanges.push({
+        markdownFrom: matchedRange.from,
+        markdownTo: matchedRange.to,
+        location: {
+            pageIndex: location.pageIndex,
+            bbox: [...location.bbox],
+        },
+    });
+}
+
+function validMatchedTextRanges(entry) {
+    if (entry.locationRanges === undefined) return true;
+    return Array.isArray(entry.locationRanges)
+        && entry.locationRanges.length > 0
+        && entry.locationRanges.every(range => (
+            Number.isSafeInteger(range?.markdownFrom)
+            && Number.isSafeInteger(range?.markdownTo)
+            && range.markdownFrom >= entry.markdownFrom
+            && range.markdownTo > range.markdownFrom
+            && range.markdownTo <= entry.markdownTo
+            && isValidSourceLocation(range.location)
+        ));
 }

@@ -129,6 +129,72 @@ test('opens a reliably mapped PDF source from the selection actions', async () =
     dom.window.close();
 });
 
+test('opens the continuation page for a selected cross-page text range', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const anchor = 'The mapped paragraph ends with an unfinished expression +';
+    const continuation = '(the continuation is on the next PDF page).';
+    const markdown = `${anchor}\n\n${continuation}`;
+    const locations = [{
+        pageIndex: 2,
+        bbox: [100, 400, 900, 500],
+    }, {
+        pageIndex: 3,
+        bbox: [100, 100, 900, 180],
+    }];
+    const opened = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+        openSourceLocation: location => opened.push(location),
+    });
+
+    editor.setDocument({
+        markdown,
+        sourceMap: [{
+            type: 'text',
+            markdownFrom: 0,
+            markdownTo: markdown.length,
+            locations,
+            locationRanges: [{
+                markdownFrom: 0,
+                markdownTo: anchor.length,
+                location: locations[0],
+            }, {
+                markdownFrom: anchor.length + 2,
+                markdownTo: markdown.length,
+                location: locations[1],
+            }],
+        }],
+    });
+
+    const continuationText = textNodeContaining(
+        document.querySelector('.cm-content'),
+        continuation
+    );
+    const range = document.createRange();
+    range.setStart(continuationText, 0);
+    range.setEnd(continuationText, continuation.length);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+    continuationText.parentElement.dispatchEvent(new dom.window.MouseEvent(
+        'mouseup',
+        { bubbles: true, button: 0 }
+    ));
+
+    document.querySelector('[data-action="view-in-pdf"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(opened, [locations[1]]);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('reports a PDF source navigation failure from the selection actions', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

@@ -10,6 +10,10 @@ test('includes figure panel reassembly in the MinerU parser profile', () => {
         MINERU_SOURCE_MAP_OPTIONS.figurePanels,
         'same-page-horizontal-or-labeled-vertical-ab-v2'
     );
+    assert.equal(
+        MINERU_SOURCE_MAP_OPTIONS.textFlow,
+        'cross-page-continuation-v1'
+    );
 });
 
 test('reassembles side-by-side MinerU panels separated by upper-page prose', () => {
@@ -92,6 +96,224 @@ test('reassembles side-by-side MinerU panels separated by upper-page prose', () 
         /<figure class="mktero-figure mktero-figure-group mktero-figure-group-horizontal">/
     );
     assert.match(html, /<div class="mktero-figure-panels-horizontal">/);
+});
+
+test('joins a cross-page prose continuation before an intervening chart', () => {
+    const first = 'The algorithm HALF_LOCS uses (MIN +';
+    const second = 'The temperature values were used by all algorithms.';
+    const third = 'Based on the pilot study, menstruation was predicted.';
+    const continuation = '(AVG_MCL / 4) rounded down) for the beginning.';
+    const following = 'At the simplest, ovulation prediction detects a rise.';
+    const figure = '![](images/figure.jpg)';
+    const markdown = [
+        first,
+        figure,
+        continuation,
+        second,
+        third,
+        following,
+    ].join('\n\n');
+    const result = prepareMinerUResult({
+        markdown,
+        contentList: [{
+            type: 'text',
+            text: first,
+            pageIndex: 3,
+            bbox: [504, 426, 910, 594],
+        }, {
+            type: 'chart',
+            assetPath: figure.slice('![]('.length, -1),
+            pageIndex: 3,
+            bbox: [100, 613, 497, 851],
+        }, {
+            type: 'text',
+            text: continuation,
+            pageIndex: 4,
+            bbox: [87, 107, 489, 154],
+        }, {
+            type: 'text',
+            text: second,
+            pageIndex: 3,
+            bbox: [504, 108, 907, 184],
+        }, {
+            type: 'text',
+            text: third,
+            pageIndex: 3,
+            bbox: [504, 184, 909, 427],
+        }],
+    });
+
+    assert.equal(result.markdown, [
+        `${first} ${continuation}`,
+        figure,
+        second,
+        third,
+        following,
+    ].join('\n\n'));
+    assert.deepEqual(
+        result.sourceMap.map(entry => ({
+            type: entry.type,
+            source: result.markdown.slice(entry.markdownFrom, entry.markdownTo),
+            locations: entry.locations,
+            ...(entry.locationRanges
+                ? { locationRanges: entry.locationRanges }
+                : {}),
+        })),
+        [{
+            type: 'text',
+            source: `${first} ${continuation}`,
+            locations: [
+                { pageIndex: 3, bbox: [504, 426, 910, 594] },
+                { pageIndex: 4, bbox: [87, 107, 489, 154] },
+            ],
+            locationRanges: [{
+                markdownFrom: 0,
+                markdownTo: first.length,
+                location: { pageIndex: 3, bbox: [504, 426, 910, 594] },
+            }, {
+                markdownFrom: first.length + 1,
+                markdownTo: first.length + 1 + continuation.length,
+                location: { pageIndex: 4, bbox: [87, 107, 489, 154] },
+            }],
+        }, {
+            type: 'chart',
+            source: figure,
+            locations: [{ pageIndex: 3, bbox: [100, 613, 497, 851] }],
+        }, {
+            type: 'text',
+            source: second,
+            locations: [{ pageIndex: 3, bbox: [504, 108, 907, 184] }],
+            locationRanges: [{
+                markdownFrom: 108,
+                markdownTo: 108 + second.length,
+                location: { pageIndex: 3, bbox: [504, 108, 907, 184] },
+            }],
+        }, {
+            type: 'text',
+            source: third,
+            locations: [{ pageIndex: 3, bbox: [504, 184, 909, 427] }],
+            locationRanges: [{
+                markdownFrom: 161,
+                markdownTo: 161 + third.length,
+                location: { pageIndex: 3, bbox: [504, 184, 909, 427] },
+            }],
+        }]
+    );
+});
+
+test('does not reorder a continuation across an independent text block', () => {
+    const first = 'A complete source block ends with an operator +';
+    const independent = 'This is an independent paragraph after the anchor.';
+    const continuation = '(continued text belongs to another paragraph).';
+    const figure = '![](images/figure.jpg)';
+    const markdown = [first, independent, figure, continuation].join('\n\n');
+    const result = prepareMinerUResult({
+        markdown,
+        contentList: [{
+            type: 'text',
+            text: first,
+            pageIndex: 3,
+            bbox: [100, 400, 450, 500],
+        }, {
+            type: 'text',
+            text: independent,
+            pageIndex: 3,
+            bbox: [100, 520, 450, 620],
+        }, {
+            type: 'chart',
+            assetPath: 'images/figure.jpg',
+            pageIndex: 3,
+            bbox: [100, 650, 450, 850],
+        }, {
+            type: 'text',
+            text: continuation,
+            pageIndex: 4,
+            bbox: [100, 100, 450, 180],
+        }],
+    });
+
+    assert.equal(result.markdown, markdown);
+});
+
+test('joins a prose continuation that starts with a word', () => {
+    const first = 'The calculation continues from the previous page with (';
+    const continuation = 'AVG_MCL / 4) rounded down for the result.';
+    const figure = '![](images/figure.jpg)';
+    const markdown = [first, figure, continuation].join('\n\n');
+    const result = prepareMinerUResult({
+        markdown,
+        contentList: [{
+            type: 'text',
+            text: first,
+            pageIndex: 3,
+            bbox: [100, 400, 450, 500],
+        }, {
+            type: 'chart',
+            assetPath: 'images/figure.jpg',
+            pageIndex: 3,
+            bbox: [100, 650, 450, 850],
+        }, {
+            type: 'text',
+            text: continuation,
+            pageIndex: 4,
+            bbox: [100, 100, 450, 180],
+        }],
+    });
+
+    assert.equal(result.markdown, [
+        `${first} ${continuation}`,
+        figure,
+    ].join('\n\n'));
+});
+
+test('does not move a block-level HTML continuation from untrusted input', () => {
+    const first = 'The source paragraph ends with an unfinished expression +';
+    const continuation = '<script>alert("untrusted")</script>';
+    const figure = '![](images/figure.jpg)';
+    const markdown = [first, figure, continuation].join('\n\n');
+    const result = prepareMinerUResult({
+        markdown,
+        contentList: [{
+            type: 'text',
+            text: first,
+            pageIndex: 3,
+            bbox: [100, 400, 450, 500],
+        }, {
+            type: 'chart',
+            assetPath: 'images/figure.jpg',
+            pageIndex: 3,
+            bbox: [100, 650, 450, 850],
+        }, {
+            type: 'text',
+            text: continuation,
+            pageIndex: 4,
+            bbox: [100, 100, 450, 180],
+        }],
+    });
+
+    assert.equal(result.markdown, markdown);
+});
+
+test('does not reorder an apparent continuation without layout evidence', () => {
+    const first = 'A complete enough source block ends with an operator +';
+    const continuation = '(continued text without a figure in between).';
+    const markdown = [first, continuation].join('\n\n');
+    const result = prepareMinerUResult({
+        markdown,
+        contentList: [{
+            type: 'text',
+            text: first,
+            pageIndex: 3,
+            bbox: [504, 426, 910, 594],
+        }, {
+            type: 'text',
+            text: continuation,
+            pageIndex: 4,
+            bbox: [87, 107, 489, 154],
+        }],
+    });
+
+    assert.equal(result.markdown, markdown);
 });
 
 test('keeps spatially ambiguous MinerU charts in their original order', () => {

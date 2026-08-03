@@ -1,6 +1,7 @@
 import { createMarkdownSourceMap } from '../core/markdown-source-map.js';
 import { reassembleMinerUFigurePanels } from './figure-panel-normalizer.js';
 import { normalizeMinerUMarkdown } from './markdown-normalizer.js';
+import { reassembleMinerUTextFlow } from './text-flow-normalizer.js';
 
 export function prepareMinerUResult(result) {
     const {
@@ -15,13 +16,25 @@ export function prepareMinerUResult(result) {
     if (!Array.isArray(sourceMap) && Array.isArray(contentList)) {
         const initialSourceMap = createMarkdownSourceMap(markdown, contentList);
         if (typeof markdown === 'string') {
-            const reassembled = reassembleMinerUFigurePanels(
+            const flowedMarkdown = reassembleMinerUTextFlow(
                 markdown,
                 initialSourceMap
             );
-            sourceMap = reassembled === markdown
-                ? initialSourceMap
-                : createMarkdownSourceMap(reassembled, contentList);
+            const textFlowChanged = flowedMarkdown !== markdown;
+            const flowedSourceMap = textFlowChanged
+                ? createMarkdownSourceMap(flowedMarkdown, contentList, {
+                    includeMatchedTextRanges: true,
+                })
+                : initialSourceMap;
+            const reassembled = reassembleMinerUFigurePanels(
+                flowedMarkdown,
+                flowedSourceMap
+            );
+            sourceMap = reassembled === flowedMarkdown
+                ? flowedSourceMap
+                : createMarkdownSourceMap(reassembled, contentList, {
+                    includeMatchedTextRanges: textFlowChanged,
+                });
             markdown = reassembled;
         }
         else {

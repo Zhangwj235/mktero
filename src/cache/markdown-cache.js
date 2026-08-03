@@ -1,6 +1,9 @@
 import { toUint8Array } from '../mineru/binary.js';
 import { MINERU_PARSER_PROFILE_ID } from '../mineru/parser-profile.js';
-import { isValidSourceLocation } from '../core/markdown-source-map.js';
+import {
+    isValidSourceLocation,
+    isValidSourceMapEntry,
+} from '../core/markdown-source-map.js';
 
 const CACHE_SCHEMA_VERSION = 1;
 const METADATA_FILE = 'entry.json';
@@ -472,6 +475,9 @@ function validateSourceMap(sourceMap, markdownLength, maxLocations) {
             if (!isValidSourceLocation(location)) {
                 throw new Error('Invalid cached source location');
             }
+        }
+        if (!isValidSourceMapEntry(entry, markdownLength)) {
+            throw new Error('Invalid cached source map entry');
         }
     }
 }
