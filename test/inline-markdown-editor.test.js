@@ -706,13 +706,15 @@ test('adds a note after clicking a PDF annotation without a comment', async () =
     dom.window.close();
 });
 
-test('shows color and delete actions when hovering a PDF annotation', async () => {
+test('shows note, PDF navigation, color, and delete actions when hovering a PDF annotation', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
     const { document } = dom.window;
     let resolveColorChange;
     let resolveDelete;
+    let updatedNote;
+    let openedAnnotationID;
     const colorChanged = new Promise(resolve => {
         resolveColorChange = resolve;
     });
@@ -728,6 +730,12 @@ test('shows color and delete actions when hovering a PDF annotation', async () =
         },
         deleteAnnotation(annotationID) {
             resolveDelete(annotationID);
+        },
+        updateAnnotationComment(annotationID, comment) {
+            updatedNote = { annotationID, comment };
+        },
+        openAnnotationInPDF(annotationID) {
+            openedAnnotationID = annotationID;
         },
     });
     editor.setDocument({
@@ -761,9 +769,46 @@ test('shows color and delete actions when hovering a PDF annotation', async () =
             ?.getAttribute('aria-pressed'),
         'true'
     );
+    const noteButton = popup.querySelector('.mktero-annotation-note-button');
+    assert.ok(noteButton);
+    assert.equal(
+        noteButton.querySelector('svg')?.getAttribute('data-lucide'),
+        'message-square-plus'
+    );
+    const sourceButton = popup.querySelector('.mktero-annotation-source-button');
+    assert.ok(sourceButton);
+    assert.equal(
+        sourceButton.querySelector('svg')?.getAttribute('data-lucide'),
+        'external-link'
+    );
     assert.doesNotMatch(popup.textContent, /Private note/);
 
-    popup.querySelector('[data-color="#ff6666"]').click();
+    sourceButton.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(openedAnnotationID, 'HIGH0001');
+    assert.equal(document.querySelector('.mktero-annotation-popup'), null);
+
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    document.querySelector('.mktero-annotation-note-button').click();
+    const notePopup = document.querySelector('.mktero-annotation-popup');
+    const noteInput = notePopup.querySelector('.mktero-annotation-note-input');
+    noteInput.value = 'Revised note';
+    notePopup.querySelector('.mktero-annotation-note-save').click();
+    await Promise.resolve();
+    assert.deepEqual(updatedNote, {
+        annotationID: 'HIGH0001',
+        comment: 'Revised note',
+    });
+    assert.equal(document.querySelector('.mktero-annotation-popup'), null);
+
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    const colorPopup = document.querySelector('.mktero-annotation-popup');
+    colorPopup.querySelector('[data-color="#ff6666"]').click();
     assert.deepEqual(await colorChanged, {
         annotationID: 'HIGH0001',
         color: '#ff6666',
@@ -777,6 +822,48 @@ test('shows color and delete actions when hovering a PDF annotation', async () =
     reopenedPopup.querySelector('.mktero-annotation-delete-button').click();
     assert.equal(await deleted, 'HIGH0001');
     assert.equal(document.querySelector('.mktero-annotation-popup'), null);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not offer PDF navigation for a local Markdown annotation', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: () => null,
+        openAnnotationInPDF: () => assert.fail(
+            'Local Markdown annotations must not open PDF annotations'
+        ),
+    });
+    editor.setDocument({
+        markdown: 'Local annotation.',
+        annotationOverlay: {
+            matched: [{
+                id: 'mktero-local-1',
+                source: 'markdown',
+                type: 'highlight',
+                text: 'Local annotation',
+                comment: 'Local note',
+                color: '#ffd400',
+                ranges: [{ from: 0, to: 16 }],
+            }],
+            unmatched: [],
+        },
+    });
+    const annotation = document.querySelector('.cm-mktero-pdf-annotation');
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+
+    assert.equal(
+        document.querySelector('.mktero-annotation-source-button'),
+        null
+    );
 
     editor.destroy();
     dom.window.close();

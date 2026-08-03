@@ -93,6 +93,7 @@ export function createInlineMarkdownEditor({
     deleteAnnotation,
     copySourcedMarkdown,
     openSourceLocation,
+    openAnnotationInPDF,
     onSourceNavigationError,
     localization = createLocalization(),
 }) {
@@ -117,6 +118,7 @@ export function createInlineMarkdownEditor({
         deleteAnnotation,
         copySourcedMarkdown,
         openSourceLocation,
+        openAnnotationInPDF,
         onSourceNavigationError,
     });
     const tablePreviewPopup = createTablePreviewPopup(parent, {

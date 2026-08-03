@@ -102,7 +102,8 @@ export class MarkdownDocumentService {
         if (this.annotationOverlay) {
             const annotationResult = await this.annotationOverlay.resolve(
                 itemID,
-                markdown
+                markdown,
+                { sourceMap }
             );
             const { warning, ...annotationOverlay } = annotationResult;
             overlays.push(annotationOverlay);

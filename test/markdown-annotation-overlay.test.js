@@ -107,6 +107,97 @@ test('matches PDF highlights across Markdown escapes and inline math', async () 
     assert.deepEqual(result.unmatched, []);
 });
 
+test('uses PDF page mappings to disambiguate repeated annotation text', async () => {
+    const target = 'basal body temperature';
+    const body = `The study measured ${target} during the cycle.`;
+    const repeated = `Reference: ${target} time series.`;
+    const markdown = [body, '', repeated].join('\n');
+    const annotations = [{
+        id: 'BBT0001',
+        type: 'highlight',
+        text: target,
+        comment: '基础体温',
+        color: '#ffd400',
+        pageLabel: '1',
+        pageIndex: 0,
+        sortIndex: '00001',
+    }];
+    const targetFrom = markdown.indexOf(target);
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => annotations },
+    });
+
+    const result = await overlay.resolve(42, markdown, {
+        sourceMap: [
+            {
+                type: 'text',
+                markdownFrom: 0,
+                markdownTo: body.length,
+                locations: [{
+                    pageIndex: 0,
+                    bbox: [100, 100, 900, 220],
+                }],
+            },
+            {
+                type: 'text',
+                markdownFrom: body.length + 2,
+                markdownTo: markdown.length,
+                locations: [{
+                    pageIndex: 8,
+                    bbox: [100, 100, 900, 220],
+                }],
+            },
+        ],
+    });
+
+    assert.deepEqual(result.matched, [{
+        ...annotations[0],
+        matchKind: 'exact',
+        ranges: [{ from: targetFrom, to: targetFrom + target.length }],
+    }]);
+    assert.deepEqual(result.unmatched, []);
+});
+
+test('keeps repeated annotation text ambiguous when page mapping is incomplete', async () => {
+    const target = 'basal body temperature';
+    const markdown = [
+        `The study measured ${target} during the cycle.`,
+        '',
+        `Reference: ${target} time series.`,
+    ].join('\n');
+    const annotation = {
+        id: 'BBT0002',
+        type: 'highlight',
+        text: target,
+        comment: '',
+        color: '#ffd400',
+        pageLabel: '1',
+        pageIndex: 0,
+        sortIndex: '00001',
+    };
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => [annotation] },
+    });
+
+    const result = await overlay.resolve(42, markdown, {
+        sourceMap: [{
+            type: 'text',
+            markdownFrom: 0,
+            markdownTo: markdown.indexOf('\n'),
+            locations: [{
+                pageIndex: 0,
+                bbox: [100, 100, 900, 220],
+            }],
+        }],
+    });
+
+    assert.deepEqual(result.matched, []);
+    assert.deepEqual(result.unmatched, [{
+        ...annotation,
+        reason: 'ambiguous',
+    }]);
+});
+
 test('matches PDF text after Unicode and whitespace normalization', async () => {
     const annotation = {
         id: 'HIGH0002',
