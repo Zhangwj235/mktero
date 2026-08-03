@@ -12,6 +12,7 @@ export const MINERU_SOURCE_MAP_OPTIONS = Object.freeze({
     textMatching: 'exact-then-academic-v2',
     figurePanels: 'same-page-horizontal-or-labeled-vertical-ab-v2',
     textFlow: 'cross-page-continuation-v1',
+    columns: 'same-page-two-column-reading-order-v3',
 });
 
 export const MINERU_PARSER_PROFILE_ID = JSON.stringify({

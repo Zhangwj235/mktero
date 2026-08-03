@@ -1,4 +1,5 @@
 import { createMarkdownSourceMap } from '../core/markdown-source-map.js';
+import { reassembleMinerUColumnFlow } from './column-flow-normalizer.js';
 import { reassembleMinerUFigurePanels } from './figure-panel-normalizer.js';
 import { normalizeMinerUMarkdown } from './markdown-normalizer.js';
 import { reassembleMinerUTextFlow } from './text-flow-normalizer.js';
@@ -26,16 +27,39 @@ export function prepareMinerUResult(result) {
                     includeMatchedTextRanges: true,
                 })
                 : initialSourceMap;
-            const reassembled = reassembleMinerUFigurePanels(
+            const columnMarkdown = reassembleMinerUColumnFlow(
                 flowedMarkdown,
                 flowedSourceMap
             );
-            sourceMap = reassembled === flowedMarkdown
-                ? flowedSourceMap
-                : createMarkdownSourceMap(reassembled, contentList, {
-                    includeMatchedTextRanges: textFlowChanged,
-                });
-            markdown = reassembled;
+            const columnFlowChanged = columnMarkdown !== flowedMarkdown;
+            const columnSourceMap = columnFlowChanged
+                ? createMarkdownSourceMap(columnMarkdown, contentList, {
+                    includeMatchedTextRanges: textFlowChanged || columnFlowChanged,
+                })
+                : flowedSourceMap;
+            const reassembled = reassembleMinerUFigurePanels(
+                columnMarkdown,
+                columnSourceMap
+            );
+            const figurePanelsChanged = reassembled !== columnMarkdown;
+            const reassembledSourceMap = figurePanelsChanged
+                ? createMarkdownSourceMap(reassembled, contentList, {
+                    includeMatchedTextRanges: textFlowChanged || columnFlowChanged,
+                })
+                : columnSourceMap;
+            const finalMarkdown = figurePanelsChanged
+                ? reassembleMinerUColumnFlow(
+                    reassembled,
+                    reassembledSourceMap
+                )
+                : reassembled;
+            const finalColumnFlowChanged = finalMarkdown !== reassembled;
+            sourceMap = finalColumnFlowChanged
+                ? createMarkdownSourceMap(finalMarkdown, contentList, {
+                    includeMatchedTextRanges: true,
+                })
+                : reassembledSourceMap;
+            markdown = finalMarkdown;
         }
         else {
             sourceMap = initialSourceMap;

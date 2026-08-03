@@ -14,6 +14,10 @@ test('includes figure panel reassembly in the MinerU parser profile', () => {
         MINERU_SOURCE_MAP_OPTIONS.textFlow,
         'cross-page-continuation-v1'
     );
+    assert.equal(
+        MINERU_SOURCE_MAP_OPTIONS.columns,
+        'same-page-two-column-reading-order-v3'
+    );
 });
 
 test('reassembles side-by-side MinerU panels separated by upper-page prose', () => {
@@ -314,6 +318,156 @@ test('does not reorder an apparent continuation without layout evidence', () => 
     });
 
     assert.equal(result.markdown, markdown);
+});
+
+test('orders same-page two-column prose by PDF reading order', () => {
+    const leftColumn = 'Finding locations in the menstrual cycle component.';
+    const rightColumnTop = 'The temperature values were used by all algorithms.';
+    const rightColumnBottom = 'Three algorithms predicting the ovulation day were defined.';
+    const markdown = [leftColumn, rightColumnBottom, rightColumnTop].join('\n\n');
+    const result = prepareMinerUResult({
+        markdown,
+        contentList: [{
+            type: 'text',
+            text: leftColumn,
+            pageIndex: 3,
+            bbox: [100, 600, 490, 850],
+        }, {
+            type: 'text',
+            text: rightColumnTop,
+            pageIndex: 3,
+            bbox: [510, 100, 900, 300],
+        }, {
+            type: 'text',
+            text: rightColumnBottom,
+            pageIndex: 3,
+            bbox: [510, 650, 900, 850],
+        }],
+    });
+
+    assert.equal(result.markdown, [
+        leftColumn,
+        rightColumnTop,
+        rightColumnBottom,
+    ].join('\n\n'));
+    assert.deepEqual(
+        result.sourceMap.map(entry => ({
+            source: result.markdown.slice(entry.markdownFrom, entry.markdownTo),
+            locations: entry.locations,
+        })),
+        [{
+            source: leftColumn,
+            locations: [{ pageIndex: 3, bbox: [100, 600, 490, 850] }],
+        }, {
+            source: rightColumnTop,
+            locations: [{ pageIndex: 3, bbox: [510, 100, 900, 300] }],
+        }, {
+            source: rightColumnBottom,
+            locations: [{ pageIndex: 3, bbox: [510, 650, 900, 850] }],
+        }]
+    );
+});
+
+test('orders a same-page block before a cross-page paragraph continuation', () => {
+    const threeAlgorithms = 'Three algorithms predicting the ovulation day were '
+        + 'defined. The algorithm HALF_LOCS predicted ovulation similarly to the '
+        + 'algorithm MENSES as the middle day between the adjacent MIN and MAX.';
+    const threeAlgorithmsStart = 'Three algorithms predicting the ovulation day were defined.';
+    const threeAlgorithmsContinuation = 'The algorithm HALF_LOCS predicted ovulation similarly '
+        + 'to the algorithm MENSES as the middle day between the adjacent MIN and MAX.';
+    const based = 'Based on our separate pilot study, the start of menstruation was associated '
+        + 'with the middle time point between the adjacent MAX and MIN.';
+    const result = prepareMinerUResult({
+        markdown: [threeAlgorithms, based].join('\n\n'),
+        contentList: [{
+            type: 'text',
+            text: threeAlgorithmsStart,
+            pageIndex: 3,
+            bbox: [510, 650, 900, 760],
+        }, {
+            type: 'text',
+            text: threeAlgorithmsContinuation,
+            pageIndex: 4,
+            bbox: [100, 100, 490, 220],
+        }, {
+            type: 'text',
+            text: based,
+            pageIndex: 3,
+            bbox: [510, 300, 900, 620],
+        }],
+    });
+
+    assert.equal(result.markdown, [based, threeAlgorithms].join('\n\n'));
+});
+
+test('restores column order after relocating an intervening figure panel', () => {
+    const temperature = 'The temperature values of the menstrual cycle component were used '
+        + 'by all the algorithms in menstrual cycle phase tracking.';
+    const threeAlgorithms = 'Three algorithms predicting the ovulation day were defined.';
+    const based = 'Based on our separate pilot study, the start of menstruation was associated '
+        + 'with the middle time point between the adjacent MAX and MIN.';
+    const leftPanel = '![](images/panel-a.jpg)';
+    const caption = 'Fig. 1 Example data for tracking (a) menstruation and (b) ovulation.';
+    const rightPanel = `![${caption}](images/panel-b.jpg)`;
+    const result = prepareMinerUResult({
+        markdown: [
+            temperature,
+            threeAlgorithms,
+            leftPanel,
+            based,
+            rightPanel,
+        ].join('\n\n'),
+        contentList: [{
+            type: 'text',
+            text: temperature,
+            pageIndex: 3,
+            bbox: [504, 108, 907, 184],
+        }, {
+            type: 'text',
+            text: threeAlgorithms,
+            pageIndex: 3,
+            bbox: [504, 426, 910, 594],
+        }, {
+            type: 'chart',
+            assetPath: 'images/panel-a.jpg',
+            pageIndex: 3,
+            bbox: [100, 613, 497, 851],
+        }, {
+            type: 'text',
+            text: based,
+            pageIndex: 3,
+            bbox: [504, 184, 909, 427],
+        }, {
+            type: 'chart',
+            assetPath: 'images/panel-b.jpg',
+            pageIndex: 3,
+            bbox: [500, 615, 890, 851],
+        }],
+    });
+
+    assert.equal(result.markdown, [
+        temperature,
+        based,
+        threeAlgorithms,
+        `${leftPanel}  `,
+        rightPanel,
+    ].join('\n\n'));
+    assert.deepEqual(
+        result.sourceMap.slice(0, 3).map(entry => ({
+            source: result.markdown.slice(entry.markdownFrom, entry.markdownTo),
+            locations: entry.locations,
+        })),
+        [{
+            source: temperature,
+            locations: [{ pageIndex: 3, bbox: [504, 108, 907, 184] }],
+        }, {
+            source: based,
+            locations: [{ pageIndex: 3, bbox: [504, 184, 909, 427] }],
+        }, {
+            source: threeAlgorithms,
+            locations: [{ pageIndex: 3, bbox: [504, 426, 910, 594] }],
+        }]
+    );
 });
 
 test('keeps spatially ambiguous MinerU charts in their original order', () => {
