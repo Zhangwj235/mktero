@@ -204,6 +204,31 @@ test('forwards mapped source locations to the current tab model', async () => {
     view.destroy();
 });
 
+test('forwards PDF annotation navigation to the current tab model', async () => {
+    let editorOptions;
+    const opened = [];
+    const model = createModel({
+        status: 'ready',
+        markdown: 'Mapped annotation.',
+        onOpenAnnotationInPDF: annotationID => opened.push(annotationID),
+    });
+    const { view } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    await editorOptions.openAnnotationInPDF('HIGH0001');
+
+    assert.deepEqual(opened, ['HIGH0001']);
+    view.destroy();
+});
+
 test('forwards sourced Markdown copy targets to the current tab model', async () => {
     let editorOptions;
     const copied = [];
@@ -804,6 +829,43 @@ test('shows PDF notes safely and jumps matched notes to Markdown', () => {
             bubbles: true,
         }));
         assert.deepEqual(scrolledOffsets, [12, 0]);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('labels ambiguous PDF notes separately from missing notes', () => {
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Repeated result.',
+        annotationOverlay: {
+            matched: [],
+            unmatched: [{
+                id: 'AMBIGUOUS01',
+                type: 'highlight',
+                text: 'Repeated result',
+                comment: '',
+                color: '#ffd400',
+                pageLabel: '1',
+                pageIndex: 0,
+                sortIndex: '00001',
+                reason: 'ambiguous',
+            }],
+        },
+        sourceKind: 'markdown',
+    }), {}, {
+        editorFactory(options) {
+            return createTestInlineEditor(options);
+        },
+    });
+
+    try {
+        const note = shadow.querySelector('.markdown-note-link');
+        assert.equal(note?.hasAttribute('disabled'), true);
+        assert.match(note?.textContent || '', /Multiple matches in Markdown/);
+        assert.doesNotMatch(note?.textContent || '', /Not found in Markdown/);
     }
     finally {
         view.destroy();

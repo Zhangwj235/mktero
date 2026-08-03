@@ -60,6 +60,14 @@ test('localizes Markdown annotation synchronization status', () => {
     assert.equal(english.t('annotation.openInPDF'), 'View in PDF');
     assert.equal(chinese.t('annotation.openInPDF'), '在 PDF 中查看');
     assert.equal(
+        english.t('viewer.noteAmbiguous'),
+        'Multiple matches in Markdown'
+    );
+    assert.equal(
+        chinese.t('viewer.noteAmbiguous'),
+        'Markdown 中存在多处匹配'
+    );
+    assert.equal(
         chinese.t('annotation.syncFailed.textAmbiguous'),
         'PDF 中存在多处匹配'
     );

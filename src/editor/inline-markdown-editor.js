@@ -8,6 +8,7 @@ import {
 } from '../core/markdown-annotation-overlay.js';
 import {
     findUniqueContainingSourceMapEntry,
+    resolveSourceMapLocation,
 } from '../core/markdown-source-map.js';
 import { createLocalization } from '../i18n/localization.js';
 import { createEvidenceSnippet } from '../markdown/markdown-evidence.js';
@@ -93,6 +94,7 @@ export function createInlineMarkdownEditor({
     deleteAnnotation,
     copySourcedMarkdown,
     openSourceLocation,
+    openAnnotationInPDF,
     onSourceNavigationError,
     localization = createLocalization(),
 }) {
@@ -117,6 +119,7 @@ export function createInlineMarkdownEditor({
         deleteAnnotation,
         copySourcedMarkdown,
         openSourceLocation,
+        openAnnotationInPDF,
         onSourceNavigationError,
     });
     const tablePreviewPopup = createTablePreviewPopup(parent, {
@@ -373,7 +376,11 @@ function selectionSourceLocation(sourceMap, target, documentLength) {
         range,
         documentLength
     );
-    const location = entry?.locations[0];
+    const location = resolveSourceMapLocation(
+        entry,
+        range,
+        documentLength
+    ) || entry?.locations[0];
     return location ? {
         pageIndex: location.pageIndex,
         bbox: [...location.bbox],

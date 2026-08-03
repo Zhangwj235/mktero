@@ -29,6 +29,7 @@ export function createAnnotationPopup(parent, {
     deleteAnnotation,
     copySourcedMarkdown,
     openSourceLocation,
+    openAnnotationInPDF,
     onSourceNavigationError,
 } = {}) {
     const t = localization.t.bind(localization);
@@ -136,6 +137,19 @@ export function createAnnotationPopup(parent, {
                 return createAnnotationActions(document, annotation, t, {
                     changeAnnotationColor,
                     deleteAnnotation,
+                    openNote: () => openNote({ anchor, annotation }),
+                    viewInPDF: annotation.source !== 'markdown'
+                        && typeof openAnnotationInPDF === 'function'
+                        ? async () => {
+                            try {
+                                await openAnnotationInPDF(annotation.id);
+                            }
+                            catch (error) {
+                                onSourceNavigationError?.(error);
+                                throw error;
+                            }
+                        }
+                        : undefined,
                     close,
                     reposition,
                 });
@@ -403,7 +417,14 @@ function createAnnotationActions(
     document,
     annotation,
     translate,
-    { changeAnnotationColor, deleteAnnotation, close, reposition }
+    {
+        changeAnnotationColor,
+        deleteAnnotation,
+        openNote,
+        viewInPDF,
+        close,
+        reposition,
+    }
 ) {
     const content = document.createElementNS(XHTML_NAMESPACE, 'div');
     content.className = 'mktero-annotation-actions';
@@ -419,7 +440,7 @@ function createAnnotationActions(
     error.setAttribute('aria-live', 'polite');
     error.hidden = true;
 
-    const run = async action => {
+    const run = async (action, errorKey = 'annotation.actionFailed') => {
         for (const control of controls) control.disabled = true;
         error.hidden = true;
         try {
@@ -430,7 +451,7 @@ function createAnnotationActions(
             error.textContent = annotationErrorMessage(
                 cause,
                 translate,
-                'annotation.actionFailed'
+                errorKey
             );
             error.hidden = false;
             reposition?.();
@@ -460,6 +481,43 @@ function createAnnotationActions(
         palette.appendChild(button);
     }
     content.appendChild(palette);
+
+    const noteButton = document.createElementNS(XHTML_NAMESPACE, 'button');
+    noteButton.className = 'mktero-annotation-note-button';
+    noteButton.type = 'button';
+    noteButton.dataset.action = 'add-note';
+    noteButton.setAttribute('aria-label', translate('annotation.addNote'));
+    noteButton.setAttribute('title', translate('annotation.addNote'));
+    noteButton.appendChild(createLucideIcon(
+        document,
+        LUCIDE_ICONS.messageSquarePlus,
+        { className: 'mktero-annotation-note-action-icon', size: 16 }
+    ));
+    noteButton.addEventListener('click', openNote);
+    content.appendChild(noteButton);
+
+    if (typeof viewInPDF === 'function') {
+        const sourceButton = document.createElementNS(XHTML_NAMESPACE, 'button');
+        sourceButton.className = 'mktero-annotation-source-button';
+        sourceButton.type = 'button';
+        sourceButton.dataset.action = 'view-in-pdf';
+        sourceButton.setAttribute(
+            'aria-label',
+            translate('annotation.openInPDF')
+        );
+        sourceButton.setAttribute('title', translate('annotation.openInPDF'));
+        sourceButton.appendChild(createLucideIcon(
+            document,
+            LUCIDE_ICONS.externalLink,
+            { className: 'mktero-source-action-icon', size: 16 }
+        ));
+        sourceButton.addEventListener('click', () => run(
+            viewInPDF,
+            'source.navigationFailed'
+        ));
+        controls.push(sourceButton);
+        content.appendChild(sourceButton);
+    }
 
     const deleteButton = document.createElementNS(XHTML_NAMESPACE, 'button');
     deleteButton.className = 'mktero-annotation-delete-button';

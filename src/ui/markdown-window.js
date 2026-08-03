@@ -157,6 +157,9 @@ class MarkdownTabView {
             ),
             copySourcedMarkdown: target => this.copySourcedMarkdown(target),
             openSourceLocation: location => this.openSourceLocation(location),
+            openAnnotationInPDF: annotationID => (
+                this.openAnnotationInPDF(annotationID)
+            ),
             onSourceNavigationError: error => this.zotero?.logError?.(error),
             localization: this.localization,
         });
@@ -239,6 +242,13 @@ class MarkdownTabView {
             throw new Error('PDF source navigation is unavailable');
         }
         return this.model.onOpenSourceInPDF(location);
+    }
+
+    openAnnotationInPDF(annotationID) {
+        if (typeof this.model.onOpenAnnotationInPDF !== 'function') {
+            throw new Error('PDF annotation navigation is unavailable');
+        }
+        return this.model.onOpenAnnotationInPDF(annotationID);
     }
 
     copySourcedMarkdown(target) {
@@ -1059,7 +1069,7 @@ class MarkdownTabView {
             metadata.appendChild(this.createElement(
                 'span',
                 { class: 'markdown-note-unavailable' },
-                this.t('viewer.noteUnavailable')
+                this.t(annotationUnavailableLabelKey(annotation))
             ));
         }
         const synchronization = this.createNoteSynchronization(annotation);
@@ -1241,6 +1251,12 @@ function findOverlayAnnotation(annotationOverlay, annotationID) {
 
 function isMarkdownAnnotation(annotation) {
     return annotation?.source === 'markdown';
+}
+
+function annotationUnavailableLabelKey(annotation) {
+    return annotation?.reason === 'ambiguous'
+        ? 'viewer.noteAmbiguous'
+        : 'viewer.noteUnavailable';
 }
 
 function synchronizationFailureLabelKey(reason) {

@@ -201,6 +201,7 @@ test('adds current Zotero PDF annotations without changing Markdown', async () =
 });
 
 test('combines Zotero PDF annotations with local Markdown annotations', async () => {
+    const pdfResolveOptions = [];
     const localResolveOptions = [];
     const sourceMap = [{
         type: 'text',
@@ -219,7 +220,8 @@ test('combines Zotero PDF annotations with local Markdown annotations', async ()
             }),
         },
         annotationOverlay: {
-            async resolve() {
+            async resolve(_itemID, _markdown, options) {
+                pdfResolveOptions.push(options);
                 return {
                     matched: [{ id: 'PDF1', ranges: [{ from: 0, to: 9 }] }],
                     unmatched: [],
@@ -247,6 +249,10 @@ test('combines Zotero PDF annotations with local Markdown annotations', async ()
     assert.deepEqual(result.annotationOverlay.matched.map(({ id }) => id), [
         'PDF1',
         'mktero-local-1',
+    ]);
+    assert.deepEqual(pdfResolveOptions, [
+        { sourceMap },
+        { sourceMap },
     ]);
     assert.deepEqual(localResolveOptions, [
         { retryFailed: true, sourceMap },
