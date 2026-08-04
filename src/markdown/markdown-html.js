@@ -40,19 +40,29 @@ const SAFE_TABLE_TAGS = new Set([
     'code',
 ]);
 
-export function renderMarkdownHTML(markdown, { resolveImageURL = () => null } = {}) {
+export function renderMarkdownHTML(
+    markdown,
+    {
+        resolveImageURL = () => null,
+        resolveImageAttachmentKey = null,
+        target = 'mktero',
+    } = {}
+) {
     if (typeof markdown !== 'string') {
         throw new TypeError('Markdown must be a string');
     }
 
     const mathBudget = createMathRenderBudget();
-    const renderer = createSafeRenderer(resolveImageURL, mathBudget);
+    const renderer = createSafeRenderer(resolveImageURL, mathBudget, {
+        resolveImageAttachmentKey,
+        target,
+    });
     const parser = new Marked({
         gfm: true,
         renderer,
         extensions: [
-            createMathBlockExtension(mathBudget),
-            createMathInlineExtension(mathBudget),
+            createMathBlockExtension(mathBudget, target),
+            createMathInlineExtension(mathBudget, target),
             createAcademicTableExtension(),
         ],
     });
@@ -62,7 +72,9 @@ export function renderMarkdownHTML(markdown, { resolveImageURL = () => null } = 
         markdown,
         parser,
         resolveImageURL,
-        mathBudget
+        resolveImageAttachmentKey,
+        mathBudget,
+        target,
     );
     if (figureGroupHTML) return figureGroupHTML;
     return renderParsedMarkdown(stripMinerUAlgorithmWrappers(markdown), parser);
@@ -92,14 +104,18 @@ function renderParsedMarkdown(markdown, parser) {
     return parser.parser(groupedTokens);
 }
 
-function createSafeRenderer(resolveImageURL, mathBudget) {
+function createSafeRenderer(
+    resolveImageURL,
+    mathBudget,
+    { resolveImageAttachmentKey = null, target = 'mktero' } = {}
+) {
     return {
         html({ text }) {
             const page = text.trim().match(/^<!--\s*zotero-page:\s*(.*?)\s*-->$/);
             if (page) {
                 return `<span class="page-marker" data-page="${escapeAttribute(page[1])}">Page ${escapeHTML(page[1])}</span>`;
             }
-            const table = sanitizeRawHTMLTable(text, mathBudget);
+            const table = sanitizeRawHTMLTable(text, mathBudget, target);
             if (table) return table;
             return escapeKnownInlineTags(escapeHTML(text));
         },
@@ -120,12 +136,16 @@ function createSafeRenderer(resolveImageURL, mathBudget) {
             if (!caption) return `<p>${content}</p>\n`;
             return '<figure class="mktero-figure">'
                 + content
-                + renderFigureCaption(caption, mathBudget, image.tokens)
+                + renderFigureCaption(caption, mathBudget, image.tokens, target)
                 + '</figure>\n';
         },
 
         image(token) {
-            return renderImageToken(token, resolveImageURL);
+            return renderImageToken(
+                token,
+                resolveImageURL,
+                resolveImageAttachmentKey
+            );
         },
     };
 }
@@ -134,7 +154,9 @@ function renderStandaloneAcademicFigureGroup(
     markdown,
     parser,
     resolveImageURL,
-    mathBudget
+    resolveImageAttachmentKey,
+    mathBudget,
+    target,
 ) {
     const groups = findAcademicFigureGroups(markdown);
     if (groups.length !== 1) return null;
@@ -168,25 +190,37 @@ function renderStandaloneAcademicFigureGroup(
     const renderedPanels = panels.map(panel => renderFigurePanel(
         panel,
         resolveImageURL,
-        mathBudget
+        mathBudget,
+        resolveImageAttachmentKey,
+        target
     )).join('');
     const panelHTML = horizontal
         ? `<div class="mktero-figure-panels-horizontal">${renderedPanels}</div>`
         : renderedPanels;
     return `<figure class="mktero-figure mktero-figure-group${layoutClass}">`
         + panelHTML
-        + renderFigureCaption(group.caption, mathBudget)
+        + renderFigureCaption(group.caption, mathBudget, null, target)
         + '</figure>\n';
 }
 
-function renderFigurePanel(panel, resolveImageURL, mathBudget) {
-    const image = renderImageToken(panel.imageToken, resolveImageURL);
+function renderFigurePanel(
+    panel,
+    resolveImageURL,
+    mathBudget,
+    resolveImageAttachmentKey,
+    target
+) {
+    const image = renderImageToken(
+        panel.imageToken,
+        resolveImageURL,
+        resolveImageAttachmentKey
+    );
     if (!panel.panelLabel) return image;
     const before = panel.panelLabelPosition === 'before';
     const label = '<div class="mktero-figure-panel-label'
         + (before ? ' mktero-figure-panel-label-before' : '')
         + '">'
-        + renderCaptionMathSource(panel.panelLabel, mathBudget)
+        + renderCaptionMathSource(panel.panelLabel, mathBudget, target)
         + '</div>';
     return '<div class="mktero-figure-panel">'
         + (before ? label : '')
@@ -195,8 +229,20 @@ function renderFigurePanel(panel, resolveImageURL, mathBudget) {
         + '</div>';
 }
 
-function renderImageToken({ href, title, text, tokens }, resolveImageURL) {
+function renderImageToken(
+    { href, title, text, tokens },
+    resolveImageURL,
+    resolveImageAttachmentKey = null
+) {
     const alt = imageTokenDescription({ text, tokens });
+    const attachmentKey = resolveImageAttachmentKey?.(href);
+    if (attachmentKey) {
+        const titleAttribute = title
+            ? ` title="${escapeAttribute(title)}"`
+            : '';
+        return `<img data-attachment-key="${escapeAttribute(attachmentKey)}"`
+            + ` alt="${escapeAttribute(alt)}"${titleAttribute}>`;
+    }
     const resolved = resolveImageURL(href);
     if (!resolved || !String(resolved).startsWith('blob:')) {
         return `<span class="missing-image">${escapeHTML(alt || 'Image')}</span>`;
@@ -207,16 +253,16 @@ function renderImageToken({ href, title, text, tokens }, resolveImageURL) {
     return `<img src="${escapeAttribute(resolved)}" alt="${escapeAttribute(alt)}"${titleAttribute}>`;
 }
 
-function renderFigureCaption(caption, mathBudget, tokens = null) {
+function renderFigureCaption(caption, mathBudget, tokens = null, target = 'mktero') {
     return '<figcaption>'
         + `<span class="mktero-figure-label">${escapeHTML(caption.label)}</span>`
-        + ` ${renderFigureCaptionDescription(caption, mathBudget, tokens)}`
+        + ` ${renderFigureCaptionDescription(caption, mathBudget, tokens, target)}`
         + '</figcaption>';
 }
 
-function renderFigureCaptionDescription(caption, mathBudget, tokens) {
+function renderFigureCaptionDescription(caption, mathBudget, tokens, target) {
     if (!tokens) {
-        return renderCaptionMathSource(caption.description, mathBudget);
+        return renderCaptionMathSource(caption.description, mathBudget, target);
     }
     const segments = inlineTokenTextSegments(tokens);
     const text = segments.map(segment => segment.text).join('');
@@ -229,11 +275,12 @@ function renderFigureCaptionDescription(caption, mathBudget, tokens) {
         segments,
         descriptionFrom,
         descriptionFrom + caption.description.length,
-        mathBudget
+        mathBudget,
+        target
     );
 }
 
-function renderCaptionTokenSegments(segments, from, to, mathBudget) {
+function renderCaptionTokenSegments(segments, from, to, mathBudget, target) {
     let offset = 0;
     let html = '';
     for (const segment of segments) {
@@ -246,30 +293,26 @@ function renderCaptionTokenSegments(segments, from, to, mathBudget) {
             Math.min(segment.text.length, to - segmentFrom)
         );
         html += segment.math
-            ? renderCaptionMath(text, mathBudget)
+            ? renderCaptionMath(text, mathBudget, target)
             : escapeHTML(text);
     }
     return html;
 }
 
-function renderCaptionMathSource(source, mathBudget) {
+function renderCaptionMathSource(source, mathBudget, target = 'mktero') {
     const matches = findInlineMathMatches(source);
     let html = '';
     let offset = 0;
     for (const match of matches) {
         html += escapeHTML(source.slice(offset, match.start));
-        html += renderCaptionMath(match.text, mathBudget);
+        html += renderCaptionMath(match.text, mathBudget, target);
         offset = match.end;
     }
     return html + escapeHTML(source.slice(offset));
 }
 
-function renderCaptionMath(source, mathBudget) {
-    return `<span class="math-inline">${renderMathML(
-        source,
-        false,
-        mathBudget
-    )}</span>`;
+function renderCaptionMath(source, mathBudget, target = 'mktero') {
+    return renderMath(source, false, mathBudget, target);
 }
 
 function renderTableCaption(caption) {
@@ -351,22 +394,20 @@ function imageTokenDescription({ text, tokens }) {
     return tokens ? inlineTokensToText(tokens) : text;
 }
 
-function createMathBlockExtension(mathBudget) {
+function createMathBlockExtension(mathBudget, target = 'mktero') {
     return {
         name: 'mkteroMathBlock',
         renderer(token) {
-            const math = renderMathML(token.text, true, mathBudget);
-            return `<div class="math math-display">${math}</div>\n`;
+            return renderMath(token.text, true, mathBudget, target) + '\n';
         },
     };
 }
 
-function createMathInlineExtension(mathBudget) {
+function createMathInlineExtension(mathBudget, target = 'mktero') {
     return {
         name: 'mkteroMathInline',
         renderer(token) {
-            const math = renderMathML(token.text, false, mathBudget);
-            return `<span class="math-inline">${math}</span>`;
+            return renderMath(token.text, false, mathBudget, target);
         },
     };
 }
@@ -875,31 +916,69 @@ function createMathRenderBudget() {
     };
 }
 
-function renderMathML(source, displayMode, mathBudget) {
+function renderMath(source, displayMode, mathBudget, target = 'mktero') {
     const normalizedSource = String(source).trim();
-    if (UNSAFE_MATH_COMMAND.test(normalizedSource)) {
-        return renderMathFallback(normalizedSource);
-    }
-    if (!mathBudget.claimSource(normalizedSource)) {
-        return renderMathFallback(normalizedSource);
+    if (UNSAFE_MATH_COMMAND.test(normalizedSource)
+        || !mathBudget.claimSource(normalizedSource)) {
+        return wrapMathFallback(normalizedSource, displayMode, target);
     }
     try {
-        const rendered = katex.renderToString(normalizedSource, {
-            displayMode,
-            output: 'mathml',
-            throwOnError: false,
-            strict: 'ignore',
-            trust: false,
-            maxExpand: 100,
-            maxSize: 100,
-        });
-        return mathBudget.claimOutput(rendered)
+        const rendered = target === 'zotero-note'
+            ? renderZoteroNoteMath(normalizedSource, displayMode)
+            : wrapMkteroMath(
+                renderMathML(normalizedSource, displayMode),
+                displayMode
+            );
+        return rendered && mathBudget.claimOutput(rendered)
             ? rendered
-            : renderMathFallback(normalizedSource);
+            : wrapMathFallback(normalizedSource, displayMode, target);
     }
     catch {
-        return renderMathFallback(normalizedSource);
+        return wrapMathFallback(normalizedSource, displayMode, target);
     }
+}
+
+function renderMathML(source, displayMode, options = {}) {
+    return katex.renderToString(source, {
+        displayMode,
+        output: 'mathml',
+        throwOnError: false,
+        strict: 'ignore',
+        trust: false,
+        maxExpand: 100,
+        maxSize: 100,
+        ...options,
+    });
+}
+
+function renderZoteroNoteMath(source, displayMode) {
+    const bounded = renderMathML(source, displayMode, {
+        throwOnError: true,
+    });
+    const unbounded = renderMathML(source, displayMode, {
+        throwOnError: true,
+        maxSize: Infinity,
+    });
+    if (bounded !== unbounded) return null;
+
+    const delimiter = displayMode ? '$$' : '$';
+    const tagName = displayMode ? 'pre' : 'span';
+    return `<${tagName} class="math">${delimiter}`
+        + escapeHTML(source)
+        + `${delimiter}</${tagName}>`;
+}
+
+function wrapMkteroMath(rendered, displayMode) {
+    return displayMode
+        ? `<div class="math math-display">${rendered}</div>`
+        : `<span class="math-inline">${rendered}</span>`;
+}
+
+function wrapMathFallback(source, displayMode, target) {
+    const fallback = renderMathFallback(source);
+    return target === 'zotero-note'
+        ? fallback
+        : wrapMkteroMath(fallback, displayMode);
 }
 
 function renderMathFallback(source) {
@@ -933,7 +1012,7 @@ function escapeKnownInlineTags(value) {
         .replace(/&lt;\/(br|sup|sub)&gt;/gi, '</$1>');
 }
 
-function sanitizeRawHTMLTable(value, mathBudget) {
+function sanitizeRawHTMLTable(value, mathBudget, target = 'mktero') {
     const source = String(value).trim();
     if (!/^<table(?:\s|>)/i.test(source) || !/<\/table>$/i.test(source)) {
         return null;
@@ -949,7 +1028,8 @@ function sanitizeRawHTMLTable(value, mathBudget) {
         output += renderRawTableText(
             text,
             tableCellDepth > 0 && codeDepth === 0,
-            mathBudget
+            mathBudget,
+            target
         );
         const closing = /^<\s*\//.test(match[0]);
         const tagName = /^<\s*\/?\s*([a-z][a-z0-9]*)/i.exec(match[0])?.[1]
@@ -973,18 +1053,19 @@ function sanitizeRawHTMLTable(value, mathBudget) {
     output += renderRawTableText(
         trailingText,
         tableCellDepth > 0 && codeDepth === 0,
-        mathBudget
+        mathBudget,
+        target
     );
     return output;
 }
 
-function renderRawTableText(value, renderMath, mathBudget) {
+function renderRawTableText(value, renderMath, mathBudget, target) {
     return renderMath
-        ? renderRawTableInlineMath(value, mathBudget)
+        ? renderRawTableInlineMath(value, mathBudget, target)
         : escapeHTMLText(value);
 }
 
-function renderRawTableInlineMath(value, mathBudget) {
+function renderRawTableInlineMath(value, mathBudget, target) {
     const source = String(value);
     const matches = findInlineMathMatches(source);
     if (!matches.length) return escapeHTMLText(source);
@@ -993,11 +1074,7 @@ function renderRawTableInlineMath(value, mathBudget) {
     let sourceIndex = 0;
     for (const match of matches) {
         output += escapeHTMLText(source.slice(sourceIndex, match.start));
-        output += `<span class="math-inline">${renderMathML(
-            match.text,
-            false,
-            mathBudget
-        )}</span>`;
+        output += renderMath(match.text, false, mathBudget, target);
         sourceIndex = match.end;
     }
     output += escapeHTMLText(source.slice(sourceIndex));

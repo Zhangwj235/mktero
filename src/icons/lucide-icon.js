@@ -9,7 +9,9 @@ import {
     LoaderCircle,
     MessageSquarePlus,
     MessageSquareText,
+    MoreHorizontal,
     RefreshCw,
+    Save,
     Trash2,
     TriangleAlert,
     X,
@@ -71,9 +73,17 @@ export const LUCIDE_ICONS = Object.freeze({
         name: 'message-square-plus',
         nodes: MessageSquarePlus,
     }),
+    moreHorizontal: Object.freeze({
+        name: 'more-horizontal',
+        nodes: MoreHorizontal,
+    }),
     refreshCw: Object.freeze({
         name: 'refresh-cw',
         nodes: RefreshCw,
+    }),
+    save: Object.freeze({
+        name: 'save',
+        nodes: Save,
     }),
     trash2: Object.freeze({
         name: 'trash-2',
