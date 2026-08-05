@@ -14,6 +14,7 @@ import { createLocalization } from '../i18n/localization.js';
 import { createEvidenceSnippet } from '../markdown/markdown-evidence.js';
 import {
     createInlineRenderingExtension,
+    pointerTouchesRect,
     refreshInlineRendering,
     selectedMarkdownAnnotation,
     selectionAnchor,
@@ -96,6 +97,7 @@ export function createInlineMarkdownEditor({
     openSourceLocation,
     openAnnotationInPDF,
     onSourceNavigationError,
+    onViewportChange,
     localization = createLocalization(),
 }) {
     const t = localization.t.bind(localization);
@@ -181,6 +183,9 @@ export function createInlineMarkdownEditor({
                 for (const popup of interactionPopups) popup.close();
             }
             view.requestMeasure();
+            if (event.type === 'scroll' && event.target === view.scrollDOM) {
+                onViewportChange?.(editorViewportOffset(view));
+            }
             if (event.type === 'scroll'
                 && typeof ownerWindow.IntersectionObserver !== 'function') {
                 view.measure();
@@ -213,6 +218,13 @@ export function createInlineMarkdownEditor({
                 EditorState.readOnly.of(true),
                 keymap.of(searchKeymap),
                 EditorView.lineWrapping,
+                EditorView.updateListener.of(update => {
+                    if (update.viewportChanged
+                        || update.geometryChanged
+                        || update.docChanged) {
+                        onViewportChange?.(editorViewportOffset(update.view));
+                    }
+                }),
             ],
         });
         const root = parent.getRootNode?.();
@@ -236,6 +248,8 @@ export function createInlineMarkdownEditor({
             return;
         }
         activateDOMGlobals(ownerWindow);
+        const domSelection = ownerWindow.document.getSelection?.();
+        clampSelectionFocusToPointerLine(view, domSelection, event);
         const selection = selectedMarkdownAnnotation(view);
         if (!selection) return;
         const copyTarget = { kind: 'selection', ...selection };
@@ -249,8 +263,9 @@ export function createInlineMarkdownEditor({
         }
         annotationPopup.openSelection({
             anchor: selectionAnchor(
-                ownerWindow.document.getSelection?.(),
-                event.target
+                domSelection,
+                event.target,
+                event
             ),
             selection,
             copyTarget,
@@ -263,11 +278,49 @@ export function createInlineMarkdownEditor({
         });
     };
     const closeSelectionActions = event => {
-        if (event.button === 0 && !annotationPopup.contains(event.target)) {
+        const targetsPopup = annotationPopup.contains(event.target)
+            || event.composedPath?.().some(target => (
+                target?.nodeType && annotationPopup.contains(target)
+            ));
+        if (event.button === 0 && !targetsPopup) {
             annotationPopup.close();
         }
     };
-    parent.addEventListener('mousedown', closeSelectionActions, true);
+    const interactionRoot = parent.getRootNode?.() || ownerWindow.document;
+    const closeSelectionActionsOutsideRoot = event => {
+        if (event.button !== 0) return;
+        const eventPath = event.composedPath?.() || [];
+        if (eventPath.includes(interactionRoot)
+            || event.target === interactionRoot.host) {
+            return;
+        }
+        annotationPopup.close();
+    };
+    interactionRoot.addEventListener(
+        'mousedown',
+        closeSelectionActions,
+        true
+    );
+    if (interactionRoot !== ownerWindow.document) {
+        ownerWindow.document.addEventListener(
+            'mousedown',
+            closeSelectionActionsOutsideRoot,
+            true
+        );
+    }
+    const closeSelectionActionsOnEscape = event => {
+        if (event.key !== 'Escape' || !annotationPopup.isSelectionOpen()) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        annotationPopup.close();
+    };
+    ownerWindow.document.addEventListener(
+        'keydown',
+        closeSelectionActionsOnEscape,
+        true
+    );
     parent.addEventListener('mouseup', openSelectedMarkdownActions, true);
     let currentSourceMap = [];
     const setDocument = ({ markdown, annotationOverlay, sourceMap }) => {
@@ -331,9 +384,21 @@ export function createInlineMarkdownEditor({
                     feature.highlight.cancel();
                     feature.popup.destroy();
                 }
-                parent.removeEventListener(
+                interactionRoot.removeEventListener(
                     'mousedown',
                     closeSelectionActions,
+                    true
+                );
+                if (interactionRoot !== ownerWindow.document) {
+                    ownerWindow.document.removeEventListener(
+                        'mousedown',
+                        closeSelectionActionsOutsideRoot,
+                        true
+                    );
+                }
+                ownerWindow.document.removeEventListener(
+                    'keydown',
+                    closeSelectionActionsOnEscape,
                     true
                 );
                 parent.removeEventListener(
@@ -351,6 +416,20 @@ export function createInlineMarkdownEditor({
             }
         },
     };
+}
+
+function editorViewportOffset(editorView) {
+    const scrollTop = Number(editorView.scrollDOM?.scrollTop);
+    if (!Number.isFinite(scrollTop)
+        || typeof editorView.lineBlockAtHeight !== 'function') {
+        return editorView.viewport.from;
+    }
+    try {
+        return editorView.lineBlockAtHeight(Math.max(0, scrollTop + 8)).from;
+    }
+    catch {
+        return editorView.viewport.from;
+    }
 }
 
 function createSourcedEvidence(markdown, sourceMap, target) {
@@ -385,6 +464,78 @@ function selectionSourceLocation(sourceMap, target, documentLength) {
         pageIndex: location.pageIndex,
         bbox: [...location.bbox],
     } : null;
+}
+
+function clampSelectionFocusToPointerLine(view, selection, pointer) {
+    if (!selection || selection.isCollapsed || selection.rangeCount !== 1) {
+        return;
+    }
+    const pointerLine = editorLineContaining(view, pointer?.target);
+    const focusLine = editorLineContaining(view, selection.focusNode);
+    if (!pointerLine || !focusLine || pointerLine === focusLine) return;
+    const range = selection.getRangeAt(0);
+    if (!pointerTouchesRect(pointer, pointerLine.getBoundingClientRect?.())
+        || !Array.from(range.getClientRects?.() || []).some(rect => (
+            pointerTouchesRect(pointer, rect, 8)
+        ))) {
+        return;
+    }
+    try {
+        const anchorPosition = view.posAtDOM(
+            selection.anchorNode,
+            selection.anchorOffset
+        );
+        const focusPosition = view.posAtDOM(
+            selection.focusNode,
+            selection.focusOffset
+        );
+        const lineFrom = view.posAtDOM(pointerLine, 0);
+        const lineTo = view.posAtDOM(
+            pointerLine,
+            pointerLine.childNodes.length
+        );
+        const forward = anchorPosition < focusPosition;
+        if ((forward && (focusPosition <= lineTo || anchorPosition > lineTo))
+            || (!forward
+                && (focusPosition >= lineFrom || anchorPosition < lineFrom))) {
+            return;
+        }
+        setSelectionFocus(
+            selection,
+            pointerLine,
+            forward ? pointerLine.childNodes.length : 0,
+            forward
+        );
+    }
+    catch {
+        // Stale CodeMirror DOM is ignored; the regular selection path can retry.
+    }
+}
+
+function editorLineContaining(view, node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    const line = element?.closest?.('.cm-line');
+    return line && view.dom.contains(line) ? line : null;
+}
+
+function setSelectionFocus(selection, node, offset, forward) {
+    const anchorNode = selection.anchorNode;
+    const anchorOffset = selection.anchorOffset;
+    if (typeof selection.setBaseAndExtent === 'function') {
+        selection.setBaseAndExtent(anchorNode, anchorOffset, node, offset);
+        return;
+    }
+    const range = node.ownerDocument.createRange();
+    if (forward) {
+        range.setStart(anchorNode, anchorOffset);
+        range.setEnd(node, offset);
+    }
+    else {
+        range.setStart(node, offset);
+        range.setEnd(anchorNode, anchorOffset);
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
 }
 
 function createTimedTargetHighlight({

@@ -26,6 +26,57 @@ function textNodeContaining(element, text) {
     return null;
 }
 
+function createAnnotationSelectionEditor(initialMarkdown, annotationID) {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    let created;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown,
+        async createMarkdownAnnotation(annotation) {
+            created = annotation;
+            return { ...annotation, id: annotationID };
+        },
+    });
+    return {
+        dom,
+        document,
+        editor,
+        createdAnnotation: () => created,
+    };
+}
+
+function rectangle(top, right, bottom, left) {
+    return {
+        top,
+        right,
+        bottom,
+        left,
+        width: right - left,
+        height: bottom - top,
+    };
+}
+
+function setSelectionGeometry(range, pointerLine, rectangles, lineRect) {
+    range.getClientRects = () => rectangles;
+    pointerLine.getBoundingClientRect = () => lineRect;
+}
+
+async function createHighlightFromSelection(document, pointerLine, pointer) {
+    pointerLine.dispatchEvent(new document.defaultView.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+        ...pointer,
+    }));
+    const colorButton = document.querySelector('[data-color="#ffd400"]');
+    assert.ok(colorButton);
+    colorButton.click();
+    await Promise.resolve();
+    await Promise.resolve();
+}
+
 test('keeps Markdown as the source of truth in a read-only surface', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -742,11 +793,6 @@ test('adds a note after clicking a PDF annotation without a comment', async () =
     });
     const annotation = document.querySelector('.cm-mktero-pdf-annotation');
 
-    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
-        bubbles: true,
-    }));
-    assert.ok(document.querySelector('.mktero-annotation-actions'));
-
     annotation.dispatchEvent(new dom.window.MouseEvent('click', {
         bubbles: true,
         cancelable: true,
@@ -772,7 +818,81 @@ test('adds a note after clicking a PDF annotation without a comment', async () =
     dom.window.close();
 });
 
-test('shows note, PDF navigation, color, and delete actions when hovering a PDF annotation', async () => {
+test('opens annotation actions only after an intentional hover', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+    });
+    editor.setDocument({
+        markdown: 'Important result.',
+        annotationOverlay: {
+            matched: [{
+                id: 'HIGH0001',
+                type: 'highlight',
+                text: 'Important',
+                comment: '',
+                color: '#ffd400',
+                ranges: [{ from: 0, to: 9 }],
+            }],
+            unmatched: [],
+        },
+    });
+    const annotation = document.querySelector('.cm-mktero-pdf-annotation');
+    const line = document.querySelector('.cm-line');
+    const scheduled = new Map();
+    const originalSetTimeout = dom.window.setTimeout;
+    const originalClearTimeout = dom.window.clearTimeout;
+    let nextTimerID = 1;
+    dom.window.setTimeout = (callback, delay) => {
+        const timerID = nextTimerID++;
+        scheduled.set(timerID, { callback, delay });
+        return timerID;
+    };
+    dom.window.clearTimeout = timerID => scheduled.delete(timerID);
+
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+
+    assert.equal(document.querySelector('.mktero-annotation-popup'), null);
+    assert.equal([...scheduled.values()].at(-1)?.delay, 220);
+
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseout', {
+        bubbles: true,
+        relatedTarget: line,
+    }));
+    assert.equal(scheduled.size, 0);
+
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    const [hoverTimerID, hover] = [...scheduled.entries()].at(-1);
+    scheduled.delete(hoverTimerID);
+    hover.callback();
+
+    assert.ok(document.querySelector('.mktero-annotation-popup'));
+
+    line.dispatchEvent(new dom.window.MouseEvent('mousedown', {
+        bubbles: true,
+        button: 0,
+    }));
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.equal([...scheduled.values()].at(-1)?.delay, 220);
+
+    editor.destroy();
+    assert.equal(scheduled.size, 0);
+    dom.window.setTimeout = originalSetTimeout;
+    dom.window.clearTimeout = originalClearTimeout;
+    dom.window.close();
+});
+
+test('shows note, PDF navigation, color, and delete actions when focusing a PDF annotation', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -821,7 +941,7 @@ test('shows note, PDF navigation, color, and delete actions when hovering a PDF 
     });
     const annotation = document.querySelector('.cm-mktero-pdf-annotation');
 
-    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+    annotation.dispatchEvent(new dom.window.FocusEvent('focusin', {
         bubbles: true,
     }));
 
@@ -855,7 +975,7 @@ test('shows note, PDF navigation, color, and delete actions when hovering a PDF 
     assert.equal(openedAnnotationID, 'HIGH0001');
     assert.equal(document.querySelector('.mktero-annotation-popup'), null);
 
-    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+    annotation.dispatchEvent(new dom.window.FocusEvent('focusin', {
         bubbles: true,
     }));
     document.querySelector('.mktero-annotation-note-button').click();
@@ -870,7 +990,7 @@ test('shows note, PDF navigation, color, and delete actions when hovering a PDF 
     });
     assert.equal(document.querySelector('.mktero-annotation-popup'), null);
 
-    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+    annotation.dispatchEvent(new dom.window.FocusEvent('focusin', {
         bubbles: true,
     }));
     const colorPopup = document.querySelector('.mktero-annotation-popup');
@@ -881,7 +1001,7 @@ test('shows note, PDF navigation, color, and delete actions when hovering a PDF 
     });
     assert.equal(document.querySelector('.mktero-annotation-popup'), null);
 
-    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+    annotation.dispatchEvent(new dom.window.FocusEvent('focusin', {
         bubbles: true,
     }));
     const reopenedPopup = document.querySelector('.mktero-annotation-popup');
@@ -3403,6 +3523,283 @@ test('shows Markdown annotation actions after selecting ordinary text', () => {
     dom.window.close();
 });
 
+test('closes selection actions when clicking outside the editor', () => {
+    const dom = new JSDOM(
+        '<!doctype html><button id="outside">Outside</button><div id="editor"></div>',
+        { pretendToBeVisual: true }
+    );
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: 'Select this Markdown text.',
+    });
+    const line = document.querySelector('.cm-line');
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    document.getSelection().addRange(range);
+    line.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+    }));
+    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+
+    document.querySelector('.mktero-annotation-color-button').dispatchEvent(
+        new dom.window.MouseEvent('mousedown', {
+            bubbles: true,
+            button: 0,
+        })
+    );
+    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+
+    const retargetedPopupClick = new dom.window.MouseEvent('mousedown', {
+        bubbles: true,
+        button: 0,
+    });
+    Object.defineProperty(retargetedPopupClick, 'composedPath', {
+        value: () => [
+            document.querySelector('.mktero-annotation-color-button'),
+            document,
+            dom.window,
+        ],
+    });
+    document.querySelector('#outside').dispatchEvent(retargetedPopupClick);
+    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+
+    document.querySelector('#outside').dispatchEvent(
+        new dom.window.MouseEvent('mousedown', {
+            bubbles: true,
+            button: 0,
+        })
+    );
+
+    assert.equal(
+        document.querySelector('.mktero-markdown-selection-actions'),
+        null
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('keeps shadow selection actions open on a retargeted popup press', () => {
+    const dom = new JSDOM(
+        '<!doctype html><button id="outside">Outside</button><div id="host"></div>',
+        {
+            pretendToBeVisual: true,
+        }
+    );
+    const { document } = dom.window;
+    const host = document.querySelector('#host');
+    const shadow = host.attachShadow({ mode: 'open' });
+    const parent = document.createElement('div');
+    shadow.appendChild(parent);
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent,
+        initialMarkdown: 'Select this Markdown text.',
+    });
+    const line = shadow.querySelector('.cm-line');
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    const originalGetSelection = document.getSelection;
+    document.getSelection = () => ({
+        anchorNode: range.startContainer,
+        anchorOffset: range.startOffset,
+        collapse() {},
+        extend() {},
+        focusNode: range.endContainer,
+        focusOffset: range.endOffset,
+        getRangeAt: () => range,
+        isCollapsed: false,
+        removeAllRanges() {},
+        rangeCount: 1,
+        toString: () => range.toString(),
+    });
+    line.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        composed: true,
+        button: 0,
+    }));
+    assert.ok(shadow.querySelector('.mktero-markdown-selection-actions'));
+
+    const press = new dom.window.MouseEvent('mousedown', {
+        bubbles: true,
+        composed: true,
+        button: 0,
+    });
+    Object.defineProperty(press, 'composedPath', {
+        value: () => [host, document, dom.window],
+    });
+    shadow.querySelector('.mktero-annotation-color-button')
+        .dispatchEvent(press);
+
+    assert.ok(shadow.querySelector('.mktero-markdown-selection-actions'));
+
+    document.querySelector('#outside').dispatchEvent(
+        new dom.window.MouseEvent('mousedown', {
+            bubbles: true,
+            button: 0,
+        })
+    );
+    assert.equal(
+        shadow.querySelector('.mktero-markdown-selection-actions'),
+        null
+    );
+
+    document.getSelection = originalGetSelection;
+    editor.destroy();
+    dom.window.close();
+});
+
+test('closes unfocused selection actions with Escape', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: 'Select this Markdown text.',
+    });
+    const line = document.querySelector('.cm-line');
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    document.getSelection().addRange(range);
+    line.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+    }));
+    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+
+    const escape = new dom.window.KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'Escape',
+    });
+    document.dispatchEvent(escape);
+
+    assert.equal(escape.defaultPrevented, true);
+    assert.equal(
+        document.querySelector('.mktero-markdown-selection-actions'),
+        null
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('keeps selection actions stable while crossing hoverable content', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const highlightedText = 'Existing highlighted sentence.';
+    const selectedText = 'New selected sentence.';
+    const markdown = [
+        `${highlightedText} Evidence [1]. ${selectedText}`,
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. Study. 2024.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+    });
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'PDF0001',
+                source: 'zotero',
+                type: 'highlight',
+                text: highlightedText,
+                comment: '',
+                color: '#ffd400',
+                ranges: [{ from: 0, to: highlightedText.length }],
+            }],
+            unmatched: [],
+        },
+    });
+    const line = [...document.querySelectorAll('.cm-line')].find(
+        candidate => candidate.textContent.includes(selectedText)
+    );
+    const selectedNode = textNodeContaining(line, selectedText);
+    const range = document.createRange();
+    range.selectNodeContents(selectedNode);
+    document.getSelection().addRange(range);
+
+    line.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+    }));
+    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+    const scheduled = new Map();
+    const originalSetTimeout = dom.window.setTimeout;
+    const originalClearTimeout = dom.window.clearTimeout;
+    let nextTimerID = 1;
+    dom.window.setTimeout = (callback, delay) => {
+        const timerID = nextTimerID++;
+        scheduled.set(timerID, { callback, delay });
+        return timerID;
+    };
+    dom.window.clearTimeout = timerID => scheduled.delete(timerID);
+
+    const annotation = document.querySelector('.cm-mktero-pdf-annotation');
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    for (const timer of [...scheduled.values()]) timer.callback();
+
+    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseout', {
+        bubbles: true,
+        relatedTarget: line,
+    }));
+
+    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+    assert.equal(scheduled.size, 0);
+
+    const citation = document.querySelector('.cm-mktero-citation');
+    citation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    citation.dispatchEvent(new dom.window.MouseEvent('mouseout', {
+        bubbles: true,
+        relatedTarget: line,
+    }));
+
+    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+    assert.equal(document.querySelector('.mktero-citation-popup'), null);
+    assert.equal(scheduled.size, 0);
+
+    const selectionPopup = document.querySelector('.mktero-annotation-popup');
+    selectionPopup.dispatchEvent(new dom.window.MouseEvent('mouseenter'));
+    selectionPopup.dispatchEvent(new dom.window.MouseEvent('mouseleave'));
+
+    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+    assert.equal(scheduled.size, 0);
+
+    annotation.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(
+        document.querySelector('.mktero-markdown-selection-actions'),
+        null
+    );
+    assert.ok(document.querySelector('.mktero-annotation-note-input'));
+
+    dom.window.setTimeout = originalSetTimeout;
+    dom.window.clearTimeout = originalClearTimeout;
+    editor.destroy();
+    dom.window.close();
+});
+
 test('anchors selection actions above the first selected line', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -3461,6 +3858,66 @@ test('anchors selection actions above the first selected line', () => {
     assert.equal(popup?.dataset.placement, 'top');
     assert.equal(popup?.style.left, '350px');
     assert.equal(popup?.style.top, '230px');
+
+    editor.destroy();
+    dom.window.HTMLElement.prototype.getBoundingClientRect =
+        originalGetBoundingClientRect;
+    dom.window.close();
+});
+
+test('anchors selection actions near the pointer release line', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    Object.defineProperties(dom.window, {
+        innerWidth: { configurable: true, value: 1000 },
+        innerHeight: { configurable: true, value: 800 },
+    });
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: 'First selected line.\nSecond selected line.',
+    });
+    const content = document.querySelector('.cm-content');
+    const range = document.createRange();
+    range.selectNodeContents(content);
+    range.getClientRects = () => [{
+        top: 300,
+        right: 700,
+        bottom: 320,
+        left: 300,
+        width: 400,
+        height: 20,
+    }, {
+        top: 500,
+        right: 400,
+        bottom: 520,
+        left: 300,
+        width: 100,
+        height: 20,
+    }];
+    document.getSelection().addRange(range);
+    const originalGetBoundingClientRect =
+        dom.window.HTMLElement.prototype.getBoundingClientRect;
+    dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+        if (this.classList.contains('mktero-annotation-popup')) {
+            return { height: 60, width: 300 };
+        }
+        return originalGetBoundingClientRect.call(this);
+    };
+
+    content.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+        clientX: 360,
+        clientY: 510,
+    }));
+
+    const popup = document.querySelector('.mktero-annotation-popup');
+    assert.equal(popup?.dataset.placement, 'top');
+    assert.equal(popup?.style.left, '210px');
+    assert.equal(popup?.style.top, '430px');
 
     editor.destroy();
     dom.window.HTMLElement.prototype.getBoundingClientRect =
@@ -3791,6 +4248,220 @@ test('does not offer a partial annotation across rendered boundaries', () => {
         document.querySelector('.mktero-markdown-selection-actions'),
         null
     );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('creates a highlight immediately after an existing abstract highlight', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const existingText = 'Based on BBT and HR, we developed algorithms that '
+        + 'predicted the fertile window with an accuracy of 87.46%, '
+        + 'sensitivity of 69.30%, specificity of 92.00%, and AUC of 0.8993 '
+        + 'and menses with an accuracy of 89.60%, sensitivity of 70.70%, and '
+        + 'specificity of 94.30%, and AUC of 0.7849 among regular '
+        + 'menstruators.';
+    const selectedText = 'For irregular menstruators, the accuracy, '
+        + 'sensitivity, specificity and AUC were 72.51%, 21.00%, 82.90%, '
+        + 'and 0.5808 respectively, for fertile window prediction and '
+        + '75.90%, 36.30%, 84.40%, and 0.6759 for menses prediction.';
+    const markdown = `${existingText} ${selectedText}`;
+    let created;
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        async createMarkdownAnnotation(annotation) {
+            created = annotation;
+            return { ...annotation, id: 'mktero-local-irregular' };
+        },
+    });
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'PDF0001',
+                source: 'zotero',
+                type: 'highlight',
+                text: existingText,
+                comment: '',
+                color: '#ffd400',
+                pageLabel: '1',
+                ranges: [{ from: 0, to: existingText.length }],
+            }],
+            unmatched: [],
+        },
+    });
+    const line = document.querySelector('.cm-line');
+    const selectedNode = textNodeContaining(line, selectedText);
+    const range = document.createRange();
+    range.selectNodeContents(selectedNode);
+    document.getSelection().addRange(range);
+
+    line.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+    }));
+    const colorButton = document.querySelector('[data-color="#ffd400"]');
+    assert.ok(colorButton);
+    colorButton.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const from = markdown.indexOf(selectedText);
+    assert.equal(created.text, selectedText);
+    assert.deepEqual(created.ranges, [{
+        from,
+        to: from + selectedText.length,
+    }]);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('clamps a paragraph-end selection mapped into the next block', async () => {
+    const existingText = 'Based on BBT and HR, the algorithms worked among '
+        + 'regular menstruators.';
+    const selectedText = 'For irregular menstruators, the accuracy, '
+        + 'sensitivity, specificity and AUC were 72.51%, 21.00%, 82.90%, '
+        + 'and 0.5808 respectively, for fertile window prediction and '
+        + '75.90%, 36.30%, 84.40%, and 0.6759 for menses prediction.';
+    const conclusion = 'Conclusions: By combining BBT and HR we obtained '
+        + 'relatively ideal predictions.';
+    const markdown = `${existingText} ${selectedText}\n\n${conclusion}`;
+    const {
+        dom,
+        document,
+        editor,
+        createdAnnotation,
+    } = createAnnotationSelectionEditor('', 'mktero-local-irregular');
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'PDF0001',
+                source: 'zotero',
+                type: 'highlight',
+                text: existingText,
+                comment: '',
+                color: '#ffd400',
+                pageLabel: '1',
+                ranges: [{ from: 0, to: existingText.length }],
+            }],
+            unmatched: [],
+        },
+    });
+    const lines = [...document.querySelectorAll('.cm-line')];
+    const targetLine = lines.find(line => line.textContent.includes(selectedText));
+    const conclusionLine = lines.find(line => line.textContent.includes(conclusion));
+    const selectedNode = textNodeContaining(targetLine, selectedText);
+    const conclusionNode = textNodeContaining(conclusionLine, conclusion);
+    const range = document.createRange();
+    range.setStart(selectedNode, 0);
+    range.setEnd(conclusionNode, conclusion.indexOf('relatively ideal'));
+    setSelectionGeometry(range, targetLine, [
+        rectangle(428, 1120, 456, 404),
+        rectangle(468, 760, 496, 404),
+    ], rectangle(400, 1120, 456, 300));
+    document.getSelection().addRange(range);
+
+    await createHighlightFromSelection(document, targetLine, {
+        clientX: 1118,
+        clientY: 452,
+    });
+
+    const created = createdAnnotation();
+    const from = markdown.indexOf(selectedText);
+    assert.equal(created.text, selectedText);
+    assert.deepEqual(created.ranges, [{
+        from,
+        to: from + selectedText.length,
+    }]);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('preserves an intentional selection released in the next block', async () => {
+    const markdown = 'First selected paragraph.\n\nSecond selected paragraph.';
+    const {
+        dom,
+        document,
+        editor,
+        createdAnnotation,
+    } = createAnnotationSelectionEditor(
+        markdown,
+        'mktero-local-cross-paragraph'
+    );
+    const lines = [...document.querySelectorAll('.cm-line')];
+    const firstNode = textNodeContaining(lines[0], 'First selected');
+    const secondNode = textNodeContaining(lines[2], 'Second selected');
+    const secondEnd = 'Second selected'.length;
+    const range = document.createRange();
+    range.setStart(firstNode, 0);
+    range.setEnd(secondNode, secondEnd);
+    setSelectionGeometry(range, lines[2], [
+        rectangle(400, 620, 428, 300),
+        rectangle(468, 540, 496, 300),
+    ], rectangle(468, 800, 496, 300));
+    document.getSelection().addRange(range);
+
+    await createHighlightFromSelection(document, lines[2], {
+        clientX: 530,
+        clientY: 482,
+    });
+
+    const created = createdAnnotation();
+    assert.deepEqual(created.ranges, [{
+        from: 0,
+        to: markdown.indexOf('Second selected') + secondEnd,
+    }]);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('clamps a backward selection mapped into the previous block', async () => {
+    const previous = 'Previous paragraph should not be selected.';
+    const selectedText = 'For irregular menstruators, select this paragraph.';
+    const markdown = `${previous}\n\n${selectedText}`;
+    const {
+        dom,
+        document,
+        editor,
+        createdAnnotation,
+    } = createAnnotationSelectionEditor(markdown, 'mktero-local-backward');
+    const lines = [...document.querySelectorAll('.cm-line')];
+    const previousNode = textNodeContaining(lines[0], previous);
+    const selectedNode = textNodeContaining(lines[2], selectedText);
+    const selection = document.getSelection();
+    selection.setBaseAndExtent(
+        selectedNode,
+        selectedText.length,
+        previousNode,
+        previous.indexOf('should')
+    );
+    const range = selection.getRangeAt(0);
+    setSelectionGeometry(range, lines[2], [
+        rectangle(400, 650, 428, 380),
+        rectangle(468, 760, 496, 300),
+    ], rectangle(468, 800, 496, 300));
+
+    await createHighlightFromSelection(document, lines[2], {
+        clientX: 302,
+        clientY: 482,
+    });
+
+    const created = createdAnnotation();
+    const from = markdown.indexOf(selectedText);
+    assert.equal(created.text, selectedText);
+    assert.deepEqual(created.ranges, [{
+        from,
+        to: from + selectedText.length,
+    }]);
 
     editor.destroy();
     dom.window.close();
@@ -4154,6 +4825,34 @@ test('observes editor resizes through the owning Zotero window', () => {
     dom.window.close();
 
     assert.equal(observedEditorScroller, true);
+});
+
+test('reports the first visible Markdown offset to the owning reader', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const offsets = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '# Paper\n\nOriginal text.',
+        onViewportChange: offset => offsets.push(offset),
+    });
+
+    const updatedMarkdown = '# Updated\n\nUpdated text.';
+    editor.setMarkdown(updatedMarkdown);
+    const scroller = document.querySelector('.cm-scroller');
+    scroller.scrollTop = 12;
+    scroller.dispatchEvent(new dom.window.Event('scroll', {
+        bubbles: true,
+    }));
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.ok(offsets.length > 0);
+    assert.ok(offsets.at(-1) > 0);
+    assert.ok(offsets.at(-1) < updatedMarkdown.length);
 });
 
 test('observes editor visibility through the owning Zotero window', () => {

@@ -317,24 +317,34 @@ export function createInlineRenderingExtension({
         renderingField,
         Prec.highest(EditorView.domEventHandlers({
             mouseover(event, view) {
+                if (selectionActionsLocked(context)) return false;
                 referenceInteraction(event, view, context)?.open();
                 return false;
             },
             mouseout(event, view) {
+                if (selectionActionsLocked(context)) return false;
                 const interaction = referenceInteraction(event, view, context);
                 if (!interaction
                     || interaction.element.contains(event.relatedTarget)
                     || interaction.popup?.contains(event.relatedTarget)) {
                     return false;
                 }
+                if (interaction.cancelOpen?.()) return false;
                 interaction.popup?.scheduleClose();
                 return false;
             },
             focusin(event, view) {
-                referenceInteraction(event, view, context)?.open();
+                const interaction = referenceInteraction(event, view, context);
+                if (interaction?.openImmediately) {
+                    interaction.openImmediately();
+                }
+                else {
+                    interaction?.open();
+                }
                 return false;
             },
             focusout(event, view) {
+                if (selectionActionsLocked(context)) return false;
                 referenceInteraction(event, view, context)
                     ?.popup?.scheduleClose();
                 return false;
@@ -878,7 +888,20 @@ function referenceInteraction(event, view, context) {
         return {
             element: annotation,
             popup: context.annotationPopup,
-            open: () => openActions(false),
+            open() {
+                context.annotationPopup?.scheduleOpenActions?.({
+                    anchor: annotation,
+                    annotation: target,
+                    beforeOpen: () => closeReferencePopupsExcept(
+                        context,
+                        context.annotationPopup
+                    ),
+                });
+            },
+            cancelOpen: () => (
+                context.annotationPopup?.cancelScheduledOpen?.(annotation)
+            ),
+            openImmediately: () => openActions(false),
             focusPopup: () => openActions(true),
             activate: openNote,
             allowTextSelection: true,
@@ -922,8 +945,8 @@ export function selectedMarkdownAnnotation(view) {
         || !selectionNodeInEditor(view, range.endContainer)) {
         return null;
     }
-    const text = selection.toString();
-    if (!text.trim()) return null;
+    const selectedText = selection.toString();
+    if (!selectedText.trim()) return null;
     const renderedStart = renderedSelectionContainer(
         range.startContainer,
         view
@@ -931,7 +954,7 @@ export function selectedMarkdownAnnotation(view) {
     const renderedEnd = renderedSelectionContainer(range.endContainer, view);
     if (renderedStart || renderedEnd) {
         return renderedStart && renderedStart === renderedEnd
-            ? selectedRenderedMarkdownAnnotation(view, range, text)
+            ? selectedRenderedMarkdownAnnotation(view, range, selectedText)
             : null;
     }
     const renderedIntersections = intersectingRenderedContent(view, range);
@@ -939,8 +962,14 @@ export function selectedMarkdownAnnotation(view) {
     try {
         const first = view.posAtDOM(range.startContainer, range.startOffset);
         const second = view.posAtDOM(range.endContainer, range.endOffset);
-        const from = Math.min(first, second);
-        const to = Math.max(first, second);
+        const selectionFrom = Math.min(first, second);
+        const selectionTo = Math.max(first, second);
+        const leadingWhitespace = selectedText.length
+            - selectedText.trimStart().length;
+        const trailingWhitespace = selectedText.length
+            - selectedText.trimEnd().length;
+        const from = selectionFrom + leadingWhitespace;
+        const to = selectionTo - trailingWhitespace;
         if (to <= from) return null;
         if (renderedIntersections.length) {
             return selectedInlineMathAnnotation(
@@ -950,6 +979,7 @@ export function selectedMarkdownAnnotation(view) {
                 to
             );
         }
+        const text = selectedText.trim();
         if (text.length > MAX_PDF_ANNOTATION_TEXT_LENGTH) return null;
         return { text, ranges: [{ from, to }] };
     }
@@ -1074,9 +1104,10 @@ function selectionNodeInEditor(view, node) {
     return Boolean(element && view.dom.contains(element));
 }
 
-export function selectionAnchor(selection, fallback) {
+export function selectionAnchor(selection, fallback, pointer) {
     const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-    const rect = firstVisibleSelectionRect(range, fallback)
+    const rect = pointerSelectionRect(range, pointer)
+        || firstVisibleSelectionRect(range, fallback)
         || fallback?.getBoundingClientRect?.()
         || emptyRect();
     const snapshot = {
@@ -1088,6 +1119,38 @@ export function selectionAnchor(selection, fallback) {
         height: rect.height,
     };
     return { getBoundingClientRect: () => snapshot };
+}
+
+function pointerSelectionRect(range, pointer) {
+    const clientX = Number(pointer?.clientX);
+    if (!Number.isFinite(clientX)) return null;
+    const tolerance = 8;
+    const rect = Array.from(range?.getClientRects?.() || []).find(candidate => (
+        pointerTouchesRect(pointer, candidate, tolerance)
+    ));
+    if (!rect) return null;
+    const anchorX = Math.max(rect.left, Math.min(rect.right, clientX));
+    return {
+        top: rect.top,
+        right: anchorX,
+        bottom: rect.bottom,
+        left: anchorX,
+        width: 0,
+        height: rect.height,
+    };
+}
+
+export function pointerTouchesRect(pointer, rect, tolerance = 0) {
+    const clientX = Number(pointer?.clientX);
+    const clientY = Number(pointer?.clientY);
+    return Number.isFinite(clientX)
+        && Number.isFinite(clientY)
+        && rect?.width > 0
+        && rect?.height > 0
+        && clientX >= rect.left - tolerance
+        && clientX <= rect.right + tolerance
+        && clientY >= rect.top - tolerance
+        && clientY <= rect.bottom + tolerance;
 }
 
 function firstVisibleSelectionRect(range, fallback) {
@@ -1151,6 +1214,10 @@ function closeReferencePopupsExcept(context, retainedPopup) {
     for (const popup of referencePopups(context)) {
         if (popup !== retainedPopup) popup?.close();
     }
+}
+
+function selectionActionsLocked(context) {
+    return Boolean(context.annotationPopup?.isSelectionOpen?.());
 }
 
 function previewReferenceTypes(context) {
