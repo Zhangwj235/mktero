@@ -59,11 +59,14 @@ function createView(model = createModel(), zotero = {}, options = {}) {
 function createTestInlineEditor({ document, parent, initialMarkdown }) {
     const editor = document.createElement('div');
     editor.className = 'cm-editor';
+    const scroller = document.createElement('div');
+    scroller.className = 'cm-scroller';
     const content = document.createElement('div');
     content.className = 'cm-content';
     content.setAttribute('contenteditable', 'false');
     content.textContent = initialMarkdown;
-    editor.appendChild(content);
+    scroller.appendChild(content);
+    editor.appendChild(scroller);
     parent.appendChild(editor);
     return {
         getMarkdown: () => content.textContent,
@@ -79,7 +82,7 @@ function createTestInlineEditor({ document, parent, initialMarkdown }) {
     };
 }
 
-function dispatchMouseEvent(target, type, clientX) {
+function dispatchMouseEvent(target, type, clientX, clientY = 0, buttons) {
     const ownerWindow = target.ownerDocument?.defaultView || target;
     const event = new ownerWindow.Event(type, {
         bubbles: true,
@@ -88,7 +91,11 @@ function dispatchMouseEvent(target, type, clientX) {
     Object.defineProperties(event, {
         button: { value: 0 },
         clientX: { value: clientX },
+        clientY: { value: clientY },
     });
+    if (buttons !== undefined) {
+        Object.defineProperty(event, 'buttons', { value: buttons });
+    }
     target.dispatchEvent(event);
 }
 
@@ -378,6 +385,80 @@ test('opens the document action menu and reports snapshot save state', async () 
         'Zotero snapshot saved'
     );
     view.destroy();
+});
+
+test('clears a failed snapshot save status after reporting the error', async () => {
+    let rejectSave;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        onSaveSnapshot: () => new Promise((resolve, reject) => {
+            rejectSave = reject;
+        }),
+    });
+    const { view, shadow } = createView(model);
+    const timers = [];
+    const clearCalls = [];
+    view.ownerWindow.setTimeout = (callback, delay) => {
+        const timer = { callback, delay };
+        timers.push(timer);
+        return timer;
+    };
+    view.ownerWindow.clearTimeout = timer => clearCalls.push(timer);
+
+    const toggle = shadow.querySelector('#mktero-document-actions');
+    const save = shadow.querySelector('#mktero-save-snapshot');
+    toggle.click();
+    save.click();
+    rejectSave(new Error('snapshot save failed'));
+    await new Promise(resolve => setImmediate(resolve));
+
+    const status = shadow.querySelector('.markdown-reader-action-status');
+    assert.equal(status.hidden, false);
+    assert.equal(status.textContent, 'The Zotero snapshot could not be saved.');
+    assert.equal(timers.length, 1);
+    assert.equal(timers[0].delay > 0, true);
+
+    timers[0].callback();
+    assert.equal(status.hidden, true);
+    assert.equal(status.textContent, '');
+
+    view.destroy();
+    assert.deepEqual(clearCalls, []);
+});
+
+test('cancels a pending snapshot status dismissal when the view is destroyed', async () => {
+    let rejectSave;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        onSaveSnapshot: () => new Promise((resolve, reject) => {
+            rejectSave = reject;
+        }),
+    });
+    const { view, shadow } = createView(model);
+    const timers = [];
+    const clearCalls = [];
+    view.ownerWindow.setTimeout = (callback, delay) => {
+        const timer = { callback, delay };
+        timers.push(timer);
+        return timer;
+    };
+    view.ownerWindow.clearTimeout = timer => clearCalls.push(timer);
+
+    shadow.querySelector('#mktero-document-actions').click();
+    shadow.querySelector('#mktero-save-snapshot').click();
+    rejectSave(new Error('snapshot save failed'));
+    await new Promise(resolve => setImmediate(resolve));
+
+    view.destroy();
+
+    assert.equal(timers.length, 1);
+    assert.deepEqual(clearCalls, [timers[0]]);
 });
 
 test('renders a saved HTML snapshot without exposing PDF actions or editing controls', () => {
@@ -862,6 +943,249 @@ test('resizes and toggles PDF notes from the right edge', () => {
     finally {
         view.destroy();
     }
+});
+
+test('does not resize PDF notes during a vertical scrollbar drag', () => {
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Annotated text',
+        sourceKind: 'markdown',
+    }));
+    const notes = shadow.querySelector('#mktero-notes');
+    const resizer = shadow.querySelector('#mktero-notes-resizer');
+
+    try {
+        dispatchMouseEvent(resizer, 'mousedown', 1000, 300);
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1014, 420);
+        dispatchMouseEvent(document.defaultView, 'mouseup', 1014, 420);
+
+        assert.equal(resizer.getAttribute('aria-valuenow'), '300');
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '300px'
+        );
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('cancels a notes resize when a gesture becomes vertical', () => {
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Annotated text',
+        sourceKind: 'markdown',
+    }));
+    const notes = shadow.querySelector('#mktero-notes');
+    const resizer = shadow.querySelector('#mktero-notes-resizer');
+
+    try {
+        dispatchMouseEvent(resizer, 'mousedown', 1000, 300);
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1010, 300);
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1012, 420);
+        dispatchMouseEvent(document.defaultView, 'mouseup', 1012, 420);
+
+        assert.equal(resizer.getAttribute('aria-valuenow'), '300');
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '300px'
+        );
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('cancels an accidental notes resize when the editor starts scrolling', () => {
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Annotated text',
+        sourceKind: 'markdown',
+    }));
+    const notes = shadow.querySelector('#mktero-notes');
+    const resizer = shadow.querySelector('#mktero-notes-resizer');
+    const scroller = shadow.querySelector('.cm-scroller');
+
+    try {
+        dispatchMouseEvent(resizer, 'mousedown', 1000, 300);
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1010, 300);
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '290px'
+        );
+
+        scroller.dispatchEvent(new document.defaultView.Event('scroll'));
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1080, 300);
+        dispatchMouseEvent(document.defaultView, 'mouseup', 1080, 300);
+
+        assert.equal(resizer.getAttribute('aria-valuenow'), '300');
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '300px'
+        );
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('cancels a notes resize when an outer editor container starts scrolling', () => {
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Annotated text',
+        sourceKind: 'markdown',
+    }));
+    const notes = shadow.querySelector('#mktero-notes');
+    const resizer = shadow.querySelector('#mktero-notes-resizer');
+    const workspace = shadow.querySelector('.markdown-workspace');
+
+    try {
+        dispatchMouseEvent(resizer, 'mousedown', 1000, 300);
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1010, 300);
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '290px'
+        );
+
+        workspace.dispatchEvent(new document.defaultView.Event('scroll'));
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1080, 300);
+        dispatchMouseEvent(document.defaultView, 'mouseup', 1080, 300);
+
+        assert.equal(resizer.getAttribute('aria-valuenow'), '300');
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '300px'
+        );
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('cancels a notes resize when the primary pointer button is released', () => {
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Annotated text',
+        sourceKind: 'markdown',
+    }));
+    const notes = shadow.querySelector('#mktero-notes');
+    const resizer = shadow.querySelector('#mktero-notes-resizer');
+
+    try {
+        dispatchMouseEvent(resizer, 'mousedown', 1000, 300);
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1010, 300, 1);
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '290px'
+        );
+
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1080, 300, 0);
+        dispatchMouseEvent(document.defaultView, 'mouseup', 1080, 300, 0);
+
+        assert.equal(resizer.getAttribute('aria-valuenow'), '300');
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '300px'
+        );
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('cancels a notes resize when the owning document starts scrolling', () => {
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Annotated text',
+        sourceKind: 'markdown',
+    }));
+    const notes = shadow.querySelector('#mktero-notes');
+    const resizer = shadow.querySelector('#mktero-notes-resizer');
+
+    try {
+        dispatchMouseEvent(resizer, 'mousedown', 1000, 300);
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1010, 300);
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '290px'
+        );
+
+        document.dispatchEvent(new document.defaultView.Event('scroll'));
+        dispatchMouseEvent(document.defaultView, 'mousemove', 1080, 300);
+        dispatchMouseEvent(document.defaultView, 'mouseup', 1080, 300);
+
+        assert.equal(resizer.getAttribute('aria-valuenow'), '300');
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '300px'
+        );
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('cancels a notes resize when a move loses its vertical coordinate', () => {
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Annotated text',
+        sourceKind: 'markdown',
+    }));
+    const notes = shadow.querySelector('#mktero-notes');
+    const resizer = shadow.querySelector('#mktero-notes-resizer');
+
+    try {
+        dispatchMouseEvent(resizer, 'mousedown', 1000, 300);
+        const event = new document.defaultView.Event('mousemove', {
+            bubbles: true,
+            cancelable: true,
+        });
+        Object.defineProperties(event, {
+            button: { value: 0 },
+            clientX: { value: 1010 },
+        });
+        document.defaultView.dispatchEvent(event);
+        dispatchMouseEvent(document.defaultView, 'mouseup', 1010, 300);
+
+        assert.equal(resizer.getAttribute('aria-valuenow'), '300');
+        assert.equal(
+            notes.style.getPropertyValue('--notes-width'),
+            '300px'
+        );
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('removes side panel scroll listeners when the view is destroyed', () => {
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Annotated text',
+        sourceKind: 'markdown',
+    }));
+    const notes = shadow.querySelector('#mktero-notes');
+    const resizer = shadow.querySelector('#mktero-notes-resizer');
+    const workspace = shadow.querySelector('.markdown-workspace');
+
+    dispatchMouseEvent(resizer, 'mousedown', 1000, 300);
+    dispatchMouseEvent(document.defaultView, 'mousemove', 1010, 300);
+    view.destroy();
+
+    workspace.dispatchEvent(new document.defaultView.Event('scroll'));
+
+    assert.equal(
+        notes.style.getPropertyValue('--notes-width'),
+        '290px'
+    );
 });
 
 test('collapses side panels responsively and restores automatic changes', () => {
