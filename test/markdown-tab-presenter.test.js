@@ -72,8 +72,16 @@ function createViewHarness() {
                 root,
                 renderCalls,
                 destroyCalls: 0,
+                readerFontCalls: [],
+                readerFontSizeCalls: [],
                 render(model) {
                     renderCalls.push({ ...model });
+                },
+                setReaderFontSize(size) {
+                    this.readerFontSizeCalls.push(size);
+                },
+                setReaderFont(font) {
+                    this.readerFontCalls.push(font);
                 },
                 destroy() {
                     this.destroyCalls++;
@@ -172,6 +180,155 @@ test('renders model updates immediately without a browser load boundary or watch
         presentation.view.renderCalls.at(-1).markdown,
         '# Loaded without waiting'
     );
+});
+
+test('persists reader font size changes across Markdown tabs and sessions', () => {
+    const mainWindow = createMainWindow();
+    const stored = new Map([['extensions.mktero.readerFontSize', 20]]);
+    const preferenceObservers = new Map();
+    const unregisteredObservers = [];
+    const zoteroOverrides = {
+        Prefs: {
+            get: key => stored.get(key),
+            set: (key, value) => {
+                stored.set(key, value);
+                preferenceObservers.get(key)?.(value);
+            },
+            registerObserver(key, observer, global) {
+                assert.equal(global, true);
+                preferenceObservers.set(key, observer);
+                return `${key}-observer`;
+            },
+            unregisterObserver: observer => unregisteredObservers.push(observer),
+        },
+    };
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness, zoteroOverrides);
+
+    presenter.open(42);
+    presenter.open(43);
+    assert.equal(harness.calls[0].readerFontSize, 20);
+    assert.equal(harness.calls[1].readerFontSize, 20);
+
+    harness.calls[0].onReaderFontSizeChange(21);
+
+    assert.equal(stored.get('extensions.mktero.readerFontSize'), 21);
+    assert.deepEqual(harness.views[0].readerFontSizeCalls, [21]);
+    assert.deepEqual(harness.views[1].readerFontSizeCalls, [21]);
+
+    stored.set('extensions.mktero.readerFontSize', 22);
+    preferenceObservers.get('extensions.mktero.readerFontSize')(22);
+    assert.deepEqual(harness.views[0].readerFontSizeCalls, [21, 22]);
+    assert.deepEqual(harness.views[1].readerFontSizeCalls, [21, 22]);
+
+    presenter.dispose();
+    assert.deepEqual(unregisteredObservers, [
+        'extensions.mktero.readerFont-observer',
+        'extensions.mktero.readerFontSize-observer',
+    ]);
+    const nextHarness = createViewHarness();
+    const nextPresenter = createPresenter(
+        createMainWindow(),
+        nextHarness,
+        zoteroOverrides
+    );
+    nextPresenter.open(44);
+
+    assert.equal(nextHarness.calls[0].readerFontSize, 22);
+    nextPresenter.dispose();
+});
+
+test('persists reader font changes across Markdown tabs and sessions', () => {
+    const mainWindow = createMainWindow();
+    const stored = new Map([['extensions.mktero.readerFont', 'cambria']]);
+    const preferenceObservers = new Map();
+    const unregisteredObservers = [];
+    const zoteroOverrides = {
+        Prefs: {
+            get: key => stored.get(key),
+            set: (key, value) => {
+                stored.set(key, value);
+                preferenceObservers.get(key)?.(value);
+            },
+            registerObserver(key, observer, global) {
+                assert.equal(global, true);
+                preferenceObservers.set(key, observer);
+                return `${key}-observer`;
+            },
+            unregisterObserver: observer => unregisteredObservers.push(observer),
+        },
+    };
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness, zoteroOverrides);
+
+    presenter.open(42);
+    presenter.open(43);
+    assert.equal(harness.calls[0].readerFont, 'cambria');
+    assert.equal(harness.calls[1].readerFont, 'cambria');
+
+    harness.calls[0].onReaderFontChange('times-new-roman');
+
+    assert.equal(stored.get('extensions.mktero.readerFont'), 'times-new-roman');
+    assert.deepEqual(harness.views[0].readerFontCalls, ['times-new-roman']);
+    assert.deepEqual(harness.views[1].readerFontCalls, ['times-new-roman']);
+
+    stored.set('extensions.mktero.readerFont', 'system-serif');
+    preferenceObservers.get('extensions.mktero.readerFont')('system-serif');
+    assert.deepEqual(harness.views[0].readerFontCalls, [
+        'times-new-roman',
+        'system-serif',
+    ]);
+    assert.deepEqual(harness.views[1].readerFontCalls, [
+        'times-new-roman',
+        'system-serif',
+    ]);
+
+    presenter.dispose();
+    assert.deepEqual(unregisteredObservers, [
+        'extensions.mktero.readerFont-observer',
+        'extensions.mktero.readerFontSize-observer',
+    ]);
+});
+
+test('synchronizes reader typography across Zotero windows and cleans up', () => {
+    const firstWindow = createMainWindow({ id: 'first-document' });
+    const secondWindow = createMainWindow({ id: 'second-document' });
+    let activeWindow = firstWindow;
+    const preferenceObservers = new Map();
+    const unregisteredObservers = [];
+    const harness = createViewHarness();
+    const presenter = createPresenter(firstWindow, harness, {
+        getMainWindow: () => activeWindow,
+        Prefs: {
+            get: () => 18,
+            registerObserver(key, observer) {
+                preferenceObservers.set(key, observer);
+                return `multi-window-${key}-observer`;
+            },
+            unregisterObserver: observer => unregisteredObservers.push(observer),
+        },
+    });
+
+    const first = presenter.open(42);
+    activeWindow = secondWindow;
+    const second = presenter.open(43);
+
+    assert.equal(harness.calls[0].document, firstWindow.document);
+    assert.equal(harness.calls[1].document, secondWindow.document);
+    preferenceObservers.get('extensions.mktero.readerFont')('cambria');
+    assert.deepEqual(first.view.readerFontCalls, ['cambria']);
+    assert.deepEqual(second.view.readerFontCalls, ['cambria']);
+    preferenceObservers.get('extensions.mktero.readerFontSize')(20);
+    assert.deepEqual(first.view.readerFontSizeCalls, [20]);
+    assert.deepEqual(second.view.readerFontSizeCalls, [20]);
+
+    presenter.dispose();
+    assert.deepEqual(firstWindow.closed, [first.tabID]);
+    assert.deepEqual(secondWindow.closed, [second.tabID]);
+    assert.deepEqual(unregisteredObservers, [
+        'multi-window-extensions.mktero.readerFont-observer',
+        'multi-window-extensions.mktero.readerFontSize-observer',
+    ]);
 });
 
 test('does not create a Zotero tab when the inline view cannot be initialized', () => {

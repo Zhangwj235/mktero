@@ -1,6 +1,12 @@
 import { createZoteroMarkdownCache } from '../cache/markdown-cache.js';
 import { getZoteroLocale } from '../config/mineru-preferences.js';
 import {
+    getMarkdownReaderFont,
+    getMarkdownReaderFontSize,
+    setMarkdownReaderFont,
+    setMarkdownReaderFontSize,
+} from '../config/reader-preferences.js';
+import {
     createLocalization,
     translateEnglish,
 } from '../i18n/localization.js';
@@ -57,11 +63,52 @@ export function createPreferencesController({
 }) {
     const status = document.getElementById('mktero-cache-status');
     const clearButton = document.getElementById('mktero-clear-cache');
+    const readerFontSizeInput = document.getElementById(
+        'mktero-reader-font-size'
+    );
+    const readerFontSizeValue = document.getElementById(
+        'mktero-reader-font-size-value'
+    );
+    const readerFontInput = document.getElementById(
+        'mktero-reader-font-family'
+    );
     const t = (key, variables) => localization.t(key, variables);
     let initialized = false;
 
     function localize() {
         localizePreferencesDocument(document, localization);
+    }
+
+    function updateReaderFontSize() {
+        if (!readerFontSizeInput || !readerFontSizeValue) return;
+        const size = setMarkdownReaderFontSize(
+            zotero,
+            readerFontSizeInput.value
+        );
+        readerFontSizeInput.value = String(size);
+        readerFontSizeValue.textContent = t('viewer.textSizeValue', { size });
+    }
+
+    function initializeReaderFontSize() {
+        if (!readerFontSizeInput || !readerFontSizeValue) return;
+        const size = getMarkdownReaderFontSize(zotero);
+        readerFontSizeInput.value = String(size);
+        readerFontSizeValue.textContent = t('viewer.textSizeValue', { size });
+        readerFontSizeInput.addEventListener('input', updateReaderFontSize);
+    }
+
+    function updateReaderFont() {
+        if (!readerFontInput) return;
+        readerFontInput.value = setMarkdownReaderFont(
+            zotero,
+            readerFontInput.value
+        );
+    }
+
+    function initializeReaderFont() {
+        if (!readerFontInput) return;
+        readerFontInput.value = getMarkdownReaderFont(zotero);
+        readerFontInput.addEventListener('change', updateReaderFont);
     }
 
     async function refresh() {
@@ -102,12 +149,19 @@ export function createPreferencesController({
             initialized = true;
             clearButton.addEventListener('click', clear);
             localize();
+            initializeReaderFont();
+            initializeReaderFontSize();
             await refresh();
         },
         destroy() {
             if (!initialized) return;
             initialized = false;
             clearButton.removeEventListener('click', clear);
+            readerFontSizeInput?.removeEventListener(
+                'input',
+                updateReaderFontSize
+            );
+            readerFontInput?.removeEventListener('change', updateReaderFont);
         },
     };
 }

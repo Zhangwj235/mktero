@@ -33,10 +33,10 @@ Zotero 本地 PDF -> MinerU VLM 解析 -> full.md、content_list.json 与图片 
 - 在转换标签页中显示排队、上传、解析和下载进度；关闭标签页只会停止本地等待。PDF
   已完成上传时，MinerU 任务可以继续执行，再次打开相同 PDF 会显示正在恢复上次转换，
   并明确提示不会重复上传。
-- 可通过 Markdown 阅读器右上角的操作菜单重新解析当前 PDF；操作提示会明确说明 PDF
+- 可通过 Markdown 阅读器左上角的操作菜单重新解析当前 PDF；操作提示会明确说明 PDF
   将再次上传，并可能消耗转换服务额度。重新解析期间保留当前内容，新结果失败时继续显示
   原结果。
-- Markdown 阅读器右上角提供一个总操作按钮，展开为紧凑的下拉菜单，包含“重新解析”和
+- Markdown 阅读器左上角提供一个总操作按钮，展开为紧凑的工具框，包含阅读字体、字号、“重新解析”和
   “保存快照”。“保存快照”会在当前 PDF 所属 Zotero 条目下创建一个 Mktero 专用 Note，
   Note 在文库中显示为 `Mktero Markdown Snapshot`。Mktero 将便携 HTML 保存在 Note 中，
   将解析图片作为 Note 的嵌入图片附件保存，并将原始
@@ -67,6 +67,10 @@ Zotero 本地 PDF -> MinerU VLM 解析 -> full.md、content_list.json 与图片 
 - 对具有可靠来源映射的文本选区，可从划词笔记菜单复制带论文标题、PDF 物理页码和
   Zotero 回链的 Markdown。选中内容以安全引用块复制；普通复制行为保持不变。
 - 自动生成 Markdown 目录。目录支持点击跳转、拖动调整宽度，也可通过按钮或双击边缘收起。
+- Markdown 正文默认使用适合长文阅读的字号与行宽（不同字体保持相同的正文列宽），英文正文优先使用 Georgia、Cambria 或
+  Times New Roman 等衬线字体；可在左上角“更多”菜单中使用字体选择器切换字体，使用
+  `A− / A+` 调整 16–22 px 字号。选择会保存在当前 Zotero 配置文件中，并同步应用到已打开
+  的 Mktero 标签页；也可在 `设置 -> Mktero -> Markdown 阅读` 中调整。
 - 目录和右侧笔记栏会随正文阅读位置高亮当前章节/笔记；窗口变窄时会自动收起侧栏，恢复
   窗口宽度后会恢复由系统自动收起的面板。
 - 识别数字引用、上标引用以及数字或字母作者单位；作者单位编号与等贡献、通讯作者等符号
@@ -134,6 +138,8 @@ Zotero 本地 PDF -> MinerU VLM 解析 -> full.md、content_list.json 与图片 
 | 设置 | 默认值 | 说明 |
 | --- | --- | --- |
 | API Token | 空 | 缓存未命中时必填，用于调用 MinerU API |
+| Body text font | Georgia, Cambria, Times New Roman, serif | 可切换 Georgia、Cambria、Times New Roman 或系统衬线字体；缺少字体时由系统选择衬线字体 |
+| Body text size | 18 px | Markdown 正文与已保存快照的阅读字号，可在 16–22 px 间调整 |
 | Reuse conversion results | 开启 | 复用相同 PDF 内容和解析配置对应的本地结果；关闭后仍会恢复已上传但未完成的任务 |
 
 API Token 会作为普通首选项保存在当前 Zotero 配置文件中，不会加密。
@@ -156,10 +162,11 @@ API Token 会作为普通首选项保存在当前 Zotero 配置文件中，不�
    公式、图片和表格会在悬停或键盘聚焦时显示另一个外部链接图标，可回到 PDF 原文区域。
    同一位置的复制图标可复制整个结构块及来源；选中单个可靠映射块内的文字后，也可从
    划词工具栏复制并附带来源。粘贴结果使用普通 Markdown，可用于 Zotero Note、Better
-   Notes 或外部 Markdown 工具。
-5. 需要忽略缓存并重新解析时，点击 Markdown 阅读器右上角的操作菜单，选择“重新解析”。
+   Notes 或外部 Markdown 工具。需要调整阅读字号时，打开左上角“更多”菜单并使用
+   `A− / A+`。
+5. 需要忽略缓存并重新解析时，点击 Markdown 阅读器左上角的操作菜单，选择“重新解析”。
    该操作会再次上传 PDF，并可能消耗转换服务额度。
-6. 需要把结果同步到其他 Zotero 设备时，点击右上角总操作按钮并选择“保存快照”。在
+6. 需要把结果同步到其他 Zotero 设备时，点击左上角总操作按钮并选择“保存快照”。在
    Zotero 文库中展开当前条目即可看到名为 `Mktero Markdown Snapshot` 的专用 Note；其他
    设备等待 Zotero 同步完成后，可以直接打开该 Note。桌面端若源 Markdown 附件可用，会
    优先按 Markdown 打开；移动端或未安装 Mktero 的设备会使用 Note 自带的 HTML 快照。
