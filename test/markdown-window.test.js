@@ -27,7 +27,10 @@ function createModel(changes = {}) {
         preserveContent: false,
         warnings: [],
         error: '',
+        errorAction: null,
+        warningAction: null,
         onReparse: null,
+        onOpenSettings: null,
         ...changes,
     };
 }
@@ -325,6 +328,184 @@ test('reparses the current PDF from an accessible icon action', async () => {
     view.destroy();
 });
 
+test('keeps conversion recovery actions visible when the first conversion fails', async () => {
+    const calls = [];
+    const model = createModel({
+        status: 'error',
+        error: 'The conversion service could not be reached.',
+        errorAction: 'open-settings',
+        onReparse: () => calls.push('retry'),
+        onOpenSettings: () => calls.push('settings'),
+    });
+    const { view, shadow } = createView(model);
+    const error = shadow.querySelector('#mktero-error');
+    const retry = shadow.querySelector('#mktero-error-retry');
+    const settings = shadow.querySelector('#mktero-error-settings');
+
+    assert.equal(error.hidden, false);
+    assert.equal(shadow.querySelector('.markdown-workspace').hidden, true);
+    assert.equal(retry.hidden, false);
+    assert.equal(settings.hidden, false);
+    assert.equal(retry.getAttribute('aria-label'), 'Retry PDF conversion');
+    assert.equal(settings.getAttribute('aria-label'), 'Open Mktero settings');
+
+    retry.click();
+    assert.deepEqual(calls, ['retry']);
+    assert.equal(retry.disabled, true);
+
+    await new Promise(resolve => setImmediate(resolve));
+    view.render(model);
+    settings.click();
+    assert.deepEqual(calls, ['retry', 'settings']);
+
+    view.destroy();
+});
+
+test('keeps the settings action beside previous content after a token reparse failure', () => {
+    const calls = [];
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Cached paper',
+        warnings: ['Reparse failed: API Token is invalid.'],
+        warningAction: 'open-settings',
+        onOpenSettings: () => calls.push('settings'),
+    }));
+
+    try {
+        const settings = shadow.querySelector('#mktero-warning-settings');
+        assert.equal(shadow.querySelector('#mktero-error').hidden, true);
+        assert.equal(shadow.querySelector('#mktero-warning').hidden, false);
+        assert.equal(settings.hidden, false);
+        assert.equal(settings.getAttribute('aria-label'), 'Open Mktero settings');
+
+        settings.click();
+
+        assert.deepEqual(calls, ['settings']);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('shows non-fatal warnings as auto-dismissed toasts without reflowing content', () => {
+    const timers = [];
+    const clearCalls = [];
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Cached paper',
+        warnings: ['Some local Markdown annotations could not be synchronized.'],
+    });
+    const { view, shadow } = createView(model, {}, {
+        configureWindow(window) {
+            window.setTimeout = (callback, delay) => {
+                const timer = { callback, delay };
+                timers.push(timer);
+                return timer;
+            };
+            window.clearTimeout = timer => clearCalls.push(timer);
+        },
+    });
+
+    try {
+        const warning = shadow.querySelector('#mktero-warning');
+        assert.equal(warning.hidden, false);
+        assert.equal(timers.length, 1);
+        assert.equal(timers[0].delay, 5_000);
+        assert.equal(shadow.querySelector('.markdown-workspace').hidden, false);
+
+        timers[0].callback();
+        assert.equal(warning.hidden, true);
+
+        view.render(model);
+        assert.equal(warning.hidden, true);
+        assert.equal(timers.length, 1);
+
+        view.render({
+            ...model,
+            warnings: ['A new warning appeared.'],
+        });
+        assert.equal(warning.hidden, false);
+        assert.equal(timers.length, 2);
+    }
+    finally {
+        view.destroy();
+    }
+
+    assert.deepEqual(clearCalls, [timers[1]]);
+});
+
+test('isolates warning toast timers across Zotero windows', () => {
+    const timers = [[], []];
+    const clearCalls = [[], []];
+    const createWarningView = index => createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Cached paper',
+        warnings: [`Warning ${index}`],
+    }), {}, {
+        configureWindow(window) {
+            window.setTimeout = (callback, delay) => {
+                const timer = { callback, delay };
+                timers[index].push(timer);
+                return timer;
+            };
+            window.clearTimeout = timer => clearCalls[index].push(timer);
+        },
+    });
+    const first = createWarningView(0);
+    const second = createWarningView(1);
+
+    try {
+        assert.equal(first.shadow.querySelector('#mktero-warning').hidden, false);
+        assert.equal(second.shadow.querySelector('#mktero-warning').hidden, false);
+        assert.equal(timers[0].length, 1);
+        assert.equal(timers[1].length, 1);
+
+        timers[0][0].callback();
+
+        assert.equal(first.shadow.querySelector('#mktero-warning').hidden, true);
+        assert.equal(second.shadow.querySelector('#mktero-warning').hidden, false);
+    }
+    finally {
+        first.view.destroy();
+        second.view.destroy();
+    }
+
+    assert.deepEqual(clearCalls[0], []);
+    assert.deepEqual(clearCalls[1], [timers[1][0]]);
+});
+
+test('keeps actionable warning toasts available for settings recovery', () => {
+    const timers = [];
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Cached paper',
+        warnings: ['The API Token is invalid.'],
+        warningAction: 'open-settings',
+        onOpenSettings: () => {},
+    }), {}, {
+        configureWindow(window) {
+            window.setTimeout = (callback, delay) => {
+                const timer = { callback, delay };
+                timers.push(timer);
+                return timer;
+            };
+        },
+    });
+
+    try {
+        assert.equal(shadow.querySelector('#mktero-warning').hidden, false);
+        assert.equal(shadow.querySelector('#mktero-warning-settings').hidden, false);
+        assert.equal(timers.length, 0);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('opens the document action popover and reports snapshot save state', async () => {
     let saveCalls = 0;
     let finishSave;
@@ -471,7 +652,7 @@ test('selects a font from the styled picker without closing the menu', () => {
         assert.equal(listbox.hidden, true);
         assert.deepEqual(
             options.map(option => option.getAttribute('data-reader-font')),
-            ['georgia', 'cambria', 'times-new-roman', 'system-serif']
+            ['system-serif', 'georgia', 'cambria', 'times-new-roman']
         );
         assert.equal(
             shadow.host.style.getPropertyValue('--reader-font'),
@@ -1581,6 +1762,53 @@ test('isolates responsive panels across windows and cleans up resize listeners',
     }
 });
 
+test('uses the measured Markdown container width for responsive panels', () => {
+    let resizeObserverCallback;
+    const { document, view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+    }), {}, {
+        configureWindow(window) {
+            Object.defineProperty(window, 'innerWidth', {
+                configurable: true,
+                value: 1400,
+                writable: true,
+            });
+            window.ResizeObserver = class ResizeObserver {
+                constructor(callback) {
+                    resizeObserverCallback = callback;
+                }
+
+                observe() {}
+
+                disconnect() {}
+            };
+        },
+    });
+    const outline = shadow.querySelector('#mktero-outline');
+    const notes = shadow.querySelector('#mktero-notes');
+
+    try {
+        assert.equal(outline.hidden, false);
+        assert.equal(notes.hidden, false);
+
+        resizeObserverCallback([{ contentRect: { width: 800 } }]);
+        assert.equal(outline.hidden, true);
+        assert.equal(notes.hidden, true);
+
+        resizeObserverCallback([{ contentRect: { width: 900 } }]);
+        assert.equal(outline.hidden, false);
+        assert.equal(notes.hidden, true);
+    }
+    finally {
+        view.destroy();
+        assert.equal(typeof resizeObserverCallback, 'function');
+        document.defaultView.close?.();
+    }
+});
+
 test('tracks the active outline and note while the editor viewport changes', () => {
     const markdown = '# Overview\n\nIntro.\n\n## Methods\n\nMethod text.';
     let editorOptions;
@@ -1627,6 +1855,77 @@ test('tracks the active outline and note while the editor viewport changes', () 
     finally {
         view.destroy();
     }
+});
+
+test('restores the current Markdown position after a reparse replaces the document', () => {
+    const initialMarkdown = [
+        '# Overview',
+        '',
+        'Original overview.',
+        '',
+        '# Methods',
+        '',
+        'Original methods.',
+    ].join('\n');
+    const replacementMarkdown = [
+        '# Overview',
+        '',
+        'Added overview context.',
+        '',
+        '# Methods',
+        '',
+        'New methods.',
+        '',
+        '## Results',
+    ].join('\n');
+    const scrolledOffsets = [];
+    let editorOptions;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: initialMarkdown,
+        sourceKind: 'markdown',
+    });
+    const { view } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            const editor = createTestInlineEditor(options);
+            editor.scrollToOffset = offset => scrolledOffsets.push(offset);
+            return editor;
+        },
+    });
+
+    const activeOffset = initialMarkdown.indexOf('Original methods.');
+    editorOptions.onViewportChange(activeOffset);
+    view.render({
+        ...model,
+        status: 'loading',
+        progress: 30,
+        preserveContent: true,
+    });
+    view.render({
+        ...model,
+        status: 'ready',
+        progress: 100,
+        markdown: replacementMarkdown,
+        sourceKind: 'markdown',
+    });
+
+    assert.deepEqual(scrolledOffsets, [replacementMarkdown.indexOf('New methods.')]);
+
+    view.render({
+        ...model,
+        status: 'ready',
+        progress: 100,
+        markdown: replacementMarkdown,
+        sourceKind: 'markdown',
+        annotationOverlay: {
+            matched: [{ id: 'updated' }],
+            unmatched: [],
+        },
+    });
+    assert.deepEqual(scrolledOffsets, [replacementMarkdown.indexOf('New methods.')]);
+    view.destroy();
 });
 
 test('shows PDF notes safely and jumps matched notes to Markdown', () => {
@@ -1727,7 +2026,7 @@ test('shows PDF notes safely and jumps matched notes to Markdown', () => {
         updated[0].dispatchEvent(new document.defaultView.Event('click', {
             bubbles: true,
         }));
-        assert.deepEqual(scrolledOffsets, [12, 0]);
+        assert.deepEqual(scrolledOffsets, [12, 12, 0]);
     }
     finally {
         view.destroy();
@@ -1935,6 +2234,41 @@ test('shows local annotation synchronization status and retries failures', async
     }
 });
 
+test('shows when the local PDF index is unavailable', () => {
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Selected text',
+        annotationOverlay: {
+            matched: [{
+                id: 'mktero-failed-1',
+                source: 'markdown',
+                type: 'highlight',
+                text: 'Selected text',
+                comment: '',
+                color: '#ffd400',
+                ranges: [{ from: 0, to: 13 }],
+                synchronization: {
+                    status: 'failed',
+                    reason: 'pdf-index-unavailable',
+                },
+            }],
+            unmatched: [],
+        },
+        sourceKind: 'markdown',
+    }));
+
+    try {
+        assert.match(
+            shadow.querySelector('.markdown-note-sync--failed').textContent,
+            /Local PDF index unavailable/
+        );
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('shows a live Markdown outline and scrolls to the selected heading', () => {
     const markdown = '# Overview\n\n## Methods\n\n### Results';
     const scrolledOffsets = [];
@@ -2128,14 +2462,14 @@ test('localizes the Markdown viewer chrome from the Zotero locale', () => {
     assert.equal(
         shadow.querySelector('#mktero-reader-font-family')
             .getAttribute('aria-label'),
-        '正文字体: Georgia'
+        '正文字体: 系统衬线'
     );
     assert.deepEqual(
         [...shadow.querySelectorAll(
             '#mktero-reader-font-options .markdown-reader-font-option-label'
         )]
             .map(option => option.textContent),
-        ['Georgia', 'Cambria', 'Times New Roman', '系统衬线']
+        ['系统衬线', 'Georgia', 'Cambria', 'Times New Roman']
     );
 
     view.destroy();
@@ -2179,6 +2513,60 @@ test('ignores an empty Markdown fragment without treating it as a CSS selector',
 
     assert.doesNotThrow(() => openLink('#'));
     view.destroy();
+});
+
+test('scrolls Markdown fragment links through the heading index', () => {
+    const markdown = '# Overview\n\n## Methods and Results';
+    const scrolledOffsets = [];
+    let openLink;
+    const { view } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown,
+        sourceKind: 'markdown',
+    }), {}, {
+        editorFactory(options) {
+            openLink = options.openLink;
+            const editor = createTestInlineEditor(options);
+            editor.scrollToOffset = offset => scrolledOffsets.push(offset);
+            return editor;
+        },
+    });
+
+    openLink('#methods-and-results');
+
+    assert.deepEqual(scrolledOffsets, [markdown.indexOf('## Methods')]);
+    view.destroy();
+});
+
+test('adds fragment targets to saved HTML snapshot headings', () => {
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        renderMode: 'html',
+        snapshotHTML: '<h1>Methods and Results</h1>'
+            + '<h2>Methods and Results</h2>',
+        snapshotAssets: [],
+        onReparse: null,
+        onSaveSnapshot: null,
+    }));
+    const headings = [...shadow.querySelectorAll('#mktero-snapshot h1, #mktero-snapshot h2')];
+    const scrolled = [];
+    for (const heading of headings) {
+        heading.scrollIntoView = () => scrolled.push(heading.id);
+    }
+
+    try {
+        assert.deepEqual(headings.map(heading => heading.id), [
+            'methods-and-results',
+            'methods-and-results-1',
+        ]);
+        view.openLink?.('#methods-and-results-1');
+        assert.deepEqual(scrolled, ['methods-and-results-1']);
+    }
+    finally {
+        view.destroy();
+    }
 });
 
 test('creates and revokes Blob URLs for cached MinerU images', () => {

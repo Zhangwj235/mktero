@@ -38,19 +38,33 @@ test('builds reproducible release assets and Zotero update metadata', async () =
 
     assert.deepEqual(secondXPI, firstXPI);
     assert.equal(checksum, `${digest}  ${xpiName}\n`);
-    assert.deepEqual(Object.keys(packageEntries).sort(), [
+    const packageNames = Object.keys(packageEntries).sort();
+    for (const required of [
         'bootstrap.js',
         'licenses/lucide.txt',
+        'licenses/pdfjs.txt',
         'manifest.json',
+        'pdf.worker.mjs',
         'prefs.js',
         'ui/icons/mktero.svg',
         'ui/preferences.css',
         'ui/preferences.js',
         'ui/preferences.xhtml',
-    ]);
+    ]) {
+        assert.ok(packageNames.includes(required), `Missing ${required}`);
+    }
+    assert.ok(packageNames.some(name => name.startsWith('pdfjs/cmaps/')));
+    assert.ok(packageNames.some(name => (
+        name.startsWith('pdfjs/standard_fonts/')
+    )));
+    assert.ok(packageNames.some(name => name.startsWith('pdfjs/wasm/')));
     assert.match(
         strFromU8(packageEntries['licenses/lucide.txt']),
         /Copyright \(c\) 2026 Lucide Icons and Contributors/
+    );
+    assert.match(
+        strFromU8(packageEntries['licenses/pdfjs.txt']),
+        /Apache License/
     );
     assert.deepEqual(updates, {
         addons: {
@@ -71,6 +85,34 @@ test('builds reproducible release assets and Zotero update metadata', async () =
             },
         },
     });
+});
+
+test('loads the packaged Zotero bootstrap without window-only PDF globals', async () => {
+    await buildProject();
+    const lifecycleNames = [
+        'install',
+        'startup',
+        'shutdown',
+        'uninstall',
+        'onMainWindowLoad',
+        'onMainWindowUnload',
+    ];
+    const script = `
+        delete globalThis.DOMException;
+        await import('./build/package/bootstrap.js');
+        const missing = ${JSON.stringify(lifecycleNames)}.filter(
+            name => typeof globalThis[name] !== 'function'
+        );
+        if (missing.length) {
+            throw new Error('Missing Zotero lifecycle globals: ' + missing.join(', '));
+        }
+    `;
+
+    await execFileAsync(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        script,
+    ], { cwd: projectRoot });
 });
 
 async function buildProject() {

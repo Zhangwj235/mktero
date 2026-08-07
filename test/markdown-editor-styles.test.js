@@ -8,22 +8,62 @@ const MARKDOWN_STYLES = readFileSync(
 );
 
 function ruleBody(selector) {
-    const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = MARKDOWN_STYLES.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
-    assert.ok(match, `Missing CSS rule: ${selector}`);
-    return match[1];
+    return ruleBodies(selector)[0];
 }
 
-test('uses a font-independent readable measure for long-form Markdown', () => {
+function ruleBodies(selector) {
+    const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matches = [...MARKDOWN_STYLES.matchAll(
+        new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`, 'g')
+    )];
+    assert.ok(matches.length, `Missing CSS rule: ${selector}`);
+    return matches.map(match => match[1]);
+}
+
+function lastRuleBody(selector) {
+    return ruleBodies(selector).at(-1);
+}
+
+test('uses balanced typography for long-form Markdown', () => {
     const host = ruleBody(':host');
 
-    assert.match(host, /--reader-width:\s*40em/);
+    assert.match(host, /--reader-width:\s*38em/);
     assert.match(host, /--reader-font-size:\s*18px/);
-    assert.match(host, /--reader-line-height:\s*1\.72/);
+    assert.match(host, /--reader-line-height:\s*1\.64/);
+    assert.match(host, /--reader-text:\s*#2c3238/);
     assert.match(
         host,
-        /--reader-font:\s*Georgia,\s*Cambria,\s*"Times New Roman",\s*serif/
+        /--reader-font:\s*ui-serif,\s*"Iowan Old Style",\s*Charter,\s*"Bitstream Charter",\s*Georgia,\s*serif/
     );
+
+    const editor = lastRuleBody('.markdown-editor-host > .cm-editor');
+    assert.match(editor, /color:\s*var\(--reader-text\)/);
+
+    const snapshot = ruleBody('.markdown-snapshot-host');
+    assert.match(snapshot, /color:\s*var\(--reader-text\)/);
+
+    const sharedTypography = ruleBody([
+        '.markdown-snapshot-host,',
+        '.markdown-editor-host > .cm-editor',
+    ].join('\n'));
+    assert.match(sharedTypography, /font-weight:\s*400/);
+    assert.match(sharedTypography, /font-kerning:\s*normal/);
+    assert.match(sharedTypography, /font-optical-sizing:\s*auto/);
+    assert.doesNotMatch(MARKDOWN_STYLES, /text-rendering:\s*optimizeLegibility/);
+});
+
+test('renders conversion notices as compact overlay toasts', () => {
+    const view = ruleBody('.mktero-tab-view');
+    assert.match(view, /position:\s*relative/);
+
+    const message = ruleBody('.message');
+    assert.match(message, /position:\s*absolute/);
+    assert.match(message, /top:\s*12px/);
+    assert.match(message, /left:\s*50%/);
+    assert.match(message, /width:\s*fit-content/);
+    assert.match(message, /max-width:\s*min\(680px, calc\(100% - 32px\)\)/);
+    assert.match(message, /transform:\s*translateX\(-50%\)/);
+    assert.match(message, /z-index:\s*20/);
 });
 
 test('article layout outranks the CodeMirror adopted base theme', () => {
@@ -94,7 +134,7 @@ test('wide Markdown tables scroll inside the aligned reading column', () => {
     assert.match(tables, /min-width:\s*100%/);
     assert.match(tables, /max-width:\s*none/);
     assert.match(tables, /table-layout:\s*auto/);
-    assert.match(tables, /font-size:\s*13px/);
+    assert.match(tables, /font-size:\s*var\(--reader-table-font-size\)/);
 
     const cells = ruleBody([
         '.markdown-editor-host > .cm-editor .cm-mktero-table th,',
@@ -131,8 +171,8 @@ test('styles academic figure captions as distinct labels', () => {
     assert.doesNotMatch(caption, /border-left/);
     assert.doesNotMatch(caption, /border-radius/);
     assert.doesNotMatch(caption, /background\s*:/);
-    assert.match(caption, /font-family:\s*var\(--ui-font\)/);
-    assert.match(caption, /font-size:\s*12\.5px/);
+    assert.match(caption, /font-family:\s*var\(--reader-font\)/);
+    assert.match(caption, /font-size:\s*var\(--reader-caption-font-size\)/);
     assert.match(caption, /letter-spacing:\s*0/);
     assert.match(caption, /text-align:\s*center/);
 
@@ -151,7 +191,7 @@ test('styles academic table captions above tables without a background', () => {
     assert.match(caption, /caption-side:\s*top/);
     assert.match(caption, /padding:\s*10px 12px/);
     assert.match(caption, /color:\s*var\(--muted\)/);
-    assert.match(caption, /font-size:\s*12\.5px/);
+    assert.match(caption, /font-size:\s*var\(--reader-caption-font-size\)/);
     assert.match(caption, /letter-spacing:\s*0/);
     assert.match(caption, /text-align:\s*center/);
     assert.doesNotMatch(caption, /background\s*:/);
@@ -235,7 +275,7 @@ test('lays out a responsive scrollable outline beside the editor', () => {
 
     assert.match(
         MARKDOWN_STYLES,
-        /@media\s*\(max-width:\s*760px\)[\s\S]*\.markdown-outline\s*\{[^}]*flex-basis:\s*min\(var\(--outline-width, 256px\), 42vw\)/
+        /@container\s+mktero-view\s*\(max-width:\s*760px\)[\s\S]*\.markdown-outline\s*\{[^}]*flex-basis:\s*min\(var\(--outline-width, 256px\), 42cqi\)/
     );
 });
 
@@ -494,6 +534,7 @@ test('styles Zotero-colored PDF annotations and their action popup', () => {
 test('keeps snapshot code blocks from inheriting inline code chrome', () => {
     const inlineCode = ruleBody('.markdown-snapshot-host code');
     assert.match(inlineCode, /border:\s*1px solid var\(--border-subtle\)/);
+    assert.match(inlineCode, /font-size:\s*var\(--reader-code-font-size\)/);
 
     const blockCode = ruleBody('.markdown-snapshot-host pre code');
     assert.match(blockCode, /padding:\s*0/);
@@ -576,6 +617,7 @@ test('styles figure references, previews, and target highlights', () => {
         '.mktero-figure-preview-viewport .mktero-figure-panel-label'
     );
     assert.match(panelLabel, /text-align:\s*center/);
+    assert.match(panelLabel, /font-size:\s*var\(--reader-panel-label-font-size\)/);
 
     const highlight = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-figure-target-highlight'

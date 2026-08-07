@@ -21,6 +21,33 @@ test('normalizes mathematical operator whitespace while preserving source ranges
     assert.equal(normalizePdfAnnotationText('well - being'), 'well - being');
 });
 
+test('normalizes signed-number spacing after opening delimiters', () => {
+    const source = 'Limits ( \t± 2 days), range [ + 3 ], set { − 4 }, '
+        + 'LaTeX ( \\pm 5 days).';
+    const index = createPdfAnnotationTextIndex(source);
+    const normalized = 'Limits (±2 days), range [+3 ], set {-4 }, '
+        + 'LaTeX (±5 days).';
+
+    assert.equal(index.text, normalized);
+    const target = '(±2 days)';
+    const range = index.sourceRange(
+        normalized.indexOf(target),
+        target.length
+    );
+    assert.equal(source.slice(range.from, range.to), '( \t± 2 days)');
+    assert.equal(normalizePdfAnnotationText('( ± value)'), '( ± value)');
+    assert.equal(normalizePdfAnnotationText('( example)'), '( example)');
+    assert.equal(normalizePdfAnnotationText('( \\pm value)'), '( ± value)');
+});
+
+test('handles repeated oversized signed-number spacing', () => {
+    const fragment = `( ${' '.repeat(256)}± ${' '.repeat(256)}2)`;
+    const source = Array(512).fill(fragment).join(' ');
+    const expected = Array(512).fill('(±2)').join(' ');
+
+    assert.equal(normalizePdfAnnotationText(source), expected);
+});
+
 test('normalizes PDF.js spacing around degree units while preserving source ranges', () => {
     const markdown = 'Basal body temperature increases by 0.3 °C.';
     const pdf = 'Basal body temperature increases by 0.3   ° C.';
@@ -100,7 +127,8 @@ test('normalizes LaTeX temperature units from saved Markdown annotations', () =>
 });
 
 test('leaves escaped, malformed, and oversized LaTeX-like input unchanged', () => {
-    const fragment = '\\\\pm2 0.30\\\\;^{\\circ}C \\pmod2 \\pmatrix '
+    const fragment = '\\\\pm 2 ( \\\\pm 3) 0.30\\\\;^{\\circ}C '
+        + '\\pmod2 \\pmatrix '
         + '\\input{secret} 0.30\\;^{\\cir';
     const source = Array(1_000).fill(fragment).join(' ');
 

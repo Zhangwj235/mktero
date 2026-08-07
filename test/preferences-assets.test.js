@@ -24,7 +24,10 @@ test('ships MinerU token, cache preferences, and localized Markdown UI assets', 
     assert.match(prefs, /pref\("extensions\.mktero\.mineruApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.cacheEnabled", true\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.readerFontSize", 18\)/);
-    assert.match(prefs, /pref\("extensions\.mktero\.readerFont", "georgia"\)/);
+    assert.match(
+        prefs,
+        /pref\("extensions\.mktero\.readerFont", "system-serif"\)/
+    );
     assert.doesNotMatch(prefs, /extensions\.mktero\.language/);
     assert.doesNotMatch(pane, /id="mktero-language"/);
     assert.doesNotMatch(pane, /preference="extensions\.mktero\.language"/);
@@ -40,6 +43,8 @@ test('ships MinerU token, cache preferences, and localized Markdown UI assets', 
     const visiblePreferenceText = pane.replace(/<[^>]+>/g, ' ');
     assert.doesNotMatch(visiblePreferenceText, /mineru/i);
     assert.match(script, /createZoteroMarkdownCache/);
+    assert.match(script, /createZoteroPDFTextIndexCache/);
+    assert.match(script, /createCombinedLocalCache/);
     assert.doesNotMatch(script, /setMkteroLanguagePreference/);
     assert.match(bootstrap, /new MinerUClient/);
     assert.doesNotMatch(bootstrap, /observeMkteroLanguagePreference/);
