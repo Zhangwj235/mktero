@@ -27,7 +27,7 @@ function lastRuleBody(selector) {
 test('uses balanced typography for long-form Markdown', () => {
     const host = ruleBody(':host');
 
-    assert.match(host, /--reader-width:\s*38em/);
+    assert.match(host, /--reader-width:\s*43rem/);
     assert.match(host, /--reader-font-size:\s*18px/);
     assert.match(host, /--reader-line-height:\s*1\.78/);
     assert.match(host, /--reader-text:\s*#2c3238/);

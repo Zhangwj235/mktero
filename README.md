@@ -56,7 +56,7 @@ Open `Settings -> Mktero` after installation.
 | --- | --- | --- |
 | API Token | Empty | Required when a conversion is not available locally |
 | Body text font | System serif | Choose System serif, Georgia, Cambria, or Times New Roman |
-| Body text size | 18 px | Adjust Markdown and snapshot text from 16 to 22 px |
+| Body text size | 18 px | Adjust Markdown and snapshot text from 16 to 22 px while keeping the reading column stable |
 | Reuse conversion results | On | Reuse results for the same PDF content and parser profile |
 
 The API Token is stored unencrypted as a normal preference in the active

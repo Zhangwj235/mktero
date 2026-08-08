@@ -13,7 +13,7 @@
     --accent-strong: #2854ab;
     --accent-contrast: #ffffff;
     --editor-background: var(--reader-background);
-    --reader-width: 38em;
+    --reader-width: 43rem;
     --reader-font-size: 18px;
     --reader-line-height: 1.78;
     --reader-caption-font-size: calc(var(--reader-font-size) * 0.82);
