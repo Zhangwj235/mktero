@@ -480,6 +480,8 @@ export function createInlineRenderingExtension({
             const shouldRefresh = transaction.effects.some(effect => (
                 effect.is(refreshInlineRendering)
             ));
+            const syntaxTreeChanged = syntaxTree(transaction.startState)
+                !== syntaxTree(transaction.state);
             let referenceHighlightChanged = false;
             let tableHighlightChanged = false;
             let figureHighlightChanged = false;
@@ -510,6 +512,7 @@ export function createInlineRenderingExtension({
                 }
             }
             if (transaction.docChanged
+                || syntaxTreeChanged
                 || referenceHighlightChanged
                 || tableHighlightChanged
                 || figureHighlightChanged
