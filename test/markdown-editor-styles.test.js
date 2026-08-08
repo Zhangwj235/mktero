@@ -81,7 +81,7 @@ test('article layout outranks the CodeMirror adopted base theme', () => {
     assert.match(content, /width:\s*calc\(100% - 48px\)/);
     assert.match(content, /max-width:\s*var\(--reader-width\)/);
     assert.match(content, /flex:\s*0 0 auto/);
-    assert.match(content, /padding:\s*76px 0 80px/);
+    assert.match(content, /padding:\s*48px 0 80px/);
 
     const line = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-line'
@@ -95,19 +95,35 @@ test('article layout outranks the CodeMirror adopted base theme', () => {
     assert.match(heading, /line-height:\s*1\.25/);
 });
 
-test('styles the reader font picker as part of the document action menu', () => {
+test('keeps the reader toolbar above content without covering it', () => {
+    const toolbar = ruleBody('.markdown-reader-toolbar');
+    const editorHost = ruleBody('.markdown-editor-host');
+
+    assert.match(toolbar, /position:\s*relative/);
+    assert.match(toolbar, /flex:\s*0 0 auto/);
+    assert.match(toolbar, /min-height:\s*44px/);
+    assert.match(toolbar, /padding:\s*4px 12px/);
+    assert.match(toolbar, /border-bottom:\s*1px solid var\(--border-subtle\)/);
+    assert.doesNotMatch(toolbar, /position:\s*absolute/);
+    assert.match(editorHost, /flex:\s*1 1 auto/);
+    assert.match(editorHost, /overflow:\s*hidden/);
+});
+
+test('styles the reader font picker as part of the top toolbar', () => {
     const picker = ruleBody('.markdown-reader-font-picker');
     const trigger = ruleBody('.markdown-reader-font-select');
     const options = ruleBody('.markdown-reader-font-options');
     const option = ruleBody('.markdown-reader-font-option');
 
-    assert.match(picker, /width:\s*136px/);
-    assert.match(picker, /display:\s*grid/);
+    assert.match(picker, /width:\s*148px/);
+    assert.match(picker, /position:\s*relative/);
     assert.match(trigger, /display:\s*flex/);
     assert.match(trigger, /height:\s*30px/);
     assert.match(trigger, /border:\s*1px\s+solid\s+var\(--border\)/);
     assert.match(trigger, /cursor:\s*pointer/);
     assert.match(options, /display:\s*grid/);
+    assert.match(options, /position:\s*absolute/);
+    assert.match(options, /box-shadow:\s*var\(--shadow-popover\)/);
     assert.match(options, /background:\s*color-mix/);
     assert.match(option, /grid-template-columns:\s*14px\s+minmax\(0,\s*1fr\)/);
     assert.match(option, /cursor:\s*pointer/);
@@ -301,17 +317,10 @@ test('styles a responsive PDF notes panel beside the editor', () => {
     assert.match(comment, /overflow-wrap:\s*anywhere/);
 });
 
-test('styles the document action as a compact reader toolbar', () => {
+test('styles secondary document actions as a toolbar popover', () => {
     const editor = ruleBody('.markdown-editor');
     assert.match(editor, /position:\s*relative/);
-
-    const actions = ruleBody('.markdown-reader-actions');
-    assert.match(actions, /position:\s*absolute/);
-    assert.match(actions, /left:\s*16px/);
-    assert.match(actions, /top:\s*14px/);
-    assert.match(actions, /z-index:\s*4/);
-    assert.match(actions, /display:\s*flex/);
-    assert.match(actions, /backdrop-filter:\s*blur\(10px\)/);
+    assert.match(editor, /container:\s*markdown-reader \/ inline-size/);
 
     const action = ruleBody('.markdown-reader-action');
     assert.match(action, /width:\s*34px/);
@@ -321,9 +330,9 @@ test('styles the document action as a compact reader toolbar', () => {
 
     const menu = ruleBody('.markdown-reader-action-menu');
     assert.match(menu, /top:\s*calc\(100% \+ 8px\)/);
-    assert.match(menu, /left:\s*0/);
-    assert.match(menu, /width:\s*220px/);
-    assert.match(menu, /max-width:\s*min\(220px, calc\(100vw - 20px\)\)/);
+    assert.match(menu, /right:\s*12px/);
+    assert.match(menu, /width:\s*196px/);
+    assert.match(menu, /max-width:\s*min\(196px, calc\(100% - 20px\)\)/);
     assert.match(menu, /box-shadow:\s*var\(--shadow-popover\)/);
     const menuAction = ruleBody(
         '.markdown-reader-action-menu .markdown-reader-action'

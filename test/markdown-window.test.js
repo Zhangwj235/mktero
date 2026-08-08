@@ -573,7 +573,45 @@ test('opens the document action popover and reports snapshot save state', async 
     view.destroy();
 });
 
-test('adjusts the persisted reader font size from the document action menu', () => {
+test('keeps reading controls in a toolbar above the Markdown body', () => {
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper\n\nReadable text.',
+        sourceKind: 'markdown',
+        onReparse: () => {},
+        onSaveSnapshot: () => {},
+    }));
+
+    try {
+        const toolbar = shadow.querySelector('.markdown-reader-toolbar');
+        const editor = shadow.querySelector('#mktero-editor');
+        const menu = shadow.querySelector('#mktero-document-action-menu');
+        const size = shadow.querySelector('.markdown-reader-font-size');
+        const family = shadow.querySelector('.markdown-reader-font-family');
+
+        assert.equal(toolbar?.getAttribute('role'), 'toolbar');
+        assert.equal(
+            toolbar?.getAttribute('aria-label'),
+            'Markdown reading toolbar'
+        );
+        assert.equal(toolbar?.nextElementSibling, editor);
+        assert.equal(toolbar?.contains(size), true);
+        assert.equal(toolbar?.contains(family), true);
+        assert.equal(menu?.contains(size), false);
+        assert.equal(menu?.contains(family), false);
+        assert.equal(menu?.contains(shadow.querySelector('#mktero-reparse')), true);
+        assert.equal(
+            menu?.contains(shadow.querySelector('#mktero-save-snapshot')),
+            true
+        );
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('adjusts the persisted reader font size from the top toolbar', () => {
     const persistedSizes = [];
     const { view, shadow } = createView(createModel({
         status: 'ready',
@@ -586,7 +624,6 @@ test('adjusts the persisted reader font size from the document action menu', () 
     });
 
     try {
-        const toggle = shadow.querySelector('#mktero-document-actions');
         const decrease = shadow.querySelector('#mktero-reader-font-decrease');
         const increase = shadow.querySelector('#mktero-reader-font-increase');
         const value = shadow.querySelector('#mktero-reader-font-value');
@@ -598,7 +635,6 @@ test('adjusts the persisted reader font size from the document action menu', () 
         assert.equal(value.textContent, '18 px');
         assert.equal(view.host.style.getPropertyValue('--reader-font-size'), '18px');
 
-        toggle.click();
         increase.click();
         increase.click();
         increase.click();
@@ -609,7 +645,6 @@ test('adjusts the persisted reader font size from the document action menu', () 
         assert.equal(view.host.style.getPropertyValue('--reader-font-size'), '22px');
         assert.equal(increase.disabled, true);
         assert.equal(decrease.disabled, false);
-        assert.equal(toggle.getAttribute('aria-expanded'), 'true');
 
         decrease.click();
         assert.equal(value.textContent, '21 px');
@@ -622,7 +657,7 @@ test('adjusts the persisted reader font size from the document action menu', () 
     }
 });
 
-test('selects a font from the styled picker without closing the menu', () => {
+test('selects a font from the top toolbar without opening document actions', () => {
     const persistedFonts = [];
     const { view, shadow } = createView(createModel({
         status: 'ready',
@@ -668,10 +703,9 @@ test('selects a font from the styled picker without closing the menu', () => {
                 ?.getAttribute('data-lucide'),
             'check'
         );
-        toggle.click();
         dispatchMouseEvent(trigger, 'mousedown', 0);
         trigger.click();
-        assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+        assert.equal(toggle.getAttribute('aria-expanded'), 'false');
         assert.equal(trigger.getAttribute('aria-expanded'), 'true');
         assert.equal(listbox.hidden, false);
 
@@ -695,7 +729,7 @@ test('selects a font from the styled picker without closing the menu', () => {
         assert.equal(
             shadow.querySelector('#mktero-document-actions')
                 .getAttribute('aria-expanded'),
-            'true'
+            'false'
         );
 
         const ownerWindow = trigger.ownerDocument.defaultView;
@@ -716,7 +750,7 @@ test('selects a font from the styled picker without closing the menu', () => {
     }
 });
 
-test('operates the styled font picker from the keyboard', () => {
+test('operates the toolbar font picker from the keyboard', () => {
     const persistedFonts = [];
     const { view, shadow } = createView(createModel({
         status: 'ready',
@@ -735,7 +769,6 @@ test('operates the styled font picker from the keyboard', () => {
         const georgia = listbox.querySelector('[data-reader-font="georgia"]');
         const cambria = listbox.querySelector('[data-reader-font="cambria"]');
 
-        toggle.click();
         dispatchKeyboardEvent(trigger, 'ArrowDown');
         assert.equal(trigger.getAttribute('aria-expanded'), 'true');
         assert.equal(listbox.hidden, false);
@@ -750,24 +783,25 @@ test('operates the styled font picker from the keyboard', () => {
         assert.equal(trigger.textContent.trim(), 'Cambria');
         assert.equal(trigger.getAttribute('aria-expanded'), 'false');
         assert.equal(listbox.hidden, true);
-        assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+        assert.equal(toggle.getAttribute('aria-expanded'), 'false');
 
         dispatchKeyboardEvent(trigger, 'ArrowDown');
         dispatchKeyboardEvent(cambria, 'Escape');
         assert.equal(trigger.getAttribute('aria-expanded'), 'false');
-        assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+        assert.equal(toggle.getAttribute('aria-expanded'), 'false');
     }
     finally {
         view.destroy();
     }
 });
 
-test('closes the styled font picker and menu on an outside press', () => {
+test('keeps toolbar popovers mutually exclusive and closes them outside', () => {
     const { document, view, shadow } = createView(createModel({
         status: 'ready',
         progress: 100,
         markdown: '# Paper\n\nReadable text.',
         sourceKind: 'markdown',
+        onReparse: () => {},
     }));
 
     try {
@@ -779,7 +813,9 @@ test('closes the styled font picker and menu on an outside press', () => {
         document.body.appendChild(outside);
 
         toggle.click();
+        assert.equal(toggle.getAttribute('aria-expanded'), 'true');
         trigger.click();
+        assert.equal(toggle.getAttribute('aria-expanded'), 'false');
         assert.equal(trigger.getAttribute('aria-expanded'), 'true');
         outside.dispatchEvent(new ownerWindow.Event('pointerdown', {
             bubbles: true,
@@ -794,6 +830,45 @@ test('closes the styled font picker and menu on an outside press', () => {
     }
 });
 
+test('isolates toolbar popovers across Zotero windows', () => {
+    const createToolbarView = () => createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper\n\nReadable text.',
+        sourceKind: 'markdown',
+        onReparse: () => {},
+    }));
+    const first = createToolbarView();
+    const second = createToolbarView();
+
+    try {
+        const firstToggle = first.shadow.querySelector(
+            '#mktero-document-actions'
+        );
+        const secondFont = second.shadow.querySelector(
+            '#mktero-reader-font-family'
+        );
+        firstToggle.click();
+        secondFont.click();
+
+        assert.equal(firstToggle.getAttribute('aria-expanded'), 'true');
+        assert.equal(secondFont.getAttribute('aria-expanded'), 'true');
+
+        const firstOutsidePress = new first.document.defaultView.Event(
+            'pointerdown',
+            { bubbles: true },
+        );
+        first.document.body.dispatchEvent(firstOutsidePress);
+
+        assert.equal(firstToggle.getAttribute('aria-expanded'), 'false');
+        assert.equal(secondFont.getAttribute('aria-expanded'), 'true');
+    }
+    finally {
+        first.view.destroy();
+        second.view.destroy();
+    }
+});
+
 test('resets the font picker when reader controls become unavailable', () => {
     const readyModel = createModel({
         status: 'ready',
@@ -805,12 +880,10 @@ test('resets the font picker when reader controls become unavailable', () => {
     const { view, shadow } = createView(readyModel);
 
     try {
-        const toggle = shadow.querySelector('#mktero-document-actions');
         const trigger = shadow.querySelector('#mktero-reader-font-family');
         const listbox = shadow.querySelector('#mktero-reader-font-options');
         const family = shadow.querySelector('.markdown-reader-font-family');
 
-        toggle.click();
         trigger.click();
         assert.equal(trigger.getAttribute('aria-expanded'), 'true');
         assert.equal(listbox.hidden, false);
@@ -850,7 +923,7 @@ test('removes document action outside-press listeners when destroyed', () => {
 
     toggle.click();
     fontTrigger.click();
-    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
     assert.equal(fontTrigger.getAttribute('aria-expanded'), 'true');
     view.destroy();
 
@@ -860,7 +933,7 @@ test('removes document action outside-press listeners when destroyed', () => {
     outside.dispatchEvent(new ownerWindow.Event('mousedown', {
         bubbles: true,
     }));
-    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
     assert.equal(fontTrigger.getAttribute('aria-expanded'), 'true');
 });
 
@@ -959,6 +1032,7 @@ test('renders a saved HTML snapshot without exposing PDF actions or editing cont
         );
         assert.equal(shadow.querySelector('.markdown-reader-actions').hidden, false);
         assert.equal(shadow.querySelector('.markdown-reader-font-size').hidden, false);
+        assert.equal(shadow.querySelector('#mktero-document-actions').hidden, true);
         assert.equal(shadow.querySelector('#mktero-reparse').hidden, true);
         assert.equal(shadow.querySelector('#mktero-save-snapshot').hidden, true);
         assert.equal(shadow.querySelector('.cm-content').textContent, '');

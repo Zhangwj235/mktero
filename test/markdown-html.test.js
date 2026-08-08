@@ -567,6 +567,54 @@ test('keeps repeated extracted axis labels with their shared-caption panels', ()
     );
 });
 
+test('renders one composite image with its trailing panel label and caption', () => {
+    const html = renderMarkdownHTML([
+        '![](images/posterior.jpg)  ',
+        '(b) Draws from posterior distribution  ',
+        'Figure 3. (a) Trace plots and (b) posterior draws.',
+    ].join('\n'), {
+        resolveImageURL: () => 'blob:mktero-posterior',
+    });
+
+    assert.equal(
+        html,
+        '<figure class="mktero-figure mktero-figure-group">'
+            + '<div class="mktero-figure-panel">'
+            + '<img src="blob:mktero-posterior" alt="">'
+            + '<div class="mktero-figure-panel-label">'
+            + '(b) Draws from posterior distribution</div>'
+            + '</div>'
+            + '<figcaption>'
+            + '<span class="mktero-figure-label">Figure 3.</span>'
+            + ' (a) Trace plots and (b) posterior draws.'
+            + '</figcaption>'
+            + '</figure>\n'
+    );
+});
+
+test('does not group an ambiguous label after one image as a composite figure', () => {
+    const cases = [
+        [
+            '![](images/posterior.jpg)  ',
+            '(b) Posterior draws  ',
+            'Figure 3. Posterior draws.',
+        ],
+        [
+            '![](images/posterior.jpg)  ',
+            'Frequency  ',
+            'Figure 3. (a) Trace plots and (b) posterior draws.',
+        ],
+    ];
+
+    for (const lines of cases) {
+        const html = renderMarkdownHTML(lines.join('\n'), {
+            resolveImageURL: () => 'blob:mktero-posterior',
+        });
+
+        assert.doesNotMatch(html, /mktero-figure-group/, lines.join('\n'));
+    }
+});
+
 test('does not treat different prose lines between images as panel labels', () => {
     const html = renderMarkdownHTML([
         '![](images/first.jpg)  ',
@@ -678,6 +726,118 @@ test('renders a MinerU table caption as the native table caption', () => {
             + '<span class="mktero-table-label">Table 3</span>'
             + ' Means &amp; standard deviations of desired emotions'
             + '</caption><tr><td>Measure</td><td>m</td><td>SD</td></tr></table>'
+    );
+});
+
+test('renders a trailing MinerU HTML table caption above the table', () => {
+    const html = renderMarkdownHTML([
+        '<table><tr><td>Model</td><td>BIC</td></tr></table>',
+        '',
+        'Table 1. Model selection criteria for stages I and II.',
+    ].join('\n'));
+
+    assert.equal(
+        html,
+        '<table><caption>'
+            + '<span class="mktero-table-label">Table 1.</span>'
+            + ' Model selection criteria for stages I and II.'
+            + '</caption><tr><td>Model</td><td>BIC</td></tr></table>'
+    );
+});
+
+test('renders a trailing GFM table caption above the table', () => {
+    const html = renderMarkdownHTML([
+        '| Model | BIC |',
+        '| --- | ---: |',
+        '| I | 42 |',
+        '',
+        'Table 1. Model selection criteria.',
+    ].join('\n'));
+
+    assert.match(
+        html,
+        /^<table><caption><span class="mktero-table-label">Table 1\.<\/span> Model selection criteria\.<\/caption>/
+    );
+    assert.doesNotMatch(html, /<p>Table 1/);
+});
+
+test('does not bind a table to a caption beyond intervening prose', () => {
+    const html = renderMarkdownHTML([
+        '<table><tr><td>Model</td></tr></table>',
+        '',
+        'This paragraph discusses the model.',
+        '',
+        'Table 1. Model selection criteria.',
+    ].join('\n'));
+
+    assert.doesNotMatch(html, /<caption>/);
+    assert.match(html, /<p>This paragraph discusses the model\.<\/p>/);
+    assert.match(html, /<p>Table 1\. Model selection criteria\.<\/p>/);
+});
+
+test('keeps a preceding table caption when another caption follows the table', () => {
+    const html = renderMarkdownHTML([
+        'Table 1. Preferred caption.',
+        '',
+        '<table><tr><td>Model</td></tr></table>',
+        '',
+        'Table 2. Separate text.',
+    ].join('\n'));
+
+    assert.equal(html.match(/<caption>/g)?.length, 1);
+    assert.match(
+        html,
+        /<caption><span class="mktero-table-label">Table 1\.<\/span> Preferred caption\.<\/caption>/
+    );
+    assert.match(html, /<p>Table 2\. Separate text\.<\/p>/);
+});
+
+test('recovers table and figure captions assigned to one MinerU image', () => {
+    const tableCaption = [
+        'Table 2. Histogram of BMI and body mass index (BMI)',
+        'classification.',
+    ].join(' ');
+    const figureCaption = [
+        'Figure 1. Histogram of Body Mass Index (BMI)',
+        'classification.',
+    ].join(' ');
+    const html = renderMarkdownHTML([
+        '<table><tr><td>Category</td><td>BMI</td></tr></table>',
+        '',
+        `![${tableCaption}](images/histogram.jpg)`,
+        figureCaption,
+    ].join('\n'), {
+        resolveImageURL: () => 'blob:mktero-histogram',
+    });
+
+    assert.match(
+        html,
+        /<table><caption><span class="mktero-table-label">Table 2\.<\/span> Histogram of BMI and body mass index \(BMI\) classification\.<\/caption>/
+    );
+    assert.match(
+        html,
+        /<img src="blob:mktero-histogram" alt="Figure 1\. Histogram of Body Mass Index \(BMI\) classification\.">/
+    );
+    assert.match(
+        html,
+        /<figcaption><span class="mktero-figure-label">Figure 1\.<\/span> Histogram of Body Mass Index \(BMI\) classification\.<\/figcaption>/
+    );
+    assert.doesNotMatch(html, /<p>Figure 1/);
+});
+
+test('keeps a captioned table image unchanged without a following figure caption', () => {
+    const html = renderMarkdownHTML([
+        '<table><tr><td>Category</td><td>BMI</td></tr></table>',
+        '',
+        '![Table 2. BMI classification.](images/table.jpg)',
+    ].join('\n'), {
+        resolveImageURL: () => 'blob:mktero-table-image',
+    });
+
+    assert.doesNotMatch(html, /<table><caption>/);
+    assert.match(
+        html,
+        /<figcaption><span class="mktero-figure-label">Table 2\.<\/span> BMI classification\.<\/figcaption>/
     );
 });
 

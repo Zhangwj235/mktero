@@ -1,3 +1,7 @@
+import {
+    isLikelyNumericSuperscriptExponent,
+} from './text-normalization.js';
+
 const REFERENCE_HEADING_PATTERN = /^(?:(#{1,6})[ \t]+)?(?:\*{1,2}|_{1,2})?(?:references?|bibliography|works[ \t]+cited|literature[ \t]+cited|参考文献|参考资料|参考书目)(?:\*{1,2}|_{1,2})?[ \t]*[:：]?[ \t]*#*[ \t]*$/gim;
 const MAIN_CONTENT_HEADING_PATTERN = /^(?:(?:#{1,6})[ \t]+)?(?:\*{1,2}|_{1,2})?(?:(?:\d+(?:\.\d+)*)[.)]?[ \t]+)?(?:abstract|summary|background|introduction|materials?[ \t]+and[ \t]+methods|methods?|results?|摘要|背景|引言|绪论|材料与方法|方法|结果)(?:\*{1,2}|_{1,2})?[ \t]*[:：]?[ \t]*#*[ \t]*$/gim;
 const FRONT_MATTER_HEADING_PATTERN = /^(?:authors?(?:[ \t]+(?:details?|information))?|affiliations?|institutional[ \t]+affiliations?|institutions?|departments?|correspond(?:ence|ing[ \t]+authors?)|contact[ \t]+information|keywords?|作者|作者信息|作者单位|机构|所属机构|通讯作者|关键词)$/i;
@@ -723,7 +727,11 @@ function findSuperscriptMarkers(
             const wrapperFrom = from + match.index;
             const value = normalizeSuperscriptCharacters(match[1]);
             if (!includeLikelyExponents
-                && superscriptIsLikelyExponent(markdown, wrapperFrom, value)) {
+                && isLikelyNumericSuperscriptExponent(
+                    markdown,
+                    wrapperFrom,
+                    value
+                )) {
                 continue;
             }
             const contentFrom = wrapperFrom + match[0].indexOf(match[1]);
@@ -749,7 +757,11 @@ function findSuperscriptMarkers(
         const value = normalizeSuperscriptCharacters(match[0]);
         if (/^[\p{L}\p{N}_]$/u.test(after)
             || (!includeLikelyExponents
-                && superscriptIsLikelyExponent(markdown, wrapperFrom, value))) {
+                && isLikelyNumericSuperscriptExponent(
+                    markdown,
+                    wrapperFrom,
+                    value
+                ))) {
             continue;
         }
         markers.push({
@@ -783,17 +795,6 @@ function normalizeSuperscriptCharacters(value) {
     return [...String(value)]
         .map(character => UNICODE_SUPERSCRIPT_CHARACTERS[character] || character)
         .join('');
-}
-
-function superscriptIsLikelyExponent(body, from, value) {
-    if (!/^\s*\d+\s*$/.test(value)) return false;
-    const preceding = body.slice(0, from);
-    if (/\d[ \t]*$/u.test(preceding)) return true;
-    const baseMatch = /([\p{L}_][\p{L}\p{N}_]*)([ \t]*)$/u.exec(preceding);
-    if (!baseMatch) return false;
-    const base = baseMatch[1];
-    const spacing = baseMatch[2];
-    return base.length === 1 || (base.length === 2 && !spacing);
 }
 
 function numericCitationsInContainer(match, offset, byNumber) {

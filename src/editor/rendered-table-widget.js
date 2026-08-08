@@ -102,7 +102,7 @@ export class RenderedTableWidget extends WidgetType {
     }
 }
 
-function createTableCaption(document, caption) {
+export function createTableCaption(document, caption) {
     const element = document.createElement('caption');
     const label = document.createElement('span');
     label.className = 'mktero-table-label';

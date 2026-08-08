@@ -40,7 +40,7 @@ function figureTarget(key, figure) {
         from: figure.from,
         to: figure.to,
         figure: {
-            source: figure.source,
+            source: figure.renderSource || figure.source,
         },
     };
 }

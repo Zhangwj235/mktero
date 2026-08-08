@@ -786,6 +786,7 @@ class MarkdownTabView {
             reparseLabel: documentActions.reparseLabel,
             saveSnapshot: documentActions.saveSnapshot,
             saveSnapshotLabel: documentActions.saveSnapshotLabel,
+            readerControls: documentActions.readerControls,
             readerFontSize: documentActions.readerFontSize,
             readerFontLabel: documentActions.readerFontLabel,
             readerFontDecrease: documentActions.readerFontDecrease,
@@ -944,6 +945,10 @@ class MarkdownTabView {
             readerFontFamilyLabel,
             readerFontPicker
         );
+        const readerControls = this.createElement('div', {
+            class: 'markdown-reader-controls',
+        });
+        appendChildren(readerControls, readerFontSize, readerFontFamily);
         const reparse = this.createElement('button', {
             id: 'mktero-reparse',
             class: 'markdown-reader-action markdown-reader-action--child',
@@ -986,8 +991,6 @@ class MarkdownTabView {
             this.t('viewer.saveSnapshotShort')
         );
         saveSnapshot.appendChild(saveSnapshotLabel);
-        menu.appendChild(readerFontSize);
-        menu.appendChild(readerFontFamily);
         menu.appendChild(reparse);
         menu.appendChild(saveSnapshot);
         const status = this.createElement('span', {
@@ -997,11 +1000,17 @@ class MarkdownTabView {
         });
         status.hidden = true;
         const editorActions = this.createElement('div', {
-            class: 'markdown-reader-actions',
+            class: 'markdown-reader-actions markdown-reader-toolbar',
             role: 'toolbar',
-            'aria-label': this.t('viewer.documentActions'),
+            'aria-label': this.t('viewer.toolbar'),
         });
-        appendChildren(editorActions, menu, toggle, status);
+        appendChildren(
+            editorActions,
+            readerControls,
+            status,
+            toggle,
+            menu
+        );
         return {
             toolbar: editorActions,
             toggle,
@@ -1010,6 +1019,7 @@ class MarkdownTabView {
             reparseLabel,
             saveSnapshot,
             saveSnapshotLabel,
+            readerControls,
             readerFontSize,
             readerFontLabel,
             readerFontDecrease,
@@ -1069,6 +1079,7 @@ class MarkdownTabView {
     bindActions() {
         this.listen(this.elements.actionToggle, 'click', () => {
             if (this.elements.actionToggle.disabled) return;
+            this.setReaderFontOptionsOpen(false);
             this.setDocumentActionsOpen(!this.documentActionsOpen);
         });
         this.listen(this.elements.reparse, 'click', () => {
@@ -1093,11 +1104,13 @@ class MarkdownTabView {
             this.changeReaderFontSize(1);
         });
         this.listen(this.elements.readerFontTrigger, 'click', () => {
+            this.setDocumentActionsOpen(false);
             this.setReaderFontOptionsOpen(!this.readerFontOptionsOpen);
         });
         this.listen(this.elements.readerFontTrigger, 'keydown', event => {
             if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
             event.preventDefault();
+            this.setDocumentActionsOpen(false);
             this.setReaderFontOptionsOpen(true);
             this.focusReaderFontOption(this.readerFont);
         });
@@ -1129,7 +1142,7 @@ class MarkdownTabView {
             }
         });
         const closeDocumentActionsOnOutsidePress = event => {
-            if (!this.documentActionsOpen) return;
+            if (!this.documentActionsOpen && !this.readerFontOptionsOpen) return;
             const path = event.composedPath?.() || [];
             if (!path.includes(this.elements.readerFontFamily)) {
                 this.setReaderFontOptionsOpen(false);
@@ -1396,7 +1409,8 @@ class MarkdownTabView {
     }
 
     setReaderFontOptionsOpen(open) {
-        const visible = Boolean(open) && this.documentActionsOpen;
+        const visible = Boolean(open)
+            && !this.elements.readerFontFamily.hidden;
         this.readerFontOptionsOpen = visible;
         this.elements.readerFontTrigger.setAttribute(
             'aria-expanded',
@@ -1575,7 +1589,7 @@ class MarkdownTabView {
         );
         this.elements.editorActions.setAttribute(
             'aria-label',
-            this.t('viewer.documentActions')
+            this.t('viewer.toolbar')
         );
         this.elements.actionMenu.setAttribute(
             'aria-label',
@@ -1691,19 +1705,19 @@ class MarkdownTabView {
         const reparseAvailable = typeof model.onReparse === 'function';
         const saveAvailable = typeof model.onSaveSnapshot === 'function'
             && model.renderMode !== 'html';
+        const documentActionsAvailable = reparseAvailable || saveAvailable;
         const readerControlsAvailable = model.status === 'ready'
             || loadingView.preserveContent;
-        const available = reparseAvailable
-            || saveAvailable
+        const toolbarAvailable = documentActionsAvailable
             || readerControlsAvailable;
         const reparsing = loadingView.visible && loadingView.preserveContent;
         const activeElement = this.mount.activeElement;
         const readerControlHadFocus = Boolean(activeElement)
-            && this.elements.readerFontFamily.contains(activeElement);
+            && this.elements.readerControls.contains(activeElement);
         if (!readerControlsAvailable) {
             this.setReaderFontOptionsOpen(false);
             if (readerControlHadFocus) {
-                if (available && !this.documentActionBusy) {
+                if (toolbarAvailable && !this.documentActionBusy) {
                     this.elements.actionToggle.focus?.();
                 }
                 else {
@@ -1711,9 +1725,10 @@ class MarkdownTabView {
                 }
             }
         }
-        this.elements.editorActions.hidden = !available;
+        this.elements.editorActions.hidden = !toolbarAvailable;
         this.elements.reparse.hidden = !reparseAvailable;
         this.elements.saveSnapshot.hidden = !saveAvailable;
+        this.elements.actionToggle.hidden = !documentActionsAvailable;
         this.elements.readerFontSize.hidden = !readerControlsAvailable;
         this.elements.readerFontFamily.hidden = !readerControlsAvailable;
         this.elements.reparse.disabled = !reparseAvailable
@@ -1722,17 +1737,32 @@ class MarkdownTabView {
         this.elements.saveSnapshot.disabled = !saveAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);
-        this.elements.actionToggle.disabled = !available
+        this.elements.actionToggle.disabled = !documentActionsAvailable
             || Boolean(this.documentActionBusy);
+        const readerTabIndex = readerControlsAvailable ? '0' : '-1';
+        this.elements.readerFontDecrease.setAttribute(
+            'tabindex',
+            readerTabIndex
+        );
+        this.elements.readerFontIncrease.setAttribute(
+            'tabindex',
+            readerTabIndex
+        );
+        this.elements.readerFontTrigger.setAttribute(
+            'tabindex',
+            readerTabIndex
+        );
         this.elements.reparse.setAttribute('aria-busy', String(reparsing));
         this.elements.reparse.classList.toggle('is-reparsing', reparsing);
         const saving = this.documentActionBusy === 'saveSnapshot';
         this.elements.saveSnapshot.setAttribute('aria-busy', String(saving));
         this.elements.saveSnapshot.classList.toggle('is-saving', saving);
-        if (!available) {
+        if (!documentActionsAvailable) {
             this.documentActionsOpen = false;
         }
-        this.syncDocumentActionMenuState(this.documentActionsOpen && available);
+        this.syncDocumentActionMenuState(
+            this.documentActionsOpen && documentActionsAvailable
+        );
         this.syncErrorActions(model);
         this.syncWarningActions(model);
     }
@@ -1791,7 +1821,7 @@ class MarkdownTabView {
 
     setDocumentActionsOpen(open) {
         this.documentActionsOpen = Boolean(open);
-        const available = !this.elements.editorActions.hidden;
+        const available = !this.elements.actionToggle.hidden;
         this.syncDocumentActionMenuState(this.documentActionsOpen && available);
     }
 
@@ -1805,9 +1835,6 @@ class MarkdownTabView {
         const menuTabIndex = visible ? '0' : '-1';
         this.elements.reparse.setAttribute('tabindex', menuTabIndex);
         this.elements.saveSnapshot.setAttribute('tabindex', menuTabIndex);
-        this.elements.readerFontDecrease.setAttribute('tabindex', menuTabIndex);
-        this.elements.readerFontIncrease.setAttribute('tabindex', menuTabIndex);
-        this.elements.readerFontTrigger.setAttribute('tabindex', menuTabIndex);
         this.elements.editorActions.classList.toggle('is-open', visible);
     }
 

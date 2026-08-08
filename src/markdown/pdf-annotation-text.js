@@ -1,5 +1,6 @@
 import {
     createNormalizedTextIndex,
+    isLikelyNumericSuperscriptExponent,
     isNumericCitationContent,
 } from './text-normalization.js';
 
@@ -7,8 +8,10 @@ const SINGLE_QUOTES = new Set(['‘', '’', '‛']);
 const DOUBLE_QUOTES = new Set(['“', '”', '„', '‟']);
 const HYPHENS = new Set(['‐', '‑', '‒', '–', '—', '−']);
 const CITATION_WRAPPER = /\$\[([0-9,，;；\s–—-]{1,512})\]\$/gu;
+const NUMERIC_SUPERSCRIPT = /\$\^\{\s*([0-9][0-9,，;；\s–—-]{0,511}?)\s*\}\$/gu;
 const TRADEMARK_SUPERSCRIPT = /\$\^\{([®©™])\}\$/gu;
 const SENTENCE_FOOTNOTE_SUPERSCRIPT = /\$\^\{([0-9]{1,4})\}\$/gu;
+const STATISTICAL_NUMERIC_EXPONENT = /\^\{\s*([0-9]{1,4})\s*\}(?=\s*(?:<=|>=|!=|[=<>≤≥≠]))/gu;
 const SENTENCE_END = /[.!?。！？]/u;
 const RELATIONAL_OPERATOR_PATTERN = /([\p{L}\p{N})\]}])(\s*)(<=|>=|!=|[=<>≤≥≠])(\s*)(?=[\p{L}\p{N}([{\-+−±.])/gu;
 const OPENING_DELIMITER_SIGNED_NUMBER_WHITESPACE_PATTERN = /[([{](\s+)(?=(?:[+\-−±]|(?<!\\)\\pm)\s*\d)/gu;
@@ -61,6 +64,14 @@ export function createPdfAnnotationTextIndex(
 }
 
 export function createDehyphenatedPdfAnnotationTextIndex(text) {
+    return createLineWrappedPdfAnnotationTextIndex(text, false);
+}
+
+export function createHyphenPreservingPdfAnnotationTextIndex(text) {
+    return createLineWrappedPdfAnnotationTextIndex(text, true);
+}
+
+function createLineWrappedPdfAnnotationTextIndex(text, preserveHyphen) {
     const normalized = createPdfAnnotationTextIndex(String(text));
     const output = [];
     const sourceStarts = [];
@@ -77,6 +88,11 @@ export function createDehyphenatedPdfAnnotationTextIndex(text) {
             && isLetterBefore(normalized.text, offset)
             && isLetterAt(normalized.text, afterWhitespace)
             && hasWhitespace) {
+            if (preserveHyphen) {
+                output.push(character);
+                sourceStarts.push(offset);
+                sourceEnds.push(nextOffset);
+            }
             offset = afterWhitespace;
             continue;
         }
@@ -157,11 +173,44 @@ function collectNormalizationMarkup(text) {
     const ignoredOffsets = new Set();
     const replacements = new Map();
     markLatexSymbols(text, ignoredOffsets, replacements);
+    markStatisticalNumericExponents(text, ignoredOffsets, replacements);
     markMathematicalWhitespace(text, ignoredOffsets);
     for (const match of text.matchAll(CITATION_WRAPPER)) {
         if (!isNumericCitationContent(match[1])) continue;
         ignoredOffsets.add(match.index);
         ignoredOffsets.add(match.index + match[0].length - 1);
+    }
+    for (const match of text.matchAll(NUMERIC_SUPERSCRIPT)) {
+        const value = match[1].trim();
+        if (!isNumericCitationContent(value)
+            || !hasInlineSuperscriptContext(text, match.index)
+            || isLikelyNumericSuperscriptExponent(
+                text,
+                match.index,
+                value
+            )) {
+            continue;
+        }
+        const contentFrom = match.index + match[0].indexOf(value);
+        const contentTo = contentFrom + value.length;
+        for (
+            let offset = match.index;
+            offset < match.index + match[0].length;
+            offset++
+        ) {
+            if (offset < contentFrom || offset >= contentTo) {
+                ignoredOffsets.add(offset);
+                continue;
+            }
+            const character = text[offset];
+            replacements.set(offset, {
+                from: match.index,
+                to: match.index + match[0].length,
+                text: HYPHENS.has(character)
+                    ? '-'
+                    : character.normalize('NFKC'),
+            });
+        }
     }
     for (const match of text.matchAll(TRADEMARK_SUPERSCRIPT)) {
         const symbolOffset = match.index + match[0].indexOf(match[1]);
@@ -212,6 +261,39 @@ function collectNormalizationMarkup(text) {
         }
     }
     return { ignoredOffsets, replacements };
+}
+
+function markStatisticalNumericExponents(
+    text,
+    ignoredOffsets,
+    replacements
+) {
+    for (const match of text.matchAll(STATISTICAL_NUMERIC_EXPONENT)) {
+        if (!isLikelyNumericSuperscriptExponent(
+            text,
+            match.index,
+            match[1]
+        )) {
+            continue;
+        }
+        const contentFrom = match.index + match[0].indexOf(match[1]);
+        const contentTo = contentFrom + match[1].length;
+        for (
+            let offset = match.index;
+            offset < match.index + match[0].length;
+            offset++
+        ) {
+            if (offset < contentFrom || offset >= contentTo) {
+                ignoredOffsets.add(offset);
+            }
+            else {
+                replacements.set(offset, {
+                    from: match.index,
+                    to: match.index + match[0].length,
+                });
+            }
+        }
+    }
 }
 
 function markLatexSymbols(text, ignoredOffsets, replacements) {
@@ -305,4 +387,12 @@ function sentenceFootnoteWhitespaceFrom(text, wrapperFrom) {
     return whitespaceFrom > 0 && SENTENCE_END.test(text[whitespaceFrom - 1])
         ? whitespaceFrom
         : null;
+}
+
+function hasInlineSuperscriptContext(text, wrapperFrom) {
+    let offset = wrapperFrom - 1;
+    while (offset >= 0 && /[ \t]/u.test(text[offset])) offset--;
+    return offset >= 0
+        && !/[\r\n]/u.test(text[offset])
+        && /[\p{L}\p{N})\]}.!?,;:。！？，；：'’”]/u.test(text[offset]);
 }

@@ -316,6 +316,66 @@ test('matches PDF footnote digits against MinerU sentence superscripts', async (
     assert.deepEqual(result.unmatched, []);
 });
 
+test('matches PDF citation ranges against MinerU superscript markup', async () => {
+    const annotation = {
+        id: 'CITE0004',
+        type: 'highlight',
+        text: [
+            'According to several studies 11-14, the menstrual cycle length',
+            'can be classified into two groups.',
+        ].join(' '),
+        comment: '',
+        color: '#ffd400',
+        pageLabel: '1',
+        pageIndex: 0,
+        sortIndex: '00016',
+    };
+    const markdown = [
+        'According to several studies $^{11-14}$ , the menstrual cycle length',
+        'can be classified into two groups.',
+    ].join(' ');
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => [annotation] },
+    });
+
+    const result = await overlay.resolve(42, markdown);
+
+    assert.deepEqual(result.matched, [{
+        ...annotation,
+        matchKind: 'normalized',
+        ranges: [{ from: 0, to: markdown.length }],
+    }]);
+    assert.deepEqual(result.unmatched, []);
+});
+
+test('matches PDF citation digits against inline MinerU superscripts', async () => {
+    const annotation = {
+        id: 'CITE0005',
+        type: 'highlight',
+        text: 'According to these authors 16, state-space models are useful.',
+        comment: '',
+        color: '#ffd400',
+        pageLabel: '1',
+        pageIndex: 0,
+        sortIndex: '00017',
+    };
+    const markdown = [
+        'According to these authors $^{16}$ , state-space models are useful.',
+    ].join(' ');
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => [annotation] },
+    });
+
+    const result = await overlay.resolve(42, markdown);
+
+    assert.deepEqual(result.matched, [{
+        ...annotation,
+        matchKind: 'normalized',
+        ranges: [{ from: 0, to: markdown.length }],
+    }]);
+    assert.deepEqual(result.unmatched, []);
+});
+
 test('does not flatten ordinary numeric superscript math into PDF text', async () => {
     const annotation = {
         id: 'MATH0002',

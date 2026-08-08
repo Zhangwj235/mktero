@@ -51,6 +51,36 @@ test('maps a subfigure reference to its uniquely captioned parent figure', () =>
     }]);
 });
 
+test('recovers a figure target after its image receives a table caption', () => {
+    const markdown = [
+        'The distribution is shown in Figure 1.',
+        '',
+        '<table><tr><td>Category</td><td>BMI</td></tr></table>',
+        '',
+        '![Table 2. BMI classification.](images/histogram.jpg)',
+        'Figure 1. BMI histogram.',
+    ].join('\n');
+
+    const result = analyzeMarkdownFigureReferences(markdown);
+
+    assert.deepEqual(result.targets.map(target => ({
+        id: target.id,
+        caption: target.caption,
+        source: target.figure.source,
+    })), [{
+        id: 'figure:1',
+        caption: 'Figure 1. BMI histogram.',
+        source: '![Figure 1. BMI histogram.](images/histogram.jpg)',
+    }]);
+    assert.deepEqual(result.references.map(reference => ({
+        text: markdown.slice(reference.from, reference.to),
+        targetId: reference.targetId,
+    })), [{
+        text: 'Figure 1',
+        targetId: 'figure:1',
+    }]);
+});
+
 test('prefers an exact subfigure target over its parent figure', () => {
     const markdown = [
         'Compare Fig. 1a with the complete figure.',
@@ -105,6 +135,28 @@ test('maps Fig. references to every panel in a shared-caption figure', () => {
     assert.deepEqual(result.references.map(reference => (
         markdown.slice(reference.from, reference.to)
     )), ['Fig. S2']);
+});
+
+test('maps a reference to one composite image with a trailing panel label', () => {
+    const markdown = [
+        'Convergence is shown in Figure 3.',
+        '',
+        '![](images/posterior.jpg)  ',
+        '(b) Draws from posterior distribution  ',
+        'Figure 3. (a) Trace plots and (b) posterior draws.',
+    ].join('\n');
+
+    const result = analyzeMarkdownFigureReferences(markdown);
+
+    assert.equal(result.targets.length, 1);
+    assert.equal(result.targets[0].id, 'figure:3');
+    assert.equal(
+        result.targets[0].caption,
+        'Figure 3. (a) Trace plots and (b) posterior draws.'
+    );
+    assert.deepEqual(result.references.map(reference => (
+        markdown.slice(reference.from, reference.to)
+    )), ['Figure 3']);
 });
 
 test('ignores figure references in code and links and rejects duplicate labels', () => {

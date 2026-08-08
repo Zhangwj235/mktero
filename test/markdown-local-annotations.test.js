@@ -753,6 +753,39 @@ test('restores saved ranges and relocates a uniquely moved Markdown quote', asyn
     assert.equal(moved.matched[0].matchKind, 'local');
 });
 
+test('restores a Markdown note selected across a superscript citation range', async () => {
+    const markdown = [
+        'According to several studies $^{11-14}$ , the menstrual cycle length',
+        'can be classified into two groups ‘standard’ and ‘menstrual dysfunction’,',
+        'where a cycle length greater than 35 days is classified as',
+        '‘menstrual dysfunction’ and otherwise as standard.',
+    ].join(' ');
+    const selectedText = markdown.replace('$^{11-14}$', '11-14');
+    const local = {
+        id: 'mktero-local-citation-range',
+        source: 'markdown',
+        type: 'highlight',
+        text: selectedText,
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 0, to: markdown.length }],
+    };
+    const annotations = new MarkdownLocalAnnotations({
+        store: createMemoryStore([local]),
+    });
+
+    const result = await annotations.resolve(42, markdown);
+
+    assert.deepEqual(result.matched.map(annotation => annotation.id), [
+        local.id,
+    ]);
+    assert.deepEqual(result.unmatched, []);
+    assert.deepEqual(result.matched[0].ranges, [{
+        from: 0,
+        to: markdown.length,
+    }]);
+});
+
 test('relocates a local quote after Markdown whitespace is reflowed', async () => {
     const store = createMemoryStore([{
         id: 'mktero-local-1',

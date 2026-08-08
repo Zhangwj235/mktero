@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     createDehyphenatedPdfAnnotationTextIndex,
+    createHyphenPreservingPdfAnnotationTextIndex,
     createPdfAnnotationTextIndex,
     normalizePdfAnnotationText,
 } from '../src/markdown/pdf-annotation-text.js';
@@ -126,6 +127,27 @@ test('normalizes LaTeX temperature units from saved Markdown annotations', () =>
     );
 });
 
+test('normalizes statistical exponents before relational operators', () => {
+    const markdown = 'The fitted model reports R^{2}=0.99.';
+    const pdf = 'The fitted model reports R2 = 0.99.';
+    const index = createPdfAnnotationTextIndex(markdown);
+    const normalized = normalizePdfAnnotationText(markdown);
+
+    assert.equal(normalized, normalizePdfAnnotationText(pdf));
+    assert.equal(normalized, 'The fitted model reports R2=0.99.');
+    const target = 'R2';
+    const range = index.sourceRange(
+        normalized.indexOf(target),
+        target.length
+    );
+    assert.equal(markdown.slice(range.from, range.to), 'R^{2}');
+    assert.equal(normalizePdfAnnotationText('x^{2}.'), 'x^{2}.');
+    assert.equal(
+        normalizePdfAnnotationText('R^{12345}=1'),
+        'R^{12345}=1'
+    );
+});
+
 test('leaves escaped, malformed, and oversized LaTeX-like input unchanged', () => {
     const fragment = '\\\\pm 2 ( \\\\pm 3) 0.30\\\\;^{\\circ}C '
         + '\\pmod2 \\pmatrix '
@@ -155,4 +177,18 @@ test('preserves lexical hyphens without following whitespace', () => {
     );
 
     assert.equal(index.text, 'evidence-based and wellbeing');
+});
+
+test('preserves a lexical hyphen split across a PDF line', () => {
+    const source = 'According to these authors 16, state-\nspace models.';
+    const index = createHyphenPreservingPdfAnnotationTextIndex(source);
+    const target = 'state-space';
+    const from = index.text.indexOf(target);
+    const range = index.sourceRange(from, target.length);
+
+    assert.equal(
+        index.text,
+        'According to these authors 16, state-space models.'
+    );
+    assert.equal(source.slice(range.from, range.to), 'state-\nspace');
 });

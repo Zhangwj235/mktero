@@ -4,6 +4,7 @@ import {
 } from '../core/pdf-annotation.js';
 import {
     createDehyphenatedPdfAnnotationTextIndex,
+    createHyphenPreservingPdfAnnotationTextIndex,
     normalizePdfAnnotationText,
 } from '../markdown/pdf-annotation-text.js';
 import { findTextOccurrences } from '../markdown/text-normalization.js';
@@ -581,7 +582,23 @@ function normalizePDFSearchQueryForZotero(query) {
 }
 
 function findNormalizedTextOnPDFPage(page, text, target) {
-    const index = createDehyphenatedPdfAnnotationTextIndex(page);
+    const createIndexes = [
+        createDehyphenatedPdfAnnotationTextIndex,
+        createHyphenPreservingPdfAnnotationTextIndex,
+    ];
+    for (const createIndex of createIndexes) {
+        const result = findNormalizedTextInPDFPageIndex(
+            page,
+            text,
+            target,
+            createIndex(page)
+        );
+        if (result.matched || result.ambiguous) return result;
+    }
+    return { matched: false, query: null, ambiguous: false };
+}
+
+function findNormalizedTextInPDFPageIndex(page, text, target, index) {
     const occurrences = findTextOccurrences(index.text, target, 2);
     if (occurrences.truncated || occurrences.offsets.length > 1) {
         return { matched: false, query: null, ambiguous: true };
