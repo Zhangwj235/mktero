@@ -481,6 +481,66 @@ test('keeps plain numeric citation brackets visible to PDF annotations', async (
     assert.deepEqual(result.unmatched, []);
 });
 
+test('matches PDF highlights containing statistical confidence intervals', async () => {
+    const markdownHighlights = [
+        [
+            'The meta-analysis revealed that AI-based CAs significantly reduce',
+            "symptoms of depression (Hedge's g 0.64 [95% CI 0.17–1.12]) and",
+            "distress (Hedge's g 0.7 [95% CI 0.18–1.22]).",
+        ].join(' '),
+        [
+            'However, CA-based interventions showed no significant improvement',
+            "in overall psychological well-being (Hedge's g 0.32",
+            '[95% CI –0.13 to 0.78]).',
+        ].join(' '),
+    ];
+    const annotations = [
+        {
+            id: 'N67BW385',
+            type: 'highlight',
+            text: markdownHighlights[0].replaceAll("Hedge's", 'Hedge’s'),
+            comment: '',
+            color: '#ffd400',
+            pageLabel: '1',
+            pageIndex: 0,
+            sortIndex: '00001',
+        },
+        {
+            id: 'GWTLAXP3',
+            type: 'highlight',
+            text: markdownHighlights[1].replaceAll("Hedge's", 'Hedge’s'),
+            comment: '',
+            color: '#ffd400',
+            pageLabel: '1',
+            pageIndex: 0,
+            sortIndex: '00002',
+        },
+    ];
+    const markdown = markdownHighlights.join(' ');
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => annotations },
+    });
+
+    const result = await overlay.resolve(42, markdown);
+
+    assert.deepEqual(
+        result.matched.map(annotation => ({
+            id: annotation.id,
+            matchKind: annotation.matchKind,
+            source: markdown.slice(
+                annotation.ranges[0].from,
+                annotation.ranges[0].to
+            ),
+        })),
+        markdownHighlights.map((source, index) => ({
+            id: annotations[index].id,
+            matchKind: 'normalized',
+            source,
+        }))
+    );
+    assert.deepEqual(result.unmatched, []);
+});
+
 test('matches PDF trademark symbols against MinerU superscript markup', async () => {
     const annotation = {
         id: 'MARK0001',

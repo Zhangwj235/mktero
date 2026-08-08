@@ -69,6 +69,24 @@ test('extracts visible text from a Markdown source range', () => {
     );
 });
 
+test('preserves unresolved bracketed text while hiding resolved link syntax', () => {
+    const plain = createVisibleMarkdownTextIndex(
+        'Estimate [95% CI 0.17–1.12] and [plain label].'
+    );
+    const references = createVisibleMarkdownTextIndex([
+        '[full label][paper] and [shortcut].',
+        '',
+        '[paper]: https://example.com/full',
+        '[shortcut]: https://example.com/shortcut',
+    ].join('\n'));
+
+    assert.equal(
+        plain.text,
+        'Estimate [95% CI 0.17–1.12] and [plain label].'
+    );
+    assert.equal(references.text, 'full label and shortcut.\n\n\n');
+});
+
 test('rejects invalid visible-text source ranges', () => {
     const markdown = '[label](https://example.com)';
     const index = createVisibleMarkdownTextIndex(markdown);

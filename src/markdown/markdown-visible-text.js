@@ -109,7 +109,9 @@ function collectHiddenRanges(markdown) {
     const escapeRanges = [];
     const inlineMathRanges = [];
     const mathExcludedRanges = [];
-    MARKDOWN_PARSER.parse(markdown).iterate({
+    const tree = MARKDOWN_PARSER.parse(markdown);
+    const linkReferenceLabels = collectLinkReferenceLabels(tree, markdown);
+    tree.iterate({
         enter(node) {
             if (MATH_EXCLUDED_NODE_NAMES.has(node.name)) {
                 mathExcludedRanges.push({ from: node.from, to: node.to });
@@ -122,7 +124,16 @@ function collectHiddenRanges(markdown) {
                 escapeRanges.push({ from: node.from, to: node.from + 1 });
             }
             if ((HIDDEN_NODE_NAMES.has(node.name)
-                && !isVisibleNumericCitationMark(node, markdown))
+                && !isVisibleMarkdownMark(
+                    node,
+                    markdown,
+                    linkReferenceLabels
+                ))
+                || hiddenResolvedReferenceLabel(
+                    node,
+                    markdown,
+                    linkReferenceLabels
+                )
                 || hiddenURL(node)) {
                 ranges.push({ from: node.from, to: node.to });
             }
@@ -176,15 +187,75 @@ function appendMarkdownEscapeRanges(output, escapeRanges, inlineMathRanges) {
     }
 }
 
-function isVisibleNumericCitationMark(node, markdown) {
+function isVisibleMarkdownMark(node, markdown, linkReferenceLabels) {
     if (node.name !== 'LinkMark') return false;
     const parent = node.node.parent;
     if (parent?.name !== 'Link') return false;
-    const source = markdown.slice(parent.from, parent.to);
+    if (isBracketedNumericCitation(parent, markdown)) return true;
+    return !hasResolvedLink(parent, markdown, linkReferenceLabels);
+}
+
+function isBracketedNumericCitation(link, markdown) {
+    const source = markdown.slice(link.from, link.to);
     return source.length <= 514
         && source[0] === '['
         && source.at(-1) === ']'
         && isNumericCitationContent(source.slice(1, -1));
+}
+
+function hiddenResolvedReferenceLabel(node, markdown, linkReferenceLabels) {
+    if (node.name !== 'LinkLabel') return false;
+    const parent = node.node.parent;
+    return parent?.name === 'Link'
+        && hasResolvedLink(parent, markdown, linkReferenceLabels);
+}
+
+function hasResolvedLink(link, markdown, linkReferenceLabels) {
+    const url = link.getChild('URL');
+    if (url && markdown.slice(url.from, url.to)) return true;
+    const label = referenceLabelForLink(link, markdown);
+    return Boolean(label && linkReferenceLabels.has(label));
+}
+
+function referenceLabelForLink(link, markdown) {
+    const explicitLabel = link.getChild('LinkLabel');
+    const normalizedExplicitLabel = explicitLabel
+        ? normalizeLinkLabel(
+            markdown.slice(explicitLabel.from, explicitLabel.to)
+        )
+        : '';
+    if (normalizedExplicitLabel) return normalizedExplicitLabel;
+    const marks = link.getChildren('LinkMark');
+    const closingLabel = marks.find(mark => (
+        markdown.slice(mark.from, mark.to) === ']'
+    ));
+    if (!marks.length || !closingLabel) return '';
+    return normalizeLinkLabel(markdown.slice(marks[0].to, closingLabel.from));
+}
+
+function collectLinkReferenceLabels(tree, markdown) {
+    const labels = new Set();
+    tree.iterate({
+        enter(node) {
+            if (node.name !== 'LinkReference') return;
+            const label = node.node.getChild('LinkLabel');
+            const url = node.node.getChild('URL');
+            if (!label || !url || !markdown.slice(url.from, url.to)) return;
+            const normalized = normalizeLinkLabel(
+                markdown.slice(label.from, label.to)
+            );
+            if (normalized) labels.add(normalized);
+        },
+    });
+    return labels;
+}
+
+function normalizeLinkLabel(label) {
+    return String(label)
+        .replace(/^\[|\]$/g, '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
 }
 
 function hiddenURL(node) {
