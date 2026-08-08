@@ -830,6 +830,45 @@ test('keeps toolbar popovers mutually exclusive and closes them outside', () => 
     }
 });
 
+test('isolates toolbar popovers across Zotero windows', () => {
+    const createToolbarView = () => createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper\n\nReadable text.',
+        sourceKind: 'markdown',
+        onReparse: () => {},
+    }));
+    const first = createToolbarView();
+    const second = createToolbarView();
+
+    try {
+        const firstToggle = first.shadow.querySelector(
+            '#mktero-document-actions'
+        );
+        const secondFont = second.shadow.querySelector(
+            '#mktero-reader-font-family'
+        );
+        firstToggle.click();
+        secondFont.click();
+
+        assert.equal(firstToggle.getAttribute('aria-expanded'), 'true');
+        assert.equal(secondFont.getAttribute('aria-expanded'), 'true');
+
+        const firstOutsidePress = new first.document.defaultView.Event(
+            'pointerdown',
+            { bubbles: true },
+        );
+        first.document.body.dispatchEvent(firstOutsidePress);
+
+        assert.equal(firstToggle.getAttribute('aria-expanded'), 'false');
+        assert.equal(secondFont.getAttribute('aria-expanded'), 'true');
+    }
+    finally {
+        first.view.destroy();
+        second.view.destroy();
+    }
+});
+
 test('resets the font picker when reader controls become unavailable', () => {
     const readyModel = createModel({
         status: 'ready',

@@ -1708,7 +1708,8 @@ class MarkdownTabView {
         const documentActionsAvailable = reparseAvailable || saveAvailable;
         const readerControlsAvailable = model.status === 'ready'
             || loadingView.preserveContent;
-        const available = documentActionsAvailable || readerControlsAvailable;
+        const toolbarAvailable = documentActionsAvailable
+            || readerControlsAvailable;
         const reparsing = loadingView.visible && loadingView.preserveContent;
         const activeElement = this.mount.activeElement;
         const readerControlHadFocus = Boolean(activeElement)
@@ -1716,7 +1717,7 @@ class MarkdownTabView {
         if (!readerControlsAvailable) {
             this.setReaderFontOptionsOpen(false);
             if (readerControlHadFocus) {
-                if (available && !this.documentActionBusy) {
+                if (toolbarAvailable && !this.documentActionBusy) {
                     this.elements.actionToggle.focus?.();
                 }
                 else {
@@ -1724,7 +1725,7 @@ class MarkdownTabView {
                 }
             }
         }
-        this.elements.editorActions.hidden = !available;
+        this.elements.editorActions.hidden = !toolbarAvailable;
         this.elements.reparse.hidden = !reparseAvailable;
         this.elements.saveSnapshot.hidden = !saveAvailable;
         this.elements.actionToggle.hidden = !documentActionsAvailable;

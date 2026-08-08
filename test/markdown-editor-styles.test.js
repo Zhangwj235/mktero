@@ -101,6 +101,8 @@ test('keeps the reader toolbar above content without covering it', () => {
 
     assert.match(toolbar, /position:\s*relative/);
     assert.match(toolbar, /flex:\s*0 0 auto/);
+    assert.match(toolbar, /min-height:\s*44px/);
+    assert.match(toolbar, /padding:\s*4px 12px/);
     assert.match(toolbar, /border-bottom:\s*1px solid var\(--border-subtle\)/);
     assert.doesNotMatch(toolbar, /position:\s*absolute/);
     assert.match(editorHost, /flex:\s*1 1 auto/);
