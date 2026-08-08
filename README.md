@@ -35,11 +35,11 @@ Zotero 本地 PDF -> MinerU VLM 解析 -> full.md、content_list.json 与图片 
   并明确提示不会重复上传。
 - 转换失败时，阅读页会提供“重试”按钮；如果失败原因是 MinerU Token 未配置或无效，
   还会提供直接打开 Mktero 设置的入口，修正 Token 后可以从当前阅读页重新转换。
-- 可通过 Markdown 阅读器左上角的操作菜单重新解析当前 PDF；操作提示会明确说明 PDF
+- 可通过 Markdown 正文区顶部工具栏右侧的操作菜单重新解析当前 PDF；操作提示会明确说明 PDF
   将再次上传，并可能消耗转换服务额度。重新解析期间保留当前内容，新结果失败时继续显示
   原结果；新结果成功替换时会尽量恢复当前阅读位置。
-- Markdown 阅读器左上角提供一个总操作按钮，展开为紧凑的工具框，包含阅读字体、字号、“重新解析”和
-  “保存快照”。“保存快照”会在当前 PDF 所属 Zotero 条目下创建一个 Mktero 专用 Note，
+- Markdown 正文区顶部提供常驻工具栏，可直接调整阅读字体和字号；右侧操作菜单收纳“重新解析”和
+  “保存快照”，不会遮挡正文。“保存快照”会在当前 PDF 所属 Zotero 条目下创建一个 Mktero 专用 Note，
   Note 在文库中显示为 `Mktero Markdown Snapshot`。Mktero 将便携 HTML 保存在 Note 中，
   将解析图片作为 Note 的嵌入图片附件保存，并将原始
   source.md、source-map.json 作为当前文献条目的附件保存，并通过 Zotero relation 关联到
@@ -70,7 +70,7 @@ Zotero 本地 PDF -> MinerU VLM 解析 -> full.md、content_list.json 与图片 
   Zotero 回链的 Markdown。选中内容以安全引用块复制；普通复制行为保持不变。
 - 自动生成 Markdown 目录。目录支持点击跳转、拖动调整宽度，也可通过按钮或双击边缘收起。
 - Markdown 正文默认使用系统衬线字体，并采用更紧凑的行宽、行高和较轻的正文色，减少长段落的视觉偏斜与下坠感；
-  可在左上角“更多”菜单中切换为 Georgia、Cambria 或 Times New Roman，使用
+  可在正文区顶部工具栏中切换为 Georgia、Cambria 或 Times New Roman，使用
   `A− / A+` 调整 16–22 px 字号。
   字号会按比例应用到正文、表格、图题、代码和相关阅读标记。选择会保存在当前 Zotero
   配置文件中，并同步应用到已打开的 Mktero 标签页；也可在 `设置 -> Mktero -> Markdown 阅读` 中调整。
@@ -168,11 +168,11 @@ API Token 会作为普通首选项保存在当前 Zotero 配置文件中，不�
    公式、图片和表格会在悬停或键盘聚焦时显示另一个外部链接图标，可回到 PDF 原文区域。
    同一位置的复制图标可复制整个结构块及来源；选中单个可靠映射块内的文字后，也可从
    划词工具栏复制并附带来源。粘贴结果使用普通 Markdown，可用于 Zotero Note、Better
-   Notes 或外部 Markdown 工具。需要调整阅读字号时，打开左上角“更多”菜单并使用
+   Notes 或外部 Markdown 工具。需要调整阅读字号时，直接使用正文区顶部工具栏中的
    `A− / A+`。
-5. 需要忽略缓存并重新解析时，点击 Markdown 阅读器左上角的操作菜单，选择“重新解析”。
+5. 需要忽略缓存并重新解析时，点击 Markdown 正文区顶部工具栏右侧的操作菜单，选择“重新解析”。
    该操作会再次上传 PDF，并可能消耗转换服务额度。
-6. 需要把结果同步到其他 Zotero 设备时，点击左上角总操作按钮并选择“保存快照”。在
+6. 需要把结果同步到其他 Zotero 设备时，点击顶部工具栏右侧的操作菜单并选择“保存快照”。在
    Zotero 文库中展开当前条目即可看到名为 `Mktero Markdown Snapshot` 的专用 Note；其他
    设备等待 Zotero 同步完成后，可以直接打开该 Note。桌面端若源 Markdown 附件可用，会
    优先按 Markdown 打开；移动端或未安装 Mktero 的设备会使用 Note 自带的 HTML 快照。

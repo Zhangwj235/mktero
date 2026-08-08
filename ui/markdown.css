@@ -669,32 +669,50 @@ main {
     flex: 1;
     flex-direction: column;
     background: var(--reader-background);
+    container: markdown-reader / inline-size;
 }
 
-.markdown-reader-actions {
-    position: absolute;
-    z-index: 4;
-    top: 14px;
-    left: 16px;
-    display: flex;
-    width: auto;
+.markdown-editor-host {
+    position: relative;
+    width: 100%;
     height: auto;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+}
+
+.markdown-reader-toolbar {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    flex: 0 0 auto;
     align-items: center;
-    padding: 4px;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
-    box-shadow: var(--shadow-float);
-    backdrop-filter: blur(10px);
+    gap: 10px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-raised) 94%, var(--surface));
+    box-shadow: 0 1px 3px rgb(28 36 46 / 4%);
+    font-family: var(--ui-font);
+}
+
+.markdown-reader-controls {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
 }
 
 .markdown-reader-action-menu {
     position: absolute;
     top: calc(100% + 8px);
-    left: 0;
+    right: 12px;
     display: grid;
-    width: 220px;
-    max-width: min(220px, calc(100vw - 20px));
+    width: 196px;
+    max-width: min(196px, calc(100% - 20px));
     height: auto;
     gap: 3px;
     padding: 6px;
@@ -705,7 +723,7 @@ main {
     pointer-events: none;
     opacity: 0;
     transform: translateY(-5px) scale(0.98);
-    transform-origin: top left;
+    transform-origin: top right;
     transition:
         opacity 140ms ease,
         transform 160ms ease,
@@ -740,24 +758,24 @@ main {
 .markdown-reader-font-size,
 .markdown-reader-font-family {
     display: flex;
-    min-height: 40px;
+    min-width: 0;
+    min-height: 32px;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 4px 5px 8px;
+    gap: 8px;
 }
 
 .markdown-reader-font-size {
-    border-bottom: 1px solid var(--border-subtle);
-    margin-bottom: 3px;
+    flex: 0 0 auto;
 }
 
 .markdown-reader-font-family {
-    align-items: flex-start;
+    flex: 0 1 auto;
+    padding-inline-start: 10px;
+    border-inline-start: 1px solid var(--border-subtle);
 }
 
 .markdown-reader-font-family > .markdown-reader-font-label {
-    padding-top: 8px;
+    flex: 0 0 auto;
 }
 
 .markdown-reader-font-label {
@@ -846,10 +864,10 @@ main {
 }
 
 .markdown-reader-font-picker {
-    display: grid;
-    flex: 0 0 136px;
-    width: 136px;
-    gap: 4px;
+    position: relative;
+    flex: 0 1 148px;
+    width: 148px;
+    min-width: 104px;
 }
 
 .markdown-reader-font-current {
@@ -871,12 +889,18 @@ main {
 }
 
 .markdown-reader-font-options {
+    position: absolute;
+    z-index: 7;
+    top: calc(100% + 6px);
+    left: 0;
     display: grid;
+    width: max(100%, 164px);
     gap: 2px;
     padding: 4px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: color-mix(in srgb, var(--surface-raised) 92%, var(--surface));
+    box-shadow: var(--shadow-popover);
 }
 
 .markdown-reader-font-options[hidden] {
@@ -938,6 +962,7 @@ main {
 
 .markdown-reader-action--primary {
     z-index: 2;
+    margin-inline-start: auto;
     border-color: transparent;
     border-radius: var(--radius-sm);
     background: transparent;
@@ -979,19 +1004,19 @@ main {
 }
 
 .markdown-reader-action-status {
-    position: absolute;
-    left: 0;
-    top: calc(100% + 8px);
-    width: max-content;
-    max-width: min(320px, calc(100vw - 32px));
-    padding: 5px 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface-raised);
-    box-shadow: var(--shadow-popover);
+    min-width: 0;
+    margin-inline-start: auto;
     color: var(--muted);
     font-size: 11px;
-    pointer-events: none;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.markdown-reader-action-status:not([hidden])
+    + .markdown-reader-action--primary {
+    margin-inline-start: 0;
 }
 
 .markdown-snapshot-host,
@@ -1004,11 +1029,12 @@ main {
 .markdown-snapshot-host {
     width: calc(100% - 48px);
     max-width: var(--reader-width);
-    height: 100%;
+    height: auto;
     min-width: 0;
     min-height: 0;
+    flex: 1 1 auto;
     margin: 0 auto;
-    padding: 76px 0 80px;
+    padding: 48px 0 80px;
     overflow: auto;
     color: var(--reader-text);
     background: var(--reader-background);
@@ -1163,15 +1189,6 @@ main {
     }
 }
 
-.markdown-editor-host {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-    flex: 1;
-}
-
 .mktero-image-preview {
     position: fixed;
     z-index: 1000;
@@ -1277,7 +1294,7 @@ main {
     min-height: 100%;
     flex: 0 0 auto;
     margin: 0 auto;
-    padding: 76px 0 80px;
+    padding: 48px 0 80px;
     -moz-user-select: text;
     user-select: text;
     caret-color: var(--accent);
@@ -2401,18 +2418,46 @@ main {
     .loading-state { margin-top: 32px; padding: 20px; }
     .markdown-editor-host > .cm-editor .cm-content {
         width: calc(100% - 32px);
-        padding: 64px 0 56px;
+        padding: 32px 0 56px;
     }
 
     .markdown-snapshot-host {
         width: calc(100% - 32px);
-        padding: 64px 0 56px;
+        padding: 32px 0 56px;
+    }
+}
+
+@container markdown-reader (max-width: 620px) {
+    .markdown-reader-toolbar {
+        min-height: 44px;
+        gap: 8px;
+        padding: 6px 8px;
     }
 
-    .markdown-reader-actions {
-        top: 10px;
-        left: 10px;
+    .markdown-reader-controls { gap: 8px; }
+    .markdown-reader-font-label { display: none; }
+    .markdown-reader-font-family { padding-inline-start: 8px; }
+    .markdown-reader-font-picker {
+        flex-basis: 132px;
+        width: 132px;
     }
+
+    .markdown-reader-action-menu { right: 8px; }
+}
+
+@container markdown-reader (max-width: 390px) {
+    .markdown-reader-font-controls {
+        grid-template-columns: 28px 38px 28px;
+    }
+
+    .markdown-reader-font-button { width: 28px; }
+    .markdown-reader-font-family { flex: 1 1 auto; }
+    .markdown-reader-font-picker {
+        flex: 1 1 auto;
+        width: auto;
+    }
+
+    .markdown-reader-action-status { max-width: 84px; }
 }
 
 @container mktero-view (max-width: 760px) {
