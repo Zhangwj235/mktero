@@ -127,6 +127,27 @@ test('normalizes LaTeX temperature units from saved Markdown annotations', () =>
     );
 });
 
+test('normalizes statistical exponents before relational operators', () => {
+    const markdown = 'The fitted model reports R^{2}=0.99.';
+    const pdf = 'The fitted model reports R2 = 0.99.';
+    const index = createPdfAnnotationTextIndex(markdown);
+    const normalized = normalizePdfAnnotationText(markdown);
+
+    assert.equal(normalized, normalizePdfAnnotationText(pdf));
+    assert.equal(normalized, 'The fitted model reports R2=0.99.');
+    const target = 'R2';
+    const range = index.sourceRange(
+        normalized.indexOf(target),
+        target.length
+    );
+    assert.equal(markdown.slice(range.from, range.to), 'R^{2}');
+    assert.equal(normalizePdfAnnotationText('x^{2}.'), 'x^{2}.');
+    assert.equal(
+        normalizePdfAnnotationText('R^{12345}=1'),
+        'R^{12345}=1'
+    );
+});
+
 test('leaves escaped, malformed, and oversized LaTeX-like input unchanged', () => {
     const fragment = '\\\\pm 2 ( \\\\pm 3) 0.30\\\\;^{\\circ}C '
         + '\\pmod2 \\pmatrix '

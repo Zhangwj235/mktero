@@ -21,7 +21,7 @@ const MAX_PAGE_TEXT_LENGTH = 1_000_000;
 const MAX_TOTAL_TEXT_LENGTH = 10_000_000;
 const MAX_TEXT_ITEMS = 250_000;
 
-export const PDF_TEXT_INDEX_PROFILE = `pdfjs-${PDFJS_VERSION}|text-v4`;
+export const PDF_TEXT_INDEX_PROFILE = `pdfjs-${PDFJS_VERSION}|text-v5`;
 
 // Zotero's DOM-free plugin sandbox cannot dynamically import the packaged
 // worker URL when PDF.js falls back to its in-process worker implementation.
@@ -202,19 +202,21 @@ function shouldInsertTextItemSpace(previous, current) {
 }
 
 function isInlineNumericSuperscript(previous, current) {
+    const citationText = current?.text.trim();
     if (!previous
         || previous.hasEOL
         || previous.direction !== 'ltr'
         || current.direction !== 'ltr'
         || current.text.length > 512
-        || current.text !== current.text.trim()
-        || !isNumericCitationContent(current.text)
+        || !citationText
+        || !isNumericCitationContent(citationText)
         || !/[\p{L}\p{N})\]}.!?]$/u.test(previous.text)
-        || isLikelyNumericSuperscriptExponent(
+        || (isLikelyNumericSuperscriptExponent(
             previous.text,
             previous.text.length,
-            current.text
-        )) {
+            citationText
+        ) && !(endsWithShortProseWord(previous.text)
+            && /\s$/u.test(current.text)))) {
         return false;
     }
     const metrics = textItemSpacingMetrics(previous, current);
@@ -224,6 +226,10 @@ function isInlineNumericSuperscript(previous, current) {
         && metrics.rise <= metrics.previousFontHeight
         && metrics.gap >= -metrics.previousFontHeight * 0.25
         && metrics.gap <= metrics.previousFontHeight * 1.5);
+}
+
+function endsWithShortProseWord(text) {
+    return /(?:^|\s)(?:as|at|by|in|is|of|on|or|to)$/iu.test(text);
 }
 
 function returnsFromInlineNumericSuperscript(metrics) {

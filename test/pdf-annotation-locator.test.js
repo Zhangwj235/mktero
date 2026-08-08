@@ -749,8 +749,8 @@ test('does not infer citation spacing before ordinary PDF exponents', async () =
             height: 9,
             transform: [9, 0, 0, 9, 72, 700],
         }),
-        createTextItem('2', {
-            width: 4,
+        createTextItem('2 ', {
+            width: 5,
             height: 5.85,
             transform: [5.85, 0, 0, 5.85, 77, 703.15],
         }),
@@ -815,6 +815,57 @@ test('recovers spaces after attached PDF superscript citations', async () => {
     );
 
     assert.equal(located.position.rects.length, 3);
+    locator.dispose();
+});
+
+test('locates spaced PDF citations and a statistical exponent', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('Bortot at al. (2010)', {
+            width: 90,
+            height: 9,
+            transform: [9, 0, 0, 9, 72, 700],
+        }),
+        createTextItem('16 ', {
+            width: 9,
+            height: 5.85,
+            transform: [5.85, 0, 0, 5.85, 162, 703.15],
+        }),
+        createTextItem('while contradicting the results of', {
+            width: 120,
+            height: 9,
+            transform: [9, 0, 0, 9, 171, 700],
+        }),
+        createTextItem('2 ', {
+            width: 6,
+            height: 5.85,
+            transform: [5.85, 0, 0, 5.85, 291, 703.15],
+        }),
+        createTextItem('who report an R', {
+            width: 60,
+            height: 9,
+            transform: [9, 0, 0, 9, 297, 700],
+        }),
+        createTextItem('2', {
+            width: 4,
+            height: 5.85,
+            transform: [5.85, 0, 0, 5.85, 357, 703.15],
+        }),
+        createTextItem(' = 0.99.', {
+            width: 36,
+            height: 9,
+            transform: [9, 0, 0, 9, 361, 700],
+        }),
+    ]]);
+    const selectedText = 'Bortot at al. (2010) $^{16}$ while '
+        + 'contradicting the results of $^{2}$ who report an '
+        + 'R^{2}=0.99.';
+
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
+    assert.equal(located.position.pageIndex, 0);
     locator.dispose();
 });
 
