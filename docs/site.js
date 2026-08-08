@@ -106,7 +106,12 @@ const messages = {
 };
 
 const languageButton = document.querySelector('[data-language-toggle]');
+const privacyLink = document.querySelector('[data-privacy-link]');
 const languageNames = { zh: 'EN', en: '中' };
+const privacyLinks = {
+    zh: 'https://github.com/tenglvjun/mktero/blob/main/README.zh-CN.md#缓存与隐私',
+    en: 'https://github.com/tenglvjun/mktero#privacy-and-data-handling',
+};
 let language = document.documentElement.lang === 'en' ? 'en' : 'zh';
 
 function translatePage() {
@@ -120,6 +125,7 @@ function translatePage() {
         'aria-label',
         language === 'en' ? '切换到简体中文' : 'Switch to English'
     );
+    privacyLink.href = privacyLinks[language];
     document.title = language === 'en'
         ? 'Mktero | Source-linked reading for Zotero'
         : 'Mktero | Zotero 的来源关联阅读器';

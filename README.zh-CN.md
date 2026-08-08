@@ -189,8 +189,9 @@ npm run build
 构建会生成未压缩扩展、可复现的 `build/mktero-<version>.xpi`、SHA-256 校验文件以及
 `build/updates.json`。生成的 `build/` 和 `node_modules/` 目录已被忽略，不应提交。
 
-当 `v<version>` 标签与 `manifest.json`、`package.json` 和 `package-lock.json` 中的
-版本一致时，会触发 Release 工作流。普通推送和 Pull Request 只执行测试、构建与 CodeQL，
+创建 `v<version>` 标签前，必须保持 `manifest.json`、`package.json` 和
+`package-lock.json` 中的版本一致。Release 工作流会在发布前校验标签与
+`manifest.json` 的版本。普通推送和 Pull Request 只执行测试、构建与 CodeQL，
 不会发布新版本。
 
 仓库架构、编码规则、安全约束和跨文件修改清单见 [AGENTS.md](./AGENTS.md)。

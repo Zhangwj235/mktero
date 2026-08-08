@@ -226,10 +226,10 @@ The build creates the unpacked extension, a reproducible
 Generated `build/` and `node_modules/` directories are ignored and must not be
 committed.
 
-Tags named `v<version>` trigger the release workflow when the tag matches the
-versions in `manifest.json`, `package.json`, and `package-lock.json`. Pushes and
-pull requests run the test, build, and CodeQL workflows without publishing a
-release.
+Before creating a `v<version>` tag, keep the versions in `manifest.json`,
+`package.json`, and `package-lock.json` consistent. The release workflow checks
+the tag against `manifest.json` before publishing. Pushes and pull requests run
+the test, build, and CodeQL workflows without publishing a release.
 
 See [AGENTS.md](./AGENTS.md) for the repository architecture, coding rules,
 security invariants, and cross-file change checklist.
