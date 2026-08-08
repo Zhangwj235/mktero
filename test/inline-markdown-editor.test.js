@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {
+    forceParsing,
+    syntaxTreeAvailable,
+} from '@codemirror/language';
 import { EditorView } from '@codemirror/view';
 import { JSDOM } from 'jsdom';
 import {
@@ -57,6 +61,17 @@ function rectangle(top, right, bottom, left) {
         width: right - left,
         height: bottom - top,
     };
+}
+
+function hasRenderedWidget(view, display) {
+    let found = false;
+    for (const decorations of view.state.facet(EditorView.decorations)) {
+        if (typeof decorations === 'function') continue;
+        decorations.between(0, view.state.doc.length, (_from, _to, decoration) => {
+            if (decoration.spec.widget?.display === display) found = true;
+        });
+    }
+    return found;
 }
 
 function setSelectionGeometry(range, pointerLine, rectangles, lineRect) {
@@ -331,6 +346,8 @@ test('does not render PDF source buttons beside mapped Markdown blocks', () => {
     });
 
     editor.setDocument({ markdown, sourceMap });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    assert.equal(forceParsing(view, view.state.doc.length, 1000), true);
 
     assert.equal(
         document.querySelectorAll('.cm-mktero-source-link').length,
@@ -339,6 +356,34 @@ test('does not render PDF source buttons beside mapped Markdown blocks', () => {
     assert.ok(document.querySelector('.cm-mktero-image'));
     assert.ok(document.querySelector('.cm-mktero-math-display'));
     assert.ok(document.querySelector('.cm-mktero-table'));
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('refreshes rendered widgets after deferred Markdown parsing completes', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const prefix = Array.from(
+        { length: 120 },
+        (_, index) => (
+            `Paragraph ${index + 1} contains enough text to extend the initial parse.`
+        )
+    ).join('\n\n');
+    const markdown = `${prefix}\n\n$$\nE = mc^2\n$$`;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+
+    assert.equal(syntaxTreeAvailable(view.state), false);
+    assert.equal(hasRenderedWidget(view, 'math-display'), false);
+    assert.equal(forceParsing(view, view.state.doc.length, 1000), true);
+    assert.equal(syntaxTreeAvailable(view.state), true);
+    assert.equal(hasRenderedWidget(view, 'math-display'), true);
 
     editor.destroy();
     dom.window.close();
