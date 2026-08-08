@@ -331,6 +331,40 @@ test('synchronizes reader typography across Zotero windows and cleans up', () =>
     ]);
 });
 
+test('keeps code-copy callbacks isolated across windows and closes them', () => {
+    const firstWindow = createMainWindow({ id: 'first-document' });
+    const secondWindow = createMainWindow({ id: 'second-document' });
+    let activeWindow = firstWindow;
+    const copied = { first: [], second: [] };
+    const harness = createViewHarness();
+    const presenter = createPresenter(firstWindow, harness, {
+        getMainWindow: () => activeWindow,
+    });
+
+    const first = presenter.open(42, {
+        onCopyCode: code => copied.first.push(code),
+    });
+    activeWindow = secondWindow;
+    const second = presenter.open(43, {
+        onCopyCode: code => copied.second.push(code),
+    });
+
+    first.model.onCopyCode('const firstWindow = true;\n');
+    second.model.onCopyCode('const secondWindow = true;\n');
+    assert.deepEqual(copied, {
+        first: ['const firstWindow = true;\n'],
+        second: ['const secondWindow = true;\n'],
+    });
+
+    presenter.dispose();
+    assert.equal(presenter.get(42), null);
+    assert.equal(presenter.get(43), null);
+    assert.equal(first.view.destroyCalls, 1);
+    assert.equal(second.view.destroyCalls, 1);
+    assert.deepEqual(firstWindow.closed, [first.tabID]);
+    assert.deepEqual(secondWindow.closed, [second.tabID]);
+});
+
 test('does not create a Zotero tab when the inline view cannot be initialized', () => {
     const mainWindow = createMainWindow();
     const presenter = new MarkdownTabPresenter({
@@ -444,6 +478,24 @@ test('exposes and refreshes PDF annotation actions on the tab model', async () =
         },
         { copied: { kind: 'block', from: 0, to: 16 } },
     ]);
+});
+
+test('exposes and refreshes code copy actions on the tab model', async () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const calls = [];
+    const presenter = createPresenter(mainWindow, harness);
+    const first = presenter.open(42, {
+        onCopyCode: () => calls.push('stale-copy'),
+    });
+    const second = presenter.open(42, {
+        onCopyCode: code => calls.push(code),
+    });
+
+    await second.model.onCopyCode('const answer = 42;\n');
+
+    assert.equal(first.model, second.model);
+    assert.deepEqual(calls, ['const answer = 42;\n']);
 });
 
 test('exposes and refreshes local Markdown annotation actions', async () => {

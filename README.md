@@ -56,7 +56,7 @@ Open `Settings -> Mktero` after installation.
 | --- | --- | --- |
 | API Token | Empty | Required when a conversion is not available locally |
 | Body text font | System serif | Choose System serif, Georgia, Cambria, or Times New Roman |
-| Body text size | 18 px | Adjust Markdown and snapshot text from 16 to 22 px |
+| Body text size | 18 px | Adjust Markdown and snapshot text from 16 to 22 px while keeping a wide, stable reading column |
 | Reuse conversion results | On | Reuse results for the same PDF content and parser profile |
 
 The API Token is stored unencrypted as a normal preference in the active
@@ -98,6 +98,9 @@ library item cannot save a snapshot.
 
 - Reflows OCR output, multi-column text, formulas, tables, figures, lists, and
   code into a continuous read-only document.
+- Uses paper-oriented typography with STIX/Noto serif fallbacks, and applies
+  asynchronous Shiki syntax highlighting, language labels, and code copying to
+  supported fenced code blocks.
 - Restores adjacent academic table and figure captions when MinerU places a
   caption before or after a table, assigns a table caption to the next image,
   or extracts a composite figure's panel label separately from its caption.

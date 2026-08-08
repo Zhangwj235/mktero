@@ -43,6 +43,10 @@ import {
     findTextOccurrences,
     normalizeText,
 } from '../markdown/text-normalization.js';
+import {
+    highlightCodeBlock,
+    normalizeCodeBlockLanguage,
+} from '../markdown/code-highlighting.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const MAX_MATCH_CANDIDATES = 10_000;
@@ -61,6 +65,7 @@ class RenderedMarkdownWidget extends WidgetType {
         resolveImageURL,
         openLink,
         openImagePreview,
+        copyCode,
         renderVersion,
         citations = [],
         annotations = [],
@@ -76,6 +81,7 @@ class RenderedMarkdownWidget extends WidgetType {
         this.resolveImageURL = resolveImageURL;
         this.openLink = openLink;
         this.openImagePreview = openImagePreview;
+        this.copyCode = copyCode;
         this.renderVersion = renderVersion;
         this.citations = citations;
         this.citationKey = citations.map(citation => citation.key).join('|');
@@ -146,6 +152,12 @@ class RenderedMarkdownWidget extends WidgetType {
             this.openImagePreview,
             this.translate
         );
+        if (this.display === 'code-block') {
+            enhanceRenderedCodeBlock(container, document, {
+                copyCode: this.copyCode,
+                translate: this.translate,
+            });
+        }
         return container;
     }
 
@@ -236,10 +248,191 @@ class AnnotationNoteWidget extends WidgetType {
     }
 }
 
+export function enhanceRenderedCodeBlocks(
+    root,
+    document,
+    options = {}
+) {
+    for (const pre of root?.querySelectorAll?.('pre') || []) {
+        const container = pre.closest?.('.cm-mktero-code-block')
+            || wrapCodeBlockContainer(pre, document);
+        enhanceRenderedCodeBlock(container, document, options);
+    }
+}
+
+function enhanceRenderedCodeBlock(
+    container,
+    document,
+    { copyCode, translate = translateEnglish } = {}
+) {
+    const pre = container.querySelector('pre');
+    const codeElement = pre?.querySelector('code');
+    if (!pre || !codeElement
+        || container.querySelector('.cm-mktero-code-toolbar')) {
+        return;
+    }
+
+    const code = codeElement.textContent || '';
+    const languageMatch = /(?:^|\s)language-([^\s]+)/.exec(
+        codeElement.className || ''
+    );
+    const language = normalizeCodeBlockLanguage(languageMatch?.[1] || '');
+    const displayLanguage = language.length > 24
+        ? `${language.slice(0, 23)}…`
+        : language;
+    const toolbar = createHTMLNode(document, 'div');
+    toolbar.className = 'cm-mktero-code-toolbar';
+
+    const languageLabel = createHTMLNode(document, 'span');
+    languageLabel.className = 'cm-mktero-code-language';
+    languageLabel.dataset.language = language;
+    languageLabel.textContent = displayLanguage;
+    toolbar.append(languageLabel);
+
+    if (typeof copyCode === 'function' && code.trim()) {
+        const copyButton = createHTMLNode(document, 'button');
+        copyButton.type = 'button';
+        copyButton.className = 'cm-mktero-code-copy';
+        copyButton.dataset.action = 'copy-code';
+        copyButton.setAttribute('aria-label', translate('markdown.codeCopy'));
+        copyButton.title = translate('markdown.codeCopy');
+        copyButton.textContent = translate('markdown.codeCopy');
+        copyButton.addEventListener('click', async event => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (copyButton.disabled) return;
+            copyButton.disabled = true;
+            try {
+                await copyCode(code);
+                copyButton.dataset.state = 'copied';
+                copyButton.textContent = translate('markdown.codeCopied');
+            }
+            catch {
+                copyButton.dataset.state = 'failed';
+                copyButton.textContent = translate('markdown.codeCopyFailed');
+            }
+            finally {
+                copyButton.disabled = false;
+            }
+        });
+        toolbar.append(copyButton);
+    }
+
+    const content = createHTMLNode(document, 'div');
+    content.className = 'cm-mktero-code-content';
+    content.dataset.markdownContent = 'true';
+    pre.replaceWith(content);
+    content.append(pre);
+    pre.dataset.language = language;
+    pre.dataset.theme = resolveCodeTheme(document);
+    container.insertBefore(toolbar, content);
+
+    void highlightCodeBlock({
+        code,
+        language,
+        theme: pre.dataset.theme,
+    }).then(result => {
+        if (!result
+            || codeElement.textContent !== code
+            || hasActiveCodeSelection(document, codeElement)) {
+            return;
+        }
+        if (highlightedCodeText(result.lines) !== code) return;
+        renderHighlightedCode(codeElement, result.lines, document);
+        codeElement.dataset.highlighted = 'true';
+        codeElement.dataset.theme = result.theme;
+    });
+}
+
+function wrapCodeBlockContainer(pre, document) {
+    const container = createHTMLNode(document, 'div');
+    container.className = 'cm-mktero-code-block';
+    pre.replaceWith(container);
+    container.append(pre);
+    return container;
+}
+
+function highlightedCodeText(lines) {
+    return lines
+        .map(line => line.map(token => token.content || '').join(''))
+        .join('\n');
+}
+
+function renderHighlightedCode(codeElement, lines, document) {
+    const fragment = document.createDocumentFragment();
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        for (const token of lines[lineIndex]) {
+            if (!token.content) continue;
+            const span = createHTMLNode(document, 'span');
+            span.className = 'cm-mktero-code-token';
+            if (isSafeTokenColor(token.color)) {
+                span.style.color = token.color;
+            }
+            const fontStyle = Number(token.fontStyle) || 0;
+            if (fontStyle & 1) span.style.fontStyle = 'italic';
+            if (fontStyle & 2) span.style.fontWeight = '600';
+            if (fontStyle & 4) span.style.textDecoration = 'underline';
+            span.textContent = token.content;
+            fragment.append(span);
+        }
+        if (lineIndex < lines.length - 1) {
+            fragment.append(document.createTextNode('\n'));
+        }
+    }
+    codeElement.replaceChildren(fragment);
+}
+
+function createHTMLNode(document, tagName) {
+    if (typeof document.createElementNS === 'function') {
+        return document.createElementNS(XHTML_NAMESPACE, tagName);
+    }
+    return document.createElement(tagName);
+}
+
+function resolveCodeTheme(document) {
+    const matchMedia = document.defaultView?.matchMedia;
+    if (typeof matchMedia !== 'function') return 'light';
+    try {
+        return matchMedia.call(
+            document.defaultView,
+            '(prefers-color-scheme: dark)'
+        ).matches ? 'dark' : 'light';
+    }
+    catch {
+        return 'light';
+    }
+}
+
+function hasActiveCodeSelection(document, codeElement) {
+    const selection = document.defaultView?.getSelection?.();
+    if (!selection?.rangeCount || selection.isCollapsed) return false;
+    for (let index = 0; index < selection.rangeCount; index++) {
+        try {
+            if (selection.getRangeAt(index).intersectsNode(codeElement)) {
+                return true;
+            }
+        }
+        catch {
+            // Some Zotero DOM implementations do not expose intersectsNode.
+        }
+    }
+    return false;
+}
+
+function renderedMarkdownContentContainer(container) {
+    return container.querySelector?.('[data-markdown-content]') || container;
+}
+
+function isSafeTokenColor(color) {
+    return typeof color === 'string'
+        && /^#[0-9a-f]{3,8}$/i.test(color);
+}
+
 export function createInlineRenderingExtension({
     resolveImageURL,
     openLink,
     openImagePreview,
+    copyCode,
     citationPopup,
     tablePreviewPopup,
     figurePreviewPopup,
@@ -253,6 +446,7 @@ export function createInlineRenderingExtension({
         resolveImageURL,
         openLink,
         openImagePreview,
+        copyCode,
         citationPopup,
         tablePreviewPopup,
         figurePreviewPopup,
@@ -1018,14 +1212,15 @@ function selectedRenderedMarkdownAnnotation(view, range, selectedText) {
     const text = selectedText.trim();
     if (!text || text.length > MAX_PDF_ANNOTATION_TEXT_LENGTH) return null;
     const source = view.state.sliceDoc(sourceFrom, sourceTo);
+    const content = renderedMarkdownContentContainer(start);
     const renderedOffset = renderedSelectionTextOffset(
-        start,
+        content,
         range,
         selectedText
     );
     if (renderedOffset === null) return null;
     const renderedCandidates = findTextOccurrences(
-        start.textContent || '',
+        content.textContent || '',
         text,
         MAX_MATCH_CANDIDATES
     );

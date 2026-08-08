@@ -9,7 +9,7 @@ export const MARKDOWN_READER_FONT_OPTIONS = Object.freeze([
     Object.freeze({
         value: 'system-serif',
         labelKey: 'viewer.fontSystemSerif',
-        family: 'ui-serif, "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif',
+        family: '"STIX Two Text", "Noto Serif SC", ui-serif, "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif',
     }),
     Object.freeze({
         value: 'georgia',
