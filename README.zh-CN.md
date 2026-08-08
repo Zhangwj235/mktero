@@ -51,7 +51,7 @@ Mktero 是一个适用于 Zotero 7、8 和 9 的来源关联重排阅读器。�
 | --- | --- | --- |
 | API Token | 空 | 本地没有可用转换结果时必填 |
 | Body text font | 系统衬线字体 | 可选系统衬线、Georgia、Cambria 或 Times New Roman |
-| Body text size | 18 px | 在 16–22 px 间调整 Markdown 和快照字号，同时保持阅读版心稳定 |
+| Body text size | 18 px | 在 16–22 px 间调整 Markdown 和快照字号，同时保持宽且稳定的阅读版心 |
 | Reuse conversion results | 开启 | 复用相同 PDF 内容和解析配置对应的结果 |
 
 API Token 会作为普通首选项未加密地保存在当前 Zotero 配置文件中。
