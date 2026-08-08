@@ -4,6 +4,17 @@ export function isNumericCitationContent(text) {
     return NUMERIC_CITATION_CONTENT.test(text);
 }
 
+export function isLikelyNumericSuperscriptExponent(body, from, value) {
+    if (!/^\s*\d+\s*$/u.test(value)) return false;
+    const preceding = String(body).slice(0, from);
+    if (/\d[ \t]*$/u.test(preceding)) return true;
+    const baseMatch = /([\p{L}_][\p{L}\p{N}_]*)([ \t]*)$/u.exec(preceding);
+    if (!baseMatch) return false;
+    const base = baseMatch[1];
+    const spacing = baseMatch[2];
+    return base.length === 1 || (base.length === 2 && !spacing);
+}
+
 export function normalizeText(text) {
     return String(text)
         .normalize('NFKC')

@@ -1663,6 +1663,85 @@ test('renders a MinerU HTML table and its preceding caption as one table', () =>
     dom.window.close();
 });
 
+test('attaches a trailing MinerU table caption as the table header', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const captionText = [
+        'Table 1. Model selection criteria for stages I and II; number of',
+        'parameters (N. Par.), root mean square error (RMSE), concordance',
+        'correlation coefficient (CCC), Pearson correlation coefficient (r)',
+        'between fitted and predicted test data, and Bayesian information',
+        'criterion (BIC).',
+    ].join(' ');
+    const markdown = [
+        '<table><tr><td>Model</td><td>BIC</td></tr></table>',
+        '',
+        captionText,
+        '',
+        'Following paragraph.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const table = document.querySelector('.cm-mktero-html-table table');
+
+    assert.equal(table?.querySelector('caption')?.textContent, captionText);
+    assert.equal(
+        table?.querySelector('.mktero-table-label')?.textContent,
+        'Table 1.'
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('recovers adjacent table and figure captions assigned to the same image', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const tableCaption = [
+        'Table 2. Histogram of BMI and body mass index (BMI)',
+        'classification.',
+    ].join(' ');
+    const figureCaption = [
+        'Figure 1. Histogram of Body Mass Index (BMI)',
+        'classification.',
+    ].join(' ');
+    const markdown = [
+        '<table><tr><td>Category</td><td>BMI</td></tr></table>',
+        '',
+        `![${tableCaption}](images/histogram.jpg)`,
+        figureCaption,
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => 'blob:mktero-histogram',
+    });
+
+    assert.equal(
+        document.querySelector('.cm-mktero-html-table caption')?.textContent,
+        tableCaption
+    );
+    assert.equal(
+        document.querySelector('.mktero-figure figcaption')?.textContent,
+        figureCaption
+    );
+    assert.equal(
+        document.querySelector('.mktero-figure-label')?.textContent,
+        'Figure 1.'
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('recognizes a referenced MinerU table with a split heading and description', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -3218,6 +3297,46 @@ test('renders one shared caption for consecutive MinerU figure panels', () => {
     assert.equal(
         figure?.querySelector('.mktero-figure-label')?.textContent,
         'Figure 2.'
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('attaches a trailing caption to one composite figure with a panel label', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const caption = String.raw`Figure 3. (a) Trace plots of Markov chains and `
+        + String.raw`(b) Markov chain Monte Carlo (MCMC) draws from the posterior `
+        + String.raw`distribution of the parameters $\beta_{0}, \theta_{0}, \pi, `
+        + String.raw`\sigma_{\eta}, \sigma_{w}$ , and $\sigma_{\epsilon}$ based on `
+        + 'a sample of length 3000.';
+    const markdown = [
+        '![](images/posterior.jpg)  ',
+        '(b) Draws from posterior distribution  ',
+        caption,
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => 'blob:mktero-posterior',
+    });
+
+    assert.equal(
+        document.querySelector('.mktero-figure-label')?.textContent,
+        'Figure 3.'
+    );
+    assert.equal(
+        document.querySelector('.mktero-figure-panel-label')?.textContent,
+        '(b) Draws from posterior distribution'
+    );
+    assert.equal(
+        document.querySelector('.mktero-figure figcaption')
+            ?.textContent.startsWith('Figure 3.'),
+        true
     );
     assert.equal(editor.getMarkdown(), markdown);
 

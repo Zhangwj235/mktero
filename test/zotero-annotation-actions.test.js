@@ -802,6 +802,20 @@ test('locates Markdown text split by a PDF line-end hyphen', async () => {
     });
 });
 
+test('locates a lexical hyphen split across a PDF line', async () => {
+    const markdownPassage = 'According to these authors 16, state-space '
+        + 'models under a Bayesian approach.';
+    const pdfPassage = markdownPassage.replace('state-space', 'state- space');
+    const result = await createAnnotationWithNormalizedPDFSearch(
+        markdownPassage,
+        pdfPassage
+    );
+
+    assert.equal(result.created.id, 'SYNC0001');
+    assert.deepEqual(result.queries, [markdownPassage, pdfPassage]);
+    assert.equal(result.savedJSON.text, markdownPassage);
+});
+
 test('locates MinerU LaTeX and statistical text in the PDF', async () => {
     const result = await createAnnotationWithNormalizedPDFSearch(
         STATISTICAL_MARKDOWN_PASSAGE,

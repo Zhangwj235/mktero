@@ -10,6 +10,10 @@ import {
 import {
     createDehyphenatedPdfAnnotationTextIndex,
 } from '../markdown/pdf-annotation-text.js';
+import {
+    isLikelyNumericSuperscriptExponent,
+    isNumericCitationContent,
+} from '../markdown/text-normalization.js';
 
 const MAX_PDF_BYTES = 256 * 1024 * 1024;
 const MAX_PAGES = 10_000;
@@ -17,7 +21,7 @@ const MAX_PAGE_TEXT_LENGTH = 1_000_000;
 const MAX_TOTAL_TEXT_LENGTH = 10_000_000;
 const MAX_TEXT_ITEMS = 250_000;
 
-export const PDF_TEXT_INDEX_PROFILE = `pdfjs-${PDFJS_VERSION}|text-v3`;
+export const PDF_TEXT_INDEX_PROFILE = `pdfjs-${PDFJS_VERSION}|text-v4`;
 
 // Zotero's DOM-free plugin sandbox cannot dynamically import the packaged
 // worker URL when PDF.js falls back to its in-process worker implementation.
@@ -145,7 +149,12 @@ function indexPageText(content) {
         if (typeof value?.str !== 'string') continue;
         const text = value.str;
         const normalized = normalizeTextItem(value, 0, 0);
-        if (shouldInsertTextItemSpace(previous, normalized)) {
+        const inlineNumericSuperscript = isInlineNumericSuperscript(
+            previous,
+            normalized
+        );
+        if (inlineNumericSuperscript
+            || shouldInsertTextItemSpace(previous, normalized)) {
             source.push(' ');
             sourceLength++;
         }
@@ -162,6 +171,7 @@ function indexPageText(content) {
         previous = {
             ...normalized,
             hasEOL: value.hasEOL === true,
+            inlineNumericSuperscript,
         };
     }
     const rawText = source.join('');
@@ -180,12 +190,57 @@ function shouldInsertTextItemSpace(previous, current) {
         || !isSpacedWordEdge(previous.text.at(-1), current.text[0])) {
         return false;
     }
+    const metrics = textItemSpacingMetrics(previous, current);
+    if (!metrics) return false;
+    if (previous.inlineNumericSuperscript
+        && returnsFromInlineNumericSuperscript(metrics)) {
+        return true;
+    }
+    return metrics.across <= metrics.fontHeight * 0.5
+        && metrics.gap >= Math.max(1, metrics.fontHeight * 0.15)
+        && metrics.gap <= metrics.fontHeight * 2;
+}
+
+function isInlineNumericSuperscript(previous, current) {
+    if (!previous
+        || previous.hasEOL
+        || previous.direction !== 'ltr'
+        || current.direction !== 'ltr'
+        || current.text.length > 512
+        || current.text !== current.text.trim()
+        || !isNumericCitationContent(current.text)
+        || !/[\p{L}\p{N})\]}.!?]$/u.test(previous.text)
+        || isLikelyNumericSuperscriptExponent(
+            previous.text,
+            previous.text.length,
+            current.text
+        )) {
+        return false;
+    }
+    const metrics = textItemSpacingMetrics(previous, current);
+    return Boolean(metrics
+        && metrics.currentFontHeight <= metrics.previousFontHeight * 0.85
+        && metrics.rise >= metrics.currentFontHeight * 0.2
+        && metrics.rise <= metrics.previousFontHeight
+        && metrics.gap >= -metrics.previousFontHeight * 0.25
+        && metrics.gap <= metrics.previousFontHeight * 1.5);
+}
+
+function returnsFromInlineNumericSuperscript(metrics) {
+    return metrics.currentFontHeight >= metrics.previousFontHeight * 1.15
+        && metrics.rise <= -metrics.previousFontHeight * 0.2
+        && metrics.rise >= -metrics.currentFontHeight
+        && metrics.gap >= -metrics.currentFontHeight * 0.25
+        && metrics.gap <= metrics.currentFontHeight * 1.5;
+}
+
+function textItemSpacingMetrics(previous, current) {
     const previousDirection = textDirection(previous.transform);
     const currentDirection = textDirection(current.transform);
-    if (!previousDirection || !currentDirection) return false;
+    if (!previousDirection || !currentDirection) return null;
     const alignment = previousDirection[0] * currentDirection[0]
         + previousDirection[1] * currentDirection[1];
-    if (alignment < 0.995) return false;
+    if (alignment < 0.995) return null;
     const deltaX = current.transform[4] - previous.transform[4];
     const deltaY = current.transform[5] - previous.transform[5];
     const along = deltaX * previousDirection[0]
@@ -194,16 +249,32 @@ function shouldInsertTextItemSpace(previous, current) {
         -deltaX * previousDirection[1]
         + deltaY * previousDirection[0]
     );
-    const fontHeight = Math.max(
-        Math.hypot(previous.transform[2], previous.transform[3]),
-        Math.hypot(current.transform[2], current.transform[3])
+    const previousFontHeight = Math.hypot(
+        previous.transform[2],
+        previous.transform[3]
     );
+    const currentFontHeight = Math.hypot(
+        current.transform[2],
+        current.transform[3]
+    );
+    if (!Number.isFinite(previousFontHeight)
+        || previousFontHeight <= 0
+        || !Number.isFinite(currentFontHeight)
+        || currentFontHeight <= 0) {
+        return null;
+    }
+    const fontHeight = Math.max(previousFontHeight, currentFontHeight);
+    const rise = (deltaX * previous.transform[2]
+        + deltaY * previous.transform[3]) / previousFontHeight;
     const gap = along - previous.width;
-    return Number.isFinite(fontHeight)
-        && fontHeight > 0
-        && across <= fontHeight * 0.5
-        && gap >= Math.max(1, fontHeight * 0.15)
-        && gap <= fontHeight * 2;
+    return {
+        across,
+        currentFontHeight,
+        fontHeight,
+        gap,
+        previousFontHeight,
+        rise,
+    };
 }
 
 function textDirection(transform) {

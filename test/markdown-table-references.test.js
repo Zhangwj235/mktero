@@ -77,6 +77,67 @@ test('maps a MinerU split table heading and description to its HTML table', () =
     }]);
 });
 
+test('maps a trailing MinerU caption to its preceding HTML table', () => {
+    const markdown = [
+        'Model selection is summarized in Table 1.',
+        '',
+        '<table><tr><td>Model</td><td>BIC</td></tr></table>',
+        '',
+        'Table 1. Model selection criteria for stages I and II.',
+    ].join('\n');
+
+    const result = analyzeMarkdownTableReferences(markdown);
+
+    assert.deepEqual(result.targets.map(target => ({
+        id: target.id,
+        label: target.label,
+        caption: target.caption,
+        kind: target.table.kind,
+    })), [{
+        id: 'table:1',
+        label: 'Table 1.',
+        caption: 'Table 1. Model selection criteria for stages I and II.',
+        kind: 'html',
+    }]);
+    assert.deepEqual(result.references.map(reference => ({
+        text: markdown.slice(reference.from, reference.to),
+        targetId: reference.targetId,
+    })), [{
+        text: 'Table 1',
+        targetId: 'table:1',
+    }]);
+});
+
+test('recovers a table target from a caption misassigned to the next image', () => {
+    const markdown = [
+        'BMI classes are listed in Table 2.',
+        '',
+        '<table><tr><td>Category</td><td>BMI</td></tr></table>',
+        '',
+        '![Table 2. BMI classification.](images/histogram.jpg)',
+        'Figure 1. BMI histogram.',
+    ].join('\n');
+
+    const result = analyzeMarkdownTableReferences(markdown);
+
+    assert.deepEqual(result.targets.map(target => ({
+        id: target.id,
+        caption: target.caption,
+        kind: target.table.kind,
+    })), [{
+        id: 'table:2',
+        caption: 'Table 2. BMI classification.',
+        kind: 'html',
+    }]);
+    assert.deepEqual(result.references.map(reference => ({
+        text: markdown.slice(reference.from, reference.to),
+        targetId: reference.targetId,
+    })), [{
+        text: 'Table 2',
+        targetId: 'table:2',
+    }]);
+});
+
 test('maps a split plain-text Roman table label to its HTML table', () => {
     const markdown = [
         'The downstream tasks are summarized in Table I.',

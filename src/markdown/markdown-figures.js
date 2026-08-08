@@ -114,10 +114,33 @@ export function findAcademicFigureGroups(markdown) {
     const source = String(markdown || '');
     const lines = markdownLineRecords(source);
     const blockedLines = findBlockedLines(lines);
+    const reassignedCaptionsByImage = new Map(
+        findMisassignedTableFigureCaptions(lines, blockedLines)
+            .map(group => [group.imageIndex, group])
+    );
     const groups = [];
 
     for (let index = 0; index < lines.length; index++) {
         if (blockedLines.has(index)) continue;
+
+        const reassigned = reassignedCaptionsByImage.get(index);
+        if (reassigned) {
+            groups.push({
+                from: lines[index].from,
+                to: lines[reassigned.figureCaptionIndex].to,
+                caption: reassigned.figureCaption,
+                images: [{
+                    index,
+                    source: lines[index].text.trim(),
+                }],
+                renderSource: replaceImageDescription(
+                    lines[index].text.trim(),
+                    reassigned.figureCaption.text
+                ),
+            });
+            index = reassigned.figureCaptionIndex;
+            continue;
+        }
 
         const verticalGroup = leadingVerticalABPanelGroup(
             lines,
@@ -236,10 +259,46 @@ export function findAcademicTableGroups(markdown) {
     const source = String(markdown || '');
     const lines = markdownLineRecords(source);
     const blockedLines = findBlockedLines(lines);
+    const reassignedCaptionsByTable = new Map(
+        findMisassignedTableFigureCaptions(lines, blockedLines)
+            .map(group => [group.table.from, group])
+    );
     const groups = [];
 
     for (let index = 0; index < lines.length; index++) {
         if (blockedLines.has(index)) continue;
+        const leadingTable = academicTableAt(lines, index, blockedLines);
+        if (leadingTable) {
+            const reassigned = reassignedCaptionsByTable.get(leadingTable.from);
+            if (reassigned) {
+                groups.push({
+                    from: leadingTable.from,
+                    to: leadingTable.to,
+                    caption: reassigned.tableCaption,
+                    table: leadingTable,
+                });
+                index = leadingTable.lastLineIndex;
+                continue;
+            }
+            const captionIndex = nearbyLineIndex(
+                lines,
+                leadingTable.lastLineIndex + 1
+            );
+            const trailingCaption = captionIndex < lines.length
+                && !blockedLines.has(captionIndex)
+                ? parseAcademicTableCaption(lines[captionIndex].text)
+                : null;
+            if (trailingCaption) {
+                groups.push({
+                    from: leadingTable.from,
+                    to: lines[captionIndex].to,
+                    caption: trailingCaption,
+                    table: leadingTable,
+                });
+                index = captionIndex;
+                continue;
+            }
+        }
         let caption = parseAcademicTableCaption(lines[index].text);
         let tableIndex = nearbyLineIndex(lines, index + 1);
         if (!caption) {
@@ -281,6 +340,48 @@ export function findAcademicTableGroups(markdown) {
     }
 
     return groups;
+}
+
+export function normalizeMisassignedAcademicCaptions(markdown) {
+    const source = String(markdown || '');
+    const lines = markdownLineRecords(source);
+    const groups = findMisassignedTableFigureCaptions(
+        lines,
+        findBlockedLines(lines)
+    );
+    if (!groups.length) return source;
+
+    const edits = [];
+    for (const group of groups) {
+        const tableLine = lines[group.table.lastLineIndex];
+        const ending = lineEnding(tableLine.raw)
+            || (source.includes('\r\n') ? '\r\n' : '\n');
+        edits.push({
+            from: group.table.from,
+            to: group.table.from,
+            text: `${group.tableCaption.text}${ending}${ending}`,
+        }, {
+            from: lines[group.imageIndex].from,
+            to: lines[group.imageIndex].to,
+            text: replaceImageDescription(
+                lines[group.imageIndex].text,
+                group.figureCaption.text
+            ),
+        }, {
+            from: lines[group.figureCaptionIndex].from,
+            to: lines[group.figureCaptionIndex].to
+                + lineEnding(lines[group.figureCaptionIndex].raw).length,
+            text: '',
+        });
+    }
+    edits.sort((left, right) => right.from - left.from || right.to - left.to);
+    let normalized = source;
+    for (const edit of edits) {
+        normalized = normalized.slice(0, edit.from)
+            + edit.text
+            + normalized.slice(edit.to);
+    }
+    return normalized;
 }
 
 function parseAcademicTableHeading(value) {
@@ -356,6 +457,42 @@ function rawHTMLTableAt(lines, index, blockedLines) {
         };
     }
     return null;
+}
+
+function findMisassignedTableFigureCaptions(lines, blockedLines) {
+    const groups = [];
+    for (let index = 0; index < lines.length; index++) {
+        if (blockedLines.has(index)) continue;
+        const table = academicTableAt(lines, index, blockedLines);
+        if (!table) continue;
+
+        const imageIndex = nearbyLineIndex(lines, table.lastLineIndex + 1);
+        if (imageIndex >= lines.length || blockedLines.has(imageIndex)) continue;
+        const tableCaption = tableCaptionFromImageLine(lines[imageIndex].raw);
+        if (!tableCaption) continue;
+
+        const figureCaptionIndex = nearbyLineIndex(lines, imageIndex + 1);
+        if (figureCaptionIndex >= lines.length
+            || blockedLines.has(figureCaptionIndex)) {
+            continue;
+        }
+        const figureCaption = parseCaptionLine(
+            lines[figureCaptionIndex].raw
+        );
+        if (!figureCaption
+            || parseAcademicTableCaption(lines[figureCaptionIndex].text)) {
+            continue;
+        }
+        groups.push({
+            table,
+            tableCaption,
+            imageIndex,
+            figureCaption,
+            figureCaptionIndex,
+        });
+        index = table.lastLineIndex;
+    }
+    return groups;
 }
 
 function isGFMTableRow(line) {
@@ -527,7 +664,12 @@ function trailingSharedPanelLabelGroup(lines, startIndex, blockedLines) {
         break;
     }
 
-    if (images.length < 2 || !caption) return null;
+    if (!images.length || !caption) return null;
+    if (images.length === 1
+        && (!isTrailingCompositePanelLabel(images[0].panelLabel)
+            || !describesSharedABFigurePanels(caption))) {
+        return null;
+    }
     const sharedLabel = images[0].panelLabel;
     if (images.some(image => image.panelLabel !== sharedLabel)) return null;
 
@@ -538,6 +680,10 @@ function trailingSharedPanelLabelGroup(lines, startIndex, blockedLines) {
         captionIndex,
         images,
     };
+}
+
+function isTrailingCompositePanelLabel(label) {
+    return /^\(\s*b\s*\)[ \t]+\S/iu.test(String(label || ''));
 }
 
 function extractedPanelLabel(line) {
@@ -588,6 +734,13 @@ function captionFromImageLine(line) {
         : null;
 }
 
+function tableCaptionFromImageLine(line) {
+    const match = CAPTIONED_IMAGE_LINE_PATTERN.exec(line || '');
+    return match
+        ? parseAcademicTableCaption(unescapeImageDescription(match[1]))
+        : null;
+}
+
 export function describesSharedABFigurePanels(caption) {
     return /\(\s*a\s*\)/iu.test(caption?.description || '')
         && /\(\s*b\s*\)/iu.test(caption?.description || '');
@@ -630,4 +783,15 @@ function escapeImageDescription(value) {
         .replace(/\\/g, '\\\\')
         .replace(/\[/g, '\\[')
         .replace(/\]/g, '\\]');
+}
+
+function replaceImageDescription(line, caption) {
+    const source = String(line || '');
+    const match = CAPTIONED_IMAGE_LINE_PATTERN.exec(source);
+    if (!match) return source;
+    const descriptionFrom = source.indexOf('![') + 2;
+    const descriptionTo = descriptionFrom + match[1].length;
+    return source.slice(0, descriptionFrom)
+        + escapeImageDescription(caption)
+        + source.slice(descriptionTo);
 }

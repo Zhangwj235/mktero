@@ -98,6 +98,9 @@ library item cannot save a snapshot.
 
 - Reflows OCR output, multi-column text, formulas, tables, figures, lists, and
   code into a continuous read-only document.
+- Restores adjacent academic table and figure captions when MinerU places a
+  caption before or after a table, assigns a table caption to the next image,
+  or extracts a composite figure's panel label separately from its caption.
 - Preserves reliable page and region mappings so text, formulas, tables, and
   figures can return to their PDF source.
 - Previews citations, author affiliations, figures, and tables without leaving

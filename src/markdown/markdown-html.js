@@ -8,6 +8,7 @@ import {
 import {
     findAcademicFigureGroups,
     findAcademicTableGroups,
+    normalizeMisassignedAcademicCaptions,
     parseAcademicFigureCaption,
 } from './markdown-figures.js';
 
@@ -53,6 +54,7 @@ export function renderMarkdownHTML(
     if (typeof markdown !== 'string') {
         throw new TypeError('Markdown must be a string');
     }
+    const renderingMarkdown = normalizeMisassignedAcademicCaptions(markdown);
 
     const mathBudget = createMathRenderBudget();
     const renderer = createSafeRenderer(resolveImageURL, mathBudget, {
@@ -69,10 +71,13 @@ export function renderMarkdownHTML(
             createAcademicTableExtension(),
         ],
     });
-    const algorithmHTML = renderStandaloneMinerUAlgorithm(markdown, parser);
+    const algorithmHTML = renderStandaloneMinerUAlgorithm(
+        renderingMarkdown,
+        parser
+    );
     if (algorithmHTML) return algorithmHTML;
     const figureGroupHTML = renderStandaloneAcademicFigureGroup(
-        markdown,
+        renderingMarkdown,
         parser,
         resolveImageURL,
         resolveImageAttachmentKey,
@@ -81,7 +86,10 @@ export function renderMarkdownHTML(
         translate,
     );
     if (figureGroupHTML) return figureGroupHTML;
-    return renderParsedMarkdown(stripMinerUAlgorithmWrappers(markdown), parser);
+    return renderParsedMarkdown(
+        stripMinerUAlgorithmWrappers(renderingMarkdown),
+        parser
+    );
 }
 
 function renderStandaloneMinerUAlgorithm(markdown, parser) {
@@ -356,6 +364,23 @@ function groupAcademicTableTokens(tokens) {
     const grouped = [];
     for (let index = 0; index < tokens.length; index++) {
         const firstToken = tokens[index];
+        if (['html', 'table'].includes(firstToken.type)) {
+            let captionIndex = index + 1;
+            while (tokens[captionIndex]?.type === 'space') captionIndex++;
+            const groupedTable = tokens[captionIndex]?.type === 'paragraph'
+                ? academicTableToken(
+                    tokens,
+                    index,
+                    index,
+                    captionIndex
+                )
+                : null;
+            if (groupedTable) {
+                grouped.push(groupedTable);
+                index = captionIndex;
+                continue;
+            }
+        }
         if (!['heading', 'paragraph'].includes(firstToken.type)) {
             grouped.push(firstToken);
             continue;
@@ -373,32 +398,46 @@ function groupAcademicTableTokens(tokens) {
             continue;
         }
 
-        const source = tokens
-            .slice(index, tableIndex + 1)
-            .map(token => token.raw || '')
-            .join('');
-        const groups = findAcademicTableGroups(source);
-        const group = groups.length === 1 ? groups[0] : null;
-        const kindMatches = group?.table.kind === 'html'
-            ? tableToken.type === 'html'
-            : group?.table.kind === 'gfm' && tableToken.type === 'table';
-        if (!group
-            || !kindMatches
-            || source.slice(0, group.from).trim()
-            || source.slice(group.to).trim()) {
+        const groupedTable = academicTableToken(
+            tokens,
+            index,
+            tableIndex,
+            tableIndex
+        );
+        if (!groupedTable) {
             grouped.push(firstToken);
             continue;
         }
 
-        grouped.push({
-            type: 'mkteroAcademicTable',
-            raw: source,
-            caption: group.caption,
-            table: tableToken,
-        });
+        grouped.push(groupedTable);
         index = tableIndex;
     }
     return grouped;
+}
+
+function academicTableToken(tokens, startIndex, tableIndex, endIndex) {
+    const source = tokens
+        .slice(startIndex, endIndex + 1)
+        .map(token => token.raw || '')
+        .join('');
+    const groups = findAcademicTableGroups(source);
+    const group = groups.length === 1 ? groups[0] : null;
+    const tableToken = tokens[tableIndex];
+    const kindMatches = group?.table.kind === 'html'
+        ? tableToken?.type === 'html'
+        : group?.table.kind === 'gfm' && tableToken?.type === 'table';
+    if (!group
+        || !kindMatches
+        || source.slice(0, group.from).trim()
+        || source.slice(group.to).trim()) {
+        return null;
+    }
+    return {
+        type: 'mkteroAcademicTable',
+        raw: source,
+        caption: group.caption,
+        table: tableToken,
+    };
 }
 
 function standaloneImageToken(tokens) {

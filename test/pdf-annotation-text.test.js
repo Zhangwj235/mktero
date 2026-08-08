@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     createDehyphenatedPdfAnnotationTextIndex,
+    createHyphenPreservingPdfAnnotationTextIndex,
     createPdfAnnotationTextIndex,
     normalizePdfAnnotationText,
 } from '../src/markdown/pdf-annotation-text.js';
@@ -155,4 +156,18 @@ test('preserves lexical hyphens without following whitespace', () => {
     );
 
     assert.equal(index.text, 'evidence-based and wellbeing');
+});
+
+test('preserves a lexical hyphen split across a PDF line', () => {
+    const source = 'According to these authors 16, state-\nspace models.';
+    const index = createHyphenPreservingPdfAnnotationTextIndex(source);
+    const target = 'state-space';
+    const from = index.text.indexOf(target);
+    const range = index.sourceRange(from, target.length);
+
+    assert.equal(
+        index.text,
+        'According to these authors 16, state-space models.'
+    );
+    assert.equal(source.slice(range.from, range.to), 'state-\nspace');
 });

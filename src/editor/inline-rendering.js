@@ -20,7 +20,10 @@ import {
     analyzeMarkdownFigureReferences,
 } from '../markdown/markdown-figure-references.js';
 import { analyzeMarkdownTableReferences } from '../markdown/markdown-table-references.js';
-import { RenderedTableWidget } from './rendered-table-widget.js';
+import {
+    createTableCaption,
+    RenderedTableWidget,
+} from './rendered-table-widget.js';
 import {
     appendRenderedMarkdown,
     installRenderedCitations,
@@ -52,6 +55,7 @@ export const setAnnotationOverlay = StateEffect.define();
 class RenderedMarkdownWidget extends WidgetType {
     constructor({
         source,
+        renderSource = source,
         display,
         from,
         resolveImageURL,
@@ -61,10 +65,12 @@ class RenderedMarkdownWidget extends WidgetType {
         citations = [],
         annotations = [],
         extraClassName = '',
+        tableCaption = null,
         translate = translateEnglish,
     }) {
         super();
         this.source = source;
+        this.renderSource = renderSource;
         this.display = display;
         this.from = from;
         this.resolveImageURL = resolveImageURL;
@@ -76,17 +82,20 @@ class RenderedMarkdownWidget extends WidgetType {
         this.annotations = annotations;
         this.annotationKey = JSON.stringify(annotations);
         this.extraClassName = extraClassName;
+        this.tableCaption = tableCaption;
         this.translate = translate;
     }
 
     eq(other) {
         return this.source === other.source
+            && this.renderSource === other.renderSource
             && this.display === other.display
             && this.from === other.from
             && this.renderVersion === other.renderVersion
             && this.citationKey === other.citationKey
             && this.annotationKey === other.annotationKey
-            && this.extraClassName === other.extraClassName;
+            && this.extraClassName === other.extraClassName
+            && this.tableCaption?.text === other.tableCaption?.text;
     }
 
     toDOM(view) {
@@ -102,11 +111,15 @@ class RenderedMarkdownWidget extends WidgetType {
         container.dataset.markdownTo = String(this.from + this.source.length);
         appendRenderedMarkdown(
             container,
-            this.source,
+            this.renderSource,
             this.resolveImageURL,
             inline,
             this.translate
         );
+        const table = container.querySelector('table');
+        if (table && this.tableCaption && !table.querySelector('caption')) {
+            table.prepend(createTableCaption(document, this.tableCaption));
+        }
         installRenderedCitations(container, this.citations);
         if (['math', 'math-display'].includes(this.display)) {
             wrapRenderedMathAnnotations(
@@ -1602,6 +1615,7 @@ function renderedRange(node, state, display, context) {
     return Decoration.replace({
         widget: new RenderedMarkdownWidget({
             source: state.sliceDoc(node.from, node.to),
+            renderSource: node.renderSource,
             display,
             from: node.from,
             citations: display === 'image'
@@ -1626,6 +1640,9 @@ function renderedRange(node, state, display, context) {
                     ? 'cm-mktero-figure-target-highlight'
                     : '',
             ].filter(Boolean).join(' '),
+            tableCaption: node.table?.kind === 'html'
+                ? node.caption
+                : null,
             ...context,
         }),
         block: true,

@@ -1,5 +1,6 @@
 import {
     createDehyphenatedPdfAnnotationTextIndex,
+    createHyphenPreservingPdfAnnotationTextIndex,
     normalizePdfAnnotationText,
 } from '../markdown/pdf-annotation-text.js';
 import { findTextOccurrences } from '../markdown/text-normalization.js';
@@ -250,27 +251,24 @@ function locateInIndex(index, text, {
     const pages = pdfPageIndexHint === undefined
         ? index.pages
         : index.pages.filter(page => page.pageIndex === pdfPageIndexHint);
-    let match = null;
-    for (const page of pages) {
-        const occurrences = findTextOccurrences(
-            page.normalizedText,
+    let match = findUniqueIndexMatch(
+        pages,
+        target,
+        page => page.normalizedText
+    );
+    let createSourceIndex = createDehyphenatedPdfAnnotationTextIndex;
+    if (!match) {
+        match = findUniqueIndexMatch(
+            pages,
             target,
-            MAX_MATCHES
+            page => createHyphenPreservingPdfAnnotationTextIndex(
+                page.rawText
+            ).text
         );
-        if (occurrences.truncated || occurrences.offsets.length > 1) {
-            throw ambiguousError();
-        }
-        if (!occurrences.offsets.length) continue;
-        if (match) throw ambiguousError();
-        match = {
-            page,
-            normalizedFrom: occurrences.offsets[0],
-        };
+        createSourceIndex = createHyphenPreservingPdfAnnotationTextIndex;
     }
     if (!match) throw notFoundError();
-    const normalized = createDehyphenatedPdfAnnotationTextIndex(
-        match.page.rawText
-    );
+    const normalized = createSourceIndex(match.page.rawText);
     const sourceRange = normalized.sourceRange(
         match.normalizedFrom,
         target.length
@@ -294,6 +292,27 @@ function locateInIndex(index, text, {
             rects,
         },
     };
+}
+
+function findUniqueIndexMatch(pages, target, normalizedTextForPage) {
+    let match = null;
+    for (const page of pages) {
+        const occurrences = findTextOccurrences(
+            normalizedTextForPage(page),
+            target,
+            MAX_MATCHES
+        );
+        if (occurrences.truncated || occurrences.offsets.length > 1) {
+            throw ambiguousError();
+        }
+        if (!occurrences.offsets.length) continue;
+        if (match) throw ambiguousError();
+        match = {
+            page,
+            normalizedFrom: occurrences.offsets[0],
+        };
+    }
+    return match;
 }
 
 function locateSourceRange(page, sourceRange, measureText) {
