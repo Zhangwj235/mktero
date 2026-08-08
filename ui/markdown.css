@@ -15,7 +15,7 @@
     --editor-background: var(--reader-background);
     --reader-width: 38em;
     --reader-font-size: 18px;
-    --reader-line-height: 1.64;
+    --reader-line-height: 1.78;
     --reader-caption-font-size: calc(var(--reader-font-size) * 0.82);
     --reader-caption-line-height: 1.5;
     --reader-code-font-size: calc(var(--reader-font-size) * 0.82);
@@ -25,7 +25,7 @@
     --reader-panel-label-font-size: calc(var(--reader-font-size) * 0.82);
     --reader-page-marker-font-size: calc(var(--reader-font-size) * 0.72);
     --ui-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --reader-font: ui-serif, "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif;
+    --reader-font: "STIX Two Text", "Noto Serif SC", ui-serif, "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif;
     --radius-sm: 6px;
     --radius-md: 9px;
     --radius-lg: 12px;
@@ -1023,7 +1023,11 @@ main {
 .markdown-editor-host > .cm-editor {
     font-kerning: normal;
     font-optical-sizing: auto;
+    font-variant-numeric: oldstyle-nums proportional-nums;
     font-weight: 400;
+    text-wrap: pretty;
+    word-break: normal;
+    word-spacing: normal;
 }
 
 .markdown-snapshot-host {
@@ -1059,6 +1063,12 @@ main {
 
 .markdown-snapshot-host p {
     margin: 0 0 1.25em;
+    hyphenate-limit-chars: 6 3 3;
+    hyphens: auto;
+    text-align: justify;
+    text-align-last: start;
+    text-justify: inter-word;
+    text-wrap: pretty;
 }
 
 .markdown-snapshot-host h1,
@@ -1106,11 +1116,12 @@ main {
 }
 
 .markdown-snapshot-host pre {
-    margin: 22px 0;
+    margin: 1.75rem 0;
     padding: 16px;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--surface) 72%, var(--reader-background));
+    box-shadow: 0 1px 2px rgb(32 37 43 / 5%);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: var(--reader-code-font-size);
     line-height: var(--reader-code-line-height);
@@ -1318,7 +1329,15 @@ main {
 
 .markdown-editor-host > .cm-editor .cm-gutters { display: none; }
 
-.markdown-editor-host > .cm-editor .cm-line { padding-inline: 0; }
+.markdown-editor-host > .cm-editor .cm-line {
+    padding-inline: 0;
+    hyphenate-limit-chars: 6 3 3;
+    hyphens: auto;
+    text-align: justify;
+    text-align-last: start;
+    text-justify: inter-word;
+    text-wrap: pretty;
+}
 
 .markdown-editor-host > .cm-editor .cm-mktero-heading {
     padding-top: 1em;
@@ -2272,15 +2291,173 @@ main {
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-code-block pre {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     overflow-x: auto;
-    margin: 22px 0;
     padding: 16px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--surface) 72%, var(--reader-background));
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: var(--reader-code-font-size);
     line-height: var(--reader-code-line-height);
+    text-align: start;
+    text-wrap: wrap;
+    white-space: pre;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-code-block {
+    margin: 1.75rem 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--surface) 72%, var(--reader-background));
+    box-shadow: 0 1px 2px rgb(32 37 43 / 5%);
+    text-align: start;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-code-toolbar {
+    display: flex;
+    min-height: 36px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface) 82%, var(--reader-background));
+    color: var(--muted);
+    font-family: var(--ui-font);
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    line-height: 1;
+    text-transform: uppercase;
+    user-select: none;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-code-language {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-code-copy {
+    flex: 0 0 auto;
+    min-height: 22px;
+    padding: 3px 7px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font: 600 10px/1 var(--ui-font);
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-code-copy:hover:not(:disabled),
+.markdown-editor-host > .cm-editor .cm-mktero-code-copy:focus-visible {
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+    color: var(--accent-strong);
+    outline: none;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-code-copy[data-state='copied'] {
+    color: var(--success);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-code-copy[data-state='failed'] {
+    color: var(--error);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-code-token {
+    font-variant-ligatures: inherit;
+}
+
+.markdown-snapshot-host .cm-mktero-code-block {
+    margin: 1.75rem 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--surface) 72%, var(--reader-background));
+    box-shadow: 0 1px 2px rgb(32 37 43 / 5%);
+    text-align: start;
+}
+
+.markdown-snapshot-host .cm-mktero-code-block pre {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    overflow-x: auto;
+    padding: 16px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: var(--reader-code-font-size);
+    line-height: var(--reader-code-line-height);
+    text-align: start;
+    text-wrap: wrap;
+    white-space: pre;
+}
+
+.markdown-snapshot-host .cm-mktero-code-toolbar {
+    display: flex;
+    min-height: 36px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface) 82%, var(--reader-background));
+    color: var(--muted);
+    font-family: var(--ui-font);
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    line-height: 1;
+    text-transform: uppercase;
+    user-select: none;
+}
+
+.markdown-snapshot-host .cm-mktero-code-language {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.markdown-snapshot-host .cm-mktero-code-copy {
+    flex: 0 0 auto;
+    min-height: 22px;
+    padding: 3px 7px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font: 600 10px/1 var(--ui-font);
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.markdown-snapshot-host .cm-mktero-code-copy:hover:not(:disabled),
+.markdown-snapshot-host .cm-mktero-code-copy:focus-visible {
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+    color: var(--accent-strong);
+    outline: none;
+}
+
+.markdown-snapshot-host .cm-mktero-code-copy[data-state='copied'] {
+    color: var(--success);
+}
+
+.markdown-snapshot-host .cm-mktero-code-copy[data-state='failed'] {
+    color: var(--error);
+}
+
+.markdown-snapshot-host .cm-mktero-code-token {
+    font-variant-ligatures: inherit;
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-divider hr {
@@ -2416,6 +2593,12 @@ main {
 
 @container mktero-view (max-width: 720px) {
     .loading-state { margin-top: 32px; padding: 20px; }
+    .markdown-snapshot-host p,
+    .markdown-editor-host > .cm-editor .cm-line {
+        hyphens: manual;
+        text-align: start;
+    }
+
     .markdown-editor-host > .cm-editor .cm-content {
         width: calc(100% - 32px);
         padding: 32px 0 56px;

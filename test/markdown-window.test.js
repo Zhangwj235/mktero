@@ -278,6 +278,31 @@ test('forwards sourced Markdown copy targets to the current tab model', async ()
     view.destroy();
 });
 
+test('forwards code copy requests to the current tab model', async () => {
+    let editorOptions;
+    const copied = [];
+    const model = createModel({
+        status: 'ready',
+        markdown: '```js\nconst answer = 42;\n```',
+        onCopyCode: code => copied.push(code),
+    });
+    const { view } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    await editorOptions.copyCode('const answer = 42;\n');
+
+    assert.deepEqual(copied, ['const answer = 42;\n']);
+    view.destroy();
+});
+
 test('reparses the current PDF from an accessible icon action', async () => {
     let reparseCalls = 0;
     let finishReparse;
@@ -1036,6 +1061,44 @@ test('renders a saved HTML snapshot without exposing PDF actions or editing cont
         assert.equal(shadow.querySelector('#mktero-reparse').hidden, true);
         assert.equal(shadow.querySelector('#mktero-save-snapshot').hidden, true);
         assert.equal(shadow.querySelector('.cm-content').textContent, '');
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('enhances code blocks in saved HTML snapshots', async () => {
+    const copied = [];
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        renderMode: 'html',
+        snapshotHTML: '<pre><code class="language-javascript">'
+            + 'const answer = 42;\n'
+            + '</code></pre>',
+        snapshotAssets: [],
+        onCopyCode: code => copied.push(code),
+    }));
+
+    try {
+        const block = shadow.querySelector(
+            '#mktero-snapshot .cm-mktero-code-block'
+        );
+        const code = block.querySelector('code');
+        const copyButton = block.querySelector('[data-action="copy-code"]');
+        assert.equal(
+            block.querySelector('.cm-mktero-code-language').textContent,
+            'javascript'
+        );
+        assert.ok(copyButton);
+        copyButton.click();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(copied, ['const answer = 42;\n']);
+        assert.equal(copyButton.textContent, 'Copied');
+
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(code.dataset.highlighted, 'true');
+        assert.equal(code.textContent, 'const answer = 42;\n');
     }
     finally {
         view.destroy();

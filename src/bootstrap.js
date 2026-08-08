@@ -391,6 +391,7 @@ async function openItemAsMarkdown(itemID, {
         ),
         onOpenSourceInPDF: location => openSourceInPDF(itemID, location),
         onCopySourcedMarkdown: target => copySourcedMarkdown(itemID, target),
+        onCopyCode: code => copyCode(code),
         onCreateMarkdownAnnotation: draft => (
             runMarkdownAnnotationAction('create', itemID, draft)
         ),
@@ -583,6 +584,7 @@ function createSavedMarkdownActions(noteID, sourceItem) {
         onCopySourcedMarkdown: withSource((itemID, target) => (
             copySourcedMarkdown(itemID, target)
         )),
+        onCopyCode: code => copyCode(code),
         onChangeAnnotationColor: withSource((itemID, annotationID, color) => (
             runAnnotationAction('changeColor', itemID, annotationID, color)
         )),
@@ -713,6 +715,20 @@ async function copySourcedMarkdown(itemID, target) {
             runtimeTranslate
         );
         await runtime.clipboard.writeText(markdown);
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        throw error;
+    }
+}
+
+async function copyCode(code) {
+    try {
+        if (typeof code !== 'string'
+            || typeof runtime.clipboard?.writeText !== 'function') {
+            throw new Error('Code copy is unavailable');
+        }
+        await runtime.clipboard.writeText(code);
     }
     catch (error) {
         Zotero.logError?.(error);

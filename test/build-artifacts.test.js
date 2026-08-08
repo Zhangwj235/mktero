@@ -43,6 +43,7 @@ test('builds reproducible release assets and Zotero update metadata', async () =
         'bootstrap.js',
         'licenses/lucide.txt',
         'licenses/pdfjs.txt',
+        'licenses/shiki.txt',
         'manifest.json',
         'pdf.worker.mjs',
         'prefs.js',
@@ -65,6 +66,10 @@ test('builds reproducible release assets and Zotero update metadata', async () =
     assert.match(
         strFromU8(packageEntries['licenses/pdfjs.txt']),
         /Apache License/
+    );
+    assert.match(
+        strFromU8(packageEntries['licenses/shiki.txt']),
+        /MIT License/
     );
     assert.deepEqual(updates, {
         addons: {

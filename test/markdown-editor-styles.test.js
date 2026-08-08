@@ -29,11 +29,11 @@ test('uses balanced typography for long-form Markdown', () => {
 
     assert.match(host, /--reader-width:\s*38em/);
     assert.match(host, /--reader-font-size:\s*18px/);
-    assert.match(host, /--reader-line-height:\s*1\.64/);
+    assert.match(host, /--reader-line-height:\s*1\.78/);
     assert.match(host, /--reader-text:\s*#2c3238/);
     assert.match(
         host,
-        /--reader-font:\s*ui-serif,\s*"Iowan Old Style",\s*Charter,\s*"Bitstream Charter",\s*Georgia,\s*serif/
+        /--reader-font:\s*"STIX Two Text",\s*"Noto Serif SC",\s*ui-serif,\s*"Iowan Old Style",\s*Charter,\s*"Bitstream Charter",\s*Georgia,\s*serif/
     );
 
     const editor = lastRuleBody('.markdown-editor-host > .cm-editor');
@@ -49,6 +49,11 @@ test('uses balanced typography for long-form Markdown', () => {
     assert.match(sharedTypography, /font-weight:\s*400/);
     assert.match(sharedTypography, /font-kerning:\s*normal/);
     assert.match(sharedTypography, /font-optical-sizing:\s*auto/);
+    assert.match(
+        sharedTypography,
+        /font-variant-numeric:\s*oldstyle-nums proportional-nums/
+    );
+    assert.match(sharedTypography, /text-wrap:\s*pretty/);
     assert.doesNotMatch(MARKDOWN_STYLES, /text-rendering:\s*optimizeLegibility/);
 });
 
@@ -550,6 +555,45 @@ test('keeps snapshot code blocks from inheriting inline code chrome', () => {
     assert.match(blockCode, /border:\s*0/);
     assert.match(blockCode, /background:\s*transparent/);
     assert.match(blockCode, /font:\s*inherit/);
+});
+
+test('styles paper-like paragraphs and interactive reader code blocks', () => {
+    const paragraph = ruleBody('.markdown-snapshot-host p');
+    assert.match(paragraph, /hyphens:\s*auto/);
+    assert.match(paragraph, /text-align:\s*justify/);
+    assert.match(paragraph, /text-justify:\s*inter-word/);
+
+    const line = ruleBody('.markdown-editor-host > .cm-editor .cm-line');
+    assert.match(line, /hyphens:\s*auto/);
+    assert.match(line, /text-align:\s*justify/);
+
+    const block = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-code-block'
+    );
+    assert.match(block, /overflow:\s*hidden/);
+    assert.match(block, /border-radius:\s*var\(--radius-md\)/);
+
+    const snapshotBlock = ruleBody(
+        '.markdown-snapshot-host .cm-mktero-code-block'
+    );
+    assert.match(snapshotBlock, /overflow:\s*hidden/);
+
+    const toolbar = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-code-toolbar'
+    );
+    assert.match(toolbar, /justify-content:\s*space-between/);
+    assert.match(toolbar, /user-select:\s*none/);
+
+    const copy = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-code-copy'
+    );
+    assert.match(copy, /cursor:\s*pointer/);
+    assert.match(copy, /text-transform:\s*none/);
+
+    const snapshotCopy = ruleBody(
+        '.markdown-snapshot-host .cm-mktero-code-copy'
+    );
+    assert.match(snapshotCopy, /cursor:\s*pointer/);
 });
 
 test('styles table references, previews, and target highlights', () => {

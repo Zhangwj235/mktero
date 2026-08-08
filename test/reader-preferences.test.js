@@ -101,6 +101,6 @@ test('normalizes and persists the Markdown reader font family', () => {
     );
     assert.equal(
         getMarkdownReaderFontFamily('invalid'),
-        'ui-serif, "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif'
+        '"STIX Two Text", "Noto Serif SC", ui-serif, "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif'
     );
 });

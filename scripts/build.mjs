@@ -26,6 +26,7 @@ const requiredPackageFiles = [
     'bootstrap.js',
     'licenses/lucide.txt',
     'licenses/pdfjs.txt',
+    'licenses/shiki.txt',
     'manifest.json',
     'pdf.worker.mjs',
     'prefs.js',
@@ -89,6 +90,7 @@ await Promise.all([
     copyText('ui/icons/mktero.svg', 'ui/icons/mktero.svg'),
     copyText('node_modules/lucide/LICENSE', 'licenses/lucide.txt'),
     copyText('node_modules/pdfjs-dist/LICENSE', 'licenses/pdfjs.txt'),
+    copyText('node_modules/shiki/LICENSE', 'licenses/shiki.txt'),
     copyText('prefs.js', 'prefs.js'),
     ...pdfjsAssetDirectories.map(directory => copyDirectory(
         path.join(projectRoot, 'node_modules/pdfjs-dist', directory),

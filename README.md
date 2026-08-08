@@ -98,6 +98,9 @@ library item cannot save a snapshot.
 
 - Reflows OCR output, multi-column text, formulas, tables, figures, lists, and
   code into a continuous read-only document.
+- Uses paper-oriented typography with STIX/Noto serif fallbacks, and applies
+  asynchronous Shiki syntax highlighting, language labels, and code copying to
+  supported fenced code blocks.
 - Restores adjacent academic table and figure captions when MinerU places a
   caption before or after a table, assigns a table caption to the next image,
   or extracts a composite figure's panel label separately from its caption.

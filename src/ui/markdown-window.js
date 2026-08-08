@@ -1,4 +1,5 @@
 import { createInlineMarkdownEditor } from '../editor/inline-markdown-editor.js';
+import { enhanceRenderedCodeBlocks } from '../editor/inline-rendering.js';
 import {
     annotationPageLabel,
     safeAnnotationColor,
@@ -217,6 +218,9 @@ class MarkdownTabView {
                 this.deleteAnnotation(annotationID)
             ),
             copySourcedMarkdown: target => this.copySourcedMarkdown(target),
+            copyCode: typeof model?.onCopyCode === 'function'
+                ? code => this.copyCode(code)
+                : null,
             openSourceLocation: location => this.openSourceLocation(location),
             openAnnotationInPDF: annotationID => (
                 this.openAnnotationInPDF(annotationID)
@@ -360,6 +364,13 @@ class MarkdownTabView {
             throw new Error('Sourced Markdown copy is unavailable');
         }
         return this.model.onCopySourcedMarkdown(target);
+    }
+
+    copyCode(code) {
+        if (typeof this.model.onCopyCode !== 'function') {
+            throw new Error('Code copy is unavailable');
+        }
+        return this.model.onCopyCode(code);
     }
 
     async changeAnnotationColor(annotationID, color) {
@@ -2404,6 +2415,12 @@ class MarkdownTabView {
         template.innerHTML = this.model.snapshotHTML || '';
         sanitizeSnapshotFragment(template.content, this.snapshotURLs);
         elements.snapshotHost.replaceChildren(...template.content.childNodes);
+        enhanceRenderedCodeBlocks(elements.snapshotHost, this.document, {
+            copyCode: typeof this.model?.onCopyCode === 'function'
+                ? code => this.copyCode(code)
+                : null,
+            translate: this.t,
+        });
         this.syncSnapshotFragmentTargets();
     }
 
