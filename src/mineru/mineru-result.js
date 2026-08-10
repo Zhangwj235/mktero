@@ -10,7 +10,12 @@ export function prepareMinerUResult(result) {
         sourceMap: existingSourceMap,
         ...prepared
     } = result || {};
-    if (prepared.userEdited) return prepared;
+    if (prepared.userEdited) {
+        return {
+            ...prepared,
+            ...(existingSourceMap ? { sourceMap: existingSourceMap } : {}),
+        };
+    }
 
     let markdown = normalizeMinerUMarkdown(prepared.markdown);
     let sourceMap = existingSourceMap;

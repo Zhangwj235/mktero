@@ -1,6 +1,7 @@
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { searchKeymap } from '@codemirror/search';
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState, Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { GFM } from '@lezer/markdown';
 import {
@@ -19,7 +20,9 @@ import {
     selectedMarkdownAnnotation,
     selectionAnchor,
     setAnnotationOverlay,
+    setCorrectionRenderingState,
     setFigureHighlight,
+    setInlineEditingRange,
     setReferenceHighlight,
     setTableHighlight,
 } from './inline-rendering.js';
@@ -99,6 +102,9 @@ export function createInlineMarkdownEditor({
     openAnnotationInPDF,
     onSourceNavigationError,
     onViewportChange,
+    onCommitCorrection,
+    onRestoreCorrection,
+    onCorrectionError,
     localization = createLocalization(),
 }) {
     const t = localization.t.bind(localization);
@@ -171,6 +177,12 @@ export function createInlineMarkdownEditor({
         annotationPopup,
         ...referenceFeatureList.map(feature => feature.popup),
     ];
+    const editingMode = new Compartment();
+    let correctionEnabled = false;
+    let correctionBlocks = [];
+    let correctedBlockIDs = [];
+    let activeCorrection = null;
+    let correctionBusy = false;
     let view;
     const removeDOMActivation = installDOMActivation(
         parent,
@@ -214,17 +226,86 @@ export function createInlineMarkdownEditor({
                         referenceFeatures.table.highlight.activate,
                     activateFigureReference:
                         referenceFeatures.figure.highlight.activate,
+                    commitCorrection: correction => (
+                        onCommitCorrection?.(correction)
+                    ),
+                    restoreCorrection: blockID => (
+                        onRestoreCorrection?.(blockID)
+                    ),
+                    onCorrectionError,
                     translate: t,
                 }),
-                EditorView.editable.of(false),
-                EditorState.readOnly.of(true),
-                keymap.of(searchKeymap),
+                editingMode.of([
+                    EditorView.editable.of(false),
+                    EditorState.readOnly.of(true),
+                ]),
+                EditorState.transactionFilter.of(transaction => {
+                    if (!transaction.docChanged || !activeCorrection) {
+                        return transaction;
+                    }
+                    let allowed = true;
+                    transaction.changes.iterChangedRanges((from, to) => {
+                        if (from < activeCorrection.from
+                            || to > activeCorrection.to) {
+                            allowed = false;
+                        }
+                    });
+                    return allowed ? transaction : [];
+                }),
+                history(),
+                Prec.highest(keymap.of([{
+                    key: 'Mod-Enter',
+                    run() {
+                        if (!activeCorrection) return false;
+                        void commitActiveCorrection();
+                        return true;
+                    },
+                }, {
+                    key: 'Escape',
+                    run() {
+                        if (!activeCorrection) return false;
+                        cancelActiveCorrection();
+                        return true;
+                    },
+                }])),
+                Prec.highest(EditorView.domEventHandlers({
+                    keydown(event) {
+                        if (!activeCorrection) return false;
+                        if (event.key === 'Escape') {
+                            event.preventDefault();
+                            cancelActiveCorrection();
+                            return true;
+                        }
+                        if (event.key === 'Enter'
+                            && (event.metaKey || event.ctrlKey)) {
+                            event.preventDefault();
+                            void commitActiveCorrection();
+                            return true;
+                        }
+                        return false;
+                    },
+                })),
+                keymap.of([
+                    ...defaultKeymap,
+                    ...historyKeymap,
+                    ...searchKeymap,
+                ]),
                 EditorView.lineWrapping,
                 EditorView.updateListener.of(update => {
                     if (update.viewportChanged
                         || update.geometryChanged
                         || update.docChanged) {
                         onViewportChange?.(editorViewportOffset(update.view));
+                    }
+                    if (update.docChanged && activeCorrection) {
+                        activeCorrection = {
+                            ...activeCorrection,
+                            from: update.changes.mapPos(
+                                activeCorrection.from,
+                                -1
+                            ),
+                            to: update.changes.mapPos(activeCorrection.to, 1),
+                        };
                     }
                 }),
             ],
@@ -244,8 +325,140 @@ export function createInlineMarkdownEditor({
         releaseDOMGlobals(ownerWindow);
         throw error;
     }
+    const setEditingEnabled = enabled => {
+        view.dispatch({
+            effects: editingMode.reconfigure([
+                EditorView.editable.of(enabled),
+                EditorState.readOnly.of(!enabled),
+            ]),
+        });
+    };
+    const beginActiveCorrection = (block, position) => {
+        if (!correctionEnabled
+            || correctionBusy
+            || block.type === 'table'
+            || typeof onCommitCorrection !== 'function') {
+            return false;
+        }
+        if (activeCorrection?.blockID === block.id) return true;
+        if (activeCorrection) void commitActiveCorrection();
+        activeCorrection = {
+            blockID: block.id,
+            from: block.from,
+            to: block.to,
+            originalMarkdown: view.state.sliceDoc(block.from, block.to),
+        };
+        annotationPopup.close();
+        view.dispatch({
+            selection: {
+                anchor: Math.max(
+                    block.from,
+                    Math.min(position, block.to)
+                ),
+            },
+            effects: [
+                editingMode.reconfigure([
+                    EditorView.editable.of(true),
+                    EditorState.readOnly.of(false),
+                ]),
+                setInlineEditingRange.of({
+                    from: block.from,
+                    to: block.to,
+                }),
+            ],
+        });
+        view.focus();
+        return true;
+    };
+    const endActiveCorrection = ({ revert = false } = {}) => {
+        if (!activeCorrection) {
+            setEditingEnabled(false);
+            return;
+        }
+        const active = activeCorrection;
+        const changes = revert ? {
+            from: active.from,
+            to: active.to,
+            insert: active.originalMarkdown,
+        } : undefined;
+        view.dispatch({
+            ...(changes ? { changes } : {}),
+            effects: [
+                editingMode.reconfigure([
+                    EditorView.editable.of(false),
+                    EditorState.readOnly.of(true),
+                ]),
+                setInlineEditingRange.of(null),
+            ],
+        });
+        activeCorrection = null;
+    };
+    const cancelActiveCorrection = () => {
+        if (correctionBusy) return;
+        endActiveCorrection({ revert: true });
+    };
+    const commitActiveCorrection = async () => {
+        if (!activeCorrection || correctionBusy) return false;
+        correctionBusy = true;
+        const active = activeCorrection;
+        const replacementMarkdown = view.state.sliceDoc(active.from, active.to);
+        try {
+            await onCommitCorrection({
+                blockID: active.blockID,
+                replacementMarkdown,
+            });
+            if (activeCorrection?.blockID === active.blockID) {
+                endActiveCorrection();
+            }
+            return true;
+        }
+        catch (error) {
+            if (activeCorrection?.blockID === active.blockID) {
+                endActiveCorrection({ revert: true });
+            }
+            onCorrectionError?.(error);
+            return false;
+        }
+        finally {
+            correctionBusy = false;
+        }
+    };
+    const startCorrectionFromDoubleClick = event => {
+        if (!correctionEnabled
+            || event.button !== 0
+            || event.target?.closest?.('.cm-mktero-table')) {
+            return;
+        }
+        activateDOMGlobals(ownerWindow);
+        let position = view.posAtCoords?.({
+            x: event.clientX,
+            y: event.clientY,
+        });
+        if (!Number.isSafeInteger(position)) {
+            try {
+                position = view.posAtDOM(event.target, 0);
+            }
+            catch {
+                return;
+            }
+        }
+        const block = correctionBlocks.find(candidate => (
+            candidate.type !== 'table'
+            && position >= candidate.from
+            && position <= candidate.to
+        ));
+        if (!block || !beginActiveCorrection(block, position)) return;
+        event.preventDefault();
+        event.stopPropagation();
+    };
+    parent.addEventListener(
+        'dblclick',
+        startCorrectionFromDoubleClick,
+        true
+    );
     const openSelectedMarkdownActions = event => {
         if (event.button !== 0) return;
+        if (activeCorrection) return;
         if (interactionPopups.some(popup => popup.contains(event.target))) {
             return;
         }
@@ -327,6 +540,8 @@ export function createInlineMarkdownEditor({
     let currentSourceMap = [];
     const setDocument = ({ markdown, annotationOverlay, sourceMap }) => {
         activateDOMGlobals(ownerWindow);
+        activeCorrection = null;
+        correctionBusy = false;
         for (const feature of referenceFeatureList) {
             feature.popup.close();
             feature.highlight.cancel();
@@ -339,6 +554,11 @@ export function createInlineMarkdownEditor({
             setAnnotationOverlay.of(
                 annotationOverlay || createEmptyAnnotationOverlay()
             ),
+            setInlineEditingRange.of(null),
+            editingMode.reconfigure([
+                EditorView.editable.of(false),
+                EditorState.readOnly.of(true),
+            ]),
         ];
         if (value === view.state.doc.toString()) {
             view.dispatch({ effects });
@@ -358,6 +578,24 @@ export function createInlineMarkdownEditor({
             setDocument({
                 markdown,
                 annotationOverlay: createEmptyAnnotationOverlay(),
+            });
+        },
+        setCorrectionState({
+            enabled = false,
+            blocks = [],
+            correctedBlockIDs: corrected = [],
+        } = {}) {
+            activateDOMGlobals(ownerWindow);
+            if (!enabled && activeCorrection) cancelActiveCorrection();
+            correctionEnabled = Boolean(enabled);
+            correctionBlocks = Array.isArray(blocks) ? blocks : [];
+            correctedBlockIDs = Array.isArray(corrected) ? corrected : [];
+            view.dispatch({
+                effects: setCorrectionRenderingState.of({
+                    enabled: correctionEnabled,
+                    blocks: correctionBlocks,
+                    correctedBlockIDs,
+                }),
             });
         },
         focus() {
@@ -406,6 +644,11 @@ export function createInlineMarkdownEditor({
                 parent.removeEventListener(
                     'mouseup',
                     openSelectedMarkdownActions,
+                    true
+                );
+                parent.removeEventListener(
+                    'dblclick',
+                    startCorrectionFromDoubleClick,
                     true
                 );
                 annotationPopup.destroy();

@@ -31,6 +31,8 @@ export function createSavedMarkdownManifest({
     assets = [],
     snapshotHTMLHash,
     createdAt,
+    containsUserCorrections = false,
+    correctionCount = 0,
 }) {
     const manifest = {
         schemaVersion: SAVED_MARKDOWN_NOTE_SCHEMA_VERSION,
@@ -47,6 +49,10 @@ export function createSavedMarkdownManifest({
         assets,
         snapshotHTMLHash,
         createdAt,
+        ...(containsUserCorrections ? {
+            containsUserCorrections: true,
+            correctionCount,
+        } : {}),
     };
     validateManifest(manifest);
     return manifest;
@@ -253,6 +259,12 @@ function validateManifest(manifest) {
     }
     if (typeof manifest.createdAt !== 'string') {
         throw new Error('Saved Markdown creation time is invalid');
+    }
+    if (manifest.containsUserCorrections !== undefined
+        && (manifest.containsUserCorrections !== true
+            || !Number.isSafeInteger(manifest.correctionCount)
+            || manifest.correctionCount < 1)) {
+        throw new Error('Saved Markdown correction provenance is invalid');
     }
 }
 

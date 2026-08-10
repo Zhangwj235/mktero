@@ -227,6 +227,13 @@ class MarkdownTabView {
             ),
             onSourceNavigationError: error => this.zotero?.logError?.(error),
             onViewportChange: offset => this.syncActiveNavigation(offset),
+            onCommitCorrection: correction => (
+                this.commitCorrection(correction)
+            ),
+            onRestoreCorrection: blockID => (
+                this.restoreCorrection(blockID)
+            ),
+            onCorrectionError: error => this.reportCorrectionError(error),
             localization: this.localization,
         });
         this.syncOutline('');
@@ -256,6 +263,7 @@ class MarkdownTabView {
         });
         this.syncContentVisibility(showContent);
         this.syncDocumentActions(model, loadingView);
+        this.syncCorrectionBanner(model, loadingView);
         this.syncErrorActions(model);
         this.syncWarningActions(model);
 
@@ -278,6 +286,11 @@ class MarkdownTabView {
                 this.syncOutline('');
                 this.syncNotes(createEmptyAnnotationOverlay(), 0);
             }
+            this.editor.setCorrectionState?.({
+                enabled: false,
+                blocks: model.editableBlocks || [],
+                correctedBlockIDs: model.correctedBlockIDs || [],
+            });
             return;
         }
 
@@ -291,6 +304,7 @@ class MarkdownTabView {
                 this.syncSnapshot();
                 this.syncOutline('');
                 this.syncNotes(createEmptyAnnotationOverlay(), 0);
+                this.editor.setCorrectionState?.({ enabled: false });
                 return;
             }
             elements.editorHost.hidden = false;
@@ -313,6 +327,11 @@ class MarkdownTabView {
                 markdown,
                 annotationOverlay,
                 sourceMap: Array.isArray(model.sourceMap) ? model.sourceMap : [],
+            });
+            this.editor.setCorrectionState?.({
+                enabled: Boolean(model.correctionMode),
+                blocks: model.editableBlocks || [],
+                correctedBlockIDs: model.correctedBlockIDs || [],
             });
             this.renderedMarkdown = markdown;
             this.renderedRenderMode = 'markdown';
@@ -670,6 +689,13 @@ class MarkdownTabView {
         });
         snapshotHost.hidden = true;
         const documentActions = this.createDocumentActions();
+        const correctionBanner = this.createElement('div', {
+            class: 'markdown-correction-banner',
+            role: 'status',
+            'aria-live': 'polite',
+        });
+        correctionBanner.hidden = true;
+        documentActions.toolbar.appendChild(correctionBanner);
         const editorSection = this.createElement('section', {
             class: 'markdown-editor',
             'aria-label': this.t('viewer.readOnly'),
@@ -789,12 +815,17 @@ class MarkdownTabView {
             notesToggle: notesControls.toggle,
             editorHost,
             snapshotHost,
+            correctionBanner,
             editorActions: documentActions.toolbar,
             editorSection,
             actionToggle: documentActions.toggle,
             actionMenu: documentActions.menu,
             reparse: documentActions.reparse,
             reparseLabel: documentActions.reparseLabel,
+            correctionToggle: documentActions.correctionToggle,
+            correctionToggleLabel: documentActions.correctionToggleLabel,
+            restoreCorrections: documentActions.restoreCorrections,
+            restoreCorrectionsLabel: documentActions.restoreCorrectionsLabel,
             saveSnapshot: documentActions.saveSnapshot,
             saveSnapshotLabel: documentActions.saveSnapshotLabel,
             readerControls: documentActions.readerControls,
@@ -960,6 +991,48 @@ class MarkdownTabView {
             class: 'markdown-reader-controls',
         });
         appendChildren(readerControls, readerFontSize, readerFontFamily);
+        const correctionToggle = this.createElement('button', {
+            id: 'mktero-correction-toggle',
+            class: 'markdown-reader-action markdown-reader-action--child',
+            type: 'button',
+            'aria-label': this.t('revision.start'),
+            title: this.t('revision.start'),
+        });
+        correctionToggle.appendChild(createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.fileText,
+            {
+                className: 'markdown-reader-action-icon',
+                size: 18,
+            }
+        ));
+        const correctionToggleLabel = this.createElement(
+            'span',
+            { class: 'markdown-reader-action-label' },
+            this.t('revision.start')
+        );
+        correctionToggle.appendChild(correctionToggleLabel);
+        const restoreCorrections = this.createElement('button', {
+            id: 'mktero-restore-corrections',
+            class: 'markdown-reader-action markdown-reader-action--child',
+            type: 'button',
+            'aria-label': this.t('revision.restoreAll'),
+            title: this.t('revision.restoreAll'),
+        });
+        restoreCorrections.appendChild(createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.refreshCw,
+            {
+                className: 'markdown-reader-action-icon',
+                size: 18,
+            }
+        ));
+        const restoreCorrectionsLabel = this.createElement(
+            'span',
+            { class: 'markdown-reader-action-label' },
+            this.t('revision.restoreAll')
+        );
+        restoreCorrections.appendChild(restoreCorrectionsLabel);
         const reparse = this.createElement('button', {
             id: 'mktero-reparse',
             class: 'markdown-reader-action markdown-reader-action--child',
@@ -1002,6 +1075,8 @@ class MarkdownTabView {
             this.t('viewer.saveSnapshotShort')
         );
         saveSnapshot.appendChild(saveSnapshotLabel);
+        menu.appendChild(correctionToggle);
+        menu.appendChild(restoreCorrections);
         menu.appendChild(reparse);
         menu.appendChild(saveSnapshot);
         const status = this.createElement('span', {
@@ -1028,6 +1103,10 @@ class MarkdownTabView {
             menu,
             reparse,
             reparseLabel,
+            correctionToggle,
+            correctionToggleLabel,
+            restoreCorrections,
+            restoreCorrectionsLabel,
             saveSnapshot,
             saveSnapshotLabel,
             readerControls,
@@ -1095,6 +1174,12 @@ class MarkdownTabView {
         });
         this.listen(this.elements.reparse, 'click', () => {
             this.runDocumentAction('reparse', 'onReparse');
+        });
+        this.listen(this.elements.correctionToggle, 'click', () => {
+            this.toggleCorrectionMode();
+        });
+        this.listen(this.elements.restoreCorrections, 'click', () => {
+            void this.restoreAllCorrections();
         });
         this.listen(this.elements.errorRetry, 'click', () => {
             this.runDocumentAction('retry', 'onReparse');
@@ -1364,6 +1449,103 @@ class MarkdownTabView {
             });
     }
 
+    toggleCorrectionMode() {
+        if (this.elements.correctionToggle.disabled
+            || this.documentActionBusy
+            || typeof this.model.onSetCorrectionMode !== 'function') {
+            return;
+        }
+        this.setDocumentActionsOpen(false);
+        try {
+            this.model.onSetCorrectionMode(!this.model.correctionMode);
+        }
+        catch (error) {
+            this.reportCorrectionError(error);
+        }
+    }
+
+    commitCorrection(correction) {
+        return this.runCorrectionOperation(
+            () => this.model.onCommitCorrection(correction),
+            {
+                progressKey: 'revision.saving',
+                successKey: 'revision.saved',
+                failureKey: 'revision.saveFailed',
+            }
+        );
+    }
+
+    restoreCorrection(blockID) {
+        return this.runCorrectionOperation(
+            () => this.model.onRestoreCorrection(blockID),
+            {
+                progressKey: 'revision.restoring',
+                successKey: 'revision.restored',
+                failureKey: 'revision.restoreFailed',
+            }
+        );
+    }
+
+    async restoreAllCorrections() {
+        if (this.elements.restoreCorrections.disabled
+            || typeof this.model.onRestoreAllCorrections !== 'function') {
+            return false;
+        }
+        const confirmed = this.ownerWindow.confirm?.(
+            this.t('revision.restoreAllConfirm', {
+                count: this.model.correctionCount || 0,
+            })
+        );
+        if (!confirmed) return false;
+        this.setDocumentActionsOpen(false);
+        await this.runCorrectionOperation(
+            () => this.model.onRestoreAllCorrections(),
+            {
+                progressKey: 'revision.restoring',
+                successKey: 'revision.restored',
+                failureKey: 'revision.restoreFailed',
+            }
+        );
+        return true;
+    }
+
+    async runCorrectionOperation(operation, {
+        progressKey,
+        successKey,
+        failureKey,
+    }) {
+        if (this.documentActionBusy) {
+            throw new Error('Another Markdown document action is in progress');
+        }
+        this.documentActionBusy = 'correction';
+        this.setDocumentActionStatus(progressKey);
+        this.syncDocumentActions(
+            this.model,
+            createLoadingPresentation(this.model, this.t)
+        );
+        try {
+            const result = await operation();
+            this.setDocumentActionStatus(successKey, { dismissAfter: true });
+            return result;
+        }
+        catch (error) {
+            this.zotero?.logError?.(error);
+            this.setDocumentActionStatus(failureKey, { dismissAfter: true });
+            throw error;
+        }
+        finally {
+            this.documentActionBusy = null;
+            this.syncDocumentActions(
+                this.model,
+                createLoadingPresentation(this.model, this.t)
+            );
+        }
+    }
+
+    reportCorrectionError(error) {
+        this.zotero?.logError?.(error);
+    }
+
     setDocumentActionStatus(key, { dismissAfter = false } = {}) {
         this.clearDocumentActionStatus();
         this.elements.actionStatus.textContent = this.t(key);
@@ -1630,6 +1812,26 @@ class MarkdownTabView {
         this.elements.saveSnapshotLabel.textContent = this.t(
             'viewer.saveSnapshotShort'
         );
+        const correctionLabel = this.t(this.model.correctionMode
+            ? 'revision.finish'
+            : 'revision.start');
+        this.elements.correctionToggle.setAttribute(
+            'aria-label',
+            correctionLabel
+        );
+        this.elements.correctionToggle.setAttribute('title', correctionLabel);
+        this.elements.correctionToggleLabel.textContent = correctionLabel;
+        this.elements.restoreCorrections.setAttribute(
+            'aria-label',
+            this.t('revision.restoreAll')
+        );
+        this.elements.restoreCorrections.setAttribute(
+            'title',
+            this.t('revision.restoreAll')
+        );
+        this.elements.restoreCorrectionsLabel.textContent = this.t(
+            'revision.restoreAll'
+        );
         this.elements.errorRetry.setAttribute(
             'aria-label',
             this.t('viewer.retryConversion')
@@ -1716,7 +1918,20 @@ class MarkdownTabView {
         const reparseAvailable = typeof model.onReparse === 'function';
         const saveAvailable = typeof model.onSaveSnapshot === 'function'
             && model.renderMode !== 'html';
-        const documentActionsAvailable = reparseAvailable || saveAvailable;
+        const correctionAvailable = model.status === 'ready'
+            && model.renderMode !== 'html'
+            && Array.isArray(model.editableBlocks)
+            && model.editableBlocks.length > 0
+            && typeof model.onSetCorrectionMode === 'function'
+            && typeof model.onCommitCorrection === 'function';
+        const restoreAvailable = model.status === 'ready'
+            && model.renderMode !== 'html'
+            && model.hasCorrections
+            && typeof model.onRestoreAllCorrections === 'function';
+        const documentActionsAvailable = reparseAvailable
+            || saveAvailable
+            || correctionAvailable
+            || restoreAvailable;
         const readerControlsAvailable = model.status === 'ready'
             || loadingView.preserveContent;
         const toolbarAvailable = documentActionsAvailable
@@ -1739,6 +1954,8 @@ class MarkdownTabView {
         this.elements.editorActions.hidden = !toolbarAvailable;
         this.elements.reparse.hidden = !reparseAvailable;
         this.elements.saveSnapshot.hidden = !saveAvailable;
+        this.elements.correctionToggle.hidden = !correctionAvailable;
+        this.elements.restoreCorrections.hidden = !restoreAvailable;
         this.elements.actionToggle.hidden = !documentActionsAvailable;
         this.elements.readerFontSize.hidden = !readerControlsAvailable;
         this.elements.readerFontFamily.hidden = !readerControlsAvailable;
@@ -1746,6 +1963,12 @@ class MarkdownTabView {
             || loadingView.visible
             || Boolean(this.documentActionBusy);
         this.elements.saveSnapshot.disabled = !saveAvailable
+            || loadingView.visible
+            || Boolean(this.documentActionBusy);
+        this.elements.correctionToggle.disabled = !correctionAvailable
+            || loadingView.visible
+            || Boolean(this.documentActionBusy);
+        this.elements.restoreCorrections.disabled = !restoreAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);
         this.elements.actionToggle.disabled = !documentActionsAvailable
@@ -1830,6 +2053,29 @@ class MarkdownTabView {
         this.syncDocumentActions(model, loadingView);
     }
 
+    syncCorrectionBanner(model, loadingView) {
+        const visible = !loadingView.visible
+            && model.status === 'ready'
+            && model.renderMode !== 'html'
+            && (model.correctionMode || model.hasCorrections);
+        this.elements.correctionBanner.hidden = !visible;
+        this.elements.editorSection.setAttribute(
+            'aria-label',
+            this.t(model.correctionMode ? 'revision.start' : 'viewer.readOnly')
+        );
+        if (!visible) {
+            this.elements.correctionBanner.textContent = '';
+            return;
+        }
+        const count = model.correctionCount || 0;
+        const key = model.correctionMode
+            ? 'revision.bannerActive'
+            : count === 1
+                ? 'revision.bannerOne'
+                : 'revision.bannerMany';
+        this.elements.correctionBanner.textContent = this.t(key, { count });
+    }
+
     setDocumentActionsOpen(open) {
         this.documentActionsOpen = Boolean(open);
         const available = !this.elements.actionToggle.hidden;
@@ -1846,6 +2092,11 @@ class MarkdownTabView {
         const menuTabIndex = visible ? '0' : '-1';
         this.elements.reparse.setAttribute('tabindex', menuTabIndex);
         this.elements.saveSnapshot.setAttribute('tabindex', menuTabIndex);
+        this.elements.correctionToggle.setAttribute('tabindex', menuTabIndex);
+        this.elements.restoreCorrections.setAttribute(
+            'tabindex',
+            menuTabIndex
+        );
         this.elements.editorActions.classList.toggle('is-open', visible);
     }
 

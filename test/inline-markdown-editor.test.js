@@ -1443,6 +1443,63 @@ test('keeps rendered Markdown read-only on double-click', () => {
     dom.window.close();
 });
 
+test('commits one paragraph block from correction mode', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = '# Paper\n\nThe sample included 5O people.';
+    const from = markdown.indexOf('The sample');
+    const to = markdown.length;
+    const commits = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => commits.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from,
+            to,
+            markdown: markdown.slice(from, to),
+        }],
+        correctedBlockIDs: [],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => from + 8;
+    const content = document.querySelector('.cm-content');
+
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+
+    const typo = markdown.indexOf('5O') + 1;
+    view.dispatch({ changes: { from: typo, to: typo + 1, insert: '0' } });
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(commits, [{
+        blockID: 'paragraph-1',
+        replacementMarkdown: 'The sample included 50 people.',
+    }]);
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('renders externally replaced Markdown in read-only mode', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -1601,6 +1658,51 @@ test('keeps rendered GFM table cells read-only', () => {
     assert.equal(valueCell.getAttribute('contenteditable'), 'false');
     assert.equal(valueCell.textContent, '42');
     assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('commits a rendered GFM table cell from correction mode', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Name | Value |',
+        '| --- | ---: |',
+        '| Score | 42 |',
+    ].join('\n');
+    const commits = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => commits.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'table-1',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+        correctedBlockIDs: [],
+    });
+    const valueCell = document.querySelector(
+        '.cm-mktero-table tbody td:last-child'
+    );
+
+    enterTableCellEditing(valueCell, dom.window);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    valueCell.textContent = '43';
+    valueCell.dispatchEvent(new dom.window.FocusEvent('blur'));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(commits.length, 1);
+    assert.equal(commits[0].blockID, 'table-1');
+    assert.match(commits[0].replacementMarkdown, /\| Score \| 43 \|/);
 
     editor.destroy();
     dom.window.close();

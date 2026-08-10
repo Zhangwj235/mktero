@@ -1,4 +1,5 @@
 import { WidgetType } from '@codemirror/view';
+import { parseGFMTableRow } from '../markdown/markdown-tables.js';
 import {
     appendRenderedMarkdown,
     installRenderedImagePreview,
@@ -18,6 +19,12 @@ export class RenderedTableWidget extends WidgetType {
         renderVersion,
         highlighted = false,
         annotations = [],
+        correctionBlock = null,
+        correctionEnabled = false,
+        corrected = false,
+        commitCorrection,
+        restoreCorrection,
+        onCorrectionError,
         translate,
     }) {
         super();
@@ -32,6 +39,12 @@ export class RenderedTableWidget extends WidgetType {
         this.highlighted = highlighted;
         this.annotations = annotations;
         this.annotationKey = JSON.stringify(annotations);
+        this.correctionBlock = correctionBlock;
+        this.correctionEnabled = correctionEnabled;
+        this.corrected = corrected;
+        this.commitCorrection = commitCorrection;
+        this.restoreCorrection = restoreCorrection;
+        this.onCorrectionError = onCorrectionError;
         this.translate = translate;
     }
 
@@ -42,7 +55,10 @@ export class RenderedTableWidget extends WidgetType {
             && this.caption?.text === other.caption?.text
             && this.renderVersion === other.renderVersion
             && this.highlighted === other.highlighted
-            && this.annotationKey === other.annotationKey;
+            && this.annotationKey === other.annotationKey
+            && this.correctionBlock?.id === other.correctionBlock?.id
+            && this.correctionEnabled === other.correctionEnabled
+            && this.corrected === other.corrected;
     }
 
     toDOM(view) {
@@ -52,6 +68,7 @@ export class RenderedTableWidget extends WidgetType {
             'cm-mktero-rendered',
             'cm-mktero-table',
             this.highlighted ? 'cm-mktero-table-target-highlight' : '',
+            this.corrected ? 'cm-mktero-corrected-block' : '',
         ].filter(Boolean).join(' ');
         container.dataset.markdownFrom = String(this.annotationSourceFrom);
         container.dataset.markdownTo = String(
@@ -68,10 +85,7 @@ export class RenderedTableWidget extends WidgetType {
         if (table && this.caption) {
             table.prepend(createTableCaption(document, this.caption));
         }
-        for (const cell of container.querySelectorAll('th, td')) {
-            cell.setAttribute('contenteditable', 'false');
-            cell.setAttribute('aria-readonly', 'true');
-        }
+        this.#configureCells(container);
         installRenderedAnnotations(
             container,
             this.annotations,
@@ -90,15 +104,126 @@ export class RenderedTableWidget extends WidgetType {
             this.openImagePreview,
             this.translate
         );
+        if (this.corrected) this.#appendRestoreButton(container);
         return container;
     }
 
     ignoreEvent(event) {
+        if (this.correctionEnabled && this.correctionBlock) return true;
         if (event.type === 'mousedown'
             && event.target?.closest?.('.cm-mktero-pdf-annotation')) {
             return true;
         }
         return !event.target?.closest?.('.cm-mktero-pdf-annotation');
+    }
+
+    #configureCells(container) {
+        const cells = [...container.querySelectorAll('th, td')];
+        for (const cell of cells) {
+            cell.setAttribute('contenteditable', 'false');
+            cell.setAttribute('aria-readonly', 'true');
+        }
+        if (!this.correctionEnabled || !this.correctionBlock) return;
+        const model = parseGFMTable(this.source);
+        if (!model) return;
+        const columnCount = model.header.length;
+        const values = [model.header, ...model.body].flat();
+        cells.forEach((cell, index) => {
+            cell.setAttribute('tabindex', '0');
+            cell.setAttribute('spellcheck', 'false');
+            let editing = false;
+            let originalNodes = [];
+            const begin = () => {
+                if (editing) return;
+                editing = true;
+                originalNodes = [...cell.childNodes].map(node => (
+                    node.cloneNode(true)
+                ));
+                cell.textContent = values[index] || '';
+                cell.setAttribute('contenteditable', 'true');
+                cell.setAttribute('aria-readonly', 'false');
+                cell.focus();
+            };
+            const cancel = () => {
+                if (!editing) return;
+                editing = false;
+                cell.replaceChildren(...originalNodes);
+                cell.setAttribute('contenteditable', 'false');
+                cell.setAttribute('aria-readonly', 'true');
+                cell.focus();
+            };
+            const commit = () => {
+                if (!editing) return;
+                editing = false;
+                const nextValue = normalizeCellValue(cell.textContent);
+                cell.setAttribute('contenteditable', 'false');
+                cell.setAttribute('aria-readonly', 'true');
+                if (nextValue === values[index]) {
+                    cell.replaceChildren(...originalNodes);
+                    return;
+                }
+                values[index] = nextValue;
+                model.header = values.slice(0, columnCount);
+                model.body = [];
+                for (let offset = columnCount;
+                    offset < values.length;
+                    offset += columnCount) {
+                    model.body.push(values.slice(offset, offset + columnCount));
+                }
+                Promise.resolve(this.commitCorrection?.({
+                    blockID: this.correctionBlock.id,
+                    replacementMarkdown: serializeGFMTable(model),
+                })).catch(error => {
+                    cell.replaceChildren(...originalNodes);
+                    this.onCorrectionError?.(error);
+                });
+            };
+            cell.addEventListener('dblclick', event => {
+                if (event.target?.closest?.('img')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                begin();
+            });
+            cell.addEventListener('blur', commit);
+            cell.addEventListener('keydown', event => {
+                if (!editing && ['Enter', 'F2'].includes(event.key)) {
+                    event.preventDefault();
+                    begin();
+                    return;
+                }
+                if (editing && event.key === 'Escape') {
+                    event.preventDefault();
+                    cancel();
+                    return;
+                }
+                if (editing
+                    && event.key === 'Enter'
+                    && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    commit();
+                }
+            });
+        });
+    }
+
+    #appendRestoreButton(container) {
+        const button = container.ownerDocument.createElement('button');
+        button.type = 'button';
+        button.className = 'cm-mktero-correction-marker';
+        button.textContent = this.translate('revision.restoreBlock');
+        button.setAttribute(
+            'aria-label',
+            this.translate('revision.restoreBlockLabel')
+        );
+        button.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            button.disabled = true;
+            Promise.resolve(this.restoreCorrection?.(this.correctionBlock.id))
+                .catch(error => this.onCorrectionError?.(error))
+                .finally(() => { button.disabled = false; });
+        });
+        container.append(button);
     }
 }
 
@@ -109,4 +234,50 @@ export function createTableCaption(document, caption) {
     label.textContent = caption.label;
     element.append(label, ` ${caption.description}`);
     return element;
+}
+
+function parseGFMTable(source) {
+    const lines = String(source).trim().split(/\r?\n/);
+    if (lines.length < 2) return null;
+    const header = parseGFMTableRow(lines[0]);
+    const separator = parseGFMTableRow(lines[1]);
+    if (!header.length || separator.length !== header.length) return null;
+    const alignment = separator.map(cell => {
+        const value = cell.trim();
+        if (!/^:?-{3,}:?$/.test(value)) return null;
+        if (value.startsWith(':') && value.endsWith(':')) return 'center';
+        if (value.endsWith(':')) return 'right';
+        if (value.startsWith(':')) return 'left';
+        return 'none';
+    });
+    if (alignment.includes(null)) return null;
+    const body = lines.slice(2).map(line => {
+        const row = parseGFMTableRow(line);
+        while (row.length < header.length) row.push('');
+        return row.slice(0, header.length);
+    });
+    return { header, alignment, body };
+}
+
+function serializeGFMTable(table) {
+    const formatRow = cells => `| ${cells.map(escapeTableCell).join(' | ')} |`;
+    const separator = table.alignment.map(alignment => {
+        if (alignment === 'center') return ':---:';
+        if (alignment === 'right') return '---:';
+        if (alignment === 'left') return ':---';
+        return '---';
+    });
+    return [
+        formatRow(table.header),
+        formatRow(separator),
+        ...table.body.map(formatRow),
+    ].join('\n');
+}
+
+function normalizeCellValue(value) {
+    return String(value || '').replace(/\r?\n/g, '<br>').trim();
+}
+
+function escapeTableCell(value) {
+    return String(value).replace(/(?<!\\)\|/g, '\\|');
 }

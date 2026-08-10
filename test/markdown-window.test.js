@@ -151,6 +151,72 @@ test('shows Markdown without editing controls', () => {
     }
 });
 
+test('toggles block correction mode and restores all saved corrections', async () => {
+    const modeChanges = [];
+    const editorStates = [];
+    let restoreCalls = 0;
+    const markdown = '# Paper\n\nThe sample included 5O people.';
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown,
+        sourceKind: 'markdown',
+        editableBlocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: markdown.indexOf('The sample'),
+            to: markdown.length,
+        }],
+        correctedBlockIDs: ['paragraph-1'],
+        correctionCount: 1,
+        hasCorrections: true,
+        correctionMode: false,
+        onSetCorrectionMode: enabled => modeChanges.push(enabled),
+        onCommitCorrection: async () => {},
+        onRestoreCorrection: async () => {},
+        onRestoreAllCorrections: async () => { restoreCalls++; },
+    });
+    const { view, shadow } = createView(model, {}, {
+        configureWindow(window) {
+            window.confirm = () => true;
+        },
+        editorFactory() {
+            return {
+                setDocument() {},
+                setCorrectionState(state) {
+                    editorStates.push(state);
+                },
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    const toggle = shadow.querySelector('#mktero-correction-toggle');
+    const restoreAll = shadow.querySelector('#mktero-restore-corrections');
+    assert.equal(toggle.hidden, false);
+    assert.equal(restoreAll.hidden, false);
+    assert.match(
+        shadow.querySelector('.markdown-correction-banner').textContent,
+        /1 correction saved locally/i
+    );
+
+    toggle.click();
+    assert.deepEqual(modeChanges, [true]);
+    view.render({ ...model, correctionMode: true });
+    assert.equal(editorStates.at(-1).enabled, true);
+    assert.match(
+        shadow.querySelector('.markdown-correction-banner').textContent,
+        /double-click a paragraph, heading, or table cell/i
+    );
+
+    restoreAll.click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(restoreCalls, 1);
+
+    view.destroy();
+});
+
 test('updates Markdown and PDF annotations as one editor document', () => {
     const updates = [];
     const sourceMap = [{

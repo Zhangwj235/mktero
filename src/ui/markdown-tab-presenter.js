@@ -59,6 +59,10 @@ export class MarkdownTabPresenter {
         onReparse,
         onOpenSettings,
         onSaveSnapshot,
+        onSetCorrectionMode,
+        onCommitCorrection,
+        onRestoreCorrection,
+        onRestoreAllCorrections,
         onChangeAnnotationColor,
         onUpdateAnnotationComment,
         onDeleteAnnotation,
@@ -97,6 +101,19 @@ export class MarkdownTabPresenter {
             }
             if (onSaveSnapshot !== undefined) {
                 existing.model.onSaveSnapshot = onSaveSnapshot;
+            }
+            if (onSetCorrectionMode !== undefined) {
+                existing.model.onSetCorrectionMode = onSetCorrectionMode;
+            }
+            if (onCommitCorrection !== undefined) {
+                existing.model.onCommitCorrection = onCommitCorrection;
+            }
+            if (onRestoreCorrection !== undefined) {
+                existing.model.onRestoreCorrection = onRestoreCorrection;
+            }
+            if (onRestoreAllCorrections !== undefined) {
+                existing.model.onRestoreAllCorrections
+                    = onRestoreAllCorrections;
             }
             if (onChangeAnnotationColor) {
                 existing.model.onChangeAnnotationColor = onChangeAnnotationColor;
@@ -147,6 +164,10 @@ export class MarkdownTabPresenter {
                 onReparse,
                 onOpenSettings,
                 onSaveSnapshot,
+                onSetCorrectionMode,
+                onCommitCorrection,
+                onRestoreCorrection,
+                onRestoreAllCorrections,
                 onChangeAnnotationColor,
                 onUpdateAnnotationComment,
                 onDeleteAnnotation,
@@ -437,6 +458,11 @@ function createInitialModel(
         cacheKey: null,
         sourceMap: [],
         annotationOverlay: createEmptyAnnotationOverlay(),
+        editableBlocks: [],
+        correctedBlockIDs: [],
+        correctionCount: 0,
+        hasCorrections: false,
+        correctionMode: false,
         preserveContent: false,
         resumingTask: false,
         warnings: [],

@@ -385,12 +385,17 @@ test('saves a portable snapshot and synced source attachments under the parent i
         sourceMap: [],
         cacheKey: 'a'.repeat(64),
         parserProfile: 'mineru-v1',
+        containsUserCorrections: true,
+        correctionCount: 2,
     });
 
     const parsed = parseSavedMarkdownNote(result.note.getNote());
     assert.equal(parsed.manifest.sourcePDFKey, 'PDF00001');
     assert.equal(parsed.manifest.assetBasePath, 'result');
     assert.equal(parsed.manifest.assets.length, 1);
+    assert.equal(parsed.manifest.containsUserCorrections, true);
+    assert.equal(parsed.manifest.correctionCount, 2);
+    assert.match(parsed.bodyHTML, /2 user corrections/i);
     assert.match(parsed.bodyHTML, /data-attachment-key="/);
     assert.match(
         parsed.bodyHTML,

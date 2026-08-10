@@ -682,6 +682,20 @@ main {
     overflow: hidden;
 }
 
+.markdown-correction-banner {
+    width: 100%;
+    flex: 1 0 100%;
+    order: 10;
+    padding: 7px 12px;
+    border-top: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+    color: var(--reader-text);
+    background: color-mix(in srgb, var(--accent) 9%, var(--reader-background));
+    font-family: var(--ui-font);
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: center;
+}
+
 .markdown-reader-toolbar {
     position: relative;
     z-index: 5;
@@ -690,6 +704,7 @@ main {
     min-width: 0;
     min-height: 44px;
     flex: 0 0 auto;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     padding: 4px 12px;
@@ -2539,6 +2554,41 @@ main {
 .markdown-editor-host > .cm-editor .cm-mktero-table tbody tr:nth-child(even) td,
 .markdown-editor-host > .cm-editor .cm-mktero-html-block tbody tr:nth-child(even) td {
     background: color-mix(in srgb, var(--surface) 45%, var(--reader-background));
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-table td[contenteditable='true'],
+.markdown-editor-host > .cm-editor .cm-mktero-table th[contenteditable='true'] {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    background: color-mix(in srgb, var(--accent) 10%, var(--reader-background));
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-corrected-block {
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-correction-marker {
+    display: inline-flex;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+    margin-inline-start: 8px;
+    padding: 2px 8px;
+    border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+    border-radius: 999px;
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent) 8%, var(--reader-background));
+    font-family: var(--ui-font);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-correction-marker:hover:not(:disabled),
+.markdown-editor-host > .cm-editor .cm-mktero-correction-marker:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+    background: color-mix(in srgb, var(--accent) 15%, var(--reader-background));
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-math {
