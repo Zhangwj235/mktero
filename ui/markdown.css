@@ -726,11 +726,11 @@ main {
     top: calc(100% + 8px);
     right: 12px;
     display: grid;
-    width: 196px;
-    max-width: min(196px, calc(100% - 20px));
+    width: 240px;
+    max-width: min(240px, calc(100% - 20px));
     height: auto;
     gap: 3px;
-    padding: 6px;
+    padding: 8px;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     background: var(--surface-raised);
@@ -765,9 +765,25 @@ main {
 
 .markdown-reader-action-menu .markdown-reader-action {
     width: 100%;
+    min-height: 38px;
+    height: auto;
+    gap: 10px;
+    padding: 8px 12px;
     border-color: transparent;
     color: var(--text);
     justify-content: flex-start;
+    white-space: normal;
+}
+
+.markdown-reader-action-menu .markdown-reader-action-label {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-align: start;
+    text-overflow: clip;
+}
+
+.markdown-reader-action-menu .markdown-reader-action-icon {
+    flex: 0 0 18px;
 }
 
 .markdown-reader-font-size,

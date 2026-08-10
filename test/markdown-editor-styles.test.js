@@ -336,14 +336,31 @@ test('styles secondary document actions as a toolbar popover', () => {
     const menu = ruleBody('.markdown-reader-action-menu');
     assert.match(menu, /top:\s*calc\(100% \+ 8px\)/);
     assert.match(menu, /right:\s*12px/);
-    assert.match(menu, /width:\s*196px/);
-    assert.match(menu, /max-width:\s*min\(196px, calc\(100% - 20px\)\)/);
+    assert.match(menu, /width:\s*240px/);
+    assert.match(menu, /max-width:\s*min\(240px, calc\(100% - 20px\)\)/);
+    assert.match(menu, /padding:\s*8px/);
     assert.match(menu, /box-shadow:\s*var\(--shadow-popover\)/);
     const menuAction = ruleBody(
         '.markdown-reader-action-menu .markdown-reader-action'
     );
     assert.match(menuAction, /width:\s*100%/);
+    assert.match(menuAction, /min-height:\s*38px/);
+    assert.match(menuAction, /height:\s*auto/);
+    assert.match(menuAction, /padding:\s*8px 12px/);
+    assert.match(menuAction, /gap:\s*10px/);
     assert.match(menuAction, /justify-content:\s*flex-start/);
+    assert.match(menuAction, /white-space:\s*normal/);
+
+    const menuLabel = ruleBody(
+        '.markdown-reader-action-menu .markdown-reader-action-label'
+    );
+    assert.match(menuLabel, /overflow-wrap:\s*anywhere/);
+    assert.match(menuLabel, /text-align:\s*start/);
+
+    const menuIcon = ruleBody(
+        '.markdown-reader-action-menu .markdown-reader-action-icon'
+    );
+    assert.match(menuIcon, /flex:\s*0 0 18px/);
 
     const reparsing = ruleBody(
         '.markdown-reader-action.is-reparsing .markdown-reader-action-icon'
