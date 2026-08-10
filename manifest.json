@@ -1,0 +1,19 @@
+{
+  "manifest_version": 2,
+  "name": "Mktero",
+  "version": "0.2.7",
+  "description": "Display opened Zotero PDFs as Markdown",
+  "author": "Tony",
+  "icons": {
+    "48": "ui/icons/mktero.svg",
+    "96": "ui/icons/mktero.svg"
+  },
+  "applications": {
+    "zotero": {
+      "id": "mktero@tenglvjun.github.io",
+      "update_url": "https://github.com/tenglvjun/mktero/releases/latest/download/updates.json",
+      "strict_min_version": "7.0",
+      "strict_max_version": "9.0.*"
+    }
+  }
+}

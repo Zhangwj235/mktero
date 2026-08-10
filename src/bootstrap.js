@@ -1,0 +1,1169 @@
+import {
+    getMinerUCacheEnabled,
+    getMinerUApiKey,
+    getZoteroLocale,
+    openMinerUPreferences,
+    registerMinerUPreferencesPane,
+} from './config/mineru-preferences.js';
+import {
+    appendTranslationFailureLog,
+    getTranslationConfiguration,
+    TranslationConfigurationError,
+} from './config/translation-preferences.js';
+import {
+    createMinerUCacheKey,
+    createZoteroMarkdownCache,
+} from './cache/markdown-cache.js';
+import {
+    createZoteroTranslationCache,
+} from './cache/translation-cache.js';
+import { OpenAITranslationClient } from './translation/openai-translation-client.js';
+import {
+    AcademicTranslationService,
+    createEmptyTranslationState,
+} from './translation/academic-translation-service.js';
+import { buildBilingualMarkdown } from './translation/translation-markdown.js';
+import {
+    createZoteroPDFTextIndexCache,
+} from './cache/pdf-text-index-cache.js';
+import {
+    createZoteroMarkdownAnnotationStore,
+} from './cache/markdown-annotation-store.js';
+import { MarkdownDocumentService } from './core/markdown-document-service.js';
+import {
+    createSavedMarkdownOpenResolver,
+} from './core/saved-markdown-open-resolver.js';
+import { MINERU_PARSER_PROFILE_ID } from './mineru/parser-profile.js';
+import {
+    createZoteroBlobFactory,
+    createZoteroSavedMarkdownStore,
+} from './platform/zotero-saved-markdown-store.js';
+import {
+    resolveZoteroSavedMarkdownSourceItem,
+} from './platform/zotero-saved-markdown-source.js';
+import { MarkdownAnnotationOverlay } from './core/markdown-annotation-overlay.js';
+import { MarkdownLocalAnnotations } from './core/markdown-local-annotations.js';
+import {
+    createEvidenceSnippet,
+    formatEvidenceMarkdown,
+} from './markdown/markdown-evidence.js';
+import {
+    CONVERSION_PROGRESS,
+    normalizeConversionProgress,
+} from './core/conversion-progress.js';
+import {
+    MinerUConfigurationError,
+    MinerUDocumentExtractor,
+} from './extractors/mineru-extractor.js';
+import { ZoteroAnnotationExtractor } from './extractors/zotero-annotation-extractor.js';
+import { MinerUClient } from './mineru/mineru-client.js';
+import { MinerUConversion } from './mineru/mineru-conversion.js';
+import {
+    createZoteroMinerUPendingTaskStore,
+} from './mineru/pending-task-store.js';
+import { createRuntimeAbortController } from './platform/abort-controller.js';
+import {
+    createZoteroAnnotationActions,
+    createZoteroPDFTextLocator,
+} from './platform/zotero-annotation-actions.js';
+import { PDFAnnotationLocator } from './pdf/pdf-annotation-locator.js';
+import {
+    PDFIndexOperationTracker,
+} from './pdf/pdf-index-operation-tracker.js';
+import { createPDFJSTextEngine } from './pdf/pdfjs-text-engine.js';
+import { sha256Hex } from './core/sha256.js';
+import {
+    createZoteroPDFFileLoader,
+    createZoteroTextMeasurer,
+} from './platform/zotero-pdf-index-adapters.js';
+import {
+    createZoteroActionsTagsBridge,
+} from './platform/zotero-actions-tags.js';
+import {
+    createZoteroSourceNavigation,
+} from './platform/zotero-source-navigation.js';
+import { createZoteroClipboard } from './platform/zotero-clipboard.js';
+import {
+    createZoteroMarkdownExport,
+    markdownExportFileName,
+} from './platform/zotero-markdown-export.js';
+import {
+    createZoteroEvidenceReference,
+} from './platform/zotero-evidence-reference.js';
+import {
+    registerZoteroAnnotationObserver,
+} from './platform/zotero-annotation-observer.js';
+import {
+    createLocalization,
+    translateEnglish,
+} from './i18n/localization.js';
+import {
+    localizeConversionError,
+    localizeConversionResult,
+    localizeTranslationError,
+} from './ui/provider-neutral-copy.js';
+import { registerItemContextMenu } from './ui/item-context-menu.js';
+import { registerReaderToolbar } from './ui/reader-toolbar.js';
+import {
+    MARKDOWN_TAB_CLOSE_REASONS,
+    MarkdownTabPresenter,
+} from './ui/markdown-tab-presenter.js';
+import {
+    createAnnotationOverlayRefresher,
+} from './ui/annotation-overlay-refresher.js';
+import {
+    createConversionFailureChanges,
+    createConversionLoadingChanges,
+    createConversionProgressChanges,
+    createConversionReadyChanges,
+    snapshotReadyResult,
+} from './ui/markdown-tab-state.js';
+
+const runtime = {
+    id: null,
+    service: null,
+    presenter: null,
+    cache: null,
+    translationCache: null,
+    translationService: null,
+    translationOperations: new Map(),
+    pdfTextIndexCache: null,
+    pdfAnnotationLocator: null,
+    savedMarkdownStore: null,
+    savedMarkdownResolver: null,
+    rootURI: null,
+    preferencePaneID: null,
+    localization: null,
+    annotationActions: null,
+    actionsTags: null,
+    sourceNavigation: null,
+    clipboard: null,
+    markdownExport: null,
+    evidenceReference: null,
+    disposeAnnotationObserver: null,
+    annotationOverlayRefresher: null,
+    localAnnotations: null,
+    disposeToolbar: null,
+    contextMenus: new Map(),
+    pdfIndexOperations: new PDFIndexOperationTracker(),
+};
+
+globalThis.install = async function install() {};
+
+globalThis.startup = async function startup({ id, rootURI }) {
+    runtime.id = id;
+    runtime.rootURI = rootURI;
+    const localization = createLocalization({
+        zoteroLocale: getZoteroLocale(
+            Zotero,
+            typeof Services === 'undefined' ? null : Services
+        ),
+    });
+    runtime.localization = localization;
+    runtime.actionsTags = createZoteroActionsTagsBridge({
+        zotero: Zotero,
+        onError: error => Zotero.logError?.(error),
+    });
+    runtime.sourceNavigation = createZoteroSourceNavigation(Zotero);
+    runtime.clipboard = createZoteroClipboard(
+        typeof Components === 'undefined' ? null : Components
+    );
+    runtime.markdownExport = createZoteroMarkdownExport({
+        components: typeof Components === 'undefined' ? null : Components,
+        io: IOUtils,
+    });
+    runtime.evidenceReference = createZoteroEvidenceReference(
+        Zotero,
+        runtimeTranslate
+    );
+    runtime.presenter = new MarkdownTabPresenter({
+        zotero: Zotero,
+        rootURI,
+        localization,
+    });
+    const presenter = runtime.presenter;
+    await Zotero.uiReadyPromise;
+    if (runtime.presenter !== presenter) return;
+
+    const cache = createZoteroMarkdownCache({
+        zotero: Zotero,
+        ioUtils: IOUtils,
+        pathUtils: PathUtils,
+    });
+    runtime.cache = cache;
+    const translationCache = createZoteroTranslationCache({
+        zotero: Zotero,
+        ioUtils: IOUtils,
+        pathUtils: PathUtils,
+    });
+    runtime.translationCache = translationCache;
+    runtime.translationService = new AcademicTranslationService({
+        client: new OpenAITranslationClient({
+            createAbortController: createZoteroAbortController,
+        }),
+        cache: translationCache,
+        onCacheError: error => Zotero.logError?.(error),
+    });
+    const pdfTextIndexCache = createZoteroPDFTextIndexCache({
+        zotero: Zotero,
+        ioUtils: IOUtils,
+        pathUtils: PathUtils,
+    });
+    runtime.pdfTextIndexCache = pdfTextIndexCache;
+    const readerTextLocator = createZoteroPDFTextLocator(Zotero);
+    const pdfAnnotationLocator = new PDFAnnotationLocator({
+        engine: createPDFJSTextEngine({
+            workerSrc: `${rootURI}pdf.worker.mjs`,
+            cMapUrl: `${rootURI}pdfjs/cmaps/`,
+            standardFontDataUrl: `${rootURI}pdfjs/standard_fonts/`,
+            wasmUrl: `${rootURI}pdfjs/wasm/`,
+        }),
+        cache: pdfTextIndexCache,
+        createAbortController: createZoteroAbortController,
+        createSourceHash: fileData => sha256Hex(fileData),
+        loadFile: createZoteroPDFFileLoader(
+            Zotero,
+            path => IOUtils.read(path)
+        ),
+        measureText: createZoteroTextMeasurer(Zotero),
+        readerLocator: readerTextLocator,
+        onError: error => Zotero.logError?.(error),
+    });
+    runtime.pdfAnnotationLocator = pdfAnnotationLocator;
+    runtime.annotationActions = createZoteroAnnotationActions(Zotero, {
+        locateText: (itemID, text, options) => (
+            pdfAnnotationLocator.locate(itemID, text, options)
+        ),
+    });
+    if (Zotero.Attachments && Zotero.Item) {
+        runtime.savedMarkdownStore = createZoteroSavedMarkdownStore({
+            zotero: Zotero,
+            readFile: path => IOUtils.read(path),
+            writeTemporaryFile: writeZoteroTemporaryFile,
+            createBlob: createZoteroBlobFactory({
+                zotero: Zotero,
+                services: typeof Services === 'undefined' ? null : Services,
+            }),
+            preparingNoteText: runtimeTranslate('viewer.snapshotPreparing'),
+            translate: runtimeTranslate,
+            now: () => new Date().toISOString(),
+        });
+        runtime.savedMarkdownResolver = createSavedMarkdownOpenResolver({
+            store: runtime.savedMarkdownStore,
+            cache,
+            parserProfile: MINERU_PARSER_PROFILE_ID,
+            resolveSourceItem: manifest => (
+                resolveZoteroSavedMarkdownSourceItem(Zotero, manifest)
+            ),
+            onCacheError: error => Zotero.logError?.(error),
+        });
+    }
+    const annotationOverlay = new MarkdownAnnotationOverlay({
+        extractor: new ZoteroAnnotationExtractor(Zotero),
+        onError: error => Zotero.logError?.(error),
+    });
+    const localAnnotations = new MarkdownLocalAnnotations({
+        store: createZoteroMarkdownAnnotationStore({
+            zotero: Zotero,
+            ioUtils: IOUtils,
+            pathUtils: PathUtils,
+        }),
+        createPDFAnnotation: (itemID, draft, context) => (
+            runtime.annotationActions.createFromText(itemID, draft, context)
+        ),
+        deletePDFAnnotation: (itemID, annotationID) => (
+            runtime.annotationActions.deleteAnnotation(itemID, annotationID)
+        ),
+        onSynchronizationChange: itemID => (
+            runtime.annotationOverlayRefresher?.refresh([itemID])
+        ),
+        onError: error => Zotero.logError?.(error),
+    });
+    runtime.localAnnotations = localAnnotations;
+    const pendingTasks = createZoteroMinerUPendingTaskStore({
+        zotero: Zotero,
+        ioUtils: IOUtils,
+        pathUtils: PathUtils,
+    });
+    const conversion = new MinerUConversion({
+        client: new MinerUClient({
+            createAbortController: createZoteroAbortController,
+        }),
+        pendingTasks,
+        cache,
+        onError: error => Zotero.logError?.(error),
+    });
+    runtime.service = new MarkdownDocumentService({
+        extractor: new MinerUDocumentExtractor({
+            zotero: Zotero,
+            conversion,
+            getApiKey: () => getMinerUApiKey(Zotero),
+            readFile: path => IOUtils.read(path),
+            preparePDFIndex: (itemID, options) => trackPDFIndexTask(
+                runtime.pdfIndexOperations,
+                itemID,
+                options,
+                pdfAnnotationLocator
+            ),
+            createCacheKey: fileData => createMinerUCacheKey(fileData),
+            isCacheEnabled: () => getMinerUCacheEnabled(Zotero),
+        }),
+        annotationOverlay,
+        localAnnotations,
+        savedResolver: runtime.savedMarkdownResolver,
+        translate: runtimeTranslate,
+    });
+    runtime.annotationOverlayRefresher = createAnnotationOverlayRefresher({
+        presenter,
+        service: runtime.service,
+    });
+    runtime.disposeAnnotationObserver = registerZoteroAnnotationObserver(
+        Zotero,
+        {
+            onChange: itemIDs => (
+                runtime.annotationOverlayRefresher?.refresh(itemIDs)
+            ),
+            onError: error => Zotero.logError?.(error),
+        }
+    );
+    cache.prune().catch(error => Zotero.logError(error));
+    translationCache.prune().catch(error => Zotero.logError(error));
+    pdfTextIndexCache.prune().catch(error => Zotero.logError(error));
+    pendingTasks.prune().catch(error => Zotero.logError(error));
+    presenter.ensureSessionStateFilter();
+    const preferencePaneID = await registerMinerUPreferencesPane({
+        zotero: Zotero,
+        pluginID: id,
+        rootURI,
+        translate: runtimeTranslate,
+    });
+    if (runtime.presenter !== presenter) {
+        Zotero.PreferencePanes.unregister?.(preferencePaneID);
+        return;
+    }
+    runtime.preferencePaneID = preferencePaneID;
+    registerReaderToolbarAction();
+    registerMainWindowContextMenu(Zotero.getMainWindow?.());
+
+    Zotero.debug('Mktero: started');
+};
+
+globalThis.shutdown = function shutdown() {
+    abortAllTranslations();
+    abortAllConversions();
+    runtime.disposeAnnotationObserver?.();
+    runtime.localAnnotations?.dispose();
+    runtime.pdfAnnotationLocator?.dispose();
+    runtime.annotationOverlayRefresher?.dispose();
+    runtime.disposeToolbar?.();
+    disposeAllContextMenus();
+    runtime.actionsTags?.dispose();
+    runtime.presenter?.dispose();
+    if (runtime.preferencePaneID) {
+        Zotero.PreferencePanes.unregister?.(runtime.preferencePaneID);
+    }
+    runtime.disposeToolbar = null;
+    runtime.presenter = null;
+    runtime.service = null;
+    runtime.cache = null;
+    runtime.translationCache = null;
+    runtime.translationService = null;
+    runtime.pdfTextIndexCache = null;
+    runtime.pdfAnnotationLocator = null;
+    runtime.savedMarkdownStore = null;
+    runtime.savedMarkdownResolver = null;
+    runtime.rootURI = null;
+    runtime.localization = null;
+    runtime.annotationActions = null;
+    runtime.actionsTags = null;
+    runtime.sourceNavigation = null;
+    runtime.clipboard = null;
+    runtime.evidenceReference = null;
+    runtime.disposeAnnotationObserver = null;
+    runtime.annotationOverlayRefresher = null;
+    runtime.localAnnotations = null;
+    runtime.preferencePaneID = null;
+    runtime.id = null;
+};
+
+globalThis.uninstall = async function uninstall() {};
+globalThis.onMainWindowLoad = function onMainWindowLoad({ window }) {
+    registerMainWindowContextMenu(window);
+};
+globalThis.onMainWindowUnload = function onMainWindowUnload({ window }) {
+    disposeMainWindowContextMenu(window);
+};
+
+async function openReaderAsMarkdown(reader, { forceRefresh = false } = {}) {
+    return openItemAsMarkdown(reader.itemID, {
+        forceRefresh,
+        entryPoint: 'reader-toolbar',
+    });
+}
+
+async function openItemAsMarkdown(itemID, {
+    forceRefresh = false,
+    entryPoint = 'item-menu',
+} = {}) {
+    const presentation = runtime.presenter.open(itemID, {
+        sourceItemID: itemID,
+        onClose: ({ reason = MARKDOWN_TAB_CLOSE_REASONS.USER } = {}) => {
+            abortConversion(itemID);
+            abortTranslation(itemID);
+            void runtime.actionsTags?.closeMarkdownSession({
+                sessionID: itemID,
+                sourceItemID: itemID,
+                reason,
+            });
+        },
+        onReparse: () => openItemAsMarkdown(itemID, {
+            forceRefresh: true,
+            entryPoint,
+        }),
+        onOpenSettings: () => openMinerUPreferences(Zotero),
+        onSaveSnapshot: () => saveSnapshotForItem(itemID),
+        ...createTranslationActions(itemID),
+        onChangeAnnotationColor: (annotationID, color) => (
+            runAnnotationAction('changeColor', itemID, annotationID, color)
+        ),
+        onUpdateAnnotationComment: (annotationID, comment) => (
+            runAnnotationAction('updateComment', itemID, annotationID, comment)
+        ),
+        onDeleteAnnotation: annotationID => (
+            runAnnotationAction('deleteAnnotation', itemID, annotationID)
+        ),
+        onOpenAnnotationInPDF: annotationID => (
+            runAnnotationAction('openInPDF', itemID, annotationID)
+        ),
+        onOpenSourceInPDF: location => openSourceInPDF(itemID, location),
+        onCopySourcedMarkdown: target => copySourcedMarkdown(itemID, target),
+        onCopyMarkdown: () => copyFullMarkdown(itemID),
+        onExportMarkdown: () => exportMarkdownForItem(itemID),
+        onCreateMarkdownAnnotation: draft => (
+            runMarkdownAnnotationAction('create', itemID, draft)
+        ),
+        onUpdateMarkdownAnnotation: (annotationID, changes) => (
+            runMarkdownAnnotationAction(
+                'update',
+                itemID,
+                annotationID,
+                changes
+            )
+        ),
+        onDeleteMarkdownAnnotation: annotationID => (
+            runMarkdownAnnotationAction('delete', itemID, annotationID)
+        ),
+        onRetryMarkdownAnnotationSynchronization: annotationID => (
+            runMarkdownAnnotationAction(
+                'retrySynchronization',
+                itemID,
+                annotationID
+            )
+        ),
+    });
+    if (presentation.created) {
+        void runtime.actionsTags?.openMarkdownSession({
+            sessionID: itemID,
+            sourceItemID: itemID,
+            entryPoint,
+        });
+    }
+    if (!presentation.created
+        && presentation.model.status !== 'error'
+        && !forceRefresh) return;
+
+    if (forceRefresh) abortTranslation(itemID);
+    const previousResult = forceRefresh
+        ? snapshotReadyResult(presentation.model)
+        : null;
+    abortConversion(itemID);
+    const controller = createZoteroAbortController();
+    runtime.pdfIndexOperations.start(itemID, controller);
+    Zotero.debug(
+        `Mktero: conversion started for item ${itemID} `
+        + `(force refresh: ${forceRefresh})`
+    );
+    runtime.presenter.update(presentation, {
+        ...createConversionLoadingChanges(previousResult, runtimeTranslate),
+        ...(forceRefresh ? {
+            translation: createEmptyTranslationState(),
+        } : {}),
+    });
+
+    let lastLoggedProgress = null;
+    try {
+        const result = await runtime.service.convert(itemID, {
+            signal: controller.signal,
+            forceRefresh,
+            onProgress(progress, state) {
+                const normalizedProgress = normalizeConversionProgress(progress);
+                if (normalizedProgress !== lastLoggedProgress) {
+                    lastLoggedProgress = normalizedProgress;
+                    Zotero.debug(
+                        `Mktero: item ${itemID}: `
+                        + `${conversionProgressLog(
+                            normalizedProgress,
+                            Boolean(state?.resumingTask)
+                        )} `
+                        + `(${normalizedProgress}%)`
+                    );
+                }
+                runtime.presenter?.update(
+                    presentation,
+                    createConversionProgressChanges(normalizedProgress, state)
+                );
+            },
+        });
+        Zotero.debug(
+            result.cacheHit
+                ? `Mktero: item ${itemID}: completed from local cache; MinerU upload skipped`
+                : result.resumedTask
+                    ? `Mktero: item ${itemID}: completed from a resumed MinerU task`
+                    : `Mktero: item ${itemID}: completed through a new MinerU task`
+        );
+        runtime.presenter?.update(
+            presentation,
+            createConversionReadyChanges(
+                localizeConversionResult(result, runtimeTranslate)
+            )
+        );
+    }
+    catch (error) {
+        if (controller.signal.aborted) return;
+        Zotero.debug(
+            `Mktero: conversion failed for item ${itemID}: ${userFacingError(error)}`
+        );
+        Zotero.logError(error);
+        const opensSettings = error instanceof MinerUConfigurationError
+            || error?.code === 'MINERU_API_KEY_INVALID';
+        if (opensSettings) {
+            openMinerUPreferences(Zotero);
+        }
+        runtime.presenter?.update(
+            presentation,
+            createConversionFailureChanges(
+                userFacingError(error),
+                previousResult,
+                runtimeTranslate,
+                {
+                    errorAction: opensSettings ? 'open-settings' : null,
+                }
+            )
+        );
+    }
+    finally {
+        runtime.pdfIndexOperations.finish(itemID, controller);
+    }
+}
+
+async function openSavedMarkdownNote(noteID) {
+    if (!runtime.savedMarkdownStore?.readManifest) {
+        throw new Error('Saved Markdown notes are unavailable');
+    }
+    const header = await runtime.savedMarkdownStore.readManifest(noteID);
+    if (!header?.manifest) {
+        throw new Error('The selected note is not a Mktero saved Markdown note');
+    }
+    let sourceItem = null;
+    try {
+        sourceItem = await resolveZoteroSavedMarkdownSourceItem(
+            Zotero,
+            header.manifest
+        );
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+    }
+    const presentation = runtime.presenter.open(noteID, {
+        sourceItemID: sourceItem?.id ?? null,
+        ...createSavedMarkdownActions(noteID, sourceItem),
+    });
+    try {
+        const result = localizeConversionResult(
+            await runtime.service.openSaved(noteID),
+            runtimeTranslate
+        );
+        runtime.presenter.update(presentation, {
+            ...result,
+            itemID: result.sourceItemID,
+            documentID: noteID,
+            status: 'ready',
+            progress: 100,
+            preserveContent: false,
+            resumingTask: false,
+            error: '',
+        });
+    }
+    catch (error) {
+        if (presentation.created || presentation.model.status !== 'ready') {
+            runtime.presenter.update(presentation, {
+                status: 'error',
+                error: localizeConversionError(error, runtimeTranslate),
+                progress: 0,
+                preserveContent: false,
+                resumingTask: false,
+            });
+        }
+        throw error;
+    }
+    return runtime.presenter.get(noteID);
+}
+
+function createSavedMarkdownActions(noteID, sourceItem) {
+    const withSource = callback => (...args) => {
+        const sourceItemID = runtime.presenter?.get(noteID)?.model?.sourceItemID
+            ?? sourceItem?.id
+            ?? null;
+        if (!sourceItemID) throw new Error('The source PDF is unavailable');
+        return callback(sourceItemID, ...args);
+    };
+    return {
+        onClose: () => abortTranslation(noteID),
+        ...createTranslationActions(noteID),
+        onReparse: sourceItem
+            ? () => openItemAsMarkdown(sourceItem.id, { forceRefresh: true })
+            : null,
+        onSaveSnapshot: sourceItem
+            ? () => saveSnapshotForSavedNote(noteID, sourceItem.id)
+            : null,
+        onOpenAnnotationInPDF: withSource((itemID, annotationID) => (
+            runAnnotationAction('openInPDF', itemID, annotationID)
+        )),
+        onOpenSourceInPDF: withSource((itemID, location) => (
+            openSourceInPDF(itemID, location)
+        )),
+        onCopySourcedMarkdown: withSource((itemID, target) => (
+            copySourcedMarkdown(itemID, target)
+        )),
+        onChangeAnnotationColor: withSource((itemID, annotationID, color) => (
+            runAnnotationAction('changeColor', itemID, annotationID, color)
+        )),
+        onUpdateAnnotationComment: withSource((itemID, annotationID, comment) => (
+            runAnnotationAction('updateComment', itemID, annotationID, comment)
+        )),
+        onDeleteAnnotation: withSource((itemID, annotationID) => (
+            runAnnotationAction('deleteAnnotation', itemID, annotationID)
+        )),
+        onCreateMarkdownAnnotation: withSource((itemID, draft) => (
+            runMarkdownAnnotationAction('create', itemID, draft)
+        )),
+        onUpdateMarkdownAnnotation: withSource((itemID, annotationID, changes) => (
+            runMarkdownAnnotationAction(
+                'update',
+                itemID,
+                annotationID,
+                changes
+            )
+        )),
+        onDeleteMarkdownAnnotation: withSource((itemID, annotationID) => (
+            runMarkdownAnnotationAction('delete', itemID, annotationID)
+        )),
+        onRetryMarkdownAnnotationSynchronization: withSource(
+            (itemID, annotationID) => (
+                runMarkdownAnnotationAction(
+                    'retrySynchronization',
+                    itemID,
+                    annotationID
+                )
+            )
+        ),
+    };
+}
+
+function createTranslationActions(documentID) {
+    return {
+        onStartTranslation: () => startDocumentTranslation(documentID),
+        onCancelTranslation: () => cancelDocumentTranslation(documentID),
+        onToggleTranslation: () => toggleDocumentTranslation(documentID),
+        onContinueTranslation: () => startDocumentTranslation(documentID),
+        onRetranslate: () => startDocumentTranslation(documentID, {
+            force: true,
+        }),
+    };
+}
+
+async function startDocumentTranslation(documentID, { force = false } = {}) {
+    const presentation = runtime.presenter?.get(documentID);
+    const model = presentation?.model;
+    if (!presentation
+        || model?.status !== 'ready'
+        || model?.renderMode !== 'markdown'
+        || !runtime.translationService) {
+        return;
+    }
+
+    abortTranslation(documentID);
+    const controller = createZoteroAbortController();
+    const operationKey = String(documentID);
+    runtime.translationOperations.set(operationKey, controller);
+    runtime.presenter.update(presentation, {
+        translation: {
+            ...(model.translation || createEmptyTranslationState()),
+            visible: true,
+            status: 'loading-cache',
+            error: '',
+            errorCode: null,
+        },
+    });
+    Zotero.debug(`Mktero: translation started for document ${documentID}`);
+
+    let configuration = null;
+    try {
+        configuration = getTranslationConfiguration(Zotero);
+        const completedTranslation = await runtime.translationService.translate({
+            markdown: model.markdown,
+            documentTitle: model.title,
+            configuration,
+            force,
+            signal: controller.signal,
+            onUpdate(translation) {
+                if (runtime.translationOperations.get(operationKey)
+                    !== controller) {
+                    return;
+                }
+                runtime.presenter?.update(presentation, { translation });
+            },
+        });
+        const current = runtime.presenter?.get(documentID)?.model?.translation
+            || completedTranslation;
+        if (current.failed > 0) {
+            recordTranslationFailure(documentID, configuration, {
+                outcome: 'partial',
+                errorCode: 'TRANSLATION_PARTIAL',
+                completed: current.completed,
+                failed: current.failed,
+                total: current.total,
+                failureCodes: current.failureCodes,
+            });
+        }
+        Zotero.debug(
+            `Mktero: translation finished for document ${documentID} `
+            + `(${current?.completed || 0}/${current?.total || 0})`
+        );
+    }
+    catch (error) {
+        if (controller.signal.aborted) return;
+        Zotero.logError?.(error);
+        const errorCode = error?.code || 'TRANSLATION_FAILED';
+        const needsConfiguration = error instanceof TranslationConfigurationError
+            || [
+                'TRANSLATION_SERVICE_REQUIRED',
+                'TRANSLATION_INSECURE_TRANSPORT',
+                'TRANSLATION_AUTHENTICATION_FAILED',
+            ].includes(errorCode);
+        if (needsConfiguration) {
+            void openMinerUPreferences(Zotero);
+        }
+        const message = localizeTranslationError(error, runtimeTranslate);
+        const current = runtime.presenter?.get(documentID)?.model?.translation
+            || createEmptyTranslationState();
+        recordTranslationFailure(documentID, configuration, {
+            outcome: 'error',
+            errorCode,
+            httpStatus: error?.status,
+            completed: current.completed,
+            failed: current.failed,
+            total: current.total,
+            failureCodes: current.failureCodes,
+        });
+        runtime.presenter?.update(presentation, {
+            translation: {
+                ...current,
+                visible: true,
+                status: 'error',
+                error: message,
+                errorCode,
+            },
+        });
+    }
+    finally {
+        if (runtime.translationOperations.get(operationKey) === controller) {
+            runtime.translationOperations.delete(operationKey);
+        }
+    }
+}
+
+function recordTranslationFailure(documentID, configuration, details) {
+    try {
+        appendTranslationFailureLog(Zotero, {
+            documentID,
+            service: configuration?.service || null,
+            ...details,
+        });
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+    }
+}
+
+function cancelDocumentTranslation(documentID) {
+    const presentation = runtime.presenter?.get(documentID);
+    const translation = presentation?.model?.translation;
+    abortTranslation(documentID);
+    if (!presentation || !translation) return;
+    const status = translation.total > 0
+        && translation.completed === translation.total
+        ? 'complete'
+        : translation.completed > 0 || translation.failed > 0
+            ? 'partial'
+            : 'idle';
+    runtime.presenter.update(presentation, {
+        translation: {
+            ...translation,
+            status,
+            error: '',
+            errorCode: null,
+        },
+    });
+}
+
+function toggleDocumentTranslation(documentID) {
+    const presentation = runtime.presenter?.get(documentID);
+    const translation = presentation?.model?.translation;
+    if (!presentation || !translation?.segments?.length) return;
+    runtime.presenter.update(presentation, {
+        translation: {
+            ...translation,
+            visible: !translation.visible,
+        },
+    });
+}
+
+function abortTranslation(documentID) {
+    const operationKey = String(documentID);
+    const controller = runtime.translationOperations.get(operationKey);
+    if (!controller) return;
+    runtime.translationOperations.delete(operationKey);
+    try {
+        controller.abort();
+    }
+    catch {
+        // Ignore abort failures during tab and extension cleanup.
+    }
+}
+
+function abortAllTranslations() {
+    const controllers = [...runtime.translationOperations.values()];
+    runtime.translationOperations.clear();
+    for (const controller of controllers) {
+        try {
+            controller.abort();
+        }
+        catch {
+            // Ignore abort failures during extension cleanup.
+        }
+    }
+}
+
+async function saveSnapshotForItem(itemID) {
+    const presentation = runtime.presenter?.get(itemID);
+    return saveSnapshotForModel(itemID, presentation?.model);
+}
+
+async function saveSnapshotForSavedNote(noteID, sourceItemID) {
+    const presentation = runtime.presenter?.get(noteID);
+    return saveSnapshotForModel(sourceItemID, presentation?.model);
+}
+
+async function saveSnapshotForModel(pdfItemOrID, model) {
+    if (model?.status !== 'ready' || model.renderMode === 'html') {
+        throw new Error('The Markdown document is unavailable');
+    }
+    if (!runtime.savedMarkdownStore?.saveSnapshot) {
+        throw new Error('Saved Markdown notes are unavailable');
+    }
+    const pdfItem = pdfItemOrID && typeof pdfItemOrID === 'object'
+        ? pdfItemOrID
+        : await Zotero.Items.getAsync(pdfItemOrID);
+    let cacheKey = model.cacheKey;
+    if (!cacheKey) {
+        const filePath = await pdfItem?.getFilePathAsync?.();
+        if (!filePath) throw new Error('The local PDF file is unavailable');
+        cacheKey = await createMinerUCacheKey(await IOUtils.read(filePath));
+    }
+    const result = await runtime.savedMarkdownStore.saveSnapshot({
+        pdfItem,
+        parentItem: pdfItem.parentItem || null,
+        markdown: model.markdown,
+        assets: model.assets,
+        assetBasePath: model.assetBasePath,
+        sourceMap: model.sourceMap,
+        cacheKey,
+        parserProfile: MINERU_PARSER_PROFILE_ID,
+    });
+    Zotero.debug('Mktero: saved Markdown snapshot for item ' + pdfItem.id);
+    return result;
+}
+
+async function runAnnotationAction(action, ...args) {
+    try {
+        const handler = runtime.annotationActions?.[action];
+        if (typeof handler !== 'function') {
+            throw new Error('PDF annotation actions are unavailable');
+        }
+        await handler(...args);
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        throw error;
+    }
+}
+
+async function openSourceInPDF(itemID, location) {
+    try {
+        if (typeof runtime.sourceNavigation?.open !== 'function') {
+            throw new Error('PDF source navigation is unavailable');
+        }
+        await runtime.sourceNavigation.open(itemID, location);
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        const message = runtimeTranslate('source.navigationFailed');
+        Zotero.getMainWindow?.()?.alert?.(`Mktero: ${message}`);
+    }
+}
+
+async function copySourcedMarkdown(itemID, target) {
+    try {
+        const presentation = runtime.presenter?.get(itemID)
+            || runtime.presenter?.getForSourceItem?.(itemID);
+        const model = presentation?.model;
+        if (model?.status !== 'ready') {
+            throw new Error('The Markdown document is unavailable');
+        }
+        const snippet = createEvidenceSnippet({
+            markdown: model.markdown,
+            sourceMap: model.sourceMap,
+            target,
+        });
+        if (typeof runtime.evidenceReference?.resolve !== 'function'
+            || typeof runtime.clipboard?.writeText !== 'function') {
+            throw new Error('Sourced Markdown copy is unavailable');
+        }
+        const reference = await runtime.evidenceReference.resolve(
+            itemID,
+            snippet.pageIndexes
+        );
+        const markdown = formatEvidenceMarkdown(
+            snippet,
+            reference,
+            runtimeTranslate
+        );
+        await runtime.clipboard.writeText(markdown);
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        throw error;
+    }
+}
+
+async function copyFullMarkdown(itemID) {
+    try {
+        const presentation = runtime.presenter?.get(itemID)
+            || runtime.presenter?.getForSourceItem?.(itemID);
+        const model = presentation?.model;
+        if (model?.status !== 'ready' || model.renderMode === 'html') {
+            throw new Error('The Markdown document is unavailable');
+        }
+        if (typeof runtime.clipboard?.writeText !== 'function') {
+            throw new Error('Markdown copy is unavailable');
+        }
+        await runtime.clipboard.writeText(exportMarkdownContent(model));
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        throw error;
+    }
+}
+
+async function exportMarkdownForItem(itemID) {
+    try {
+        const presentation = runtime.presenter?.get(itemID)
+            || runtime.presenter?.getForSourceItem?.(itemID);
+        const model = presentation?.model;
+        if (model?.status !== 'ready' || model.renderMode === 'html') {
+            throw new Error('The Markdown document is unavailable');
+        }
+        if (typeof runtime.markdownExport?.save !== 'function') {
+            throw new Error('Markdown export is unavailable');
+        }
+        const window = Zotero.getMainWindow?.();
+        const suggestedName = markdownExportFileName(model.title || 'document');
+        return await runtime.markdownExport.save({
+            markdown: exportMarkdownContent(model),
+            suggestedName,
+            window,
+            title: suggestedName,
+        });
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        throw error;
+    }
+}
+
+function exportMarkdownContent(model) {
+    if (!model?.markdown) return '';
+    return buildBilingualMarkdown(model.markdown, model.translation);
+}
+
+async function runMarkdownAnnotationAction(action, ...args) {
+    try {
+        const handler = runtime.localAnnotations?.[action];
+        if (typeof handler !== 'function') {
+            throw new Error('Markdown annotation actions are unavailable');
+        }
+        return await handler.call(runtime.localAnnotations, ...args);
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        throw error;
+    }
+}
+
+function conversionProgressLog(progress, resumingTask = false) {
+    if (progress >= CONVERSION_PROGRESS.COMPLETE) {
+        return 'conversion result available';
+    }
+    if (progress >= CONVERSION_PROGRESS.DOWNLOADING) {
+        return 'MinerU parsing finished; downloading the result';
+    }
+    if (resumingTask) {
+        return 'resuming an uploaded MinerU task; PDF upload skipped';
+    }
+    if (progress >= CONVERSION_PROGRESS.PARSING) {
+        return 'PDF upload completed; MinerU is parsing';
+    }
+    if (progress >= CONVERSION_PROGRESS.UPLOADING) {
+        return 'uploading PDF to MinerU';
+    }
+    if (progress >= CONVERSION_PROGRESS.PREPARING) {
+        return 'requesting a MinerU upload URL';
+    }
+    return 'preparing the local PDF';
+}
+
+function abortConversion(itemID) {
+    runtime.pdfIndexOperations.abort(itemID);
+}
+
+function abortAllConversions() {
+    runtime.pdfIndexOperations.abortAll();
+}
+
+function trackPDFIndexTask(tracker, itemID, options, locator) {
+    const task = locator.prepare(itemID, options);
+    return tracker.track(itemID, options.signal, task);
+}
+
+function registerMainWindowContextMenu(window) {
+    if (!window || !runtime.id || runtime.contextMenus.has(window)) return;
+    const dispose = registerItemContextMenu({
+        zotero: Zotero,
+        window,
+        rootURI: runtime.rootURI,
+        onOpen: openItemAsMarkdown,
+        onOpenSavedNote: openSavedMarkdownNote,
+        isSavedMarkdownNote: item => (
+            runtime.savedMarkdownStore?.isSavedMarkdownNote(item) || false
+        ),
+        onError: handleOpenError,
+        translate: runtimeTranslate,
+    });
+    if (dispose) runtime.contextMenus.set(window, dispose);
+}
+
+function disposeMainWindowContextMenu(window) {
+    const dispose = runtime.contextMenus.get(window);
+    if (!dispose) return;
+    runtime.contextMenus.delete(window);
+    dispose();
+}
+
+function disposeAllContextMenus() {
+    for (const dispose of runtime.contextMenus.values()) dispose();
+    runtime.contextMenus.clear();
+}
+
+function handleOpenError(error) {
+    Zotero.logError(error);
+    const owner = Zotero.getMainWindow?.();
+    owner?.alert?.(`Mktero: ${userFacingError(error)}`);
+}
+
+function createZoteroAbortController() {
+    return createRuntimeAbortController({
+        globalObject: globalThis,
+        zotero: Zotero,
+        services: typeof Services === 'undefined' ? null : Services,
+    });
+}
+
+async function writeZoteroTemporaryFile({ name, data }) {
+    const tempRoot = PathUtils.tempDir
+        || PathUtils.join(Zotero.Profile.dir, 'mktero-temp');
+    const randomID = globalThis.crypto?.randomUUID?.()
+        || String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+    const directory = PathUtils.join(tempRoot, 'mktero-note-' + randomID);
+    const filePath = PathUtils.join(directory, String(name));
+    await IOUtils.makeDirectory(tempRoot, { ignoreExisting: true });
+    await IOUtils.makeDirectory(directory, { ignoreExisting: false });
+    try {
+        await IOUtils.write(filePath, data);
+    }
+    catch (error) {
+        await IOUtils.remove(directory, {
+            recursive: true,
+            ignoreAbsent: true,
+        }).catch(() => {});
+        throw error;
+    }
+    return {
+        path: filePath,
+        file: zoteroFileFromPath(filePath),
+        cleanup: () => IOUtils.remove(directory, {
+            recursive: true,
+            ignoreAbsent: true,
+        }),
+    };
+}
+
+function zoteroFileFromPath(path) {
+    if (Zotero.File?.pathToFile) return Zotero.File.pathToFile(path);
+    if (typeof Components !== 'undefined') {
+        const file = Components.classes['@mozilla.org/file/local;1']
+            .createInstance(Components.interfaces.nsIFile);
+        file.initWithPath(path);
+        return file;
+    }
+    return path;
+}
+
+function registerReaderToolbarAction() {
+    if (!runtime.id) return;
+    runtime.disposeToolbar = registerReaderToolbar({
+        zotero: Zotero,
+        pluginID: runtime.id,
+        onOpen: openReaderAsMarkdown,
+        onPDFReaderAvailable: reader => (
+            runtime.localAnnotations?.synchronizePending(
+                reader.itemID,
+                { reader }
+            )
+        ),
+        onError: handleOpenError,
+        translate: runtimeTranslate,
+    });
+}
+
+function runtimeTranslate(key, variables) {
+    return runtime.localization?.t(key, variables)
+        ?? translateEnglish(key, variables);
+}
+
+function userFacingError(error) {
+    if (error instanceof MinerUConfigurationError) {
+        return runtimeTranslate('error.apiTokenMissing');
+    }
+    return localizeConversionError(error, runtimeTranslate);
+}
