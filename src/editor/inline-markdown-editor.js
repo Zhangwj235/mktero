@@ -274,7 +274,13 @@ export function createInlineMarkdownEditor({
                 Prec.highest(EditorView.domEventHandlers({
                     keydown(event) {
                         if (!activeCorrection) return false;
-                        if (event.isComposing || view.composing) return false;
+                        if (event.isComposing || view.composing) {
+                            if (event.key === 'Enter'
+                                && (event.metaKey || event.ctrlKey)) {
+                                event.stopPropagation();
+                            }
+                            return false;
+                        }
                         if (event.key === 'Escape') {
                             event.preventDefault();
                             event.stopPropagation();

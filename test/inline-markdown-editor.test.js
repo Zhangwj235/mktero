@@ -1578,6 +1578,7 @@ test('does not save a correction while an IME composition is active', async () =
     const { document } = dom.window;
     const markdown = 'Recognition text.';
     const submissions = [];
+    let bubbledSaveShortcuts = 0;
     const editor = createInlineMarkdownEditor({
         parent: document.querySelector('#editor'),
         initialMarkdown: markdown,
@@ -1596,6 +1597,11 @@ test('does not save a correction while an IME composition is active', async () =
     const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
     view.posAtCoords = () => 1;
     const content = document.querySelector('.cm-content');
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            bubbledSaveShortcuts++;
+        }
+    });
     content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true,
         cancelable: true,
@@ -1614,9 +1620,14 @@ test('does not save a correction while an IME composition is active', async () =
         bubbles: true,
         cancelable: true,
     }));
+    content.dispatchEvent(new dom.window.CompositionEvent('compositionend', {
+        bubbles: true,
+        data: '校',
+    }));
     await new Promise(resolve => setImmediate(resolve));
 
     assert.deepEqual(submissions, []);
+    assert.equal(bubbledSaveShortcuts, 0);
     assert.equal(content.getAttribute('contenteditable'), 'true');
 
     editor.destroy();
