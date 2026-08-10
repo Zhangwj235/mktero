@@ -39,7 +39,7 @@ for current limits.
 
 ### Install
 
-1. Download `mktero-<version>.xpi` from
+1. Download `mktero-0.2.8.xpi` from
    [GitHub Releases](https://github.com/tenglvjun/mktero/releases/latest).
 2. In Zotero, open `Tools -> Plugins`.
 3. Open the gear menu and choose `Install Add-on From File...`.
@@ -230,14 +230,22 @@ npm run build
 ```
 
 The build creates the unpacked extension, a reproducible
-`build/mktero-<version>.xpi`, its SHA-256 checksum, and `build/updates.json`.
+`build/mktero-0.2.8.xpi`, its SHA-256 checksum, and `build/updates.json`.
 Generated `build/` and `node_modules/` directories are ignored and must not be
 committed.
 
-Before creating a `v<version>` tag, keep the versions in `manifest.json`,
-`package.json`, and `package-lock.json` consistent. The release workflow checks
-the tag against `manifest.json` before publishing. Pushes and pull requests run
-the test, build, and CodeQL workflows without publishing a release.
+Before creating the release tag, keep the versions in `manifest.json`,
+`package.json`, and `package-lock.json` consistent. Create and push the annotated
+tag with:
+
+```bash
+git tag v0.2.8 -m "Mktero 0.2.8"
+git push origin v0.2.8
+```
+
+The release workflow checks the tag against `manifest.json` before publishing.
+Pushes and pull requests run the test, build, and CodeQL workflows without
+publishing a release.
 
 See [AGENTS.md](./AGENTS.md) for the repository architecture, coding rules,
 security invariants, and cross-file change checklist.
