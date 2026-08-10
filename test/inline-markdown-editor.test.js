@@ -1452,6 +1452,7 @@ test('commits one paragraph block from correction mode', async () => {
     const from = markdown.indexOf('The sample');
     const to = markdown.length;
     const commits = [];
+    let bubbledSaveShortcuts = 0;
     const editor = createInlineMarkdownEditor({
         parent: document.querySelector('#editor'),
         initialMarkdown: markdown,
@@ -1471,6 +1472,11 @@ test('commits one paragraph block from correction mode', async () => {
     const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
     view.posAtCoords = () => from + 8;
     const content = document.querySelector('.cm-content');
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            bubbledSaveShortcuts++;
+        }
+    });
 
     content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true,
@@ -1494,7 +1500,124 @@ test('commits one paragraph block from correction mode', async () => {
         blockID: 'paragraph-1',
         replacementMarkdown: 'The sample included 50 people.',
     }]);
+    assert.equal(bubbledSaveShortcuts, 0);
     assert.equal(content.getAttribute('contenteditable'), 'false');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not submit an empty correction after deleting a whole block', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = '# Paper\n\nRecognition text.';
+    const from = markdown.indexOf('Recognition');
+    const submissions = [];
+    const errors = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => {
+            submissions.push(correction);
+            if (!correction.replacementMarkdown.trim()) {
+                throw new Error(
+                    'A correction cannot delete its Markdown block'
+                );
+            }
+        },
+        onCorrectionError: error => errors.push(error.message),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from,
+            to: markdown.length,
+            markdown: markdown.slice(from),
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => from + 1;
+    const content = document.querySelector('.cm-content');
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    view.dispatch({
+        changes: { from, to: markdown.length, insert: '' },
+    });
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(errors, []);
+    assert.deepEqual(submissions, [{
+        blockID: 'paragraph-1',
+        replacementMarkdown: 'Recognition text.',
+    }]);
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not save a correction while an IME composition is active', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Recognition text.';
+    const submissions = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => submissions.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => 1;
+    const content = document.querySelector('.cm-content');
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    content.dispatchEvent(new dom.window.CompositionEvent('compositionstart', {
+        bubbles: true,
+        cancelable: true,
+        data: '校',
+    }));
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        metaKey: true,
+        isComposing: true,
+        bubbles: true,
+        cancelable: true,
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(submissions, []);
+    assert.equal(content.getAttribute('contenteditable'), 'true');
 
     editor.destroy();
     dom.window.close();

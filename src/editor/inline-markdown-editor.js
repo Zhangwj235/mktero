@@ -255,35 +255,36 @@ export function createInlineMarkdownEditor({
                             allowed = false;
                         }
                     });
-                    return allowed ? transaction : [];
+                    if (!allowed) return [];
+                    const nextFrom = transaction.changes.mapPos(
+                        activeCorrection.from,
+                        -1
+                    );
+                    const nextTo = transaction.changes.mapPos(
+                        activeCorrection.to,
+                        1
+                    );
+                    return transaction.newDoc
+                        .sliceString(nextFrom, nextTo)
+                        .trim()
+                        ? transaction
+                        : [];
                 }),
                 history(),
-                Prec.highest(keymap.of([{
-                    key: 'Mod-Enter',
-                    run() {
-                        if (!activeCorrection) return false;
-                        void commitActiveCorrection();
-                        return true;
-                    },
-                }, {
-                    key: 'Escape',
-                    run() {
-                        if (!activeCorrection) return false;
-                        cancelActiveCorrection();
-                        return true;
-                    },
-                }])),
                 Prec.highest(EditorView.domEventHandlers({
                     keydown(event) {
                         if (!activeCorrection) return false;
+                        if (event.isComposing || view.composing) return false;
                         if (event.key === 'Escape') {
                             event.preventDefault();
+                            event.stopPropagation();
                             cancelActiveCorrection();
                             return true;
                         }
                         if (event.key === 'Enter'
                             && (event.metaKey || event.ctrlKey)) {
                             event.preventDefault();
+                            event.stopPropagation();
                             void commitActiveCorrection();
                             return true;
                         }
@@ -404,9 +405,13 @@ export function createInlineMarkdownEditor({
     };
     const commitActiveCorrection = async () => {
         if (!activeCorrection || correctionBusy) return false;
-        correctionBusy = true;
         const active = activeCorrection;
         const replacementMarkdown = view.state.sliceDoc(active.from, active.to);
+        if (!replacementMarkdown.trim()) {
+            endActiveCorrection({ revert: true });
+            return false;
+        }
+        correctionBusy = true;
         try {
             await onCommitCorrection({
                 blockID: active.blockID,
