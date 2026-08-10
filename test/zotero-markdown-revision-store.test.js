@@ -118,6 +118,72 @@ test('reports corrupt revision metadata without deleting user files', async t =>
     assert.equal(await readFile(metadataPath, 'utf8'), '{invalid');
 });
 
+test('rejects an individual revision image above the existing image budget', async () => {
+    const writes = [];
+    const store = new ZoteroMarkdownRevisionStore({
+        rootPath: '/profile/mktero-revisions/v1',
+        ioUtils: createMemoryIOUtils(writes),
+        pathUtils: { join: path.join, parent: path.dirname },
+    });
+    const oversized = new Uint8Array(25 * 1024 * 1024 + 1);
+
+    await assert.rejects(() => store.save(CACHE_KEY, createRevisionWithAssets([{
+        path: 'images/oversized.png',
+        mimeType: 'image/png',
+        data: oversized,
+    }])), /assets exceed their size limit/i);
+    assert.deepEqual(writes, []);
+});
+
+test('rejects aggregate revision images above the existing archive budget', async () => {
+    const writes = [];
+    const store = new ZoteroMarkdownRevisionStore({
+        rootPath: '/profile/mktero-revisions/v1',
+        ioUtils: createMemoryIOUtils(writes),
+        pathUtils: { join: path.join, parent: path.dirname },
+    });
+    const sharedData = new Uint8Array(25 * 1024 * 1024);
+    const assets = Array.from({ length: 7 }, (_, index) => ({
+        path: `images/${index}.png`,
+        mimeType: 'image/png',
+        data: sharedData,
+    }));
+
+    await assert.rejects(
+        () => store.save(CACHE_KEY, createRevisionWithAssets(assets)),
+        /assets exceed their size limit/i
+    );
+    assert.deepEqual(writes, []);
+});
+
+function createRevisionWithAssets(assets) {
+    return {
+        schemaVersion: 1,
+        base: {
+            itemID: 42,
+            cacheKey: CACHE_KEY,
+            markdown: 'Original.',
+            sourceMap: [],
+            assets,
+        },
+        blocks: [],
+        corrections: [{
+            blockID: 'block-0',
+            originalMarkdown: 'Original.',
+            replacementMarkdown: 'Corrected.',
+        }],
+    };
+}
+
+function createMemoryIOUtils(writes) {
+    return {
+        exists: async () => false,
+        makeDirectory: async () => {},
+        write: async filePath => { writes.push(filePath); },
+        writeUTF8: async filePath => { writes.push(filePath); },
+    };
+}
+
 function createNodeIOUtils() {
     return {
         async exists(filePath) {

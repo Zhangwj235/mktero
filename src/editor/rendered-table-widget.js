@@ -7,6 +7,8 @@ import {
 } from './rendered-markdown-dom.js';
 import { installRenderedAnnotations } from './pdf-annotations.js';
 
+const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+
 export class RenderedTableWidget extends WidgetType {
     constructor({
         source,
@@ -25,6 +27,7 @@ export class RenderedTableWidget extends WidgetType {
         commitCorrection,
         restoreCorrection,
         onCorrectionError,
+        onCorrectionEditingChange,
         translate,
     }) {
         super();
@@ -45,7 +48,9 @@ export class RenderedTableWidget extends WidgetType {
         this.commitCorrection = commitCorrection;
         this.restoreCorrection = restoreCorrection;
         this.onCorrectionError = onCorrectionError;
+        this.onCorrectionEditingChange = onCorrectionEditingChange;
         this.translate = translate;
+        this.activeCellEdits = 0;
     }
 
     eq(other) {
@@ -63,7 +68,7 @@ export class RenderedTableWidget extends WidgetType {
 
     toDOM(view) {
         const document = view.dom.ownerDocument;
-        const container = document.createElement('div');
+        const container = createHTMLNode(document, 'div');
         container.className = [
             'cm-mktero-rendered',
             'cm-mktero-table',
@@ -119,95 +124,112 @@ export class RenderedTableWidget extends WidgetType {
 
     #configureCells(container) {
         const cells = [...container.querySelectorAll('th, td')];
-        for (const cell of cells) {
-            cell.setAttribute('contenteditable', 'false');
-            cell.setAttribute('aria-readonly', 'true');
-        }
+        for (const cell of cells) setCellReadOnly(cell, true);
         if (!this.correctionEnabled || !this.correctionBlock) return;
         const model = parseGFMTable(this.source);
         if (!model) return;
         const columnCount = model.header.length;
         const values = [model.header, ...model.body].flat();
         cells.forEach((cell, index) => {
-            cell.setAttribute('tabindex', '0');
-            cell.setAttribute('spellcheck', 'false');
-            let editing = false;
-            let originalNodes = [];
-            const begin = () => {
-                if (editing) return;
-                editing = true;
-                originalNodes = [...cell.childNodes].map(node => (
-                    node.cloneNode(true)
-                ));
-                cell.textContent = values[index] || '';
-                cell.setAttribute('contenteditable', 'true');
-                cell.setAttribute('aria-readonly', 'false');
-                cell.focus();
-            };
-            const cancel = () => {
-                if (!editing) return;
-                editing = false;
-                cell.replaceChildren(...originalNodes);
-                cell.setAttribute('contenteditable', 'false');
-                cell.setAttribute('aria-readonly', 'true');
-                cell.focus();
-            };
-            const commit = () => {
-                if (!editing) return;
-                editing = false;
-                const nextValue = normalizeCellValue(cell.textContent);
-                cell.setAttribute('contenteditable', 'false');
-                cell.setAttribute('aria-readonly', 'true');
-                if (nextValue === values[index]) {
-                    cell.replaceChildren(...originalNodes);
-                    return;
-                }
-                values[index] = nextValue;
-                model.header = values.slice(0, columnCount);
-                model.body = [];
-                for (let offset = columnCount;
-                    offset < values.length;
-                    offset += columnCount) {
-                    model.body.push(values.slice(offset, offset + columnCount));
-                }
-                Promise.resolve(this.commitCorrection?.({
-                    blockID: this.correctionBlock.id,
-                    replacementMarkdown: serializeGFMTable(model),
-                })).catch(error => {
-                    cell.replaceChildren(...originalNodes);
-                    this.onCorrectionError?.(error);
-                });
-            };
-            cell.addEventListener('dblclick', event => {
-                if (event.target?.closest?.('img')) return;
-                event.preventDefault();
-                event.stopPropagation();
-                begin();
-            });
-            cell.addEventListener('blur', commit);
-            cell.addEventListener('keydown', event => {
-                if (!editing && ['Enter', 'F2'].includes(event.key)) {
-                    event.preventDefault();
-                    begin();
-                    return;
-                }
-                if (editing && event.key === 'Escape') {
-                    event.preventDefault();
-                    cancel();
-                    return;
-                }
-                if (editing
-                    && event.key === 'Enter'
-                    && (event.metaKey || event.ctrlKey)) {
-                    event.preventDefault();
-                    commit();
-                }
+            this.#configureCell(cell, {
+                model,
+                values,
+                index,
+                columnCount,
             });
         });
     }
 
+    #configureCell(cell, { model, values, index, columnCount }) {
+        cell.setAttribute('tabindex', '0');
+        cell.setAttribute('spellcheck', 'false');
+        let editing = false;
+        let originalNodes = [];
+        const finishEditing = () => {
+            if (!editing) return false;
+            editing = false;
+            setCellReadOnly(cell, true);
+            this.#changeActiveCellEdits(-1);
+            return true;
+        };
+        const begin = () => {
+            if (editing) return;
+            editing = true;
+            originalNodes = [...cell.childNodes].map(node => (
+                node.cloneNode(true)
+            ));
+            cell.textContent = values[index] || '';
+            setCellReadOnly(cell, false);
+            this.#changeActiveCellEdits(1);
+            cell.focus();
+        };
+        const cancel = () => {
+            if (!finishEditing()) return;
+            cell.replaceChildren(...originalNodes);
+            cell.focus();
+        };
+        const commit = () => {
+            if (!finishEditing()) return;
+            const nextValue = normalizeCellValue(cell.textContent);
+            if (nextValue === values[index]) {
+                cell.replaceChildren(...originalNodes);
+                return;
+            }
+            const replacementMarkdown = serializeTableCellChange({
+                model,
+                values,
+                index,
+                nextValue,
+                columnCount,
+            });
+            Promise.resolve().then(() => this.commitCorrection?.({
+                blockID: this.correctionBlock.id,
+                replacementMarkdown,
+            })).then(() => {
+                values[index] = nextValue;
+            }).catch(error => {
+                cell.replaceChildren(...originalNodes);
+                this.onCorrectionError?.(error);
+            });
+        };
+        cell.addEventListener('dblclick', event => {
+            if (event.target?.closest?.('img')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            begin();
+        });
+        cell.addEventListener('blur', commit);
+        cell.addEventListener('keydown', event => {
+            if (!editing && ['Enter', 'F2'].includes(event.key)) {
+                event.preventDefault();
+                begin();
+                return;
+            }
+            if (editing && event.key === 'Escape') {
+                event.preventDefault();
+                cancel();
+                return;
+            }
+            if (editing
+                && event.key === 'Enter'
+                && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                commit();
+            }
+        });
+    }
+
+    #changeActiveCellEdits(delta) {
+        const wasEditing = this.activeCellEdits > 0;
+        this.activeCellEdits = Math.max(0, this.activeCellEdits + delta);
+        const isEditing = this.activeCellEdits > 0;
+        if (wasEditing !== isEditing) {
+            this.onCorrectionEditingChange?.(isEditing);
+        }
+    }
+
     #appendRestoreButton(container) {
-        const button = container.ownerDocument.createElement('button');
+        const button = createHTMLNode(container.ownerDocument, 'button');
         button.type = 'button';
         button.className = 'cm-mktero-correction-marker';
         button.textContent = this.translate('revision.restoreBlock');
@@ -225,11 +247,18 @@ export class RenderedTableWidget extends WidgetType {
         });
         container.append(button);
     }
+
+    destroy() {
+        if (this.activeCellEdits > 0) {
+            this.activeCellEdits = 0;
+            this.onCorrectionEditingChange?.(false);
+        }
+    }
 }
 
 export function createTableCaption(document, caption) {
-    const element = document.createElement('caption');
-    const label = document.createElement('span');
+    const element = createHTMLNode(document, 'caption');
+    const label = createHTMLNode(document, 'span');
     label.className = 'mktero-table-label';
     label.textContent = caption.label;
     element.append(label, ` ${caption.description}`);
@@ -275,9 +304,46 @@ function serializeGFMTable(table) {
 }
 
 function normalizeCellValue(value) {
-    return String(value || '').replace(/\r?\n/g, '<br>').trim();
+    return String(value || '').replace(/\s*[\r\n]+\s*/g, ' ').trim();
 }
 
 function escapeTableCell(value) {
-    return String(value).replace(/(?<!\\)\|/g, '\\|');
+    return String(value)
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/(?<!\\)\|/g, '\\|');
+}
+
+function serializeTableCellChange({
+    model,
+    values,
+    index,
+    nextValue,
+    columnCount,
+}) {
+    const nextValues = [...values];
+    nextValues[index] = nextValue;
+    const nextModel = {
+        ...model,
+        header: nextValues.slice(0, columnCount),
+        body: [],
+    };
+    for (let offset = columnCount;
+        offset < nextValues.length;
+        offset += columnCount) {
+        nextModel.body.push(nextValues.slice(offset, offset + columnCount));
+    }
+    return serializeGFMTable(nextModel);
+}
+
+function setCellReadOnly(cell, readOnly) {
+    cell.setAttribute('contenteditable', readOnly ? 'false' : 'true');
+    cell.setAttribute('aria-readonly', readOnly ? 'true' : 'false');
+}
+
+function createHTMLNode(document, tagName) {
+    if (typeof document.createElementNS === 'function') {
+        return document.createElementNS(XHTML_NAMESPACE, tagName);
+    }
+    return document.createElement(tagName);
 }

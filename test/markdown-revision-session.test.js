@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    createMarkdownRevisionSessionRegistry,
     openMarkdownRevisionSession,
 } from '../src/core/markdown-revision-session.js';
 
@@ -187,7 +188,92 @@ test('rejects structural and unsafe replacements', async () => {
         }),
         /raw HTML cannot be added/i
     );
+    await assert.rejects(
+        () => session.commit({
+            blockID: paragraph.id,
+            replacementMarkdown: 'The corrected value is $E = mc^2$.',
+        }),
+        /formulas cannot be added/i
+    );
     assert.equal(session.snapshot().correctionCount, 0);
+});
+
+test('keeps the in-memory revision unchanged when persistence fails', async () => {
+    const store = createMemoryStore();
+    store.save = async () => {
+        throw new Error('disk full');
+    };
+    const session = await openMarkdownRevisionSession({
+        baseDocument: createBaseDocument(),
+        store,
+    });
+    const paragraph = session.snapshot().editableBlocks.find(block => (
+        block.type === 'paragraph'
+    ));
+
+    await assert.rejects(() => session.commit({
+        blockID: paragraph.id,
+        replacementMarkdown: 'Corrected paragraph.',
+    }), /disk full/i);
+
+    assert.equal(session.snapshot().correctionCount, 0);
+    assert.equal(session.snapshot().markdown, createBaseDocument().markdown);
+});
+
+test('shifts source mappings adjacent to a correction without absorbing it', async () => {
+    const baseDocument = createBaseDocument();
+    const paragraph = 'The study included 5O participants.';
+    const from = baseDocument.markdown.indexOf(paragraph);
+    const to = from + paragraph.length;
+    baseDocument.sourceMap = [{
+        type: 'before',
+        markdownFrom: 0,
+        markdownTo: from,
+        locations: [],
+        locationRanges: [{
+            markdownFrom: 0,
+            markdownTo: from,
+            location: { pageIndex: 0, bbox: [0, 0, 1, 1] },
+        }],
+    }, {
+        type: 'edited',
+        markdownFrom: from,
+        markdownTo: to,
+        locations: [{ pageIndex: 0, bbox: [1, 1, 2, 2] }],
+    }, {
+        type: 'after',
+        markdownFrom: to,
+        markdownTo: baseDocument.markdown.length,
+        locations: [],
+        locationRanges: [{
+            markdownFrom: to,
+            markdownTo: baseDocument.markdown.length,
+            location: { pageIndex: 1, bbox: [0, 0, 1, 1] },
+        }],
+    }];
+    const session = await openMarkdownRevisionSession({
+        baseDocument,
+        store: createMemoryStore(),
+    });
+    const block = session.snapshot().editableBlocks.find(candidate => (
+        candidate.from === from
+    ));
+
+    const corrected = await session.commit({
+        blockID: block.id,
+        replacementMarkdown: 'A much shorter correction.',
+    });
+    const replacementTo = from + 'A much shorter correction.'.length;
+
+    assert.equal(corrected.sourceMap[0].markdownTo, from);
+    assert.equal(corrected.sourceMap[0].locationRanges[0].markdownTo, from);
+    assert.equal(corrected.sourceMap[1].markdownFrom, from);
+    assert.equal(corrected.sourceMap[1].markdownTo, replacementTo);
+    assert.equal(corrected.sourceMap[2].markdownFrom, replacementTo);
+    assert.equal(
+        corrected.sourceMap[2].locationRanges[0].markdownFrom,
+        replacementTo
+    );
 });
 
 test('restores all corrections without changing the immutable base', async () => {
@@ -225,4 +311,53 @@ test('does not expose formula blocks for correction', async () => {
         session.snapshot().editableBlocks.map(block => block.markdown),
         ['Plain recognition text.']
     );
+});
+
+test('does not install a revision session that finishes opening after close', async () => {
+    let resolveOpen;
+    let destroyed = 0;
+    const registry = createMarkdownRevisionSessionRegistry({
+        openSession: () => new Promise(resolve => {
+            resolveOpen = resolve;
+        }),
+    });
+    const opening = registry.open(42, createBaseDocument());
+    await Promise.resolve();
+
+    await registry.close(42);
+    resolveOpen({
+        destroy: async () => { destroyed++; },
+    });
+
+    await assert.rejects(opening, error => error?.name === 'AbortError');
+    assert.equal(registry.get(42), undefined);
+    assert.equal(destroyed, 1);
+});
+
+test('destroys open and pending revision sessions during shutdown', async () => {
+    let resolvePending;
+    const destroyed = [];
+    const registry = createMarkdownRevisionSessionRegistry({
+        openSession: ({ baseDocument }) => baseDocument.itemID === 42
+            ? Promise.resolve({
+                destroy: async () => destroyed.push(42),
+            })
+            : new Promise(resolve => { resolvePending = resolve; }),
+    });
+    await registry.open(42, createBaseDocument());
+    const pending = registry.open(43, {
+        ...createBaseDocument(),
+        itemID: 43,
+    });
+    await Promise.resolve();
+
+    await registry.destroyAll();
+    resolvePending({
+        destroy: async () => destroyed.push(43),
+    });
+
+    await assert.rejects(pending, error => error?.name === 'AbortError');
+    assert.deepEqual(destroyed.sort(), [42, 43]);
+    assert.equal(registry.get(42), undefined);
+    assert.equal(registry.get(43), undefined);
 });

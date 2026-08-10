@@ -483,6 +483,7 @@ export function createInlineRenderingExtension({
     commitCorrection,
     restoreCorrection,
     onCorrectionError,
+    onCorrectionEditingChange,
     translate = translateEnglish,
 }) {
     const context = {
@@ -500,6 +501,7 @@ export function createInlineRenderingExtension({
         commitCorrection,
         restoreCorrection,
         onCorrectionError,
+        onCorrectionEditingChange,
         translate,
         renderVersion: 0,
         highlightedReferenceID: null,
@@ -765,14 +767,17 @@ function buildDecorations(state, context) {
         analyzedTableReferences.targets.map(target => [target.from, target])
     );
     referenceAnalysis(state, context.figureReferences);
-    const algorithmGroups = findMinerUAlgorithmGroups(state.doc.toString());
-    const figureGroups = findAcademicFigureGroups(state.doc.toString());
-    const tableGroups = findAcademicTableGroups(state.doc.toString());
+    const algorithmGroups = findMinerUAlgorithmGroups(state.doc.toString())
+        .filter(group => !rangesOverlapEditing(group, context));
+    const figureGroups = findAcademicFigureGroups(state.doc.toString())
+        .filter(group => !rangesOverlapEditing(group, context));
+    const tableGroups = findAcademicTableGroups(state.doc.toString())
+        .filter(group => !rangesOverlapEditing(group, context));
     const renderedGroups = [
         ...algorithmGroups,
         ...figureGroups,
         ...tableGroups,
-    ].filter(group => !rangesOverlapEditing(group, context));
+    ];
     for (const group of algorithmGroups) {
         decorations.push(renderedRange(group, state, 'algorithm', context));
     }
@@ -1876,10 +1881,12 @@ function renderedRange(node, state, display, context) {
         node.to
     );
     if (display === 'table') {
+        const tableFrom = node.table?.from ?? node.from;
+        const tableTo = node.table?.to ?? node.to;
         const correctionBlock = context.correctionBlocks.find(block => (
             block.type === 'table'
-            && block.from === node.from
-            && block.to === node.to
+            && block.from === tableFrom
+            && block.to === tableTo
         ));
         return Decoration.replace({
             widget: new RenderedTableWidget({
@@ -1897,6 +1904,7 @@ function renderedRange(node, state, display, context) {
                 commitCorrection: context.commitCorrection,
                 restoreCorrection: context.restoreCorrection,
                 onCorrectionError: context.onCorrectionError,
+                onCorrectionEditingChange: context.onCorrectionEditingChange,
                 ...context,
             }),
             block: true,

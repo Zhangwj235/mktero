@@ -1708,6 +1708,200 @@ test('commits a rendered GFM table cell from correction mode', async () => {
     dom.window.close();
 });
 
+test('edits escaped pipes and pads ragged GFM table rows', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Name | Value | Note |',
+        '| --- | ---: | --- |',
+        '| A \\| B | 42 |',
+    ].join('\n');
+    const commits = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => commits.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'table-ragged',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const cells = document.querySelectorAll('.cm-mktero-table tbody td');
+
+    assert.equal(cells.length, 3);
+    assert.equal(cells[0].textContent, 'A | B');
+    enterTableCellEditing(cells[2], dom.window);
+    cells[2].textContent = 'Added';
+    cells[2].dispatchEvent(new dom.window.FocusEvent('blur'));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.match(commits[0].replacementMarkdown, /\| A \\| B \| 42 \| Added \|/);
+    editor.destroy();
+    dom.window.close();
+});
+
+test('edits a captioned GFM table and restores its table block', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Table 3 Means and standard deviations',
+        '',
+        '| Measure | m | SD |',
+        '| --- | ---: | ---: |',
+        '| Valence | 414.55 | 87.37 |',
+    ].join('\n');
+    const tableFrom = markdown.indexOf('| Measure');
+    const commits = [];
+    const restores = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => commits.push(correction),
+        onRestoreCorrection: async blockID => restores.push(blockID),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'captioned-table',
+            type: 'table',
+            from: tableFrom,
+            to: markdown.length,
+            markdown: markdown.slice(tableFrom),
+        }],
+        correctedBlockIDs: ['captioned-table'],
+    });
+    const valueCell = document.querySelector(
+        '.cm-mktero-table tbody td:last-child'
+    );
+
+    enterTableCellEditing(valueCell, dom.window);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    valueCell.textContent = '87.38';
+    valueCell.dispatchEvent(new dom.window.FocusEvent('blur'));
+    await new Promise(resolve => setImmediate(resolve));
+    const restoreButton = document.querySelector(
+        '.cm-mktero-correction-marker'
+    );
+    assert.equal(
+        restoreButton.namespaceURI,
+        'http://www.w3.org/1999/xhtml'
+    );
+    restoreButton.click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.match(commits[0].replacementMarkdown, /\| Valence \| 414\.55 \| 87\.38 \|/);
+    assert.deepEqual(restores, ['captioned-table']);
+    editor.destroy();
+    dom.window.close();
+});
+
+test('keeps table cell input inert and restores the cell when saving fails', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Name | Value |',
+        '| --- | --- |',
+        '| Score | 42 |',
+    ].join('\n');
+    const errors = [];
+    let attemptedCorrection;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => {
+            attemptedCorrection = correction;
+            throw new Error('disk full');
+        },
+        onCorrectionError: error => errors.push(error.message),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'table-1',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const valueCell = document.querySelector(
+        '.cm-mktero-table tbody td:last-child'
+    );
+
+    enterTableCellEditing(valueCell, dom.window);
+    valueCell.textContent = '<img src=x onerror=alert(1)>\n43';
+    valueCell.dispatchEvent(new dom.window.FocusEvent('blur'));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(valueCell.querySelector('img'), null);
+    assert.equal(valueCell.textContent, '42');
+    assert.doesNotMatch(attemptedCorrection.replacementMarkdown, /<img/i);
+    assert.doesNotMatch(attemptedCorrection.replacementMarkdown, /\n43/);
+    assert.match(
+        attemptedCorrection.replacementMarkdown,
+        /&lt;img src=x onerror=alert\(1\)&gt; 43/
+    );
+    assert.deepEqual(errors, ['disk full']);
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not open annotation actions while a table cell is being edited', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Name | Value |',
+        '| --- | --- |',
+        '| Score | 42 |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        createMarkdownAnnotation: async annotation => annotation,
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'table-1',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const cell = document.querySelector('.cm-mktero-table tbody td:last-child');
+    enterTableCellEditing(cell, dom.window);
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    document.getSelection().addRange(range);
+
+    cell.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+    }));
+
+    assert.equal(
+        document.querySelector('.mktero-markdown-selection-actions'),
+        null
+    );
+    editor.destroy();
+    dom.window.close();
+});
+
 test('renders an academic caption above a read-only GFM table', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

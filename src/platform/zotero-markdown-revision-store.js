@@ -7,7 +7,8 @@ const CORRECTIONS_FILE_PATTERN = /^corrections-\d+-\d+\.json$/;
 const MAX_MARKDOWN_BYTES = 16 * 1024 * 1024;
 const MAX_SOURCE_MAP_BYTES = 20 * 1024 * 1024;
 const MAX_CORRECTIONS_BYTES = 8 * 1024 * 1024;
-const MAX_ASSET_BYTES = 512 * 1024 * 1024;
+const MAX_SINGLE_ASSET_BYTES = 25 * 1024 * 1024;
+const MAX_TOTAL_ASSET_BYTES = 150 * 1024 * 1024;
 const MAX_ASSETS = 1_000;
 
 export function createZoteroMarkdownRevisionStore({
@@ -273,6 +274,11 @@ function serializeRevision(revision) {
         const data = asset.data instanceof Uint8Array
             ? asset.data
             : new Uint8Array(asset.data || []);
+        if (data.length > MAX_SINGLE_ASSET_BYTES) {
+            throw new Error(
+                'The Markdown revision assets exceed their size limit'
+            );
+        }
         totalAssetBytes += data.length;
         return {
             file: `${String(index).padStart(4, '0')}.bin`,
@@ -282,7 +288,7 @@ function serializeRevision(revision) {
             data,
         };
     });
-    if (totalAssetBytes > MAX_ASSET_BYTES) {
+    if (totalAssetBytes > MAX_TOTAL_ASSET_BYTES) {
         throw new Error('The Markdown revision assets exceed their size limit');
     }
     return {
@@ -333,12 +339,12 @@ function validateMetadata(metadata, cacheKey) {
             || typeof asset.path !== 'string'
             || !asset.path
             || typeof asset.mimeType !== 'string'
-            || !validSize(asset.size, MAX_ASSET_BYTES)) {
+            || !validSize(asset.size, MAX_SINGLE_ASSET_BYTES)) {
             throw new Error('Invalid revision metadata');
         }
         totalAssetBytes += asset.size;
     }
-    if (totalAssetBytes > MAX_ASSET_BYTES) {
+    if (totalAssetBytes > MAX_TOTAL_ASSET_BYTES) {
         throw new Error('Invalid revision metadata');
     }
 }

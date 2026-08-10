@@ -183,6 +183,7 @@ export function createInlineMarkdownEditor({
     let correctedBlockIDs = [];
     let activeCorrection = null;
     let correctionBusy = false;
+    let tableCorrectionEditing = false;
     let view;
     const removeDOMActivation = installDOMActivation(
         parent,
@@ -233,6 +234,10 @@ export function createInlineMarkdownEditor({
                         onRestoreCorrection?.(blockID)
                     ),
                     onCorrectionError,
+                    onCorrectionEditingChange(editing) {
+                        tableCorrectionEditing = Boolean(editing);
+                        if (tableCorrectionEditing) annotationPopup.close();
+                    },
                     translate: t,
                 }),
                 editingMode.of([
@@ -341,7 +346,7 @@ export function createInlineMarkdownEditor({
             return false;
         }
         if (activeCorrection?.blockID === block.id) return true;
-        if (activeCorrection) void commitActiveCorrection();
+        if (activeCorrection) return false;
         activeCorrection = {
             blockID: block.id,
             from: block.from,
@@ -458,7 +463,7 @@ export function createInlineMarkdownEditor({
     );
     const openSelectedMarkdownActions = event => {
         if (event.button !== 0) return;
-        if (activeCorrection) return;
+        if (activeCorrection || tableCorrectionEditing) return;
         if (interactionPopups.some(popup => popup.contains(event.target))) {
             return;
         }
@@ -542,6 +547,7 @@ export function createInlineMarkdownEditor({
         activateDOMGlobals(ownerWindow);
         activeCorrection = null;
         correctionBusy = false;
+        tableCorrectionEditing = false;
         for (const feature of referenceFeatureList) {
             feature.popup.close();
             feature.highlight.cancel();

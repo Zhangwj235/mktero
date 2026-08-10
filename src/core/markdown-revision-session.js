@@ -26,6 +26,70 @@ export async function openMarkdownRevisionSession({
     return new MarkdownRevisionSession({ revision, store, now });
 }
 
+export function createMarkdownRevisionSessionRegistry({
+    openSession = openMarkdownRevisionSession,
+} = {}) {
+    if (typeof openSession !== 'function') {
+        throw new TypeError('A Markdown revision session opener is required');
+    }
+    const entries = new Map();
+    const pending = new Map();
+
+    const close = async itemID => {
+        pending.delete(itemID);
+        const entry = entries.get(itemID);
+        if (!entry) return;
+        entries.delete(itemID);
+        await entry.session.destroy();
+    };
+
+    const destroyAll = async () => {
+        pending.clear();
+        const active = [...entries.values()];
+        entries.clear();
+        await Promise.all(active.map(entry => entry.session.destroy()));
+    };
+
+    return {
+        get(itemID) {
+            return entries.get(itemID);
+        },
+
+        async open(itemID, baseDocument, options = {}) {
+            await close(itemID);
+            throwIfAborted(options.signal);
+            const token = {};
+            pending.set(itemID, token);
+            let session;
+            try {
+                session = await openSession({
+                    baseDocument,
+                    ...options,
+                });
+                if (pending.get(itemID) !== token
+                    || options.signal?.aborted) {
+                    await session.destroy();
+                    throw abortError(options.signal);
+                }
+                const entry = {
+                    cacheKey: baseDocument.cacheKey,
+                    session,
+                };
+                pending.delete(itemID);
+                entries.set(itemID, entry);
+                return entry;
+            }
+            catch (error) {
+                if (pending.get(itemID) === token) pending.delete(itemID);
+                throw error;
+            }
+        },
+
+        close,
+        destroyAll,
+    };
+}
+
 class MarkdownRevisionSession {
     constructor({ revision, store, now }) {
         this.revision = revision;
@@ -53,11 +117,12 @@ class MarkdownRevisionSession {
                     updatedAt: this.now(),
                 });
             }
-            this.revision = {
+            const revision = {
                 ...this.revision,
                 corrections: sortCorrections(corrections, this.revision.blocks),
             };
-            await this.#persist();
+            await this.#persist(revision);
+            this.revision = revision;
             return this.snapshot();
         });
     }
@@ -65,21 +130,23 @@ class MarkdownRevisionSession {
     restore(blockID) {
         return this.#withOperation(async () => {
             findRevisionBlock(this.revision, blockID);
-            this.revision = {
+            const revision = {
                 ...this.revision,
                 corrections: this.revision.corrections.filter(correction => (
                     correction.blockID !== blockID
                 )),
             };
-            await this.#persist();
+            await this.#persist(revision);
+            this.revision = revision;
             return this.snapshot();
         });
     }
 
     restoreAll() {
         return this.#withOperation(async () => {
-            this.revision = { ...this.revision, corrections: [] };
-            await this.#persist();
+            const revision = { ...this.revision, corrections: [] };
+            await this.#persist(revision);
+            this.revision = revision;
             return this.snapshot();
         });
     }
@@ -88,14 +155,14 @@ class MarkdownRevisionSession {
         await this.operationTail.catch(() => {});
     }
 
-    async #persist() {
-        if (!this.revision.corrections.length) {
-            await this.store.delete(this.revision.base.cacheKey);
+    async #persist(revision) {
+        if (!revision.corrections.length) {
+            await this.store.delete(revision.base.cacheKey);
             return;
         }
         await this.store.save(
-            this.revision.base.cacheKey,
-            cloneRevision(this.revision)
+            revision.base.cacheKey,
+            cloneRevision(revision)
         );
     }
 
@@ -281,6 +348,9 @@ function validateReplacement(block, value) {
     if (containsRawHTML) {
         throw new Error('Raw HTML cannot be added in correction mode');
     }
+    if (containsMath(replacement)) {
+        throw new Error('Formulas cannot be added in correction mode');
+    }
     return replacement;
 }
 
@@ -294,8 +364,16 @@ function transformSourceMap(sourceMap, transforms) {
         ));
         const transformed = {
             ...entry,
-            markdownFrom: mapPosition(entry.markdownFrom, -1, transforms),
-            markdownTo: mapPosition(entry.markdownTo, 1, transforms),
+            markdownFrom: mapPosition(
+                entry.markdownFrom,
+                corrected ? -1 : 1,
+                transforms
+            ),
+            markdownTo: mapPosition(
+                entry.markdownTo,
+                corrected ? 1 : -1,
+                transforms
+            ),
             locations: (entry.locations || []).map(location => ({
                 ...location,
                 bbox: [...location.bbox],
@@ -307,8 +385,8 @@ function transformSourceMap(sourceMap, transforms) {
         }
         else if (Array.isArray(entry.locationRanges)) {
             transformed.locationRanges = entry.locationRanges.map(range => ({
-                markdownFrom: mapPosition(range.markdownFrom, -1, transforms),
-                markdownTo: mapPosition(range.markdownTo, 1, transforms),
+                markdownFrom: mapPosition(range.markdownFrom, 1, transforms),
+                markdownTo: mapPosition(range.markdownTo, -1, transforms),
                 location: {
                     ...range.location,
                     bbox: [...range.location.bbox],
@@ -317,6 +395,17 @@ function transformSourceMap(sourceMap, transforms) {
         }
         return transformed;
     });
+}
+
+function throwIfAborted(signal) {
+    if (signal?.aborted) throw abortError(signal);
+}
+
+function abortError(signal) {
+    if (signal?.reason) return signal.reason;
+    const error = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    return error;
 }
 
 function mapPosition(position, association, transforms) {
