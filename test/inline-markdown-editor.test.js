@@ -5386,6 +5386,53 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
     assert.equal(keyActivatedFirstWindow, true);
 });
 
+test('renders the scrolled region when Zotero geometry marks the editor out of view', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    dom.window.Range.prototype.getClientRects = () => [];
+    const { document } = dom.window;
+    const targetText = 'Paragraph 160';
+    const markdown = Array.from(
+        { length: 200 },
+        (_, index) => `Paragraph ${index + 1}`
+    ).join('\n\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const scroller = view.scrollDOM;
+    const targetOffset = markdown.indexOf(targetText);
+    const targetBlock = view.lineBlockAt(targetOffset);
+    Object.defineProperty(view, 'inView', {
+        configurable: true,
+        get: () => false,
+    });
+    Object.defineProperty(scroller, 'clientHeight', {
+        configurable: true,
+        value: 800,
+    });
+    view.lineBlockAtHeight = () => targetBlock;
+    scroller.scrollTop = 2400;
+
+    scroller.dispatchEvent(new dom.window.Event('scroll', {
+        bubbles: true,
+    }));
+
+    const renderedText = document.querySelector('.cm-content').textContent;
+    const resultingScrollTop = scroller.scrollTop;
+    const resultingViewport = view.viewport;
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.match(renderedText, /Paragraph 160/);
+    assert.ok(resultingViewport.from <= targetOffset);
+    assert.ok(resultingViewport.to >= targetOffset + targetText.length);
+    assert.equal(resultingScrollTop, 2400);
+});
+
 test('corrects outline navigation after the offscreen heading is rendered', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

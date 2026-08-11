@@ -196,11 +196,16 @@ export function createInlineMarkdownEditor({
             if (event.type === 'scroll' || event.type === 'wheel') {
                 for (const popup of interactionPopups) popup.close();
             }
+            const isEditorScroll = event.type === 'scroll'
+                && event.target === view.scrollDOM;
+            const viewportRepaired = isEditorScroll
+                && repairStalledViewport(view);
             view.requestMeasure();
-            if (event.type === 'scroll' && event.target === view.scrollDOM) {
+            if (isEditorScroll) {
                 onViewportChange?.(editorViewportOffset(view));
             }
-            if (event.type === 'scroll'
+            if (isEditorScroll
+                && !viewportRepaired
                 && typeof ownerWindow.IntersectionObserver !== 'function') {
                 view.measure();
             }
@@ -675,6 +680,38 @@ function editorViewportOffset(editorView) {
     catch {
         return editorView.viewport.from;
     }
+}
+
+function repairStalledViewport(editorView) {
+    if (editorView.inView) return false;
+    const scrollTop = Number(editorView.scrollDOM?.scrollTop);
+    const clientHeight = Number(editorView.scrollDOM?.clientHeight);
+    if (!Number.isFinite(scrollTop)
+        || !Number.isFinite(clientHeight)
+        || clientHeight <= 0) {
+        return false;
+    }
+    const centerOffset = editorView.lineBlockAtHeight(
+        Math.max(0, scrollTop + clientHeight / 2)
+    ).from;
+    if (centerOffset >= editorView.viewport.from
+        && centerOffset <= editorView.viewport.to) {
+        return false;
+    }
+
+    // Zotero's XUL tab can expose window-relative coordinates that make a
+    // visible shadow-root editor look offscreen to CodeMirror. Give its
+    // virtual viewport a centered target, then retain the user's scroll offset.
+    try {
+        editorView.dispatch({
+            effects: EditorView.scrollIntoView(centerOffset, { y: 'center' }),
+        });
+        editorView.measure();
+    }
+    finally {
+        editorView.scrollDOM.scrollTop = scrollTop;
+    }
+    return true;
 }
 
 function createSourcedEvidence(markdown, sourceMap, target) {
