@@ -74,7 +74,7 @@ Zotero profile.
 3. Use the outline, citation and figure previews, source links, and Zotero notes
    panel to navigate the document.
 4. Use the fixed toolbar above the Markdown body to change font and text size.
-   The More menu contains `Correct recognition result`, `Reparse PDF`, and
+   The More menu contains `Manage corrections`, `Reparse PDF`, and
    `Save snapshot`.
 
 Reparsing uploads the PDF again and may consume MinerU quota. The current
@@ -83,15 +83,19 @@ session-only and are not restored after Zotero restarts.
 
 ### Correct recognition errors
 
-Choose `Correct recognition result` from the More menu, then double-click a
-paragraph, heading, or GFM table cell. Paragraph and heading changes save with
-the block action bar or `Ctrl/Command+Enter`; the action bar and `Escape` can
-cancel the active change. Table cells save when you leave the cell. The same
-action bar can delete a whole paragraph or heading without removing it one
-character at a time. Deleted blocks appear as compact, reversible placeholders
-only while correction mode is active. Normal reading hides correction markers
-and collapses the gaps left by deleted blocks, while the More menu can restore
-all corrections.
+Double-click a paragraph, heading, or GFM table cell directly from the normal
+reading view. Paragraph and heading changes save with the block action bar or
+`Ctrl/Command+Enter`; the action bar and `Escape` can cancel the active change.
+Table cells save when you leave the cell. Interactive links, figures, citations,
+and annotations keep their existing double-click behavior. The same action bar
+can delete a whole paragraph or heading without removing it one character at a
+time.
+
+Choose `Manage corrections` from the More menu to review corrected blocks and
+restore an individual deletion. Deleted blocks appear as compact, reversible
+placeholders only in this management mode. Normal reading hides correction
+markers and collapses the gaps left by deleted blocks, while the More menu can
+restore all corrections.
 
 Corrections are tied to the current PDF content and MinerU parser profile. They
 are stored separately from the conversion cache, so clearing or expiring the

@@ -5,6 +5,7 @@ import {
     installRenderedImagePreview,
     openRenderedLink,
 } from './rendered-markdown-dom.js';
+import { isCorrectionInteractionTarget } from './correction-interactions.js';
 import { installRenderedAnnotations } from './pdf-annotations.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
@@ -22,7 +23,7 @@ export class RenderedTableWidget extends WidgetType {
         highlighted = false,
         annotations = [],
         correctionBlock = null,
-        correctionEnabled = false,
+        correctionManagementEnabled = false,
         corrected = false,
         commitCorrection,
         restoreCorrection,
@@ -43,7 +44,7 @@ export class RenderedTableWidget extends WidgetType {
         this.annotations = annotations;
         this.annotationKey = JSON.stringify(annotations);
         this.correctionBlock = correctionBlock;
-        this.correctionEnabled = correctionEnabled;
+        this.correctionManagementEnabled = correctionManagementEnabled;
         this.corrected = corrected;
         this.commitCorrection = commitCorrection;
         this.restoreCorrection = restoreCorrection;
@@ -62,7 +63,8 @@ export class RenderedTableWidget extends WidgetType {
             && this.highlighted === other.highlighted
             && this.annotationKey === other.annotationKey
             && this.correctionBlock?.id === other.correctionBlock?.id
-            && this.correctionEnabled === other.correctionEnabled
+            && this.correctionManagementEnabled
+                === other.correctionManagementEnabled
             && this.corrected === other.corrected;
     }
 
@@ -73,7 +75,7 @@ export class RenderedTableWidget extends WidgetType {
             'cm-mktero-rendered',
             'cm-mktero-table',
             this.highlighted ? 'cm-mktero-table-target-highlight' : '',
-            this.corrected && this.correctionEnabled
+            this.corrected && this.correctionManagementEnabled
                 ? 'cm-mktero-corrected-block'
                 : '',
         ].filter(Boolean).join(' ');
@@ -111,14 +113,14 @@ export class RenderedTableWidget extends WidgetType {
             this.openImagePreview,
             this.translate
         );
-        if (this.corrected && this.correctionEnabled) {
+        if (this.corrected && this.correctionManagementEnabled) {
             this.#appendRestoreButton(container);
         }
         return container;
     }
 
     ignoreEvent(event) {
-        if (this.correctionEnabled && this.correctionBlock) return true;
+        if (this.#canCorrect()) return true;
         if (event.type === 'mousedown'
             && event.target?.closest?.('.cm-mktero-pdf-annotation')) {
             return true;
@@ -129,7 +131,7 @@ export class RenderedTableWidget extends WidgetType {
     #configureCells(container) {
         const cells = [...container.querySelectorAll('th, td')];
         for (const cell of cells) setCellReadOnly(cell, true);
-        if (!this.correctionEnabled || !this.correctionBlock) return;
+        if (!this.#canCorrect()) return;
         const model = parseGFMTable(this.source);
         if (!model) return;
         const columnCount = model.header.length;
@@ -197,7 +199,7 @@ export class RenderedTableWidget extends WidgetType {
             });
         };
         cell.addEventListener('dblclick', event => {
-            if (event.target?.closest?.('img')) return;
+            if (isCorrectionInteractionTarget(event.target)) return;
             event.preventDefault();
             event.stopPropagation();
             begin();
@@ -230,6 +232,11 @@ export class RenderedTableWidget extends WidgetType {
         if (wasEditing !== isEditing) {
             this.onCorrectionEditingChange?.(isEditing);
         }
+    }
+
+    #canCorrect() {
+        return Boolean(this.correctionBlock
+            && typeof this.commitCorrection === 'function');
     }
 
     #appendRestoreButton(container) {

@@ -21,6 +21,9 @@ import {
 } from '../markdown/markdown-figure-references.js';
 import { analyzeMarkdownTableReferences } from '../markdown/markdown-table-references.js';
 import {
+    isEditableTextCorrectionBlock,
+} from './correction-interactions.js';
+import {
     createTableCaption,
     RenderedTableWidget,
 } from './rendered-table-widget.js';
@@ -527,7 +530,7 @@ export function createInlineRenderingExtension({
         annotationOverlay: createEmptyAnnotationOverlay(),
         annotationTargets: new Map(),
         editingRange: null,
-        correctionEnabled: false,
+        correctionManagementEnabled: false,
         correctionBlocks: [],
         correctedBlockIDs: new Set(),
         citationAnalysisDocument: null,
@@ -587,7 +590,7 @@ export function createInlineRenderingExtension({
                 }
                 else if (effect.is(setCorrectionRenderingState)) {
                     const value = effect.value || {};
-                    context.correctionEnabled = Boolean(value.enabled);
+                    context.correctionManagementEnabled = Boolean(value.enabled);
                     context.correctionBlocks = Array.isArray(value.blocks)
                         ? value.blocks
                         : [];
@@ -1914,7 +1917,8 @@ function renderedRange(node, state, display, context) {
                 highlighted: tableIsHighlighted,
                 annotations,
                 correctionBlock,
-                correctionEnabled: context.correctionEnabled,
+                correctionManagementEnabled:
+                    context.correctionManagementEnabled,
                 corrected: context.correctedBlockIDs.has(
                     correctionBlock?.id
                 ),
@@ -1965,7 +1969,7 @@ function renderedRange(node, state, display, context) {
 }
 
 function decorateCorrections(state, decorations, context) {
-    if (!context.correctionEnabled) {
+    if (!context.correctionManagementEnabled) {
         for (const range of deletedCorrectionGapRanges(state, context)) {
             decorations.push(Decoration.replace({}).range(
                 range.from,
@@ -2029,7 +2033,7 @@ function isRenderableTextCorrection(block, state, context) {
         && typeof block === 'object'
         && typeof block.id === 'string'
         && block.id
-        && (block.type === 'paragraph' || block.type === 'heading')
+        && isEditableTextCorrectionBlock(block)
         && Number.isSafeInteger(block.from)
         && Number.isSafeInteger(block.to)
         && block.from >= 0

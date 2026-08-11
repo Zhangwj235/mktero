@@ -1449,7 +1449,7 @@ test('keeps rendered Markdown read-only on double-click', () => {
     dom.window.close();
 });
 
-test('commits one paragraph block from correction mode', async () => {
+test('commits one paragraph block directly from read-only mode', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -1457,6 +1457,13 @@ test('commits one paragraph block from correction mode', async () => {
     const markdown = '# Paper\n\nThe sample included 5O people.';
     const from = markdown.indexOf('The sample');
     const to = markdown.length;
+    const blocks = [{
+        id: 'paragraph-1',
+        type: 'paragraph',
+        from,
+        to,
+        markdown: markdown.slice(from, to),
+    }];
     const commits = [];
     let bubbledSaveShortcuts = 0;
     const editor = createInlineMarkdownEditor({
@@ -1465,14 +1472,8 @@ test('commits one paragraph block from correction mode', async () => {
         onCommitCorrection: async correction => commits.push(correction),
     });
     editor.setCorrectionState({
-        enabled: true,
-        blocks: [{
-            id: 'paragraph-1',
-            type: 'paragraph',
-            from,
-            to,
-            markdown: markdown.slice(from, to),
-        }],
+        enabled: false,
+        blocks,
         correctedBlockIDs: [],
     });
     const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
@@ -1489,6 +1490,8 @@ test('commits one paragraph block from correction mode', async () => {
         cancelable: true,
         button: 0,
     }));
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+    editor.setCorrectionState({ enabled: false, blocks });
     assert.equal(content.getAttribute('contenteditable'), 'true');
 
     const typo = markdown.indexOf('5O') + 1;
@@ -1508,6 +1511,57 @@ test('commits one paragraph block from correction mode', async () => {
     }]);
     assert.equal(bubbledSaveShortcuts, 0);
     assert.equal(content.getAttribute('contenteditable'), 'false');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not start direct correction from an interactive link', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = '[Source](https://example.com) text.';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const content = document.querySelector('.cm-content');
+    view.posAtCoords = () => 1;
+
+    document.querySelector('.cm-mktero-link').dispatchEvent(
+        new dom.window.MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+        })
+    );
+
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-toolbar').hidden,
+        true
+    );
+
+    view.posAtCoords = () => markdown.indexOf('text');
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(content.getAttribute('contenteditable'), 'true');
 
     editor.destroy();
     dom.window.close();
@@ -1569,7 +1623,7 @@ test('deletes a whole correction block after removing its final character', asyn
     dom.window.close();
 });
 
-test('cancels or deletes a paragraph from the block correction toolbar', async () => {
+test('opens block correction actions directly from read-only mode', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -1582,7 +1636,7 @@ test('cancels or deletes a paragraph from the block correction toolbar', async (
         onCommitCorrection: async correction => submissions.push(correction),
     });
     editor.setCorrectionState({
-        enabled: true,
+        enabled: false,
         blocks: [{
             id: 'paragraph-1',
             type: 'paragraph',
@@ -2190,7 +2244,7 @@ test('keeps rendered GFM table cells read-only', () => {
     dom.window.close();
 });
 
-test('commits a rendered GFM table cell from correction mode', async () => {
+test('commits a rendered GFM table cell directly from read-only mode', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -2207,7 +2261,7 @@ test('commits a rendered GFM table cell from correction mode', async () => {
         onCommitCorrection: async correction => commits.push(correction),
     });
     editor.setCorrectionState({
-        enabled: true,
+        enabled: false,
         blocks: [{
             id: 'table-1',
             type: 'table',

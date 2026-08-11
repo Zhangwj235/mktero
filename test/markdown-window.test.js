@@ -195,6 +195,7 @@ test('toggles block correction mode and restores all saved corrections', async (
     const toggle = shadow.querySelector('#mktero-correction-toggle');
     const restoreAll = shadow.querySelector('#mktero-restore-corrections');
     assert.equal(toggle.hidden, false);
+    assert.match(toggle.textContent, /Manage corrections/);
     assert.equal(restoreAll.hidden, false);
     assert.equal(
         shadow.querySelector('.markdown-correction-banner').hidden,
@@ -205,6 +206,7 @@ test('toggles block correction mode and restores all saved corrections', async (
     assert.deepEqual(modeChanges, [true]);
     view.render({ ...model, correctionMode: true });
     assert.equal(editorStates.at(-1).enabled, true);
+    assert.match(toggle.textContent, /Finish correction/);
     assert.match(
         shadow.querySelector('.markdown-correction-banner').textContent,
         /double-click text or a table cell/i

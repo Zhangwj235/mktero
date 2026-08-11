@@ -46,6 +46,8 @@ test('creates a fixed localization from the Zotero locale', () => {
     assert.equal(chinese.t('annotation.noteEditor'), '编辑笔记');
     assert.equal(chinese.t('annotation.saveNote'), '保存');
     assert.equal(chinese.t('revision.deleteParagraph'), '删除整段');
+    assert.equal(localization.t('revision.start'), 'Manage corrections');
+    assert.equal(chinese.t('revision.start'), '管理校对');
     assert.equal(chinese.t('revision.deletedBlock'), '已删除一段内容');
     assert.equal(chinese.t('revision.undoDelete'), '撤销删除');
 });

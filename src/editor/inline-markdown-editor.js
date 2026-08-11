@@ -29,6 +29,10 @@ import {
 import { createImagePreview } from './image-preview.js';
 import { createCitationPopup } from './citation-popup.js';
 import { createAnnotationPopup } from './annotation-popup.js';
+import {
+    isCorrectionInteractionTarget,
+    isEditableTextCorrectionBlock,
+} from './correction-interactions.js';
 import { createFigurePreviewPopup } from './figure-preview-popup.js';
 import { createTablePreviewPopup } from './table-preview-popup.js';
 
@@ -179,7 +183,7 @@ export function createInlineMarkdownEditor({
         ...referenceFeatureList.map(feature => feature.popup),
     ];
     const editingMode = new Compartment();
-    let correctionEnabled = false;
+    let correctionManagementEnabled = false;
     let correctionBlocks = [];
     let correctedBlockIDs = [];
     let activeCorrection = null;
@@ -340,9 +344,8 @@ export function createInlineMarkdownEditor({
         });
     };
     const beginActiveCorrection = (block, position) => {
-        if (!correctionEnabled
-            || correctionBusy
-            || block.type === 'table'
+        if (correctionBusy
+            || !isEditableTextCorrectionBlock(block)
             || typeof onCommitCorrection !== 'function') {
             return false;
         }
@@ -453,9 +456,9 @@ export function createInlineMarkdownEditor({
         onDelete: () => { void deleteActiveCorrection(); },
     });
     const startCorrectionFromDoubleClick = event => {
-        if (!correctionEnabled
-            || event.button !== 0
-            || event.target?.closest?.('.cm-mktero-table')) {
+        if (event.button !== 0
+            || event.target?.closest?.('.cm-mktero-table')
+            || isCorrectionInteractionTarget(event.target)) {
             return;
         }
         activateDOMGlobals(ownerWindow);
@@ -472,7 +475,7 @@ export function createInlineMarkdownEditor({
             }
         }
         const block = correctionBlocks.find(candidate => (
-            candidate.type !== 'table'
+            isEditableTextCorrectionBlock(candidate)
             && position >= candidate.from
             && position <= candidate.to
         ));
@@ -618,13 +621,23 @@ export function createInlineMarkdownEditor({
             correctedBlockIDs: corrected = [],
         } = {}) {
             activateDOMGlobals(ownerWindow);
-            if (!enabled && activeCorrection) cancelActiveCorrection();
-            correctionEnabled = Boolean(enabled);
-            correctionBlocks = Array.isArray(blocks) ? blocks : [];
+            const nextManagementEnabled = Boolean(enabled);
+            const nextCorrectionBlocks = Array.isArray(blocks) ? blocks : [];
+            const activeBlockAvailable = !activeCorrection
+                || nextCorrectionBlocks.some(block => (
+                    block?.id === activeCorrection.blockID
+                ));
+            if (activeCorrection
+                && ((!nextManagementEnabled && correctionManagementEnabled)
+                    || !activeBlockAvailable)) {
+                cancelActiveCorrection();
+            }
+            correctionManagementEnabled = nextManagementEnabled;
+            correctionBlocks = nextCorrectionBlocks;
             correctedBlockIDs = Array.isArray(corrected) ? corrected : [];
             view.dispatch({
                 effects: setCorrectionRenderingState.of({
-                    enabled: correctionEnabled,
+                    enabled: correctionManagementEnabled,
                     blocks: correctionBlocks,
                     correctedBlockIDs,
                 }),
