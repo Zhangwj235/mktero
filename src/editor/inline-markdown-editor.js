@@ -255,20 +255,7 @@ export function createInlineMarkdownEditor({
                             allowed = false;
                         }
                     });
-                    if (!allowed) return [];
-                    const nextFrom = transaction.changes.mapPos(
-                        activeCorrection.from,
-                        -1
-                    );
-                    const nextTo = transaction.changes.mapPos(
-                        activeCorrection.to,
-                        1
-                    );
-                    return transaction.newDoc
-                        .sliceString(nextFrom, nextTo)
-                        .trim()
-                        ? transaction
-                        : [];
+                    return allowed ? transaction : [];
                 }),
                 history(),
                 Prec.highest(EditorView.domEventHandlers({
@@ -413,10 +400,6 @@ export function createInlineMarkdownEditor({
         if (!activeCorrection || correctionBusy) return false;
         const active = activeCorrection;
         const replacementMarkdown = view.state.sliceDoc(active.from, active.to);
-        if (!replacementMarkdown.trim()) {
-            endActiveCorrection({ revert: true });
-            return false;
-        }
         correctionBusy = true;
         try {
             await onCommitCorrection({

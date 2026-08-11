@@ -312,7 +312,7 @@ function editableBlockType(nodeName) {
 function validateReplacement(block, value) {
     const replacement = String(value ?? '').replace(/\r\n?/g, '\n');
     if (!replacement.trim()) {
-        throw new Error('A correction cannot delete its Markdown block');
+        return '';
     }
     if (new TextEncoder().encode(replacement).length > MAX_CORRECTION_BYTES) {
         throw new Error('The Markdown correction exceeds its size limit');

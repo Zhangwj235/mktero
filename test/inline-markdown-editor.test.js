@@ -1507,27 +1507,18 @@ test('commits one paragraph block from correction mode', async () => {
     dom.window.close();
 });
 
-test('does not submit an empty correction after deleting a whole block', async () => {
+test('deletes a whole correction block after removing its final character', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
     const { document } = dom.window;
-    const markdown = '# Paper\n\nRecognition text.';
-    const from = markdown.indexOf('Recognition');
+    const markdown = 'O';
+    const from = 0;
     const submissions = [];
-    const errors = [];
     const editor = createInlineMarkdownEditor({
         parent: document.querySelector('#editor'),
         initialMarkdown: markdown,
-        onCommitCorrection: async correction => {
-            submissions.push(correction);
-            if (!correction.replacementMarkdown.trim()) {
-                throw new Error(
-                    'A correction cannot delete its Markdown block'
-                );
-            }
-        },
-        onCorrectionError: error => errors.push(error.message),
+        onCommitCorrection: async correction => submissions.push(correction),
     });
     editor.setCorrectionState({
         enabled: true,
@@ -1551,6 +1542,8 @@ test('does not submit an empty correction after deleting a whole block', async (
     view.dispatch({
         changes: { from, to: markdown.length, insert: '' },
     });
+    assert.equal(editor.getMarkdown(), '');
+
     content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
         key: 'Enter',
         code: 'Enter',
@@ -1560,12 +1553,99 @@ test('does not submit an empty correction after deleting a whole block', async (
     }));
     await new Promise(resolve => setImmediate(resolve));
 
-    assert.deepEqual(errors, []);
     assert.deepEqual(submissions, [{
         blockID: 'paragraph-1',
-        replacementMarkdown: 'Recognition text.',
+        replacementMarkdown: '',
     }]);
+    assert.equal(editor.getMarkdown(), '');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('restores an individually deleted correction block', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const restores = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        onCommitCorrection: async () => {},
+        onRestoreCorrection: async blockID => restores.push(blockID),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'deleted-paragraph',
+            type: 'paragraph',
+            from: 0,
+            to: 0,
+            markdown: '',
+        }],
+        correctedBlockIDs: ['deleted-paragraph'],
+    });
+
+    const restoreButton = document.querySelector(
+        '.cm-mktero-correction-marker'
+    );
+    assert.ok(restoreButton);
+    restoreButton.click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(restores, ['deleted-paragraph']);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('restores a deleted correction block when saving fails', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'O';
+    const errors = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {
+            throw new Error('disk full');
+        },
+        onCorrectionError: error => errors.push(error.message),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => 0;
+    const content = document.querySelector('.cm-content');
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    view.dispatch({ changes: { from: 0, to: markdown.length, insert: '' } });
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(errors, ['disk full']);
     assert.equal(editor.getMarkdown(), markdown);
+    assert.equal(content.getAttribute('contenteditable'), 'false');
 
     editor.destroy();
     dom.window.close();

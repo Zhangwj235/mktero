@@ -86,16 +86,17 @@ session-only and are not restored after Zotero restarts.
 Choose `Correct recognition result` from the More menu, then double-click a
 paragraph, heading, or GFM table cell. Paragraph and heading changes save with
 `Ctrl/Command+Enter`; `Escape` cancels the active change. Table cells save when
-you leave the cell. Each corrected block can be restored individually, and the
-More menu can restore all corrections.
+you leave the cell. Delete all content from a paragraph or heading and save to
+remove that block. Each corrected or deleted block can be restored individually,
+and the More menu can restore all corrections.
 
 Corrections are tied to the current PDF content and MinerU parser profile. They
 are stored separately from the conversion cache, so clearing or expiring the
 cache does not remove them. `Reparse PDF` asks before permanently deleting
 corrections; this MVP does not merge corrections into a newly parsed result.
 Editing is intentionally limited to existing paragraphs, headings, and GFM
-table cells: blocks cannot be inserted, deleted, reordered, or given new images
-or raw HTML.
+table cells: existing paragraphs and headings can be removed, but blocks cannot
+be inserted or reordered, and corrections cannot add images or raw HTML.
 
 If Actions & Tags for Zotero is installed, Mktero integrates with compatible
 `openFile` and `closeTab` rules for sessions it owns without duplicating native
@@ -118,7 +119,8 @@ library item cannot save a snapshot.
 - Reflows OCR output, multi-column text, formulas, tables, figures, lists, and
   code into a continuous reading document.
 - Corrects recognition errors in existing paragraphs, headings, and GFM table
-  cells while preserving the original MinerU Markdown and correction history.
+  cells, including removing spurious paragraphs or headings, while preserving
+  the original MinerU Markdown and correction history.
 - Uses paper-oriented typography with STIX/Noto serif fallbacks, and applies
   asynchronous Shiki syntax highlighting, language labels, and code copying to
   supported fenced code blocks.
@@ -208,9 +210,10 @@ controlled by Zotero.
 ## Security boundaries and current limitations
 
 - Markdown is read-only by default. Correction mode can replace the content of
-  existing paragraphs, headings, and GFM table cells, but cannot change document
-  structure, formulas, images, or raw HTML. Annotation actions remain separate
-  from Markdown corrections.
+  existing paragraphs, headings, and GFM table cells, or remove an existing
+  paragraph or heading. It cannot otherwise change document structure, formulas,
+  images, or raw HTML. Annotation actions remain separate from Markdown
+  corrections.
 - Only local PDF attachments are supported. Missing or undownloaded files
   cannot be converted.
 - Text annotations require extractable PDF text. A scanned PDF may convert via

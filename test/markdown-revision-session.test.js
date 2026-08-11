@@ -105,6 +105,34 @@ test('commits a paragraph correction and downgrades only its source mapping', as
     );
 });
 
+test('deletes a Markdown block and persists the deletion across sessions', async () => {
+    const store = createMemoryStore();
+    const baseDocument = createBaseDocument();
+    const session = await openMarkdownRevisionSession({
+        baseDocument,
+        store,
+        now: () => 1_786_320_000_000,
+    });
+    const paragraph = session.snapshot().editableBlocks.find(block => (
+        block.originalMarkdown.includes('5O participants')
+    ));
+
+    const deleted = await session.commit({
+        blockID: paragraph.id,
+        replacementMarkdown: '',
+    });
+
+    assert.equal(deleted.markdown, '# Study\n\n\n\nConclusion.');
+    assert.equal(deleted.correctionCount, 1);
+    assert.deepEqual(deleted.correctedBlockIDs, [paragraph.id]);
+    assert.equal(deleted.sourceMap[1].markdownFrom, paragraph.from);
+    assert.equal(deleted.sourceMap[1].markdownTo, paragraph.from);
+    assert.equal(deleted.sourceMap[1].corrected, true);
+    const reopened = await openMarkdownRevisionSession({ baseDocument, store });
+    assert.equal(reopened.snapshot().markdown, deleted.markdown);
+    assert.deepEqual(reopened.snapshot().correctedBlockIDs, [paragraph.id]);
+});
+
 test('restores one correction and deletes the persisted revision when empty', async () => {
     const store = createMemoryStore();
     const baseDocument = createBaseDocument();

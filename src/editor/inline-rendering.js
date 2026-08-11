@@ -1953,13 +1953,15 @@ function decorateCorrections(state, decorations, context) {
             || block.type === 'table'
             || block.from < 0
             || block.to > state.doc.length
-            || block.to <= block.from
+            || block.to < block.from
             || rangesOverlapEditing(block, context)) {
             continue;
         }
-        decorations.push(Decoration.mark({
-            class: 'cm-mktero-corrected-block',
-        }).range(block.from, block.to));
+        if (block.to > block.from) {
+            decorations.push(Decoration.mark({
+                class: 'cm-mktero-corrected-block',
+            }).range(block.from, block.to));
+        }
         decorations.push(Decoration.widget({
             widget: new CorrectionMarkerWidget(
                 block,
