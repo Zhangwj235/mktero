@@ -22,6 +22,12 @@ function createMemoryStore() {
             assert.equal(cacheKey, CACHE_KEY);
             saved = null;
         },
+        getSaved() {
+            return saved ? structuredClone(saved) : null;
+        },
+        setSaved(revision) {
+            saved = structuredClone(revision);
+        },
     };
 }
 
@@ -125,9 +131,12 @@ test('deletes a Markdown block and persists the deletion across sessions', async
     assert.equal(deleted.markdown, '# Study\n\n\n\nConclusion.');
     assert.equal(deleted.correctionCount, 1);
     assert.deepEqual(deleted.correctedBlockIDs, [paragraph.id]);
-    assert.equal(deleted.sourceMap[1].markdownFrom, paragraph.from);
-    assert.equal(deleted.sourceMap[1].markdownTo, paragraph.from);
-    assert.equal(deleted.sourceMap[1].corrected, true);
+    assert.equal(deleted.sourceMap.length, 2);
+    assert.equal(
+        deleted.sourceMap[1].markdownFrom,
+        deleted.markdown.indexOf('Conclusion.')
+    );
+    assert.equal(deleted.sourceMap[1].corrected, undefined);
     const reopened = await openMarkdownRevisionSession({ baseDocument, store });
     assert.equal(reopened.snapshot().markdown, deleted.markdown);
     assert.deepEqual(reopened.snapshot().correctedBlockIDs, [paragraph.id]);
@@ -223,7 +232,50 @@ test('rejects structural and unsafe replacements', async () => {
         }),
         /formulas cannot be added/i
     );
+    await assert.rejects(
+        () => session.commit({
+            blockID: paragraph.id,
+            replacementMarkdown: ' '.repeat((256 * 1024) + 1),
+        }),
+        /size limit/i
+    );
     assert.equal(session.snapshot().correctionCount, 0);
+});
+
+test('rejects deletion of a table from calls and stored revisions', async () => {
+    const markdown = [
+        '| Metric | Value |',
+        '| --- | --- |',
+        '| Accuracy | 90% |',
+    ].join('\n');
+    const baseDocument = {
+        ...createBaseDocument(),
+        markdown,
+        sourceMap: [],
+    };
+    const store = createMemoryStore();
+    const session = await openMarkdownRevisionSession({ baseDocument, store });
+    const table = session.snapshot().editableBlocks[0];
+
+    await assert.rejects(
+        () => session.commit({
+            blockID: table.id,
+            replacementMarkdown: '',
+        }),
+        /only paragraphs and headings/i
+    );
+    await session.commit({
+        blockID: table.id,
+        replacementMarkdown: markdown.replace('90%', '91%'),
+    });
+    const tampered = store.getSaved();
+    tampered.corrections[0].replacementMarkdown = '';
+    store.setSaved(tampered);
+
+    await assert.rejects(
+        () => openMarkdownRevisionSession({ baseDocument, store }),
+        /only paragraphs and headings/i
+    );
 });
 
 test('keeps the in-memory revision unchanged when persistence fails', async () => {

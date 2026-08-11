@@ -311,11 +311,16 @@ function editableBlockType(nodeName) {
 
 function validateReplacement(block, value) {
     const replacement = String(value ?? '').replace(/\r\n?/g, '\n');
-    if (!replacement.trim()) {
-        return '';
-    }
     if (new TextEncoder().encode(replacement).length > MAX_CORRECTION_BYTES) {
         throw new Error('The Markdown correction exceeds its size limit');
+    }
+    if (!replacement.trim()) {
+        if (block.type !== 'paragraph' && block.type !== 'heading') {
+            throw new Error(
+                'Only paragraphs and headings can be deleted in correction mode'
+            );
+        }
+        return '';
     }
     const tree = MARKDOWN_PARSER.parse(replacement);
     const nodes = [];
@@ -394,7 +399,7 @@ function transformSourceMap(sourceMap, transforms) {
             }));
         }
         return transformed;
-    });
+    }).filter(entry => entry.markdownTo > entry.markdownFrom);
 }
 
 function throwIfAborted(signal) {
