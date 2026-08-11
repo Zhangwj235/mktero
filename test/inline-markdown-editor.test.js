@@ -5530,17 +5530,32 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
     assert.equal(keyActivatedFirstWindow, true);
 });
 
-test('renders the scrolled region when Zotero geometry marks the editor out of view', () => {
+function createStalledViewportFixture({
+    paragraphCount,
+    targetParagraph,
+    scrollTop,
+}) {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
     dom.window.Range.prototype.getClientRects = () => [];
     const { document } = dom.window;
-    const targetText = 'Paragraph 160';
+    const targetText = `Paragraph ${targetParagraph}`;
     const markdown = Array.from(
-        { length: 200 },
+        { length: paragraphCount },
         (_, index) => `Paragraph ${index + 1}`
     ).join('\n\n');
+    const blocks = Array.from({ length: paragraphCount }, (_, index) => {
+        const text = `Paragraph ${index + 1}`;
+        const from = markdown.indexOf(text);
+        return {
+            id: `paragraph-${index + 1}`,
+            type: 'paragraph',
+            from,
+            to: from + text.length,
+            markdown: text,
+        };
+    });
     const editor = createInlineMarkdownEditor({
         parent: document.querySelector('#editor'),
         initialMarkdown: markdown,
@@ -5558,7 +5573,35 @@ test('renders the scrolled region when Zotero geometry marks the editor out of v
         value: 800,
     });
     view.lineBlockAtHeight = () => targetBlock;
-    scroller.scrollTop = 2400;
+    scroller.scrollTop = scrollTop;
+
+    return {
+        blocks,
+        document,
+        dom,
+        editor,
+        markdown,
+        scroller,
+        targetOffset,
+        targetText,
+        view,
+    };
+}
+
+test('renders the scrolled region when Zotero geometry marks the editor out of view', () => {
+    const {
+        document,
+        dom,
+        editor,
+        scroller,
+        targetOffset,
+        targetText,
+        view,
+    } = createStalledViewportFixture({
+        paragraphCount: 200,
+        targetParagraph: 160,
+        scrollTop: 2400,
+    });
 
     scroller.dispatchEvent(new dom.window.Event('scroll', {
         bubbles: true,
@@ -5575,6 +5618,39 @@ test('renders the scrolled region when Zotero geometry marks the editor out of v
     assert.ok(resultingViewport.from <= targetOffset);
     assert.ok(resultingViewport.to >= targetOffset + targetText.length);
     assert.equal(resultingScrollTop, 2400);
+});
+
+test('keeps the scrolled region rendered when correction mode is enabled', () => {
+    const {
+        blocks,
+        document,
+        dom,
+        editor,
+        markdown,
+        scroller,
+        targetOffset,
+        targetText,
+        view,
+    } = createStalledViewportFixture({
+        paragraphCount: 40,
+        targetParagraph: 32,
+        scrollTop: 600,
+    });
+
+    editor.setDocument({ markdown, sourceMap: [] });
+    editor.setCorrectionState({ enabled: true, blocks });
+
+    const renderedText = document.querySelector('.cm-content').textContent;
+    const resultingScrollTop = scroller.scrollTop;
+    const resultingViewport = view.viewport;
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.match(renderedText, new RegExp(targetText));
+    assert.ok(resultingViewport.from <= targetOffset);
+    assert.ok(resultingViewport.to >= targetOffset + targetText.length);
+    assert.equal(resultingScrollTop, 600);
 });
 
 test('corrects outline navigation after the offscreen heading is rendered', () => {

@@ -629,6 +629,7 @@ export function createInlineMarkdownEditor({
                     correctedBlockIDs,
                 }),
             });
+            repairStalledViewport(view);
         },
         focus() {
             activateDOMGlobals(ownerWindow);
