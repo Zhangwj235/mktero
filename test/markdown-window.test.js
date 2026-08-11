@@ -219,6 +219,58 @@ test('toggles block correction mode and restores all saved corrections', async (
     view.destroy();
 });
 
+test('offers a short undo action after deleting a correction block', async () => {
+    let editorOptions;
+    const restored = [];
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Delete this paragraph.',
+        sourceKind: 'markdown',
+        onCommitCorrection: async correction => {
+            assert.equal(correction.replacementMarkdown, ' \t');
+        },
+        onRestoreCorrection: async blockID => {
+            restored.push(blockID);
+        },
+    });
+    const { view, shadow } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                setCorrectionState() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    try {
+        await editorOptions.onCommitCorrection({
+            blockID: 'paragraph-1',
+            replacementMarkdown: ' \t',
+        });
+
+        const undo = shadow.querySelector('.markdown-correction-undo');
+        const button = shadow.querySelector('.markdown-correction-undo-button');
+        assert.equal(undo.hidden, false);
+        assert.equal(
+            shadow.querySelector('.markdown-correction-undo-message').textContent,
+            'A content block was deleted.'
+        );
+        assert.equal(button.textContent, 'Undo deletion');
+
+        button.click();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(restored, ['paragraph-1']);
+        assert.equal(undo.hidden, true);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('updates Markdown and PDF annotations as one editor document', () => {
     const updates = [];
     const sourceMap = [{

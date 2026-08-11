@@ -189,6 +189,7 @@ export function createInlineMarkdownEditor({
     let activeCorrection = null;
     let correctionBusy = false;
     let tableCorrectionEditing = false;
+    let activeTableCorrection = null;
     let view;
     let correctionToolbar;
     const removeDOMActivation = installDOMActivation(
@@ -246,8 +247,48 @@ export function createInlineMarkdownEditor({
                     ),
                     onCorrectionError,
                     onCorrectionEditingChange(editing) {
-                        tableCorrectionEditing = Boolean(editing);
-                        if (tableCorrectionEditing) annotationPopup.close();
+                        const state = typeof editing === 'object'
+                            ? editing
+                            : { editing: Boolean(editing) };
+                        if (!state.editing) {
+                            if (activeTableCorrection?.cancel
+                                && state.cancel
+                                && activeTableCorrection.cancel
+                                    !== state.cancel) {
+                                return;
+                            }
+                            activeTableCorrection = null;
+                            tableCorrectionEditing = false;
+                            if (!activeCorrection) correctionToolbar?.hide();
+                            return;
+                        }
+                        if (activeCorrection) {
+                            state.cancel?.();
+                            return;
+                        }
+                        if (activeTableCorrection
+                            && activeTableCorrection.cancel !== state.cancel
+                            && activeTableCorrection.cancel?.() === false) {
+                            state.cancel?.();
+                            return;
+                        }
+                        activeTableCorrection = state;
+                        tableCorrectionEditing = true;
+                        annotationPopup.close();
+                        if (typeof state.save !== 'function'
+                            && typeof state.cancel !== 'function') {
+                            return;
+                        }
+                        correctionToolbar?.show('table', {
+                            onSave: state.save,
+                            onCancel: state.cancel,
+                            onDelete: null,
+                        });
+                        correctionToolbar?.setDirty(Boolean(state.dirty));
+                        correctionToolbar?.setBusy(Boolean(state.busy));
+                        correctionToolbar?.setError(
+                            state.error ? t('revision.saveFailed') : ''
+                        );
                     },
                     translate: t,
                 }),
@@ -271,6 +312,24 @@ export function createInlineMarkdownEditor({
                 history(),
                 Prec.highest(EditorView.domEventHandlers({
                     keydown(event) {
+                        if (!activeCorrection
+                            && !tableCorrectionEditing
+                            && !event.isComposing
+                            && !isCorrectionInteractionTarget(event.target)
+                            && ['Enter', 'F2'].includes(event.key)) {
+                            const position = view.state.selection.main.head;
+                            const block = correctionBlocks.find(candidate => (
+                                isEditableTextCorrectionBlock(candidate)
+                                && position >= candidate.from
+                                && position <= candidate.to
+                            ));
+                            if (!block || !beginActiveCorrection(block, position)) {
+                                return false;
+                            }
+                            event.preventDefault();
+                            event.stopPropagation();
+                            return true;
+                        }
                         if (!activeCorrection) return false;
                         if (event.isComposing || view.composing) {
                             if (event.key === 'Enter'
@@ -316,6 +375,13 @@ export function createInlineMarkdownEditor({
                             ),
                             to: update.changes.mapPos(activeCorrection.to, 1),
                         };
+                        const dirty = update.view.state.sliceDoc(
+                            activeCorrection.from,
+                            activeCorrection.to
+                        ) !== activeCorrection.originalMarkdown;
+                        activeCorrection = { ...activeCorrection, dirty };
+                        correctionToolbar?.setDirty(dirty);
+                        correctionToolbar?.setError('');
                     }
                 }),
             ],
@@ -345,6 +411,7 @@ export function createInlineMarkdownEditor({
     };
     const beginActiveCorrection = (block, position) => {
         if (correctionBusy
+            || tableCorrectionEditing
             || !isEditableTextCorrectionBlock(block)
             || typeof onCommitCorrection !== 'function') {
             return false;
@@ -356,6 +423,7 @@ export function createInlineMarkdownEditor({
             from: block.from,
             to: block.to,
             originalMarkdown: view.state.sliceDoc(block.from, block.to),
+            dirty: false,
         };
         annotationPopup.close();
         correctionToolbar?.show(block.type);
@@ -410,7 +478,9 @@ export function createInlineMarkdownEditor({
         endActiveCorrection({ revert: true });
     };
     const commitActiveCorrection = async () => {
-        if (!activeCorrection || correctionBusy) return false;
+        if (!activeCorrection || correctionBusy || !activeCorrection.dirty) {
+            return false;
+        }
         const active = activeCorrection;
         const replacementMarkdown = view.state.sliceDoc(active.from, active.to);
         correctionBusy = true;
@@ -427,7 +497,7 @@ export function createInlineMarkdownEditor({
         }
         catch (error) {
             if (activeCorrection?.blockID === active.blockID) {
-                endActiveCorrection({ revert: true });
+                correctionToolbar?.setError(t('revision.saveFailed'));
             }
             onCorrectionError?.(error);
             return false;
@@ -457,6 +527,7 @@ export function createInlineMarkdownEditor({
     });
     const startCorrectionFromDoubleClick = event => {
         if (event.button !== 0
+            || tableCorrectionEditing
             || event.target?.closest?.('.cm-mktero-table')
             || isCorrectionInteractionTarget(event.target)) {
             return;
@@ -572,11 +643,16 @@ export function createInlineMarkdownEditor({
     let currentSourceMap = [];
     const setDocument = ({ markdown, annotationOverlay, sourceMap }) => {
         activateDOMGlobals(ownerWindow);
+        activeTableCorrection?.cancel?.({
+            focus: false,
+            force: true,
+        });
         activeCorrection = null;
         correctionBusy = false;
         correctionToolbar?.setBusy(false);
         correctionToolbar?.hide();
         tableCorrectionEditing = false;
+        activeTableCorrection = null;
         for (const feature of referenceFeatureList) {
             feature.popup.close();
             feature.highlight.cancel();
@@ -741,25 +817,55 @@ function createBlockCorrectionToolbar({
         'mktero-correction-editor-save',
         translate('revision.saveChanges')
     );
-    toolbar.append(deleteButton, cancelButton, saveButton);
+    const status = createHTMLNode(document, 'span');
+    status.className = 'mktero-correction-editor-status';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    status.hidden = true;
+    toolbar.append(status, deleteButton, cancelButton, saveButton);
+
+    let activeActions = { onSave, onCancel, onDelete };
+    let busy = false;
+    let dirty = false;
+    let errorMessage = '';
     parent.append(toolbar);
 
     const listeners = [
-        [deleteButton, onDelete],
-        [cancelButton, onCancel],
-        [saveButton, onSave],
-    ].map(([button, action]) => {
+        [deleteButton, 'onDelete'],
+        [cancelButton, 'onCancel'],
+        [saveButton, 'onSave'],
+    ].map(([button, actionName]) => {
         const listener = event => {
             event.preventDefault();
             event.stopPropagation();
-            action?.();
+            activeActions[actionName]?.();
         };
         button.addEventListener('click', listener);
         return { button, listener };
     });
 
+    const syncButtonState = () => {
+        deleteButton.disabled = busy;
+        cancelButton.disabled = busy;
+        saveButton.disabled = busy || !dirty;
+    };
+
+    const syncStatus = () => {
+        const message = errorMessage || (
+            dirty ? translate('revision.unsavedChanges') : ''
+        );
+        status.textContent = message;
+        status.hidden = !message;
+    };
+
     return {
-        show(blockType) {
+        show(blockType, actions = {}) {
+            activeActions = {
+                onSave,
+                onCancel,
+                onDelete,
+                ...actions,
+            };
             const key = blockType === 'heading'
                 ? 'revision.deleteHeading'
                 : 'revision.deleteParagraph';
@@ -767,17 +873,32 @@ function createBlockCorrectionToolbar({
             deleteButton.textContent = label;
             deleteButton.setAttribute('aria-label', label);
             deleteButton.setAttribute('title', label);
+            deleteButton.hidden = blockType === 'table'
+                || typeof activeActions.onDelete !== 'function';
+            busy = false;
+            dirty = false;
+            this.setError('');
+            syncButtonState();
             toolbar.hidden = false;
         },
         hide() {
             toolbar.hidden = true;
+            errorMessage = '';
+            status.hidden = true;
         },
-        setBusy(busy) {
-            const disabled = Boolean(busy);
-            toolbar.setAttribute('aria-busy', String(disabled));
-            for (const button of [deleteButton, cancelButton, saveButton]) {
-                button.disabled = disabled;
-            }
+        setBusy(nextBusy) {
+            busy = Boolean(nextBusy);
+            toolbar.setAttribute('aria-busy', String(busy));
+            syncButtonState();
+        },
+        setDirty(nextDirty) {
+            dirty = Boolean(nextDirty);
+            syncButtonState();
+            syncStatus();
+        },
+        setError(message) {
+            errorMessage = message || '';
+            syncStatus();
         },
         destroy() {
             for (const { button, listener } of listeners) {

@@ -52,6 +52,8 @@ export class RenderedTableWidget extends WidgetType {
         this.onCorrectionEditingChange = onCorrectionEditingChange;
         this.translate = translate;
         this.activeCellEdits = 0;
+        this.activeCellSession = null;
+        this.destroyed = false;
     }
 
     eq(other) {
@@ -150,36 +152,68 @@ export class RenderedTableWidget extends WidgetType {
         cell.setAttribute('tabindex', '0');
         cell.setAttribute('spellcheck', 'false');
         let editing = false;
+        let busy = false;
         let originalNodes = [];
+        let originalValue = '';
+        let error = false;
+        const notify = () => {
+            if (this.destroyed) return;
+            this.onCorrectionEditingChange?.({
+                editing,
+                dirty: editing
+                    && normalizeCellValue(cell.textContent) !== originalValue,
+                busy,
+                error,
+                save: commit,
+                cancel,
+            });
+        };
         const finishEditing = () => {
             if (!editing) return false;
             editing = false;
+            busy = false;
             setCellReadOnly(cell, true);
             this.#changeActiveCellEdits(-1);
+            if (this.activeCellSession?.cell === cell) {
+                this.activeCellSession = null;
+            }
             return true;
         };
         const begin = () => {
-            if (editing) return;
+            if (editing || busy) return false;
+            if (this.activeCellSession
+                && this.activeCellSession.cancel?.() === false) {
+                return false;
+            }
             editing = true;
+            error = false;
             originalNodes = [...cell.childNodes].map(node => (
                 node.cloneNode(true)
             ));
-            cell.textContent = values[index] || '';
+            originalValue = values[index] || '';
+            cell.textContent = originalValue;
             setCellReadOnly(cell, false);
             this.#changeActiveCellEdits(1);
+            this.activeCellSession = { cell, cancel };
+            notify();
             cell.focus();
+            return true;
         };
-        const cancel = () => {
-            if (!finishEditing()) return;
+        const cancel = ({ focus = true, force = false } = {}) => {
+            if (busy && !force) return false;
+            if (!finishEditing()) return false;
             cell.replaceChildren(...originalNodes);
-            cell.focus();
+            error = false;
+            notify();
+            if (focus) cell.focus();
+            return true;
         };
         const commit = () => {
-            if (!finishEditing()) return;
+            if (!editing || busy) return false;
             const nextValue = normalizeCellValue(cell.textContent);
-            if (nextValue === values[index]) {
-                cell.replaceChildren(...originalNodes);
-                return;
+            if (nextValue === originalValue) {
+                notify();
+                return false;
             }
             const replacementMarkdown = serializeTableCellChange({
                 model,
@@ -188,15 +222,28 @@ export class RenderedTableWidget extends WidgetType {
                 nextValue,
                 columnCount,
             });
+            busy = true;
+            error = false;
+            notify();
             Promise.resolve().then(() => this.commitCorrection?.({
                 blockID: this.correctionBlock.id,
                 replacementMarkdown,
             })).then(() => {
+                if (this.destroyed) return;
                 values[index] = nextValue;
-            }).catch(error => {
-                cell.replaceChildren(...originalNodes);
-                this.onCorrectionError?.(error);
+                if (!editing) return;
+                finishEditing();
+                cell.textContent = nextValue;
+                notify();
+            }).catch(caughtError => {
+                if (this.destroyed) return;
+                busy = false;
+                error = true;
+                notify();
+                cell.focus();
+                this.onCorrectionError?.(caughtError);
             });
+            return true;
         };
         cell.addEventListener('dblclick', event => {
             if (isCorrectionInteractionTarget(event.target)) return;
@@ -204,9 +251,15 @@ export class RenderedTableWidget extends WidgetType {
             event.stopPropagation();
             begin();
         });
-        cell.addEventListener('blur', commit);
+        cell.addEventListener('input', () => {
+            if (!editing || busy) return;
+            error = false;
+            notify();
+        });
         cell.addEventListener('keydown', event => {
-            if (!editing && ['Enter', 'F2'].includes(event.key)) {
+            if (!editing
+                && ['Enter', 'F2'].includes(event.key)
+                && !isCorrectionInteractionTarget(event.target)) {
                 event.preventDefault();
                 begin();
                 return;
@@ -226,12 +279,7 @@ export class RenderedTableWidget extends WidgetType {
     }
 
     #changeActiveCellEdits(delta) {
-        const wasEditing = this.activeCellEdits > 0;
         this.activeCellEdits = Math.max(0, this.activeCellEdits + delta);
-        const isEditing = this.activeCellEdits > 0;
-        if (wasEditing !== isEditing) {
-            this.onCorrectionEditingChange?.(isEditing);
-        }
     }
 
     #canCorrect() {
@@ -260,9 +308,20 @@ export class RenderedTableWidget extends WidgetType {
     }
 
     destroy() {
-        if (this.activeCellEdits > 0) {
+        const wasEditing = this.activeCellEdits > 0;
+        const cancel = this.activeCellSession?.cancel;
+        this.destroyed = true;
+        cancel?.({ focus: false, force: true });
+        this.activeCellSession = null;
+        if (wasEditing) {
             this.activeCellEdits = 0;
-            this.onCorrectionEditingChange?.(false);
+            this.onCorrectionEditingChange?.({
+                editing: false,
+                dirty: false,
+                busy: false,
+                error: false,
+                cancel,
+            });
         }
     }
 }

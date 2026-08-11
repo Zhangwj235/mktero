@@ -84,12 +84,14 @@ session-only and are not restored after Zotero restarts.
 ### Correct recognition errors
 
 Double-click a paragraph, heading, or GFM table cell directly from the normal
-reading view. Paragraph and heading changes save with the block action bar or
-`Ctrl/Command+Enter`; the action bar and `Escape` can cancel the active change.
-Table cells save when you leave the cell. Interactive links, figures, citations,
-and annotations keep their existing double-click behavior. The same action bar
+reading view. Press `Enter` or `F2` after focusing an editable block as a
+keyboard alternative. Text and table changes use the same explicit action bar:
+the Save button is enabled only after a change, while Save, Cancel, and
+`Ctrl/Command+Enter` or `Escape` provide matching commit and cancel behavior.
+Leaving a table cell does not save it automatically. If saving fails, the
+current input stays in place so you can retry or cancel. The same action bar
 can delete a whole paragraph or heading without removing it one character at a
-time.
+time; a short Undo deletion prompt is shown after a successful deletion.
 
 Choose `Manage corrections` from the More menu to review corrected blocks and
 restore an individual deletion. Deleted blocks appear as compact, reversible

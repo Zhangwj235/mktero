@@ -701,6 +701,20 @@ main {
     font-family: var(--ui-font);
 }
 
+.mktero-correction-editor-status {
+    min-width: 0;
+    max-width: 18rem;
+    overflow: hidden;
+    color: var(--muted);
+    font: 11px/1.3 var(--ui-font);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mktero-correction-editor-status:not([hidden]) {
+    margin-inline-end: 2px;
+}
+
 .mktero-correction-editor-button {
     flex: 0 0 auto;
     min-height: 32px;
@@ -754,6 +768,57 @@ main {
     font-size: 12px;
     line-height: 1.45;
     text-align: center;
+}
+
+.markdown-correction-undo {
+    position: absolute;
+    z-index: 6;
+    inset-block-end: 16px;
+    inset-inline-start: 50%;
+    display: inline-flex;
+    max-width: calc(100% - 36px);
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    padding: 7px 9px 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    background: color-mix(in srgb, var(--surface-raised) 96%, transparent);
+    box-shadow: var(--shadow-float);
+    font: 12px/1.35 var(--ui-font);
+    transform: translateX(-50%);
+}
+
+.markdown-correction-undo-message {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.markdown-correction-undo-button {
+    flex: 0 0 auto;
+    min-height: 28px;
+    padding: 4px 9px;
+    border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+    border-radius: var(--radius-sm);
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
+    cursor: pointer;
+    font: 600 12px/1.2 var(--ui-font);
+}
+
+.markdown-correction-undo-button:hover,
+.markdown-correction-undo-button:focus-visible {
+    border-color: var(--accent);
+    outline: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    outline-offset: 1px;
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface-raised));
+}
+
+.markdown-correction-undo-button:disabled {
+    cursor: progress;
+    opacity: 0.55;
 }
 
 .markdown-reader-toolbar {

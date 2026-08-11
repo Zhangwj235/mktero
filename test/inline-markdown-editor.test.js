@@ -1555,6 +1555,16 @@ test('does not start direct correction from an interactive link', () => {
         true
     );
 
+    view.dispatch({ selection: { anchor: 1 } });
+    document.querySelector('.cm-mktero-link').dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', {
+            key: 'Enter',
+            bubbles: true,
+            cancelable: true,
+        })
+    );
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+
     view.posAtCoords = () => markdown.indexOf('text');
     content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
         bubbles: true,
@@ -1674,12 +1684,33 @@ test('opens block correction actions directly from read-only mode', async () => 
     assert.equal(saveButton.textContent, 'Save changes');
     assert.equal(cancelButton.textContent, 'Cancel');
     assert.equal(deleteButton.textContent, 'Delete paragraph');
+    assert.equal(saveButton.disabled, true);
+    assert.equal(
+        toolbar.querySelector('.mktero-correction-editor-status').hidden,
+        true
+    );
 
     view.dispatch({ changes: { from: 0, to: 6, insert: 'Keep' } });
+    assert.equal(saveButton.disabled, false);
+    assert.equal(
+        toolbar.querySelector('.mktero-correction-editor-status').textContent,
+        'Unsaved changes'
+    );
     cancelButton.click();
     assert.equal(editor.getMarkdown(), markdown);
     assert.equal(toolbar.hidden, true);
     assert.deepEqual(submissions, []);
+
+    begin();
+    view.dispatch({ selection: { anchor: 1 } });
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'F2',
+        bubbles: true,
+        cancelable: true,
+    }));
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+    assert.equal(saveButton.disabled, true);
+    cancelButton.click();
 
     begin();
     view.dispatch({
@@ -2011,6 +2042,13 @@ test('restores a deleted correction block when saving fails', async () => {
     await new Promise(resolve => setImmediate(resolve));
 
     assert.deepEqual(errors, ['disk full']);
+    assert.equal(editor.getMarkdown(), '');
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-status').textContent,
+        'The correction could not be saved.'
+    );
+    document.querySelector('.mktero-correction-editor-cancel').click();
     assert.equal(editor.getMarkdown(), markdown);
     assert.equal(content.getAttribute('contenteditable'), 'false');
 
@@ -2277,8 +2315,24 @@ test('commits a rendered GFM table cell directly from read-only mode', async () 
 
     enterTableCellEditing(valueCell, dom.window);
     assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    valueCell.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(commits, []);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
     valueCell.textContent = '43';
+    valueCell.dispatchEvent(new dom.window.Event('input', {
+        bubbles: true,
+    }));
     valueCell.dispatchEvent(new dom.window.FocusEvent('blur'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(commits.length, 0);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    document.querySelector('.mktero-correction-editor-save').click();
     await new Promise(resolve => setImmediate(resolve));
 
     assert.equal(commits.length, 1);
@@ -2321,7 +2375,10 @@ test('edits escaped pipes and pads ragged GFM table rows', async () => {
     assert.equal(cells[0].textContent, 'A | B');
     enterTableCellEditing(cells[2], dom.window);
     cells[2].textContent = 'Added';
-    cells[2].dispatchEvent(new dom.window.FocusEvent('blur'));
+    cells[2].dispatchEvent(new dom.window.Event('input', {
+        bubbles: true,
+    }));
+    document.querySelector('.mktero-correction-editor-save').click();
     await new Promise(resolve => setImmediate(resolve));
 
     assert.match(commits[0].replacementMarkdown, /\| A \\| B \| 42 \| Added \|/);
@@ -2388,7 +2445,10 @@ test('edits a captioned GFM table and restores its table block', async () => {
     enterTableCellEditing(valueCell, dom.window);
     assert.equal(valueCell.getAttribute('contenteditable'), 'true');
     valueCell.textContent = '87.38';
-    valueCell.dispatchEvent(new dom.window.FocusEvent('blur'));
+    valueCell.dispatchEvent(new dom.window.Event('input', {
+        bubbles: true,
+    }));
+    document.querySelector('.mktero-correction-editor-save').click();
     await new Promise(resolve => setImmediate(resolve));
     const restoreButton = document.querySelector(
         '.cm-mktero-correction-marker'
@@ -2443,11 +2503,15 @@ test('keeps table cell input inert and restores the cell when saving fails', asy
 
     enterTableCellEditing(valueCell, dom.window);
     valueCell.textContent = '<img src=x onerror=alert(1)>\n43';
-    valueCell.dispatchEvent(new dom.window.FocusEvent('blur'));
+    valueCell.dispatchEvent(new dom.window.Event('input', {
+        bubbles: true,
+    }));
+    document.querySelector('.mktero-correction-editor-save').click();
     await new Promise(resolve => setImmediate(resolve));
 
     assert.equal(valueCell.querySelector('img'), null);
-    assert.equal(valueCell.textContent, '42');
+    assert.equal(valueCell.textContent, '<img src=x onerror=alert(1)>\n43');
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
     assert.doesNotMatch(attemptedCorrection.replacementMarkdown, /<img/i);
     assert.doesNotMatch(attemptedCorrection.replacementMarkdown, /\n43/);
     assert.match(
@@ -2455,6 +2519,8 @@ test('keeps table cell input inert and restores the cell when saving fails', asy
         /&lt;img src=x onerror=alert\(1\)&gt; 43/
     );
     assert.deepEqual(errors, ['disk full']);
+    document.querySelector('.mktero-correction-editor-cancel').click();
+    assert.equal(valueCell.textContent, '42');
     editor.destroy();
     dom.window.close();
 });
@@ -2499,6 +2565,112 @@ test('does not open annotation actions while a table cell is being edited', () =
         document.querySelector('.mktero-markdown-selection-actions'),
         null
     );
+    editor.destroy();
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-toolbar'),
+        null
+    );
+    dom.window.close();
+});
+
+test('does not open a text correction while a table edit is active', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Intro text.',
+        '',
+        '| Name | Value |',
+        '| --- | --- |',
+        '| Score | 42 |',
+    ].join('\n');
+    const tableFrom = markdown.indexOf('| Name');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: 'Intro text.'.length,
+        }, {
+            id: 'table-1',
+            type: 'table',
+            from: tableFrom,
+            to: markdown.length,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const content = document.querySelector('.cm-content');
+    const cell = document.querySelector('.cm-mktero-table tbody td:last-child');
+    enterTableCellEditing(cell, dom.window);
+    assert.equal(cell.getAttribute('contenteditable'), 'true');
+
+    view.posAtCoords = () => 1;
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+    assert.equal(cell.getAttribute('contenteditable'), 'true');
+
+    document.querySelector('.mktero-correction-editor-cancel').click();
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('cancels an active table edit when the document is reset', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Name | Value |',
+        '| --- | --- |',
+        '| Score | 42 |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'table-1',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const valueCell = document.querySelector(
+        '.cm-mktero-table tbody td:last-child'
+    );
+
+    enterTableCellEditing(valueCell, dom.window);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    editor.setDocument({ markdown });
+
+    assert.equal(valueCell.getAttribute('contenteditable'), 'false');
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-toolbar').hidden,
+        true
+    );
+
     editor.destroy();
     dom.window.close();
 });

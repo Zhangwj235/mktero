@@ -117,6 +117,7 @@ test('keeps the reader toolbar above content without covering it', () => {
 test('keeps block correction actions compact and above the editor', () => {
     const toolbar = ruleBody('.mktero-correction-editor-toolbar');
     const button = ruleBody('.mktero-correction-editor-button');
+    const status = ruleBody('.mktero-correction-editor-status');
     const deleted = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-deleted-correction'
     );
@@ -127,9 +128,20 @@ test('keeps block correction actions compact and above the editor', () => {
     assert.match(toolbar, /flex-wrap:\s*wrap/);
     assert.match(button, /flex:\s*0 0 auto/);
     assert.match(button, /white-space:\s*nowrap/);
+    assert.match(status, /overflow:\s*hidden/);
+    assert.match(status, /text-overflow:\s*ellipsis/);
     assert.match(deleted, /display:\s*flex/);
     assert.match(deleted, /border:\s*1px dashed/);
     assert.match(deleted, /min-height:\s*36px/);
+});
+
+test('keeps the deleted-correction undo prompt usable with long copy', () => {
+    const undo = ruleBody('.markdown-correction-undo');
+    const message = ruleBody('.markdown-correction-undo-message');
+
+    assert.match(undo, /max-width:\s*calc\(100% - 36px\)/);
+    assert.match(undo, /flex-wrap:\s*wrap/);
+    assert.match(message, /overflow-wrap:\s*anywhere/);
 });
 
 test('styles the reader font picker as part of the top toolbar', () => {

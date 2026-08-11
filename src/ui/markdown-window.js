@@ -42,6 +42,7 @@ const BUNDLED_MARKDOWN_STYLES = typeof __MKTERO_MARKDOWN_STYLES__ === 'string'
     : null;
 const DOCUMENT_ACTION_STATUS_TIMEOUT_MS = 5_000;
 const WARNING_TOAST_TIMEOUT_MS = 5_000;
+const CORRECTION_UNDO_TIMEOUT_MS = 8_000;
 const SIDE_PANEL_KEYBOARD_STEP = 16;
 const SIDE_PANEL_RESIZE_ACTIVATION_DISTANCE = 4;
 const RESPONSIVE_SIDE_PANEL_BREAKPOINTS = Object.freeze({
@@ -152,6 +153,8 @@ class MarkdownTabView {
         this.actionStatusTimer = null;
         this.warningToastSignature = null;
         this.warningToastTimer = null;
+        this.correctionUndoTimer = null;
+        this.correctionUndoBlockID = null;
         this.responsiveResizeObserver = null;
         this.documentActionsOpen = false;
         this.readerFontOptionsOpen = false;
@@ -245,6 +248,9 @@ class MarkdownTabView {
         this.model = model;
         const elements = this.elements;
         this.syncLocalization();
+        if (model.status !== 'ready' || model.renderMode === 'html') {
+            this.clearCorrectionUndo();
+        }
         const loadingView = createLoadingPresentation(model, this.t);
         const showContent = model.status === 'ready' || loadingView.preserveContent;
 
@@ -352,6 +358,7 @@ class MarkdownTabView {
     destroy() {
         this.clearDocumentActionStatus();
         this.clearWarningToast();
+        this.clearCorrectionUndo();
         for (const { element, type, listener, options } of this.listeners) {
             element.removeEventListener(type, listener, options);
         }
@@ -695,6 +702,24 @@ class MarkdownTabView {
             'aria-live': 'polite',
         });
         correctionBanner.hidden = true;
+        const correctionUndo = this.createElement('div', {
+            class: 'markdown-correction-undo',
+            role: 'status',
+            'aria-live': 'polite',
+            'aria-atomic': 'true',
+        });
+        const correctionUndoMessage = this.createElement(
+            'span',
+            { class: 'markdown-correction-undo-message' }
+        );
+        const correctionUndoButton = this.createElement('button', {
+            class: 'markdown-correction-undo-button',
+            type: 'button',
+            'aria-label': this.t('revision.undoDeleteLabel'),
+            title: this.t('revision.undoDeleteLabel'),
+        }, this.t('revision.undoDelete'));
+        appendChildren(correctionUndo, correctionUndoMessage, correctionUndoButton);
+        correctionUndo.hidden = true;
         documentActions.toolbar.appendChild(correctionBanner);
         const editorSection = this.createElement('section', {
             class: 'markdown-editor',
@@ -704,6 +729,7 @@ class MarkdownTabView {
             editorSection,
             documentActions.toolbar,
             editorHost,
+            correctionUndo,
             snapshotHost
         );
         const outlineTitle = this.createElement('h2', {
@@ -816,6 +842,9 @@ class MarkdownTabView {
             editorHost,
             snapshotHost,
             correctionBanner,
+            correctionUndo,
+            correctionUndoMessage,
+            correctionUndoButton,
             editorActions: documentActions.toolbar,
             editorSection,
             actionToggle: documentActions.toggle,
@@ -1181,6 +1210,9 @@ class MarkdownTabView {
         this.listen(this.elements.restoreCorrections, 'click', () => {
             void this.restoreAllCorrections();
         });
+        this.listen(this.elements.correctionUndoButton, 'click', () => {
+            void this.undoDeletedCorrection();
+        });
         this.listen(this.elements.errorRetry, 'click', () => {
             this.runDocumentAction('retry', 'onReparse');
         });
@@ -1472,10 +1504,24 @@ class MarkdownTabView {
                 successKey: 'revision.saved',
                 failureKey: 'revision.saveFailed',
             }
-        );
+        ).then(result => {
+            const replacement = String(
+                correction.replacementMarkdown ?? ''
+            );
+            if (!replacement.trim()) {
+                this.showCorrectionUndo(correction.blockID);
+            }
+            else {
+                this.clearCorrectionUndo();
+            }
+            return result;
+        });
     }
 
     restoreCorrection(blockID) {
+        if (this.correctionUndoBlockID === blockID) {
+            this.clearCorrectionUndo();
+        }
         return this.runCorrectionOperation(
             () => this.model.onRestoreCorrection(blockID),
             {
@@ -1497,6 +1543,7 @@ class MarkdownTabView {
             })
         );
         if (!confirmed) return false;
+        this.clearCorrectionUndo();
         this.setDocumentActionsOpen(false);
         await this.runCorrectionOperation(
             () => this.model.onRestoreAllCorrections(),
@@ -1507,6 +1554,20 @@ class MarkdownTabView {
             }
         );
         return true;
+    }
+
+    async undoDeletedCorrection() {
+        const blockID = this.correctionUndoBlockID;
+        if (!blockID) return false;
+        this.clearCorrectionUndo();
+        try {
+            await this.restoreCorrection(blockID);
+            return true;
+        }
+        catch {
+            this.showCorrectionUndo(blockID);
+            return false;
+        }
     }
 
     async runCorrectionOperation(operation, {
@@ -1544,6 +1605,34 @@ class MarkdownTabView {
 
     reportCorrectionError(error) {
         this.zotero?.logError?.(error);
+    }
+
+    showCorrectionUndo(blockID) {
+        this.clearCorrectionUndo();
+        this.correctionUndoBlockID = blockID;
+        this.elements.correctionUndoMessage.textContent = this.t(
+            'revision.deletedUndo'
+        );
+        this.elements.correctionUndoButton.disabled = false;
+        this.elements.correctionUndo.hidden = false;
+        if (typeof this.ownerWindow.setTimeout !== 'function') return;
+        this.correctionUndoTimer = this.ownerWindow.setTimeout(() => {
+            this.correctionUndoTimer = null;
+            this.correctionUndoBlockID = null;
+            this.elements.correctionUndo.hidden = true;
+        }, CORRECTION_UNDO_TIMEOUT_MS);
+    }
+
+    clearCorrectionUndo() {
+        if (this.correctionUndoTimer !== null) {
+            this.ownerWindow.clearTimeout?.(this.correctionUndoTimer);
+            this.correctionUndoTimer = null;
+        }
+        this.correctionUndoBlockID = null;
+        if (this.elements?.correctionUndo) {
+            this.elements.correctionUndo.hidden = true;
+            this.elements.correctionUndoButton.disabled = false;
+        }
     }
 
     setDocumentActionStatus(key, { dismissAfter = false } = {}) {
@@ -1821,6 +1910,20 @@ class MarkdownTabView {
         );
         this.elements.correctionToggle.setAttribute('title', correctionLabel);
         this.elements.correctionToggleLabel.textContent = correctionLabel;
+        this.elements.correctionUndoMessage.textContent = this.t(
+            'revision.deletedUndo'
+        );
+        this.elements.correctionUndoButton.textContent = this.t(
+            'revision.undoDelete'
+        );
+        this.elements.correctionUndoButton.setAttribute(
+            'aria-label',
+            this.t('revision.undoDeleteLabel')
+        );
+        this.elements.correctionUndoButton.setAttribute(
+            'title',
+            this.t('revision.undoDeleteLabel')
+        );
         this.elements.restoreCorrections.setAttribute(
             'aria-label',
             this.t('revision.restoreAll')
