@@ -171,6 +171,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
     runtime.markdownExport = createZoteroMarkdownExport({
         components: typeof Components === 'undefined' ? null : Components,
         io: IOUtils,
+        pathUtils: PathUtils,
     });
     runtime.evidenceReference = createZoteroEvidenceReference(
         Zotero,
@@ -994,6 +995,8 @@ async function exportMarkdownForItem(itemID) {
             suggestedName,
             window,
             title: suggestedName,
+            assets: model.assets,
+            assetBasePath: model.assetBasePath,
         });
     }
     catch (error) {
