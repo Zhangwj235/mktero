@@ -11,7 +11,9 @@
 
 Mktero is a source-linked reflow reader for Zotero 7, 8, and 9. It converts a
 local PDF with MinerU, then opens the resulting Markdown, formulas, tables,
-figures, citations, and annotations in a read-only Zotero tab.
+figures, citations, and annotations in a reading-first Zotero tab. An optional
+correction mode lets you fix recognition errors without changing the immutable
+MinerU result.
 
 ![Mktero converting, reading, and annotating an academic PDF in Zotero](./docs/assets/mktero-demo.gif)
 
@@ -72,11 +74,38 @@ Zotero profile.
 3. Use the outline, citation and figure previews, source links, and Zotero notes
    panel to navigate the document.
 4. Use the fixed toolbar above the Markdown body to change font and text size.
-   The More menu contains `Reparse PDF` and `Save snapshot`.
+   The More menu contains `Manage corrections`, `Reparse PDF`, and
+   `Save snapshot`.
 
 Reparsing uploads the PDF again and may consume MinerU quota. The current
 Markdown remains readable until a replacement is ready. Mktero tabs are
 session-only and are not restored after Zotero restarts.
+
+### Correct recognition errors
+
+Double-click a paragraph, heading, or GFM table cell directly from the normal
+reading view. Press `Enter` or `F2` after focusing an editable block as a
+keyboard alternative. Text and table changes use the same explicit action bar:
+the Save button is enabled only after a change, while Save, Cancel, and
+`Ctrl/Command+Enter` or `Escape` provide matching commit and cancel behavior.
+Leaving a table cell does not save it automatically. If saving fails, the
+current input stays in place so you can retry or cancel. The same action bar
+can delete a whole paragraph or heading without removing it one character at a
+time; a short Undo deletion prompt is shown after a successful deletion.
+
+Choose `Manage corrections` from the More menu to review corrected blocks and
+restore an individual deletion. Deleted blocks appear as compact, reversible
+placeholders only in this management mode. Normal reading hides correction
+markers and collapses the gaps left by deleted blocks, while the More menu can
+restore all corrections.
+
+Corrections are tied to the current PDF content and MinerU parser profile. They
+are stored separately from the conversion cache, so clearing or expiring the
+cache does not remove them. `Reparse PDF` asks before permanently deleting
+corrections; this MVP does not merge corrections into a newly parsed result.
+Editing is intentionally limited to existing paragraphs, headings, and GFM
+table cells: existing paragraphs and headings can be removed, but blocks cannot
+be inserted or reordered, and corrections cannot add images or raw HTML.
 
 If Actions & Tags for Zotero is installed, Mktero integrates with compatible
 `openFile` and `closeTab` rules for sessions it owns without duplicating native
@@ -97,7 +126,10 @@ library item cannot save a snapshot.
 ## Highlights
 
 - Reflows OCR output, multi-column text, formulas, tables, figures, lists, and
-  code into a continuous read-only document.
+  code into a continuous reading document.
+- Corrects recognition errors in existing paragraphs, headings, and GFM table
+  cells, including removing spurious paragraphs or headings, while preserving
+  the original MinerU Markdown and correction history.
 - Uses paper-oriented typography with STIX/Noto serif fallbacks, and applies
   asynchronous Shiki syntax highlighting, language labels, and code copying to
   supported fenced code blocks.
@@ -129,7 +161,7 @@ MinerU conversion -----> Markdown + figures + content map
 Local content cache             Safe normalization/rendering
                                         |
                                         v
-                           Read-only Mktero tab in Zotero
+                           Reading-first Mktero tab in Zotero
 ```
 
 Mktero treats PDFs, conversion results, archives, image paths, API responses,
@@ -162,6 +194,7 @@ navigation, not as guessed annotation rectangles.
 | Cached Markdown, figures, source maps, and PDF text indexes | Active Zotero profile, unencrypted | No |
 | Pending MinerU task IDs and timestamps | Active Zotero profile, unencrypted | No |
 | Pending Markdown annotation records | Active Zotero profile, unencrypted until synchronized | No |
+| Corrected Markdown blocks and their base figures/source maps | Active Zotero profile, unencrypted | No |
 | Synchronized PDF annotations | Local Zotero library | According to Zotero settings |
 | Saved snapshot Note, HTML, Markdown, source map, and figures | Zotero items and attachments, unencrypted | According to Zotero settings |
 
@@ -169,6 +202,11 @@ The local cache does not contain API Tokens or PDF annotation comments. PDF
 annotations and local PDF.js indexes are not sent to MinerU. Source-aware copy
 reads local item metadata and writes only the generated result to the system
 clipboard.
+
+Correction data is kept outside the normal conversion cache under the active
+Zotero profile. Clearing the cache does not clear corrections. Corrections are
+local to this device unless they are included in a saved Zotero snapshot; a
+corrected snapshot carries an explicit provenance notice and correction count.
 
 Pending-task records contain only MinerU task identifiers, Mktero data IDs, and
 upload timestamps. They do not contain the PDF, its filename or path, upload or
@@ -180,9 +218,11 @@ controlled by Zotero.
 
 ## Security boundaries and current limitations
 
-- Markdown document content is read-only. Annotation actions create local
-  records and synchronize reliable matches to Zotero PDF annotations; they do
-  not edit the converted Markdown.
+- Markdown is read-only by default. Correction mode can replace the content of
+  existing paragraphs, headings, and GFM table cells, or remove an existing
+  paragraph or heading. It cannot otherwise change document structure, formulas,
+  images, or raw HTML. Annotation actions remain separate from Markdown
+  corrections.
 - Only local PDF attachments are supported. Missing or undownloaded files
   cannot be converted.
 - Text annotations require extractable PDF text. A scanned PDF may convert via

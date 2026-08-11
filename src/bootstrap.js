@@ -17,6 +17,9 @@ import {
 } from './cache/markdown-annotation-store.js';
 import { MarkdownDocumentService } from './core/markdown-document-service.js';
 import {
+    createMarkdownRevisionSessionRegistry,
+} from './core/markdown-revision-session.js';
+import {
     createSavedMarkdownOpenResolver,
 } from './core/saved-markdown-open-resolver.js';
 import { MINERU_PARSER_PROFILE_ID } from './mineru/parser-profile.js';
@@ -25,9 +28,15 @@ import {
     createZoteroSavedMarkdownStore,
 } from './platform/zotero-saved-markdown-store.js';
 import {
+    createZoteroMarkdownRevisionStore,
+} from './platform/zotero-markdown-revision-store.js';
+import {
     resolveZoteroSavedMarkdownSourceItem,
 } from './platform/zotero-saved-markdown-source.js';
-import { MarkdownAnnotationOverlay } from './core/markdown-annotation-overlay.js';
+import {
+    createEmptyAnnotationOverlay,
+    MarkdownAnnotationOverlay,
+} from './core/markdown-annotation-overlay.js';
 import { MarkdownLocalAnnotations } from './core/markdown-local-annotations.js';
 import {
     createEvidenceSnippet,
@@ -105,6 +114,8 @@ const runtime = {
     service: null,
     presenter: null,
     cache: null,
+    revisionStore: null,
+    revisionSessions: null,
     pdfTextIndexCache: null,
     pdfAnnotationLocator: null,
     savedMarkdownStore: null,
@@ -164,6 +175,12 @@ globalThis.startup = async function startup({ id, rootURI }) {
         pathUtils: PathUtils,
     });
     runtime.cache = cache;
+    runtime.revisionStore = createZoteroMarkdownRevisionStore({
+        zotero: Zotero,
+        ioUtils: IOUtils,
+        pathUtils: PathUtils,
+    });
+    runtime.revisionSessions = createMarkdownRevisionSessionRegistry();
     const pdfTextIndexCache = createZoteroPDFTextIndexCache({
         zotero: Zotero,
         ioUtils: IOUtils,
@@ -266,6 +283,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
                 pdfAnnotationLocator
             ),
             createCacheKey: fileData => createMinerUCacheKey(fileData),
+            readRevision: options => readRevisionSnapshot(options),
             isCacheEnabled: () => getMinerUCacheEnabled(Zotero),
         }),
         annotationOverlay,
@@ -309,6 +327,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
 
 globalThis.shutdown = function shutdown() {
     abortAllConversions();
+    destroyAllRevisionSessions();
     runtime.disposeAnnotationObserver?.();
     runtime.localAnnotations?.dispose();
     runtime.pdfAnnotationLocator?.dispose();
@@ -324,6 +343,8 @@ globalThis.shutdown = function shutdown() {
     runtime.presenter = null;
     runtime.service = null;
     runtime.cache = null;
+    runtime.revisionStore = null;
+    runtime.revisionSessions = null;
     runtime.pdfTextIndexCache = null;
     runtime.pdfAnnotationLocator = null;
     runtime.savedMarkdownStore = null;
@@ -365,18 +386,20 @@ async function openItemAsMarkdown(itemID, {
         sourceItemID: itemID,
         onClose: ({ reason = MARKDOWN_TAB_CLOSE_REASONS.USER } = {}) => {
             abortConversion(itemID);
+            void closeRevisionSession(itemID);
             void runtime.actionsTags?.closeMarkdownSession({
                 sessionID: itemID,
                 sourceItemID: itemID,
                 reason,
             });
         },
-        onReparse: () => openItemAsMarkdown(itemID, {
-            forceRefresh: true,
-            entryPoint,
-        }),
+        onReparse: () => requestItemReparse(itemID, entryPoint),
         onOpenSettings: () => openMinerUPreferences(Zotero),
         onSaveSnapshot: () => saveSnapshotForItem(itemID),
+        onSetCorrectionMode: enabled => setCorrectionMode(itemID, enabled),
+        onCommitCorrection: correction => commitCorrection(itemID, correction),
+        onRestoreCorrection: blockID => restoreCorrection(itemID, blockID),
+        onRestoreAllCorrections: () => restoreAllCorrections(itemID),
         onChangeAnnotationColor: (annotationID, color) => (
             runAnnotationAction('changeColor', itemID, annotationID, color)
         ),
@@ -471,10 +494,16 @@ async function openItemAsMarkdown(itemID, {
                     ? `Mktero: item ${itemID}: completed from a resumed MinerU task`
                     : `Mktero: item ${itemID}: completed through a new MinerU task`
         );
+        const revisionResult = await attachRevisionSession(
+            itemID,
+            result,
+            controller.signal
+        );
+        throwIfRevisionAborted(controller.signal);
         runtime.presenter?.update(
             presentation,
             createConversionReadyChanges(
-                localizeConversionResult(result, runtimeTranslate)
+                localizeConversionResult(revisionResult, runtimeTranslate)
             )
         );
     }
@@ -570,7 +599,7 @@ function createSavedMarkdownActions(noteID, sourceItem) {
     return {
         onClose: () => {},
         onReparse: sourceItem
-            ? () => openItemAsMarkdown(sourceItem.id, { forceRefresh: true })
+            ? () => requestItemReparse(sourceItem.id, 'saved-note')
             : null,
         onSaveSnapshot: sourceItem
             ? () => saveSnapshotForSavedNote(noteID, sourceItem.id)
@@ -625,6 +654,202 @@ async function saveSnapshotForItem(itemID) {
     return saveSnapshotForModel(itemID, presentation?.model);
 }
 
+async function readRevisionSnapshot({ itemID, cacheKey, signal }) {
+    if (!runtime.revisionStore) return null;
+    throwIfRevisionAborted(signal);
+    const saved = await runtime.revisionStore.load(cacheKey);
+    throwIfRevisionAborted(signal);
+    if (!saved) return null;
+    const entry = await replaceRevisionSession(itemID, saved.base, { signal });
+    throwIfRevisionAborted(signal);
+    return { ...entry.session.snapshot(), itemID };
+}
+
+async function attachRevisionSession(itemID, result, signal) {
+    if (!runtime.revisionStore || !result?.cacheKey) {
+        await closeRevisionSession(itemID);
+        return {
+            ...result,
+            editableBlocks: [],
+            correctedBlockIDs: [],
+            correctionCount: 0,
+            hasCorrections: false,
+            correctionMode: false,
+        };
+    }
+    throwIfRevisionAborted(signal);
+    let entry = runtime.revisionSessions?.get(itemID);
+    if (!entry || entry.cacheKey !== result.cacheKey) {
+        entry = await replaceRevisionSession(itemID, {
+            itemID,
+            cacheKey: result.cacheKey,
+            markdown: result.markdown,
+            sourceMap: result.sourceMap || [],
+            assets: result.assets || [],
+            assetBasePath: result.assetBasePath || '',
+            extractedPages: result.extractedPages,
+            totalPages: result.totalPages,
+        }, { signal });
+    }
+    throwIfRevisionAborted(signal);
+    entry.baseWarnings = [...(result.warnings || [])];
+    return {
+        ...result,
+        ...entry.session.snapshot(),
+        itemID,
+        correctionMode: false,
+    };
+}
+
+async function replaceRevisionSession(itemID, baseDocument, { signal } = {}) {
+    const registry = runtime.revisionSessions;
+    const store = runtime.revisionStore;
+    if (!registry || !store) {
+        throw new Error('Markdown corrections are unavailable');
+    }
+    return registry.open(itemID, baseDocument, {
+        signal,
+        store,
+    });
+}
+
+async function closeRevisionSession(itemID) {
+    await runtime.revisionSessions?.close(itemID);
+}
+
+function destroyAllRevisionSessions() {
+    const sessions = runtime.revisionSessions;
+    void sessions?.destroyAll()
+        .catch(error => Zotero.logError?.(error));
+}
+
+function setCorrectionMode(itemID, enabled) {
+    const presentation = runtime.presenter?.get(itemID);
+    if (!presentation || presentation.model.status !== 'ready') return false;
+    runtime.presenter.update(presentation, {
+        correctionMode: Boolean(enabled),
+    });
+    return true;
+}
+
+function commitCorrection(itemID, correction) {
+    return updateRevisionSession(
+        itemID,
+        session => session.commit(correction)
+    );
+}
+
+function restoreCorrection(itemID, blockID) {
+    return updateRevisionSession(
+        itemID,
+        session => session.restore(blockID)
+    );
+}
+
+function restoreAllCorrections(itemID) {
+    return updateRevisionSession(
+        itemID,
+        session => session.restoreAll()
+    );
+}
+
+async function updateRevisionSession(itemID, mutate) {
+    const entry = runtime.revisionSessions?.get(itemID);
+    const presentation = runtime.presenter?.get(itemID);
+    if (!entry || !presentation) {
+        throw new Error('The Markdown correction session is unavailable');
+    }
+    const snapshot = await mutate(entry.session);
+    if (runtime.revisionSessions?.get(itemID) !== entry
+        || runtime.presenter?.get(itemID) !== presentation) {
+        return snapshot;
+    }
+    entry.annotationSequence = (entry.annotationSequence || 0) + 1;
+    const annotationSequence = entry.annotationSequence;
+    runtime.presenter.update(presentation, {
+        ...snapshot,
+        itemID,
+        annotationOverlay: createEmptyAnnotationOverlay(),
+        warnings: uniqueWarnings(entry.baseWarnings),
+    });
+    let annotationResult;
+    try {
+        annotationResult = await runtime.service.resolveAnnotations(
+            itemID,
+            snapshot.markdown,
+            { sourceMap: snapshot.sourceMap }
+        );
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        return snapshot;
+    }
+    if (entry.annotationSequence !== annotationSequence
+        || runtime.revisionSessions?.get(itemID) !== entry
+        || runtime.presenter?.get(itemID) !== presentation) {
+        return snapshot;
+    }
+    runtime.presenter.update(presentation, {
+        annotationOverlay: annotationResult.annotationOverlay
+            || createEmptyAnnotationOverlay(),
+        warnings: uniqueWarnings([
+            ...entry.baseWarnings,
+            ...(annotationResult.warnings || []),
+        ]),
+    });
+    return snapshot;
+}
+
+async function requestItemReparse(itemID, entryPoint) {
+    const entry = runtime.revisionSessions?.get(itemID)
+        || await loadRevisionSessionForItem(itemID);
+    const correctionCount = entry?.session.snapshot().correctionCount || 0;
+    if (correctionCount) {
+        const confirmed = Zotero.getMainWindow?.()?.confirm?.(
+            runtimeTranslate('revision.reparseConfirm', {
+                count: correctionCount,
+            })
+        );
+        if (!confirmed) return false;
+        if (runtime.presenter?.get(itemID)) {
+            await restoreAllCorrections(itemID);
+        }
+        else {
+            await entry.session.restoreAll();
+        }
+    }
+    setCorrectionMode(itemID, false);
+    await closeRevisionSession(itemID);
+    await openItemAsMarkdown(itemID, {
+        forceRefresh: true,
+        entryPoint,
+    });
+    return true;
+}
+
+async function loadRevisionSessionForItem(itemID) {
+    if (!runtime.revisionStore) return null;
+    const item = await Zotero.Items.getAsync(itemID);
+    const filePath = await item?.getFilePathAsync?.();
+    if (!filePath) return null;
+    const cacheKey = await createMinerUCacheKey(await IOUtils.read(filePath));
+    const saved = await runtime.revisionStore.load(cacheKey);
+    if (!saved) return null;
+    return replaceRevisionSession(itemID, saved.base);
+}
+
+function throwIfRevisionAborted(signal) {
+    if (!signal?.aborted) return;
+    if (signal.reason) throw signal.reason;
+    const error = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    throw error;
+}
+
+function uniqueWarnings(warnings) {
+    return [...new Set((warnings || []).filter(Boolean))];
+}
+
 async function saveSnapshotForSavedNote(noteID, sourceItemID) {
     const presentation = runtime.presenter?.get(noteID);
     return saveSnapshotForModel(sourceItemID, presentation?.model);
@@ -655,6 +880,8 @@ async function saveSnapshotForModel(pdfItemOrID, model) {
         sourceMap: model.sourceMap,
         cacheKey,
         parserProfile: MINERU_PARSER_PROFILE_ID,
+        containsUserCorrections: Boolean(model.hasCorrections),
+        correctionCount: model.correctionCount || 0,
     });
     Zotero.debug('Mktero: saved Markdown snapshot for item ' + pdfItem.id);
     return result;

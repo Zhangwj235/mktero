@@ -1,6 +1,7 @@
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { searchKeymap } from '@codemirror/search';
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState, Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { GFM } from '@lezer/markdown';
 import {
@@ -19,16 +20,23 @@ import {
     selectedMarkdownAnnotation,
     selectionAnchor,
     setAnnotationOverlay,
+    setCorrectionRenderingState,
     setFigureHighlight,
+    setInlineEditingRange,
     setReferenceHighlight,
     setTableHighlight,
 } from './inline-rendering.js';
 import { createImagePreview } from './image-preview.js';
 import { createCitationPopup } from './citation-popup.js';
 import { createAnnotationPopup } from './annotation-popup.js';
+import {
+    isCorrectionInteractionTarget,
+    isEditableTextCorrectionBlock,
+} from './correction-interactions.js';
 import { createFigurePreviewPopup } from './figure-preview-popup.js';
 import { createTablePreviewPopup } from './table-preview-popup.js';
 
+const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const editorNavigationMeasureKey = {};
 const DOM_GLOBAL_NAMES = [
     'document',
@@ -99,6 +107,9 @@ export function createInlineMarkdownEditor({
     openAnnotationInPDF,
     onSourceNavigationError,
     onViewportChange,
+    onCommitCorrection,
+    onRestoreCorrection,
+    onCorrectionError,
     localization = createLocalization(),
 }) {
     const t = localization.t.bind(localization);
@@ -171,7 +182,16 @@ export function createInlineMarkdownEditor({
         annotationPopup,
         ...referenceFeatureList.map(feature => feature.popup),
     ];
+    const editingMode = new Compartment();
+    let correctionManagementEnabled = false;
+    let correctionBlocks = [];
+    let correctedBlockIDs = [];
+    let activeCorrection = null;
+    let correctionBusy = false;
+    let tableCorrectionEditing = false;
+    let activeTableCorrection = null;
     let view;
+    let correctionToolbar;
     const removeDOMActivation = installDOMActivation(
         parent,
         ownerWindow,
@@ -183,11 +203,16 @@ export function createInlineMarkdownEditor({
             if (event.type === 'scroll' || event.type === 'wheel') {
                 for (const popup of interactionPopups) popup.close();
             }
+            const isEditorScroll = event.type === 'scroll'
+                && event.target === view.scrollDOM;
+            const viewportRepaired = isEditorScroll
+                && repairStalledViewport(view);
             view.requestMeasure();
-            if (event.type === 'scroll' && event.target === view.scrollDOM) {
+            if (isEditorScroll) {
                 onViewportChange?.(editorViewportOffset(view));
             }
-            if (event.type === 'scroll'
+            if (isEditorScroll
+                && !viewportRepaired
                 && typeof ownerWindow.IntersectionObserver !== 'function') {
                 view.measure();
             }
@@ -214,17 +239,149 @@ export function createInlineMarkdownEditor({
                         referenceFeatures.table.highlight.activate,
                     activateFigureReference:
                         referenceFeatures.figure.highlight.activate,
+                    commitCorrection: correction => (
+                        onCommitCorrection?.(correction)
+                    ),
+                    restoreCorrection: blockID => (
+                        onRestoreCorrection?.(blockID)
+                    ),
+                    onCorrectionError,
+                    onCorrectionEditingChange(editing) {
+                        const state = typeof editing === 'object'
+                            ? editing
+                            : { editing: Boolean(editing) };
+                        if (!state.editing) {
+                            if (activeTableCorrection?.cancel
+                                && state.cancel
+                                && activeTableCorrection.cancel
+                                    !== state.cancel) {
+                                return;
+                            }
+                            activeTableCorrection = null;
+                            tableCorrectionEditing = false;
+                            if (!activeCorrection) correctionToolbar?.hide();
+                            return;
+                        }
+                        if (activeCorrection) {
+                            state.cancel?.();
+                            return;
+                        }
+                        if (activeTableCorrection
+                            && activeTableCorrection.cancel !== state.cancel
+                            && activeTableCorrection.cancel?.() === false) {
+                            state.cancel?.();
+                            return;
+                        }
+                        activeTableCorrection = state;
+                        tableCorrectionEditing = true;
+                        annotationPopup.close();
+                        if (typeof state.save !== 'function'
+                            && typeof state.cancel !== 'function') {
+                            return;
+                        }
+                        correctionToolbar?.show('table', {
+                            onSave: state.save,
+                            onCancel: state.cancel,
+                            onDelete: null,
+                        });
+                        correctionToolbar?.setDirty(Boolean(state.dirty));
+                        correctionToolbar?.setBusy(Boolean(state.busy));
+                        correctionToolbar?.setError(
+                            state.error ? t('revision.saveFailed') : ''
+                        );
+                    },
                     translate: t,
                 }),
-                EditorView.editable.of(false),
-                EditorState.readOnly.of(true),
-                keymap.of(searchKeymap),
+                editingMode.of([
+                    EditorView.editable.of(false),
+                    EditorState.readOnly.of(true),
+                ]),
+                EditorState.transactionFilter.of(transaction => {
+                    if (!transaction.docChanged || !activeCorrection) {
+                        return transaction;
+                    }
+                    let allowed = true;
+                    transaction.changes.iterChangedRanges((from, to) => {
+                        if (from < activeCorrection.from
+                            || to > activeCorrection.to) {
+                            allowed = false;
+                        }
+                    });
+                    return allowed ? transaction : [];
+                }),
+                history(),
+                Prec.highest(EditorView.domEventHandlers({
+                    keydown(event) {
+                        if (!activeCorrection
+                            && !tableCorrectionEditing
+                            && !event.isComposing
+                            && !isCorrectionInteractionTarget(event.target)
+                            && ['Enter', 'F2'].includes(event.key)) {
+                            const position = view.state.selection.main.head;
+                            const block = correctionBlocks.find(candidate => (
+                                isEditableTextCorrectionBlock(candidate)
+                                && position >= candidate.from
+                                && position <= candidate.to
+                            ));
+                            if (!block || !beginActiveCorrection(block, position)) {
+                                return false;
+                            }
+                            event.preventDefault();
+                            event.stopPropagation();
+                            return true;
+                        }
+                        if (!activeCorrection) return false;
+                        if (event.isComposing || view.composing) {
+                            if (event.key === 'Enter'
+                                && (event.metaKey || event.ctrlKey)) {
+                                event.stopPropagation();
+                            }
+                            return false;
+                        }
+                        if (event.key === 'Escape') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            cancelActiveCorrection();
+                            return true;
+                        }
+                        if (event.key === 'Enter'
+                            && (event.metaKey || event.ctrlKey)) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void commitActiveCorrection();
+                            return true;
+                        }
+                        return false;
+                    },
+                })),
+                keymap.of([
+                    ...defaultKeymap,
+                    ...historyKeymap,
+                    ...searchKeymap,
+                ]),
                 EditorView.lineWrapping,
                 EditorView.updateListener.of(update => {
                     if (update.viewportChanged
                         || update.geometryChanged
                         || update.docChanged) {
                         onViewportChange?.(editorViewportOffset(update.view));
+                    }
+                    if (update.docChanged && activeCorrection) {
+                        activeCorrection = {
+                            ...activeCorrection,
+                            from: update.changes.mapPos(
+                                activeCorrection.from,
+                                -1
+                            ),
+                            to: update.changes.mapPos(activeCorrection.to, 1),
+                        };
+                        const dirty = update.view.state.sliceDoc(
+                            activeCorrection.from,
+                            activeCorrection.to
+                        ) !== activeCorrection.originalMarkdown;
+                        activeCorrection = { ...activeCorrection, dirty };
+                        correctionToolbar?.setDirty(dirty);
+                        correctionToolbar?.setError('');
                     }
                 }),
             ],
@@ -244,8 +401,167 @@ export function createInlineMarkdownEditor({
         releaseDOMGlobals(ownerWindow);
         throw error;
     }
+    const setEditingEnabled = enabled => {
+        view.dispatch({
+            effects: editingMode.reconfigure([
+                EditorView.editable.of(enabled),
+                EditorState.readOnly.of(!enabled),
+            ]),
+        });
+    };
+    const beginActiveCorrection = (block, position) => {
+        if (correctionBusy
+            || tableCorrectionEditing
+            || !isEditableTextCorrectionBlock(block)
+            || typeof onCommitCorrection !== 'function') {
+            return false;
+        }
+        if (activeCorrection?.blockID === block.id) return true;
+        if (activeCorrection) return false;
+        activeCorrection = {
+            blockID: block.id,
+            from: block.from,
+            to: block.to,
+            originalMarkdown: view.state.sliceDoc(block.from, block.to),
+            dirty: false,
+        };
+        annotationPopup.close();
+        correctionToolbar?.show(block.type);
+        view.dispatch({
+            selection: {
+                anchor: Math.max(
+                    block.from,
+                    Math.min(position, block.to)
+                ),
+            },
+            effects: [
+                editingMode.reconfigure([
+                    EditorView.editable.of(true),
+                    EditorState.readOnly.of(false),
+                ]),
+                setInlineEditingRange.of({
+                    from: block.from,
+                    to: block.to,
+                }),
+            ],
+        });
+        view.focus();
+        return true;
+    };
+    const endActiveCorrection = ({ revert = false } = {}) => {
+        if (!activeCorrection) {
+            setEditingEnabled(false);
+            correctionToolbar?.hide();
+            return;
+        }
+        const active = activeCorrection;
+        const changes = revert ? {
+            from: active.from,
+            to: active.to,
+            insert: active.originalMarkdown,
+        } : undefined;
+        view.dispatch({
+            ...(changes ? { changes } : {}),
+            effects: [
+                editingMode.reconfigure([
+                    EditorView.editable.of(false),
+                    EditorState.readOnly.of(true),
+                ]),
+                setInlineEditingRange.of(null),
+            ],
+        });
+        activeCorrection = null;
+        correctionToolbar?.hide();
+    };
+    const cancelActiveCorrection = () => {
+        if (correctionBusy) return;
+        endActiveCorrection({ revert: true });
+    };
+    const commitActiveCorrection = async () => {
+        if (!activeCorrection || correctionBusy || !activeCorrection.dirty) {
+            return false;
+        }
+        const active = activeCorrection;
+        const replacementMarkdown = view.state.sliceDoc(active.from, active.to);
+        correctionBusy = true;
+        correctionToolbar?.setBusy(true);
+        try {
+            await onCommitCorrection({
+                blockID: active.blockID,
+                replacementMarkdown,
+            });
+            if (activeCorrection?.blockID === active.blockID) {
+                endActiveCorrection();
+            }
+            return true;
+        }
+        catch (error) {
+            if (activeCorrection?.blockID === active.blockID) {
+                correctionToolbar?.setError(t('revision.saveFailed'));
+            }
+            onCorrectionError?.(error);
+            return false;
+        }
+        finally {
+            correctionBusy = false;
+            correctionToolbar?.setBusy(false);
+        }
+    };
+    const deleteActiveCorrection = () => {
+        if (!activeCorrection || correctionBusy) return false;
+        view.dispatch({
+            changes: {
+                from: activeCorrection.from,
+                to: activeCorrection.to,
+                insert: '',
+            },
+        });
+        return commitActiveCorrection();
+    };
+    correctionToolbar = createBlockCorrectionToolbar({
+        parent,
+        translate: t,
+        onSave: () => { void commitActiveCorrection(); },
+        onCancel: cancelActiveCorrection,
+        onDelete: () => { void deleteActiveCorrection(); },
+    });
+    const startCorrectionFromDoubleClick = event => {
+        if (event.button !== 0
+            || tableCorrectionEditing
+            || event.target?.closest?.('.cm-mktero-table')
+            || isCorrectionInteractionTarget(event.target)) {
+            return;
+        }
+        activateDOMGlobals(ownerWindow);
+        let position = view.posAtCoords?.({
+            x: event.clientX,
+            y: event.clientY,
+        });
+        if (!Number.isSafeInteger(position)) {
+            try {
+                position = view.posAtDOM(event.target, 0);
+            }
+            catch {
+                return;
+            }
+        }
+        const block = correctionBlocks.find(candidate => (
+            isEditableTextCorrectionBlock(candidate)
+            && position >= candidate.from
+            && position <= candidate.to
+        ));
+        if (!block || !beginActiveCorrection(block, position)) return;
+        event.preventDefault();
+        event.stopPropagation();
+    };
+    parent.addEventListener(
+        'dblclick',
+        startCorrectionFromDoubleClick,
+        true
+    );
     const openSelectedMarkdownActions = event => {
         if (event.button !== 0) return;
+        if (activeCorrection || tableCorrectionEditing) return;
         if (interactionPopups.some(popup => popup.contains(event.target))) {
             return;
         }
@@ -327,6 +643,16 @@ export function createInlineMarkdownEditor({
     let currentSourceMap = [];
     const setDocument = ({ markdown, annotationOverlay, sourceMap }) => {
         activateDOMGlobals(ownerWindow);
+        activeTableCorrection?.cancel?.({
+            focus: false,
+            force: true,
+        });
+        activeCorrection = null;
+        correctionBusy = false;
+        correctionToolbar?.setBusy(false);
+        correctionToolbar?.hide();
+        tableCorrectionEditing = false;
+        activeTableCorrection = null;
         for (const feature of referenceFeatureList) {
             feature.popup.close();
             feature.highlight.cancel();
@@ -339,6 +665,11 @@ export function createInlineMarkdownEditor({
             setAnnotationOverlay.of(
                 annotationOverlay || createEmptyAnnotationOverlay()
             ),
+            setInlineEditingRange.of(null),
+            editingMode.reconfigure([
+                EditorView.editable.of(false),
+                EditorState.readOnly.of(true),
+            ]),
         ];
         if (value === view.state.doc.toString()) {
             view.dispatch({ effects });
@@ -359,6 +690,35 @@ export function createInlineMarkdownEditor({
                 markdown,
                 annotationOverlay: createEmptyAnnotationOverlay(),
             });
+        },
+        setCorrectionState({
+            enabled = false,
+            blocks = [],
+            correctedBlockIDs: corrected = [],
+        } = {}) {
+            activateDOMGlobals(ownerWindow);
+            const nextManagementEnabled = Boolean(enabled);
+            const nextCorrectionBlocks = Array.isArray(blocks) ? blocks : [];
+            const activeBlockAvailable = !activeCorrection
+                || nextCorrectionBlocks.some(block => (
+                    block?.id === activeCorrection.blockID
+                ));
+            if (activeCorrection
+                && ((!nextManagementEnabled && correctionManagementEnabled)
+                    || !activeBlockAvailable)) {
+                cancelActiveCorrection();
+            }
+            correctionManagementEnabled = nextManagementEnabled;
+            correctionBlocks = nextCorrectionBlocks;
+            correctedBlockIDs = Array.isArray(corrected) ? corrected : [];
+            view.dispatch({
+                effects: setCorrectionRenderingState.of({
+                    enabled: correctionManagementEnabled,
+                    blocks: correctionBlocks,
+                    correctedBlockIDs,
+                }),
+            });
+            repairStalledViewport(view);
         },
         focus() {
             activateDOMGlobals(ownerWindow);
@@ -408,6 +768,12 @@ export function createInlineMarkdownEditor({
                     openSelectedMarkdownActions,
                     true
                 );
+                parent.removeEventListener(
+                    'dblclick',
+                    startCorrectionFromDoubleClick,
+                    true
+                );
+                correctionToolbar?.destroy();
                 annotationPopup.destroy();
                 imagePreview.destroy();
                 view.destroy();
@@ -418,6 +784,151 @@ export function createInlineMarkdownEditor({
             }
         },
     };
+}
+
+function createBlockCorrectionToolbar({
+    parent,
+    translate,
+    onSave,
+    onCancel,
+    onDelete,
+}) {
+    const document = parent.ownerDocument;
+    const toolbar = createHTMLNode(document, 'div');
+    toolbar.className = 'mktero-correction-editor-toolbar';
+    toolbar.setAttribute('role', 'toolbar');
+    toolbar.setAttribute(
+        'aria-label',
+        translate('revision.editorActions')
+    );
+    toolbar.hidden = true;
+
+    const deleteButton = createCorrectionToolbarButton(
+        document,
+        'mktero-correction-editor-delete'
+    );
+    const cancelButton = createCorrectionToolbarButton(
+        document,
+        'mktero-correction-editor-cancel',
+        translate('revision.cancel')
+    );
+    const saveButton = createCorrectionToolbarButton(
+        document,
+        'mktero-correction-editor-save',
+        translate('revision.saveChanges')
+    );
+    const status = createHTMLNode(document, 'span');
+    status.className = 'mktero-correction-editor-status';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    status.hidden = true;
+    toolbar.append(status, deleteButton, cancelButton, saveButton);
+
+    let activeActions = { onSave, onCancel, onDelete };
+    let busy = false;
+    let dirty = false;
+    let errorMessage = '';
+    parent.append(toolbar);
+
+    const listeners = [
+        [deleteButton, 'onDelete'],
+        [cancelButton, 'onCancel'],
+        [saveButton, 'onSave'],
+    ].map(([button, actionName]) => {
+        const listener = event => {
+            event.preventDefault();
+            event.stopPropagation();
+            activeActions[actionName]?.();
+        };
+        button.addEventListener('click', listener);
+        return { button, listener };
+    });
+
+    const syncButtonState = () => {
+        deleteButton.disabled = busy;
+        cancelButton.disabled = busy;
+        saveButton.disabled = busy || !dirty;
+    };
+
+    const syncStatus = () => {
+        const message = errorMessage || (
+            dirty ? translate('revision.unsavedChanges') : ''
+        );
+        status.textContent = message;
+        status.hidden = !message;
+    };
+
+    return {
+        show(blockType, actions = {}) {
+            activeActions = {
+                onSave,
+                onCancel,
+                onDelete,
+                ...actions,
+            };
+            const key = blockType === 'heading'
+                ? 'revision.deleteHeading'
+                : 'revision.deleteParagraph';
+            const label = translate(key);
+            deleteButton.textContent = label;
+            deleteButton.setAttribute('aria-label', label);
+            deleteButton.setAttribute('title', label);
+            deleteButton.hidden = blockType === 'table'
+                || typeof activeActions.onDelete !== 'function';
+            busy = false;
+            dirty = false;
+            this.setError('');
+            syncButtonState();
+            toolbar.hidden = false;
+        },
+        hide() {
+            toolbar.hidden = true;
+            errorMessage = '';
+            status.hidden = true;
+        },
+        setBusy(nextBusy) {
+            busy = Boolean(nextBusy);
+            toolbar.setAttribute('aria-busy', String(busy));
+            syncButtonState();
+        },
+        setDirty(nextDirty) {
+            dirty = Boolean(nextDirty);
+            syncButtonState();
+            syncStatus();
+        },
+        setError(message) {
+            errorMessage = message || '';
+            syncStatus();
+        },
+        destroy() {
+            for (const { button, listener } of listeners) {
+                button.removeEventListener('click', listener);
+            }
+            toolbar.remove();
+        },
+    };
+}
+
+function createCorrectionToolbarButton(document, className, label = '') {
+    const button = createHTMLNode(document, 'button');
+    button.type = 'button';
+    button.className = [
+        'mktero-correction-editor-button',
+        className,
+    ].join(' ');
+    button.textContent = label;
+    if (label) {
+        button.setAttribute('aria-label', label);
+        button.setAttribute('title', label);
+    }
+    return button;
+}
+
+function createHTMLNode(document, tagName) {
+    if (typeof document.createElementNS === 'function') {
+        return document.createElementNS(XHTML_NAMESPACE, tagName);
+    }
+    return document.createElement(tagName);
 }
 
 function editorViewportOffset(editorView) {
@@ -432,6 +943,38 @@ function editorViewportOffset(editorView) {
     catch {
         return editorView.viewport.from;
     }
+}
+
+function repairStalledViewport(editorView) {
+    if (editorView.inView) return false;
+    const scrollTop = Number(editorView.scrollDOM?.scrollTop);
+    const clientHeight = Number(editorView.scrollDOM?.clientHeight);
+    if (!Number.isFinite(scrollTop)
+        || !Number.isFinite(clientHeight)
+        || clientHeight <= 0) {
+        return false;
+    }
+    const centerOffset = editorView.lineBlockAtHeight(
+        Math.max(0, scrollTop + clientHeight / 2)
+    ).from;
+    if (centerOffset >= editorView.viewport.from
+        && centerOffset <= editorView.viewport.to) {
+        return false;
+    }
+
+    // Zotero's XUL tab can expose window-relative coordinates that make a
+    // visible shadow-root editor look offscreen to CodeMirror. Give its
+    // virtual viewport a centered target, then retain the user's scroll offset.
+    try {
+        editorView.dispatch({
+            effects: EditorView.scrollIntoView(centerOffset, { y: 'center' }),
+        });
+        editorView.measure();
+    }
+    finally {
+        editorView.scrollDOM.scrollTop = scrollTop;
+    }
+    return true;
 }
 
 function createSourcedEvidence(markdown, sourceMap, target) {

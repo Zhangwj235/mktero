@@ -21,6 +21,9 @@ import {
 } from '../markdown/markdown-figure-references.js';
 import { analyzeMarkdownTableReferences } from '../markdown/markdown-table-references.js';
 import {
+    isEditableTextCorrectionBlock,
+} from './correction-interactions.js';
+import {
     createTableCaption,
     RenderedTableWidget,
 } from './rendered-table-widget.js';
@@ -55,6 +58,8 @@ export const setReferenceHighlight = StateEffect.define();
 export const setTableHighlight = StateEffect.define();
 export const setFigureHighlight = StateEffect.define();
 export const setAnnotationOverlay = StateEffect.define();
+export const setInlineEditingRange = StateEffect.define();
+export const setCorrectionRenderingState = StateEffect.define();
 
 class RenderedMarkdownWidget extends WidgetType {
     constructor({
@@ -245,6 +250,61 @@ class AnnotationNoteWidget extends WidgetType {
 
     ignoreEvent() {
         return false;
+    }
+}
+
+class CorrectionMarkerWidget extends WidgetType {
+    constructor(block, restoreCorrection, onCorrectionError, translate) {
+        super();
+        this.block = block;
+        this.restoreCorrection = restoreCorrection;
+        this.onCorrectionError = onCorrectionError;
+        this.translate = translate;
+    }
+
+    eq(other) {
+        return this.block.id === other.block.id
+            && this.block.type === other.block.type
+            && this.block.from === other.block.from
+            && this.block.to === other.block.to;
+    }
+
+    toDOM(view) {
+        const document = view.dom.ownerDocument;
+        const deleted = this.block.from === this.block.to;
+        const button = createHTMLNode(document, 'button');
+        button.type = 'button';
+        button.className = 'cm-mktero-correction-marker';
+        button.textContent = this.translate(deleted
+            ? 'revision.undoDelete'
+            : 'revision.restoreBlock');
+        button.setAttribute(
+            'aria-label',
+            this.translate(deleted
+                ? 'revision.undoDeleteLabel'
+                : 'revision.restoreBlockLabel')
+        );
+        button.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            button.disabled = true;
+            Promise.resolve(this.restoreCorrection?.(this.block.id))
+                .catch(error => this.onCorrectionError?.(error))
+                .finally(() => { button.disabled = false; });
+        });
+        if (!deleted) return button;
+
+        const placeholder = createHTMLNode(document, 'div');
+        placeholder.className = 'cm-mktero-deleted-correction';
+        const label = createHTMLNode(document, 'span');
+        label.className = 'cm-mktero-deleted-correction-label';
+        label.textContent = this.translate('revision.deletedBlock');
+        placeholder.append(label, button);
+        return placeholder;
+    }
+
+    ignoreEvent() {
+        return true;
     }
 }
 
@@ -440,6 +500,10 @@ export function createInlineRenderingExtension({
     activateCitation,
     activateTableReference,
     activateFigureReference,
+    commitCorrection,
+    restoreCorrection,
+    onCorrectionError,
+    onCorrectionEditingChange,
     translate = translateEnglish,
 }) {
     const context = {
@@ -454,6 +518,10 @@ export function createInlineRenderingExtension({
         activateCitation,
         activateTableReference,
         activateFigureReference,
+        commitCorrection,
+        restoreCorrection,
+        onCorrectionError,
+        onCorrectionEditingChange,
         translate,
         renderVersion: 0,
         highlightedReferenceID: null,
@@ -461,6 +529,10 @@ export function createInlineRenderingExtension({
         highlightedFigureID: null,
         annotationOverlay: createEmptyAnnotationOverlay(),
         annotationTargets: new Map(),
+        editingRange: null,
+        correctionManagementEnabled: false,
+        correctionBlocks: [],
+        correctedBlockIDs: new Set(),
         citationAnalysisDocument: null,
         citationAnalysis: null,
         citationTargets: new Map(),
@@ -486,6 +558,8 @@ export function createInlineRenderingExtension({
             let tableHighlightChanged = false;
             let figureHighlightChanged = false;
             let annotationOverlayChanged = false;
+            let editingRangeChanged = false;
+            let correctionStateChanged = false;
             if (shouldRefresh) context.renderVersion++;
             for (const effect of transaction.effects) {
                 if (effect.is(setReferenceHighlight)) {
@@ -510,6 +584,21 @@ export function createInlineRenderingExtension({
                     );
                     annotationOverlayChanged = true;
                 }
+                else if (effect.is(setInlineEditingRange)) {
+                    context.editingRange = effect.value;
+                    editingRangeChanged = true;
+                }
+                else if (effect.is(setCorrectionRenderingState)) {
+                    const value = effect.value || {};
+                    context.correctionManagementEnabled = Boolean(value.enabled);
+                    context.correctionBlocks = Array.isArray(value.blocks)
+                        ? value.blocks
+                        : [];
+                    context.correctedBlockIDs = new Set(
+                        value.correctedBlockIDs || []
+                    );
+                    correctionStateChanged = true;
+                }
             }
             if (transaction.docChanged
                 || syntaxTreeChanged
@@ -517,6 +606,8 @@ export function createInlineRenderingExtension({
                 || tableHighlightChanged
                 || figureHighlightChanged
                 || annotationOverlayChanged
+                || editingRangeChanged
+                || correctionStateChanged
                 || shouldRefresh) {
                 return buildDecorations(transaction.state, context);
             }
@@ -696,9 +787,12 @@ function buildDecorations(state, context) {
         analyzedTableReferences.targets.map(target => [target.from, target])
     );
     referenceAnalysis(state, context.figureReferences);
-    const algorithmGroups = findMinerUAlgorithmGroups(state.doc.toString());
-    const figureGroups = findAcademicFigureGroups(state.doc.toString());
-    const tableGroups = findAcademicTableGroups(state.doc.toString());
+    const algorithmGroups = findMinerUAlgorithmGroups(state.doc.toString())
+        .filter(group => !rangesOverlapEditing(group, context));
+    const figureGroups = findAcademicFigureGroups(state.doc.toString())
+        .filter(group => !rangesOverlapEditing(group, context));
+    const tableGroups = findAcademicTableGroups(state.doc.toString())
+        .filter(group => !rangesOverlapEditing(group, context));
     const renderedGroups = [
         ...algorithmGroups,
         ...figureGroups,
@@ -724,6 +818,10 @@ function buildDecorations(state, context) {
 
     syntaxTree(state).iterate({
         enter(node) {
+            if (node.name !== 'Document'
+                && rangeInsideEditing(node, context)) {
+                return false;
+            }
             if (renderedGroups.some(group => rangeContains(group, node))) {
                 return false;
             }
@@ -753,6 +851,7 @@ function buildDecorations(state, context) {
         context,
         [...renderedGroups, ...renderedMathRanges]
     );
+    decorateCorrections(state, decorations, context);
     return Decoration.set(decorations, true);
 }
 
@@ -764,6 +863,7 @@ function decoratePDFAnnotations(state, decorations, context, renderedRanges) {
         const noteOffset = annotationStartOffset(validRanges);
         for (const range of annotation.ranges || []) {
             if (!validAnnotationRange(range, state.doc.length)) continue;
+            if (rangesOverlapEditing(range, context)) continue;
             if (renderedRanges.some(rendered => rangeContains(rendered, range))) {
                 continue;
             }
@@ -777,6 +877,7 @@ function decoratePDFAnnotations(state, decorations, context, renderedRanges) {
         ));
         if (noteOffset !== null
             && !noteRendered
+            && !positionInsideEditing(noteOffset, context)
             && annotationHasComment(annotation)) {
             decorations.push(Decoration.widget({
                 widget: new AnnotationNoteWidget(annotation, context.translate),
@@ -823,7 +924,9 @@ function decorateCitations(state, decorations, context) {
     const superscriptContent = new Map();
     for (const affiliation of result.affiliations) {
         const markup = affiliation.markerMarkup;
-        if (!markup || citationRangeIsExcluded(state, markup.contentFrom)) {
+        if (!markup
+            || rangesOverlapEditing(affiliation, context)
+            || citationRangeIsExcluded(state, markup.contentFrom)) {
             continue;
         }
         hideSuperscriptMarkup(decorations, markup, hiddenSuperscriptMarkup);
@@ -838,7 +941,8 @@ function decorateCitations(state, decorations, context) {
     }
     for (const citation of result.citations) {
         const markup = citation.superscriptMarkup;
-        if (citationRangeIsExcluded(state, citation.from)) {
+        if (rangesOverlapEditing(citation, context)
+            || citationRangeIsExcluded(state, citation.from)) {
             continue;
         }
         if (markup) {
@@ -998,7 +1102,7 @@ function decoratePreviewReferences(
 ) {
     for (const reference of references) {
         const target = targets.get(reference.targetId);
-        if (!target) continue;
+        if (!target || rangesOverlapEditing(reference, context)) continue;
         decorations.push(Decoration.mark({
             class: className,
             attributes: {
@@ -1797,6 +1901,13 @@ function renderedRange(node, state, display, context) {
         node.to
     );
     if (display === 'table') {
+        const tableFrom = node.table?.from ?? node.from;
+        const tableTo = node.table?.to ?? node.to;
+        const correctionBlock = context.correctionBlocks.find(block => (
+            block.type === 'table'
+            && block.from === tableFrom
+            && block.to === tableTo
+        ));
         return Decoration.replace({
             widget: new RenderedTableWidget({
                 source,
@@ -1805,6 +1916,16 @@ function renderedRange(node, state, display, context) {
                 caption: node.caption,
                 highlighted: tableIsHighlighted,
                 annotations,
+                correctionBlock,
+                correctionManagementEnabled:
+                    context.correctionManagementEnabled,
+                corrected: context.correctedBlockIDs.has(
+                    correctionBlock?.id
+                ),
+                commitCorrection: context.commitCorrection,
+                restoreCorrection: context.restoreCorrection,
+                onCorrectionError: context.onCorrectionError,
+                onCorrectionEditingChange: context.onCorrectionEditingChange,
                 ...context,
             }),
             block: true,
@@ -1845,6 +1966,137 @@ function renderedRange(node, state, display, context) {
         }),
         block: true,
     }).range(node.from, node.to);
+}
+
+function decorateCorrections(state, decorations, context) {
+    if (!context.correctionManagementEnabled) {
+        for (const range of deletedCorrectionGapRanges(state, context)) {
+            decorations.push(Decoration.replace({}).range(
+                range.from,
+                range.to
+            ));
+        }
+        return;
+    }
+    for (const block of context.correctionBlocks) {
+        if (!isRenderableTextCorrection(block, state, context)
+            || rangesOverlapEditing(block, context)) {
+            continue;
+        }
+        if (block.to > block.from) {
+            decorations.push(Decoration.mark({
+                class: 'cm-mktero-corrected-block',
+            }).range(block.from, block.to));
+        }
+        decorations.push(Decoration.widget({
+            widget: new CorrectionMarkerWidget(
+                block,
+                context.restoreCorrection,
+                context.onCorrectionError,
+                context.translate
+            ),
+            side: 1,
+            block: block.from === block.to,
+        }).range(block.to));
+    }
+}
+
+function deletedCorrectionGapRanges(state, context) {
+    const markdown = state.doc.toString();
+    const ranges = [];
+    for (const block of context.correctionBlocks) {
+        if (!isRenderableTextCorrection(block, state, context)
+            || block.from !== block.to) {
+            continue;
+        }
+        let from = block.from;
+        let to = blankSeparatorEnd(markdown, block.from);
+        if (to === from) from = blankSeparatorStart(markdown, block.from);
+        if (to > from) ranges.push({ from, to });
+    }
+    ranges.sort((left, right) => left.from - right.from);
+    const merged = [];
+    for (const range of ranges) {
+        const previous = merged.at(-1);
+        if (!previous || range.from > previous.to) {
+            merged.push({ ...range });
+        }
+        else {
+            previous.to = Math.max(previous.to, range.to);
+        }
+    }
+    return merged;
+}
+
+function isRenderableTextCorrection(block, state, context) {
+    return Boolean(block
+        && typeof block === 'object'
+        && typeof block.id === 'string'
+        && block.id
+        && isEditableTextCorrectionBlock(block)
+        && Number.isSafeInteger(block.from)
+        && Number.isSafeInteger(block.to)
+        && block.from >= 0
+        && block.to >= block.from
+        && block.to <= state.doc.length
+        && context.correctedBlockIDs.has(block.id));
+}
+
+function blankSeparatorEnd(markdown, position) {
+    let cursor = position;
+    let end = position;
+    while (cursor < markdown.length) {
+        let lineEnd = cursor;
+        while (markdown[lineEnd] === ' ' || markdown[lineEnd] === '\t') {
+            lineEnd++;
+        }
+        if (markdown[lineEnd] === '\r' && markdown[lineEnd + 1] === '\n') {
+            lineEnd++;
+        }
+        if (markdown[lineEnd] !== '\n') break;
+        cursor = lineEnd + 1;
+        end = cursor;
+    }
+    return end;
+}
+
+function blankSeparatorStart(markdown, position) {
+    let cursor = position;
+    let start = position;
+    while (cursor > 0) {
+        let lineStart = cursor;
+        while (markdown[lineStart - 1] === ' '
+            || markdown[lineStart - 1] === '\t') {
+            lineStart--;
+        }
+        if (markdown[lineStart - 1] !== '\n') break;
+        lineStart--;
+        if (markdown[lineStart - 1] === '\r') lineStart--;
+        cursor = lineStart;
+        start = cursor;
+    }
+    return start;
+}
+
+function rangesOverlapEditing(range, context) {
+    const editing = context.editingRange;
+    return Boolean(editing
+        && range.from < editing.to
+        && range.to > editing.from);
+}
+
+function rangeInsideEditing(range, context) {
+    const editing = context.editingRange;
+    return Boolean(editing
+        && range.from >= editing.from
+        && range.to <= editing.to);
+}
+
+function positionInsideEditing(position, context) {
+    const editing = context.editingRange;
+    return Boolean(editing
+        && position >= editing.from
+        && position <= editing.to);
 }
 
 function annotationsForRange(overlay, from, to) {

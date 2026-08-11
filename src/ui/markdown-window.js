@@ -42,6 +42,7 @@ const BUNDLED_MARKDOWN_STYLES = typeof __MKTERO_MARKDOWN_STYLES__ === 'string'
     : null;
 const DOCUMENT_ACTION_STATUS_TIMEOUT_MS = 5_000;
 const WARNING_TOAST_TIMEOUT_MS = 5_000;
+const CORRECTION_UNDO_TIMEOUT_MS = 8_000;
 const SIDE_PANEL_KEYBOARD_STEP = 16;
 const SIDE_PANEL_RESIZE_ACTIVATION_DISTANCE = 4;
 const RESPONSIVE_SIDE_PANEL_BREAKPOINTS = Object.freeze({
@@ -152,6 +153,8 @@ class MarkdownTabView {
         this.actionStatusTimer = null;
         this.warningToastSignature = null;
         this.warningToastTimer = null;
+        this.correctionUndoTimer = null;
+        this.correctionUndoBlockID = null;
         this.responsiveResizeObserver = null;
         this.documentActionsOpen = false;
         this.readerFontOptionsOpen = false;
@@ -227,6 +230,13 @@ class MarkdownTabView {
             ),
             onSourceNavigationError: error => this.zotero?.logError?.(error),
             onViewportChange: offset => this.syncActiveNavigation(offset),
+            onCommitCorrection: correction => (
+                this.commitCorrection(correction)
+            ),
+            onRestoreCorrection: blockID => (
+                this.restoreCorrection(blockID)
+            ),
+            onCorrectionError: error => this.reportCorrectionError(error),
             localization: this.localization,
         });
         this.syncOutline('');
@@ -238,6 +248,9 @@ class MarkdownTabView {
         this.model = model;
         const elements = this.elements;
         this.syncLocalization();
+        if (model.status !== 'ready' || model.renderMode === 'html') {
+            this.clearCorrectionUndo();
+        }
         const loadingView = createLoadingPresentation(model, this.t);
         const showContent = model.status === 'ready' || loadingView.preserveContent;
 
@@ -256,6 +269,7 @@ class MarkdownTabView {
         });
         this.syncContentVisibility(showContent);
         this.syncDocumentActions(model, loadingView);
+        this.syncCorrectionBanner(model, loadingView);
         this.syncErrorActions(model);
         this.syncWarningActions(model);
 
@@ -278,6 +292,11 @@ class MarkdownTabView {
                 this.syncOutline('');
                 this.syncNotes(createEmptyAnnotationOverlay(), 0);
             }
+            this.editor.setCorrectionState?.({
+                enabled: false,
+                blocks: model.editableBlocks || [],
+                correctedBlockIDs: model.correctedBlockIDs || [],
+            });
             return;
         }
 
@@ -291,6 +310,7 @@ class MarkdownTabView {
                 this.syncSnapshot();
                 this.syncOutline('');
                 this.syncNotes(createEmptyAnnotationOverlay(), 0);
+                this.editor.setCorrectionState?.({ enabled: false });
                 return;
             }
             elements.editorHost.hidden = false;
@@ -314,6 +334,11 @@ class MarkdownTabView {
                 annotationOverlay,
                 sourceMap: Array.isArray(model.sourceMap) ? model.sourceMap : [],
             });
+            this.editor.setCorrectionState?.({
+                enabled: Boolean(model.correctionMode),
+                blocks: model.editableBlocks || [],
+                correctedBlockIDs: model.correctedBlockIDs || [],
+            });
             this.renderedMarkdown = markdown;
             this.renderedRenderMode = 'markdown';
             this.fragmentIndex = createMarkdownFragmentIndex(markdown);
@@ -333,6 +358,7 @@ class MarkdownTabView {
     destroy() {
         this.clearDocumentActionStatus();
         this.clearWarningToast();
+        this.clearCorrectionUndo();
         for (const { element, type, listener, options } of this.listeners) {
             element.removeEventListener(type, listener, options);
         }
@@ -670,6 +696,31 @@ class MarkdownTabView {
         });
         snapshotHost.hidden = true;
         const documentActions = this.createDocumentActions();
+        const correctionBanner = this.createElement('div', {
+            class: 'markdown-correction-banner',
+            role: 'status',
+            'aria-live': 'polite',
+        });
+        correctionBanner.hidden = true;
+        const correctionUndo = this.createElement('div', {
+            class: 'markdown-correction-undo',
+            role: 'status',
+            'aria-live': 'polite',
+            'aria-atomic': 'true',
+        });
+        const correctionUndoMessage = this.createElement(
+            'span',
+            { class: 'markdown-correction-undo-message' }
+        );
+        const correctionUndoButton = this.createElement('button', {
+            class: 'markdown-correction-undo-button',
+            type: 'button',
+            'aria-label': this.t('revision.undoDeleteLabel'),
+            title: this.t('revision.undoDeleteLabel'),
+        }, this.t('revision.undoDelete'));
+        appendChildren(correctionUndo, correctionUndoMessage, correctionUndoButton);
+        correctionUndo.hidden = true;
+        documentActions.toolbar.appendChild(correctionBanner);
         const editorSection = this.createElement('section', {
             class: 'markdown-editor',
             'aria-label': this.t('viewer.readOnly'),
@@ -678,6 +729,7 @@ class MarkdownTabView {
             editorSection,
             documentActions.toolbar,
             editorHost,
+            correctionUndo,
             snapshotHost
         );
         const outlineTitle = this.createElement('h2', {
@@ -789,12 +841,20 @@ class MarkdownTabView {
             notesToggle: notesControls.toggle,
             editorHost,
             snapshotHost,
+            correctionBanner,
+            correctionUndo,
+            correctionUndoMessage,
+            correctionUndoButton,
             editorActions: documentActions.toolbar,
             editorSection,
             actionToggle: documentActions.toggle,
             actionMenu: documentActions.menu,
             reparse: documentActions.reparse,
             reparseLabel: documentActions.reparseLabel,
+            correctionToggle: documentActions.correctionToggle,
+            correctionToggleLabel: documentActions.correctionToggleLabel,
+            restoreCorrections: documentActions.restoreCorrections,
+            restoreCorrectionsLabel: documentActions.restoreCorrectionsLabel,
             saveSnapshot: documentActions.saveSnapshot,
             saveSnapshotLabel: documentActions.saveSnapshotLabel,
             readerControls: documentActions.readerControls,
@@ -960,6 +1020,48 @@ class MarkdownTabView {
             class: 'markdown-reader-controls',
         });
         appendChildren(readerControls, readerFontSize, readerFontFamily);
+        const correctionToggle = this.createElement('button', {
+            id: 'mktero-correction-toggle',
+            class: 'markdown-reader-action markdown-reader-action--child',
+            type: 'button',
+            'aria-label': this.t('revision.start'),
+            title: this.t('revision.start'),
+        });
+        correctionToggle.appendChild(createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.fileText,
+            {
+                className: 'markdown-reader-action-icon',
+                size: 18,
+            }
+        ));
+        const correctionToggleLabel = this.createElement(
+            'span',
+            { class: 'markdown-reader-action-label' },
+            this.t('revision.start')
+        );
+        correctionToggle.appendChild(correctionToggleLabel);
+        const restoreCorrections = this.createElement('button', {
+            id: 'mktero-restore-corrections',
+            class: 'markdown-reader-action markdown-reader-action--child',
+            type: 'button',
+            'aria-label': this.t('revision.restoreAll'),
+            title: this.t('revision.restoreAll'),
+        });
+        restoreCorrections.appendChild(createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.refreshCw,
+            {
+                className: 'markdown-reader-action-icon',
+                size: 18,
+            }
+        ));
+        const restoreCorrectionsLabel = this.createElement(
+            'span',
+            { class: 'markdown-reader-action-label' },
+            this.t('revision.restoreAll')
+        );
+        restoreCorrections.appendChild(restoreCorrectionsLabel);
         const reparse = this.createElement('button', {
             id: 'mktero-reparse',
             class: 'markdown-reader-action markdown-reader-action--child',
@@ -1002,6 +1104,8 @@ class MarkdownTabView {
             this.t('viewer.saveSnapshotShort')
         );
         saveSnapshot.appendChild(saveSnapshotLabel);
+        menu.appendChild(correctionToggle);
+        menu.appendChild(restoreCorrections);
         menu.appendChild(reparse);
         menu.appendChild(saveSnapshot);
         const status = this.createElement('span', {
@@ -1028,6 +1132,10 @@ class MarkdownTabView {
             menu,
             reparse,
             reparseLabel,
+            correctionToggle,
+            correctionToggleLabel,
+            restoreCorrections,
+            restoreCorrectionsLabel,
             saveSnapshot,
             saveSnapshotLabel,
             readerControls,
@@ -1095,6 +1203,15 @@ class MarkdownTabView {
         });
         this.listen(this.elements.reparse, 'click', () => {
             this.runDocumentAction('reparse', 'onReparse');
+        });
+        this.listen(this.elements.correctionToggle, 'click', () => {
+            this.toggleCorrectionMode();
+        });
+        this.listen(this.elements.restoreCorrections, 'click', () => {
+            void this.restoreAllCorrections();
+        });
+        this.listen(this.elements.correctionUndoButton, 'click', () => {
+            void this.undoDeletedCorrection();
         });
         this.listen(this.elements.errorRetry, 'click', () => {
             this.runDocumentAction('retry', 'onReparse');
@@ -1364,6 +1481,160 @@ class MarkdownTabView {
             });
     }
 
+    toggleCorrectionMode() {
+        if (this.elements.correctionToggle.disabled
+            || this.documentActionBusy
+            || typeof this.model.onSetCorrectionMode !== 'function') {
+            return;
+        }
+        this.setDocumentActionsOpen(false);
+        try {
+            this.model.onSetCorrectionMode(!this.model.correctionMode);
+        }
+        catch (error) {
+            this.reportCorrectionError(error);
+        }
+    }
+
+    commitCorrection(correction) {
+        return this.runCorrectionOperation(
+            () => this.model.onCommitCorrection(correction),
+            {
+                progressKey: 'revision.saving',
+                successKey: 'revision.saved',
+                failureKey: 'revision.saveFailed',
+            }
+        ).then(result => {
+            const replacement = String(
+                correction.replacementMarkdown ?? ''
+            );
+            if (!replacement.trim()) {
+                this.showCorrectionUndo(correction.blockID);
+            }
+            else {
+                this.clearCorrectionUndo();
+            }
+            return result;
+        });
+    }
+
+    restoreCorrection(blockID) {
+        if (this.correctionUndoBlockID === blockID) {
+            this.clearCorrectionUndo();
+        }
+        return this.runCorrectionOperation(
+            () => this.model.onRestoreCorrection(blockID),
+            {
+                progressKey: 'revision.restoring',
+                successKey: 'revision.restored',
+                failureKey: 'revision.restoreFailed',
+            }
+        );
+    }
+
+    async restoreAllCorrections() {
+        if (this.elements.restoreCorrections.disabled
+            || typeof this.model.onRestoreAllCorrections !== 'function') {
+            return false;
+        }
+        const confirmed = this.ownerWindow.confirm?.(
+            this.t('revision.restoreAllConfirm', {
+                count: this.model.correctionCount || 0,
+            })
+        );
+        if (!confirmed) return false;
+        this.clearCorrectionUndo();
+        this.setDocumentActionsOpen(false);
+        await this.runCorrectionOperation(
+            () => this.model.onRestoreAllCorrections(),
+            {
+                progressKey: 'revision.restoring',
+                successKey: 'revision.restored',
+                failureKey: 'revision.restoreFailed',
+            }
+        );
+        return true;
+    }
+
+    async undoDeletedCorrection() {
+        const blockID = this.correctionUndoBlockID;
+        if (!blockID) return false;
+        this.clearCorrectionUndo();
+        try {
+            await this.restoreCorrection(blockID);
+            return true;
+        }
+        catch {
+            this.showCorrectionUndo(blockID);
+            return false;
+        }
+    }
+
+    async runCorrectionOperation(operation, {
+        progressKey,
+        successKey,
+        failureKey,
+    }) {
+        if (this.documentActionBusy) {
+            throw new Error('Another Markdown document action is in progress');
+        }
+        this.documentActionBusy = 'correction';
+        this.setDocumentActionStatus(progressKey);
+        this.syncDocumentActions(
+            this.model,
+            createLoadingPresentation(this.model, this.t)
+        );
+        try {
+            const result = await operation();
+            this.setDocumentActionStatus(successKey, { dismissAfter: true });
+            return result;
+        }
+        catch (error) {
+            this.zotero?.logError?.(error);
+            this.setDocumentActionStatus(failureKey, { dismissAfter: true });
+            throw error;
+        }
+        finally {
+            this.documentActionBusy = null;
+            this.syncDocumentActions(
+                this.model,
+                createLoadingPresentation(this.model, this.t)
+            );
+        }
+    }
+
+    reportCorrectionError(error) {
+        this.zotero?.logError?.(error);
+    }
+
+    showCorrectionUndo(blockID) {
+        this.clearCorrectionUndo();
+        this.correctionUndoBlockID = blockID;
+        this.elements.correctionUndoMessage.textContent = this.t(
+            'revision.deletedUndo'
+        );
+        this.elements.correctionUndoButton.disabled = false;
+        this.elements.correctionUndo.hidden = false;
+        if (typeof this.ownerWindow.setTimeout !== 'function') return;
+        this.correctionUndoTimer = this.ownerWindow.setTimeout(() => {
+            this.correctionUndoTimer = null;
+            this.correctionUndoBlockID = null;
+            this.elements.correctionUndo.hidden = true;
+        }, CORRECTION_UNDO_TIMEOUT_MS);
+    }
+
+    clearCorrectionUndo() {
+        if (this.correctionUndoTimer !== null) {
+            this.ownerWindow.clearTimeout?.(this.correctionUndoTimer);
+            this.correctionUndoTimer = null;
+        }
+        this.correctionUndoBlockID = null;
+        if (this.elements?.correctionUndo) {
+            this.elements.correctionUndo.hidden = true;
+            this.elements.correctionUndoButton.disabled = false;
+        }
+    }
+
     setDocumentActionStatus(key, { dismissAfter = false } = {}) {
         this.clearDocumentActionStatus();
         this.elements.actionStatus.textContent = this.t(key);
@@ -1630,6 +1901,40 @@ class MarkdownTabView {
         this.elements.saveSnapshotLabel.textContent = this.t(
             'viewer.saveSnapshotShort'
         );
+        const correctionLabel = this.t(this.model.correctionMode
+            ? 'revision.finish'
+            : 'revision.start');
+        this.elements.correctionToggle.setAttribute(
+            'aria-label',
+            correctionLabel
+        );
+        this.elements.correctionToggle.setAttribute('title', correctionLabel);
+        this.elements.correctionToggleLabel.textContent = correctionLabel;
+        this.elements.correctionUndoMessage.textContent = this.t(
+            'revision.deletedUndo'
+        );
+        this.elements.correctionUndoButton.textContent = this.t(
+            'revision.undoDelete'
+        );
+        this.elements.correctionUndoButton.setAttribute(
+            'aria-label',
+            this.t('revision.undoDeleteLabel')
+        );
+        this.elements.correctionUndoButton.setAttribute(
+            'title',
+            this.t('revision.undoDeleteLabel')
+        );
+        this.elements.restoreCorrections.setAttribute(
+            'aria-label',
+            this.t('revision.restoreAll')
+        );
+        this.elements.restoreCorrections.setAttribute(
+            'title',
+            this.t('revision.restoreAll')
+        );
+        this.elements.restoreCorrectionsLabel.textContent = this.t(
+            'revision.restoreAll'
+        );
         this.elements.errorRetry.setAttribute(
             'aria-label',
             this.t('viewer.retryConversion')
@@ -1716,7 +2021,20 @@ class MarkdownTabView {
         const reparseAvailable = typeof model.onReparse === 'function';
         const saveAvailable = typeof model.onSaveSnapshot === 'function'
             && model.renderMode !== 'html';
-        const documentActionsAvailable = reparseAvailable || saveAvailable;
+        const correctionAvailable = model.status === 'ready'
+            && model.renderMode !== 'html'
+            && Array.isArray(model.editableBlocks)
+            && model.editableBlocks.length > 0
+            && typeof model.onSetCorrectionMode === 'function'
+            && typeof model.onCommitCorrection === 'function';
+        const restoreAvailable = model.status === 'ready'
+            && model.renderMode !== 'html'
+            && model.hasCorrections
+            && typeof model.onRestoreAllCorrections === 'function';
+        const documentActionsAvailable = reparseAvailable
+            || saveAvailable
+            || correctionAvailable
+            || restoreAvailable;
         const readerControlsAvailable = model.status === 'ready'
             || loadingView.preserveContent;
         const toolbarAvailable = documentActionsAvailable
@@ -1739,6 +2057,8 @@ class MarkdownTabView {
         this.elements.editorActions.hidden = !toolbarAvailable;
         this.elements.reparse.hidden = !reparseAvailable;
         this.elements.saveSnapshot.hidden = !saveAvailable;
+        this.elements.correctionToggle.hidden = !correctionAvailable;
+        this.elements.restoreCorrections.hidden = !restoreAvailable;
         this.elements.actionToggle.hidden = !documentActionsAvailable;
         this.elements.readerFontSize.hidden = !readerControlsAvailable;
         this.elements.readerFontFamily.hidden = !readerControlsAvailable;
@@ -1746,6 +2066,12 @@ class MarkdownTabView {
             || loadingView.visible
             || Boolean(this.documentActionBusy);
         this.elements.saveSnapshot.disabled = !saveAvailable
+            || loadingView.visible
+            || Boolean(this.documentActionBusy);
+        this.elements.correctionToggle.disabled = !correctionAvailable
+            || loadingView.visible
+            || Boolean(this.documentActionBusy);
+        this.elements.restoreCorrections.disabled = !restoreAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);
         this.elements.actionToggle.disabled = !documentActionsAvailable
@@ -1830,6 +2156,26 @@ class MarkdownTabView {
         this.syncDocumentActions(model, loadingView);
     }
 
+    syncCorrectionBanner(model, loadingView) {
+        const visible = !loadingView.visible
+            && model.status === 'ready'
+            && model.renderMode !== 'html'
+            && model.correctionMode;
+        this.elements.correctionBanner.hidden = !visible;
+        this.elements.editorSection.setAttribute(
+            'aria-label',
+            this.t(model.correctionMode ? 'revision.start' : 'viewer.readOnly')
+        );
+        if (!visible) {
+            this.elements.correctionBanner.textContent = '';
+            return;
+        }
+        this.elements.correctionBanner.textContent = this.t(
+            'revision.bannerActive',
+            { count: model.correctionCount || 0 }
+        );
+    }
+
     setDocumentActionsOpen(open) {
         this.documentActionsOpen = Boolean(open);
         const available = !this.elements.actionToggle.hidden;
@@ -1846,6 +2192,11 @@ class MarkdownTabView {
         const menuTabIndex = visible ? '0' : '-1';
         this.elements.reparse.setAttribute('tabindex', menuTabIndex);
         this.elements.saveSnapshot.setAttribute('tabindex', menuTabIndex);
+        this.elements.correctionToggle.setAttribute('tabindex', menuTabIndex);
+        this.elements.restoreCorrections.setAttribute(
+            'tabindex',
+            menuTabIndex
+        );
         this.elements.editorActions.classList.toggle('is-open', visible);
     }
 

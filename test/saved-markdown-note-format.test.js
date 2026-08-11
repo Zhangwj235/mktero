@@ -25,6 +25,8 @@ const manifest = createSavedMarkdownManifest({
     }],
     snapshotHTMLHash: 'c'.repeat(64),
     createdAt: '2026-08-04T00:00:00.000Z',
+    containsUserCorrections: true,
+    correctionCount: 2,
 });
 
 test('serializes and parses a marked saved Markdown note', () => {
@@ -47,6 +49,8 @@ test('serializes and parses a marked saved Markdown note', () => {
     assert.equal(parsed.manifest.sourcePDFKey, 'PDFKEY1');
     assert.equal(parsed.manifest.sourceAttachmentKey, 'SOURCE01');
     assert.deepEqual(parsed.manifest.assets, manifest.assets);
+    assert.equal(parsed.manifest.containsUserCorrections, true);
+    assert.equal(parsed.manifest.correctionCount, 2);
 });
 
 test('parses a snapshot after Zotero strips custom root attributes', () => {

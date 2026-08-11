@@ -30,6 +30,12 @@ function textNodeContaining(element, text) {
     return null;
 }
 
+function renderedLineTexts(document) {
+    return [...document.querySelectorAll('.cm-line')].map(line => (
+        line.textContent
+    ));
+}
+
 function createAnnotationSelectionEditor(initialMarkdown, annotationID) {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -1443,6 +1449,676 @@ test('keeps rendered Markdown read-only on double-click', () => {
     dom.window.close();
 });
 
+test('commits one paragraph block directly from read-only mode', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = '# Paper\n\nThe sample included 5O people.';
+    const from = markdown.indexOf('The sample');
+    const to = markdown.length;
+    const blocks = [{
+        id: 'paragraph-1',
+        type: 'paragraph',
+        from,
+        to,
+        markdown: markdown.slice(from, to),
+    }];
+    const commits = [];
+    let bubbledSaveShortcuts = 0;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => commits.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks,
+        correctedBlockIDs: [],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => from + 8;
+    const content = document.querySelector('.cm-content');
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            bubbledSaveShortcuts++;
+        }
+    });
+
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+    editor.setCorrectionState({ enabled: false, blocks });
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+
+    const typo = markdown.indexOf('5O') + 1;
+    view.dispatch({ changes: { from: typo, to: typo + 1, insert: '0' } });
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(commits, [{
+        blockID: 'paragraph-1',
+        replacementMarkdown: 'The sample included 50 people.',
+    }]);
+    assert.equal(bubbledSaveShortcuts, 0);
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not start direct correction from an interactive link', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = '[Source](https://example.com) text.';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const content = document.querySelector('.cm-content');
+    view.posAtCoords = () => 1;
+
+    document.querySelector('.cm-mktero-link').dispatchEvent(
+        new dom.window.MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+        })
+    );
+
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-toolbar').hidden,
+        true
+    );
+
+    view.dispatch({ selection: { anchor: 1 } });
+    document.querySelector('.cm-mktero-link').dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', {
+            key: 'Enter',
+            bubbles: true,
+            cancelable: true,
+        })
+    );
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+
+    view.posAtCoords = () => markdown.indexOf('text');
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('deletes a whole correction block after removing its final character', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'O';
+    const from = 0;
+    const submissions = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => submissions.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from,
+            to: markdown.length,
+            markdown: markdown.slice(from),
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => from + 1;
+    const content = document.querySelector('.cm-content');
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    view.dispatch({
+        changes: { from, to: markdown.length, insert: '' },
+    });
+    assert.equal(editor.getMarkdown(), '');
+
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(submissions, [{
+        blockID: 'paragraph-1',
+        replacementMarkdown: '',
+    }]);
+    assert.equal(editor.getMarkdown(), '');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('opens block correction actions directly from read-only mode', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Remove this paragraph.';
+    const submissions = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => submissions.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => 1;
+    const content = document.querySelector('.cm-content');
+    const begin = () => content.dispatchEvent(new dom.window.MouseEvent(
+        'dblclick',
+        {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+        }
+    ));
+
+    begin();
+    const toolbar = document.querySelector(
+        '.mktero-correction-editor-toolbar'
+    );
+    const saveButton = toolbar.querySelector(
+        '.mktero-correction-editor-save'
+    );
+    const cancelButton = toolbar.querySelector(
+        '.mktero-correction-editor-cancel'
+    );
+    const deleteButton = toolbar.querySelector(
+        '.mktero-correction-editor-delete'
+    );
+    assert.equal(toolbar.hidden, false);
+    assert.equal(saveButton.textContent, 'Save changes');
+    assert.equal(cancelButton.textContent, 'Cancel');
+    assert.equal(deleteButton.textContent, 'Delete paragraph');
+    assert.equal(saveButton.disabled, true);
+    assert.equal(
+        toolbar.querySelector('.mktero-correction-editor-status').hidden,
+        true
+    );
+
+    view.dispatch({ changes: { from: 0, to: 6, insert: 'Keep' } });
+    assert.equal(saveButton.disabled, false);
+    assert.equal(
+        toolbar.querySelector('.mktero-correction-editor-status').textContent,
+        'Unsaved changes'
+    );
+    cancelButton.click();
+    assert.equal(editor.getMarkdown(), markdown);
+    assert.equal(toolbar.hidden, true);
+    assert.deepEqual(submissions, []);
+
+    begin();
+    view.dispatch({ selection: { anchor: 1 } });
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'F2',
+        bubbles: true,
+        cancelable: true,
+    }));
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+    assert.equal(saveButton.disabled, true);
+    cancelButton.click();
+
+    begin();
+    view.dispatch({
+        changes: {
+            from: markdown.length - 1,
+            to: markdown.length,
+            insert: '!',
+        },
+    });
+    saveButton.click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(submissions, [{
+        blockID: 'paragraph-1',
+        replacementMarkdown: 'Remove this paragraph!',
+    }]);
+    assert.equal(toolbar.hidden, true);
+
+    begin();
+    document.querySelector('.mktero-correction-editor-delete').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(submissions, [{
+        blockID: 'paragraph-1',
+        replacementMarkdown: 'Remove this paragraph!',
+    }, {
+        blockID: 'paragraph-1',
+        replacementMarkdown: '',
+    }]);
+    assert.equal(editor.getMarkdown(), '');
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+    assert.equal(toolbar.hidden, true);
+
+    editor.destroy();
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-toolbar'),
+        null
+    );
+    dom.window.close();
+});
+
+test('collapses the empty lines left by a deleted block in read-only mode', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = '# Study\n\n\n\nConclusion.';
+    const deletedBlock = {
+        id: 'deleted-paragraph',
+        type: 'paragraph',
+        from: '# Study\n\n'.length,
+        to: '# Study\n\n'.length,
+        markdown: '',
+    };
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [deletedBlock],
+        correctedBlockIDs: [deletedBlock.id],
+    });
+
+    assert.deepEqual(renderedLineTexts(document), [
+        'Study',
+        '',
+        'Conclusion.',
+    ]);
+
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [deletedBlock],
+        correctedBlockIDs: [deletedBlock.id],
+    });
+    assert.deepEqual(renderedLineTexts(document), [
+        'Study',
+        '',
+        '',
+        '',
+        'Conclusion.',
+    ]);
+    assert.ok(document.querySelector('.cm-mktero-deleted-correction'));
+
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [deletedBlock],
+        correctedBlockIDs: [deletedBlock.id],
+    });
+    assert.deepEqual(renderedLineTexts(document), [
+        'Study',
+        '',
+        'Conclusion.',
+    ]);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('collapses deleted block gaps at document boundaries', () => {
+    const cases = [{
+        name: 'first block with blank-line whitespace',
+        markdown: '\n \t\nAfter',
+        positions: [0],
+        expected: ['After'],
+    }, {
+        name: 'last block with blank-line whitespace',
+        markdown: 'Before\n \t\n',
+        positions: ['Before\n \t\n'.length],
+        expected: ['Before'],
+    }, {
+        name: 'middle block with blank-line whitespace',
+        markdown: 'Before\n\n\n \t\nAfter',
+        positions: ['Before\n\n'.length],
+        expected: ['Before', '', 'After'],
+    }, {
+        name: 'adjacent blocks',
+        markdown: 'Before\n\n\n\n\n\nAfter',
+        positions: [8, 10],
+        expected: ['Before', '', 'After'],
+    }];
+
+    for (const scenario of cases) {
+        const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+            pretendToBeVisual: true,
+        });
+        const { document } = dom.window;
+        const blocks = scenario.positions.map((position, index) => ({
+            id: `deleted-${index}`,
+            type: 'paragraph',
+            from: position,
+            to: position,
+            markdown: '',
+        }));
+        const editor = createInlineMarkdownEditor({
+            parent: document.querySelector('#editor'),
+            initialMarkdown: scenario.markdown,
+        });
+
+        editor.setCorrectionState({
+            enabled: false,
+            blocks,
+            correctedBlockIDs: blocks.map(block => block.id),
+        });
+
+        assert.deepEqual(
+            renderedLineTexts(document),
+            scenario.expected,
+            scenario.name
+        );
+
+        editor.destroy();
+        dom.window.close();
+    }
+});
+
+test('ignores malformed deleted block ranges in read-only mode', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Before\n\nAfter';
+    const blocks = [
+        null,
+        { id: 'negative', type: 'paragraph', from: -1, to: -1 },
+        {
+            id: 'oversized',
+            type: 'paragraph',
+            from: Number.MAX_SAFE_INTEGER,
+            to: Number.MAX_SAFE_INTEGER,
+        },
+        { id: 'string', type: 'paragraph', from: '8', to: '8' },
+        { id: 'table', type: 'table', from: 8, to: 8 },
+        { id: 'unknown', type: 'unknown', from: 8, to: 8 },
+        { id: 'missing-type', from: 8, to: 8 },
+        { type: 'paragraph', from: 8, to: 8 },
+        { id: 'not-deleted', type: 'paragraph', from: 0, to: 6 },
+    ];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    editor.setCorrectionState({
+        enabled: false,
+        blocks,
+        correctedBlockIDs: [
+            'negative',
+            'oversized',
+            'string',
+            'table',
+            'unknown',
+            'missing-type',
+            undefined,
+            'not-deleted',
+        ],
+    });
+
+    assert.deepEqual(renderedLineTexts(document), ['Before', '', 'After']);
+
+    editor.setCorrectionState({
+        enabled: true,
+        blocks,
+        correctedBlockIDs: [
+            'negative',
+            'oversized',
+            'string',
+            'table',
+            'unknown',
+            'missing-type',
+            undefined,
+            'not-deleted',
+        ],
+    });
+    assert.equal(
+        document.querySelectorAll('.cm-mktero-correction-marker').length,
+        1
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('shows a compact deleted-block restore only in correction mode', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const restores = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        onCommitCorrection: async () => {},
+        onRestoreCorrection: async blockID => restores.push(blockID),
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'deleted-paragraph',
+            type: 'paragraph',
+            from: 0,
+            to: 0,
+            markdown: '',
+        }],
+        correctedBlockIDs: ['deleted-paragraph'],
+    });
+
+    assert.equal(
+        document.querySelector('.cm-mktero-correction-marker'),
+        null
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-deleted-correction'),
+        null
+    );
+
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'deleted-paragraph',
+            type: 'paragraph',
+            from: 0,
+            to: 0,
+            markdown: '',
+        }],
+        correctedBlockIDs: ['deleted-paragraph'],
+    });
+
+    const placeholder = document.querySelector(
+        '.cm-mktero-deleted-correction'
+    );
+    const restoreButton = document.querySelector(
+        '.cm-mktero-correction-marker'
+    );
+    assert.ok(placeholder);
+    assert.match(placeholder.textContent, /deleted content/i);
+    assert.ok(restoreButton);
+    assert.equal(restoreButton.textContent, 'Undo deletion');
+    restoreButton.click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(restores, ['deleted-paragraph']);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('restores a deleted correction block when saving fails', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'O';
+    const errors = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {
+            throw new Error('disk full');
+        },
+        onCorrectionError: error => errors.push(error.message),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => 0;
+    const content = document.querySelector('.cm-content');
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    view.dispatch({ changes: { from: 0, to: markdown.length, insert: '' } });
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(errors, ['disk full']);
+    assert.equal(editor.getMarkdown(), '');
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-status').textContent,
+        'The correction could not be saved.'
+    );
+    document.querySelector('.mktero-correction-editor-cancel').click();
+    assert.equal(editor.getMarkdown(), markdown);
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not save a correction while an IME composition is active', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Recognition text.';
+    const submissions = [];
+    let bubbledSaveShortcuts = 0;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => submissions.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => 1;
+    const content = document.querySelector('.cm-content');
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            bubbledSaveShortcuts++;
+        }
+    });
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    content.dispatchEvent(new dom.window.CompositionEvent('compositionstart', {
+        bubbles: true,
+        cancelable: true,
+        data: '校',
+    }));
+    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        metaKey: true,
+        isComposing: true,
+        bubbles: true,
+        cancelable: true,
+    }));
+    content.dispatchEvent(new dom.window.CompositionEvent('compositionend', {
+        bubbles: true,
+        data: '校',
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(submissions, []);
+    assert.equal(bubbledSaveShortcuts, 0);
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('renders externally replaced Markdown in read-only mode', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -1601,6 +2277,399 @@ test('keeps rendered GFM table cells read-only', () => {
     assert.equal(valueCell.getAttribute('contenteditable'), 'false');
     assert.equal(valueCell.textContent, '42');
     assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('commits a rendered GFM table cell directly from read-only mode', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Name | Value |',
+        '| --- | ---: |',
+        '| Score | 42 |',
+    ].join('\n');
+    const commits = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => commits.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'table-1',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+        correctedBlockIDs: [],
+    });
+    const valueCell = document.querySelector(
+        '.cm-mktero-table tbody td:last-child'
+    );
+
+    enterTableCellEditing(valueCell, dom.window);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    valueCell.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(commits, []);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    valueCell.textContent = '43';
+    valueCell.dispatchEvent(new dom.window.Event('input', {
+        bubbles: true,
+    }));
+    valueCell.dispatchEvent(new dom.window.FocusEvent('blur'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(commits.length, 0);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    document.querySelector('.mktero-correction-editor-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(commits.length, 1);
+    assert.equal(commits[0].blockID, 'table-1');
+    assert.match(commits[0].replacementMarkdown, /\| Score \| 43 \|/);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('edits escaped pipes and pads ragged GFM table rows', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Name | Value | Note |',
+        '| --- | ---: | --- |',
+        '| A \\| B | 42 |',
+    ].join('\n');
+    const commits = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => commits.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'table-ragged',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const cells = document.querySelectorAll('.cm-mktero-table tbody td');
+
+    assert.equal(cells.length, 3);
+    assert.equal(cells[0].textContent, 'A | B');
+    enterTableCellEditing(cells[2], dom.window);
+    cells[2].textContent = 'Added';
+    cells[2].dispatchEvent(new dom.window.Event('input', {
+        bubbles: true,
+    }));
+    document.querySelector('.mktero-correction-editor-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.match(commits[0].replacementMarkdown, /\| A \\| B \| 42 \| Added \|/);
+    editor.destroy();
+    dom.window.close();
+});
+
+test('edits a captioned GFM table and restores its table block', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Table 3 Means and standard deviations',
+        '',
+        '| Measure | m | SD |',
+        '| --- | ---: | ---: |',
+        '| Valence | 414.55 | 87.37 |',
+    ].join('\n');
+    const tableFrom = markdown.indexOf('| Measure');
+    const commits = [];
+    const restores = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => commits.push(correction),
+        onRestoreCorrection: async blockID => restores.push(blockID),
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'captioned-table',
+            type: 'table',
+            from: tableFrom,
+            to: markdown.length,
+            markdown: markdown.slice(tableFrom),
+        }],
+        correctedBlockIDs: ['captioned-table'],
+    });
+    assert.equal(
+        document.querySelector('.cm-mktero-correction-marker'),
+        null
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-corrected-block'),
+        null
+    );
+
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'captioned-table',
+            type: 'table',
+            from: tableFrom,
+            to: markdown.length,
+            markdown: markdown.slice(tableFrom),
+        }],
+        correctedBlockIDs: ['captioned-table'],
+    });
+    const valueCell = document.querySelector(
+        '.cm-mktero-table tbody td:last-child'
+    );
+
+    enterTableCellEditing(valueCell, dom.window);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    valueCell.textContent = '87.38';
+    valueCell.dispatchEvent(new dom.window.Event('input', {
+        bubbles: true,
+    }));
+    document.querySelector('.mktero-correction-editor-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+    const restoreButton = document.querySelector(
+        '.cm-mktero-correction-marker'
+    );
+    assert.equal(
+        restoreButton.namespaceURI,
+        'http://www.w3.org/1999/xhtml'
+    );
+    restoreButton.click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.match(commits[0].replacementMarkdown, /\| Valence \| 414\.55 \| 87\.38 \|/);
+    assert.deepEqual(restores, ['captioned-table']);
+    editor.destroy();
+    dom.window.close();
+});
+
+test('keeps table cell input inert and restores the cell when saving fails', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Name | Value |',
+        '| --- | --- |',
+        '| Score | 42 |',
+    ].join('\n');
+    const errors = [];
+    let attemptedCorrection;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => {
+            attemptedCorrection = correction;
+            throw new Error('disk full');
+        },
+        onCorrectionError: error => errors.push(error.message),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'table-1',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const valueCell = document.querySelector(
+        '.cm-mktero-table tbody td:last-child'
+    );
+
+    enterTableCellEditing(valueCell, dom.window);
+    valueCell.textContent = '<img src=x onerror=alert(1)>\n43';
+    valueCell.dispatchEvent(new dom.window.Event('input', {
+        bubbles: true,
+    }));
+    document.querySelector('.mktero-correction-editor-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(valueCell.querySelector('img'), null);
+    assert.equal(valueCell.textContent, '<img src=x onerror=alert(1)>\n43');
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    assert.doesNotMatch(attemptedCorrection.replacementMarkdown, /<img/i);
+    assert.doesNotMatch(attemptedCorrection.replacementMarkdown, /\n43/);
+    assert.match(
+        attemptedCorrection.replacementMarkdown,
+        /&lt;img src=x onerror=alert\(1\)&gt; 43/
+    );
+    assert.deepEqual(errors, ['disk full']);
+    document.querySelector('.mktero-correction-editor-cancel').click();
+    assert.equal(valueCell.textContent, '42');
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not open annotation actions while a table cell is being edited', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Name | Value |',
+        '| --- | --- |',
+        '| Score | 42 |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        createMarkdownAnnotation: async annotation => annotation,
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'table-1',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const cell = document.querySelector('.cm-mktero-table tbody td:last-child');
+    enterTableCellEditing(cell, dom.window);
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    document.getSelection().addRange(range);
+
+    cell.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+    }));
+
+    assert.equal(
+        document.querySelector('.mktero-markdown-selection-actions'),
+        null
+    );
+    editor.destroy();
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-toolbar'),
+        null
+    );
+    dom.window.close();
+});
+
+test('does not open a text correction while a table edit is active', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Intro text.',
+        '',
+        '| Name | Value |',
+        '| --- | --- |',
+        '| Score | 42 |',
+    ].join('\n');
+    const tableFrom = markdown.indexOf('| Name');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: 'Intro text.'.length,
+        }, {
+            id: 'table-1',
+            type: 'table',
+            from: tableFrom,
+            to: markdown.length,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const content = document.querySelector('.cm-content');
+    const cell = document.querySelector('.cm-mktero-table tbody td:last-child');
+    enterTableCellEditing(cell, dom.window);
+    assert.equal(cell.getAttribute('contenteditable'), 'true');
+
+    view.posAtCoords = () => 1;
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+    assert.equal(cell.getAttribute('contenteditable'), 'true');
+
+    document.querySelector('.mktero-correction-editor-cancel').click();
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('cancels an active table edit when the document is reset', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Name | Value |',
+        '| --- | --- |',
+        '| Score | 42 |',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'table-1',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const valueCell = document.querySelector(
+        '.cm-mktero-table tbody td:last-child'
+    );
+
+    enterTableCellEditing(valueCell, dom.window);
+    assert.equal(valueCell.getAttribute('contenteditable'), 'true');
+    editor.setDocument({ markdown });
+
+    assert.equal(valueCell.getAttribute('contenteditable'), 'false');
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-toolbar').hidden,
+        true
+    );
 
     editor.destroy();
     dom.window.close();
@@ -4874,6 +5943,129 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
     assert.equal(scrollRequestedMeasure, true);
     assert.equal(scrollMeasuredSynchronously, true);
     assert.equal(keyActivatedFirstWindow, true);
+});
+
+function createStalledViewportFixture({
+    paragraphCount,
+    targetParagraph,
+    scrollTop,
+}) {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    dom.window.Range.prototype.getClientRects = () => [];
+    const { document } = dom.window;
+    const targetText = `Paragraph ${targetParagraph}`;
+    const markdown = Array.from(
+        { length: paragraphCount },
+        (_, index) => `Paragraph ${index + 1}`
+    ).join('\n\n');
+    const blocks = Array.from({ length: paragraphCount }, (_, index) => {
+        const text = `Paragraph ${index + 1}`;
+        const from = markdown.indexOf(text);
+        return {
+            id: `paragraph-${index + 1}`,
+            type: 'paragraph',
+            from,
+            to: from + text.length,
+            markdown: text,
+        };
+    });
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const scroller = view.scrollDOM;
+    const targetOffset = markdown.indexOf(targetText);
+    const targetBlock = view.lineBlockAt(targetOffset);
+    Object.defineProperty(view, 'inView', {
+        configurable: true,
+        get: () => false,
+    });
+    Object.defineProperty(scroller, 'clientHeight', {
+        configurable: true,
+        value: 800,
+    });
+    view.lineBlockAtHeight = () => targetBlock;
+    scroller.scrollTop = scrollTop;
+
+    return {
+        blocks,
+        document,
+        dom,
+        editor,
+        markdown,
+        scroller,
+        targetOffset,
+        targetText,
+        view,
+    };
+}
+
+test('renders the scrolled region when Zotero geometry marks the editor out of view', () => {
+    const {
+        document,
+        dom,
+        editor,
+        scroller,
+        targetOffset,
+        targetText,
+        view,
+    } = createStalledViewportFixture({
+        paragraphCount: 200,
+        targetParagraph: 160,
+        scrollTop: 2400,
+    });
+
+    scroller.dispatchEvent(new dom.window.Event('scroll', {
+        bubbles: true,
+    }));
+
+    const renderedText = document.querySelector('.cm-content').textContent;
+    const resultingScrollTop = scroller.scrollTop;
+    const resultingViewport = view.viewport;
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.match(renderedText, /Paragraph 160/);
+    assert.ok(resultingViewport.from <= targetOffset);
+    assert.ok(resultingViewport.to >= targetOffset + targetText.length);
+    assert.equal(resultingScrollTop, 2400);
+});
+
+test('keeps the scrolled region rendered when correction mode is enabled', () => {
+    const {
+        blocks,
+        document,
+        dom,
+        editor,
+        markdown,
+        scroller,
+        targetOffset,
+        targetText,
+        view,
+    } = createStalledViewportFixture({
+        paragraphCount: 40,
+        targetParagraph: 32,
+        scrollTop: 600,
+    });
+
+    editor.setDocument({ markdown, sourceMap: [] });
+    editor.setCorrectionState({ enabled: true, blocks });
+
+    const renderedText = document.querySelector('.cm-content').textContent;
+    const resultingScrollTop = scroller.scrollTop;
+    const resultingViewport = view.viewport;
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.match(renderedText, new RegExp(targetText));
+    assert.ok(resultingViewport.from <= targetOffset);
+    assert.ok(resultingViewport.to >= targetOffset + targetText.length);
+    assert.equal(resultingScrollTop, 600);
 });
 
 test('corrects outline navigation after the offscreen heading is rendered', () => {

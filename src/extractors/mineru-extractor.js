@@ -16,6 +16,7 @@ export class MinerUDocumentExtractor {
         readFile,
         preparePDFIndex = null,
         createCacheKey = null,
+        readRevision = null,
         isCacheEnabled = () => false,
         onCacheError = error => zotero.logError?.(error),
         onPDFIndexError = error => zotero.logError?.(error),
@@ -32,6 +33,7 @@ export class MinerUDocumentExtractor {
         this.readFile = readFile;
         this.preparePDFIndex = preparePDFIndex;
         this.createCacheKey = createCacheKey;
+        this.readRevision = readRevision;
         this.isCacheEnabled = isCacheEnabled;
         this.onCacheError = onCacheError;
         this.onPDFIndexError = onPDFIndexError;
@@ -65,6 +67,28 @@ export class MinerUDocumentExtractor {
             catch (error) {
                 this.#reportCacheError(error);
                 warnings.push('The local Markdown cache is unavailable.');
+            }
+        }
+        if (!forceRefresh && cacheKey && typeof this.readRevision === 'function') {
+            const revision = await this.readRevision({
+                itemID,
+                cacheKey,
+                signal,
+            });
+            throwIfAborted(signal);
+            if (revision) {
+                onProgress?.(100);
+                const result = prepareMinerUResult({
+                    ...revision,
+                    userEdited: true,
+                });
+                return createResult(
+                    title,
+                    result,
+                    true,
+                    warnings,
+                    cacheKey
+                );
             }
         }
         const apiKey = String(this.getApiKey() || '').trim();

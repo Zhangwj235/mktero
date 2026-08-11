@@ -34,6 +34,15 @@ test('keeps the current Markdown visible while a forced reparse is running', () 
             unmatched: [],
         },
         warnings: [],
+        editableBlocks: [{
+            id: 'block-0',
+            type: 'heading',
+            from: 0,
+            to: 14,
+        }],
+        correctedBlockIDs: ['block-0'],
+        correctionCount: 1,
+        hasCorrections: true,
         error: '',
         onReparse: () => {},
     };
@@ -49,6 +58,10 @@ test('keeps the current Markdown visible while a forced reparse is running', () 
     assert.equal(loading.resumingTask, false);
     assert.deepEqual(loading.annotationOverlay, current.annotationOverlay);
     assert.equal(loading.sourceMap, current.sourceMap);
+    assert.deepEqual(loading.editableBlocks, current.editableBlocks);
+    assert.deepEqual(loading.correctedBlockIDs, ['block-0']);
+    assert.equal(loading.correctionCount, 1);
+    assert.equal(loading.hasCorrections, true);
 });
 
 test('tracks whether loading progress belongs to a resumed task', () => {
@@ -106,6 +119,11 @@ test('uses the normal empty and error states without a previous result', () => {
         sourceMap: [],
         annotationOverlay: { matched: [], unmatched: [] },
         warnings: [],
+        editableBlocks: [],
+        correctedBlockIDs: [],
+        correctionCount: 0,
+        hasCorrections: false,
+        correctionMode: false,
         error: '',
         errorAction: null,
         warningAction: null,
@@ -133,6 +151,11 @@ test('clears figures when a successful reparse has no assets', () => {
         cacheKey: null,
         sourceMap: [],
         annotationOverlay: { matched: [], unmatched: [] },
+        editableBlocks: [],
+        correctedBlockIDs: [],
+        correctionCount: 0,
+        hasCorrections: false,
+        correctionMode: false,
         title: 'Reparsed paper',
         markdown: '# Reparsed',
         sourceKind: 'markdown',

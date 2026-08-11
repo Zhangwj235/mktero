@@ -181,6 +181,52 @@ test('returns a cached result without requiring a MinerU API token', async () =>
     assert.deepEqual(progress, [100]);
 });
 
+test('returns a persisted corrected revision before MinerU conversion', async () => {
+    const cacheKey = 'c'.repeat(64);
+    const progress = [];
+    const revision = {
+        markdown: '# Corrected paper\n\nThe result was 90%.',
+        assets: [],
+        sourceMap: [{
+            type: 'text',
+            markdownFrom: 21,
+            markdownTo: 40,
+            locations: [{ pageIndex: 0, bbox: [100, 200, 900, 300] }],
+            corrected: true,
+        }],
+        extractedPages: 1,
+        totalPages: 1,
+    };
+    const extractor = new MinerUDocumentExtractor({
+        zotero: { Items: { getAsync: async () => createPDFItem() } },
+        conversion: {
+            convert: async () => assert.fail('conversion must not start'),
+        },
+        getApiKey: () => '',
+        readFile: async () => new Uint8Array([1, 2, 3]),
+        createCacheKey: async () => cacheKey,
+        readRevision: async options => {
+            assert.deepEqual(options, {
+                itemID: 42,
+                cacheKey,
+                signal: undefined,
+            });
+            return revision;
+        },
+    });
+
+    const result = await extractor.extract(42, {
+        onProgress: value => progress.push(value),
+    });
+
+    assert.equal(result.markdown, revision.markdown);
+    assert.deepEqual(result.sourceMap, revision.sourceMap);
+    assert.equal(result.cacheHit, true);
+    assert.equal(result.userEdited, true);
+    assert.equal(result.cacheKey, cacheKey);
+    assert.deepEqual(progress, [100]);
+});
+
 test('passes cache and force-refresh policy through the conversion interface', async () => {
     const calls = [];
     const extractor = new MinerUDocumentExtractor({

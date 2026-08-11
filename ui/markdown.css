@@ -682,6 +682,145 @@ main {
     overflow: hidden;
 }
 
+.mktero-correction-editor-toolbar {
+    display: flex;
+    position: absolute;
+    z-index: 4;
+    inset-block-end: 16px;
+    inset-inline-end: 18px;
+    max-width: calc(100% - 36px);
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 7px;
+    padding: 7px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+    box-shadow: var(--shadow-float);
+    font-family: var(--ui-font);
+}
+
+.mktero-correction-editor-status {
+    min-width: 0;
+    max-width: 18rem;
+    overflow: hidden;
+    color: var(--muted);
+    font: 11px/1.3 var(--ui-font);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mktero-correction-editor-status:not([hidden]) {
+    margin-inline-end: 2px;
+}
+
+.mktero-correction-editor-button {
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 5px 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    background: var(--surface-raised);
+    cursor: pointer;
+    font: 600 12px/1.2 var(--ui-font);
+    white-space: nowrap;
+}
+
+.mktero-correction-editor-button:hover:not(:disabled),
+.mktero-correction-editor-button:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface-raised));
+}
+
+.mktero-correction-editor-save {
+    border-color: var(--accent);
+    color: var(--accent-contrast);
+    background: var(--accent);
+}
+
+.mktero-correction-editor-save:hover:not(:disabled),
+.mktero-correction-editor-save:focus-visible {
+    background: var(--accent-strong);
+}
+
+.mktero-correction-editor-delete {
+    border-color: color-mix(in srgb, var(--error) 38%, var(--border));
+    color: var(--error);
+}
+
+.mktero-correction-editor-button:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.markdown-correction-banner {
+    width: 100%;
+    flex: 1 0 100%;
+    order: 10;
+    padding: 7px 12px;
+    border-top: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+    color: var(--reader-text);
+    background: color-mix(in srgb, var(--accent) 9%, var(--reader-background));
+    font-family: var(--ui-font);
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: center;
+}
+
+.markdown-correction-undo {
+    position: absolute;
+    z-index: 6;
+    inset-block-end: 16px;
+    inset-inline-start: 50%;
+    display: inline-flex;
+    max-width: calc(100% - 36px);
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    padding: 7px 9px 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    background: color-mix(in srgb, var(--surface-raised) 96%, transparent);
+    box-shadow: var(--shadow-float);
+    font: 12px/1.35 var(--ui-font);
+    transform: translateX(-50%);
+}
+
+.markdown-correction-undo-message {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.markdown-correction-undo-button {
+    flex: 0 0 auto;
+    min-height: 28px;
+    padding: 4px 9px;
+    border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+    border-radius: var(--radius-sm);
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
+    cursor: pointer;
+    font: 600 12px/1.2 var(--ui-font);
+}
+
+.markdown-correction-undo-button:hover,
+.markdown-correction-undo-button:focus-visible {
+    border-color: var(--accent);
+    outline: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    outline-offset: 1px;
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface-raised));
+}
+
+.markdown-correction-undo-button:disabled {
+    cursor: progress;
+    opacity: 0.55;
+}
+
 .markdown-reader-toolbar {
     position: relative;
     z-index: 5;
@@ -690,6 +829,7 @@ main {
     min-width: 0;
     min-height: 44px;
     flex: 0 0 auto;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     padding: 4px 12px;
@@ -711,11 +851,11 @@ main {
     top: calc(100% + 8px);
     right: 12px;
     display: grid;
-    width: 196px;
-    max-width: min(196px, calc(100% - 20px));
+    width: 240px;
+    max-width: min(240px, calc(100% - 20px));
     height: auto;
     gap: 3px;
-    padding: 6px;
+    padding: 8px;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     background: var(--surface-raised);
@@ -750,9 +890,25 @@ main {
 
 .markdown-reader-action-menu .markdown-reader-action {
     width: 100%;
+    min-height: 38px;
+    height: auto;
+    gap: 10px;
+    padding: 8px 12px;
     border-color: transparent;
     color: var(--text);
     justify-content: flex-start;
+    white-space: normal;
+}
+
+.markdown-reader-action-menu .markdown-reader-action-label {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-align: start;
+    text-overflow: clip;
+}
+
+.markdown-reader-action-menu .markdown-reader-action-icon {
+    flex: 0 0 18px;
 }
 
 .markdown-reader-font-size,
@@ -2539,6 +2695,71 @@ main {
 .markdown-editor-host > .cm-editor .cm-mktero-table tbody tr:nth-child(even) td,
 .markdown-editor-host > .cm-editor .cm-mktero-html-block tbody tr:nth-child(even) td {
     background: color-mix(in srgb, var(--surface) 45%, var(--reader-background));
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-table td[contenteditable='true'],
+.markdown-editor-host > .cm-editor .cm-mktero-table th[contenteditable='true'] {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    background: color-mix(in srgb, var(--accent) 10%, var(--reader-background));
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-corrected-block {
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-correction-marker {
+    display: inline-flex;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+    margin-inline-start: 8px;
+    padding: 2px 8px;
+    border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+    border-radius: 999px;
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent) 8%, var(--reader-background));
+    font-family: var(--ui-font);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-deleted-correction {
+    display: flex;
+    width: 100%;
+    min-height: 36px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 8px 0;
+    padding: 5px 8px 5px 12px;
+    overflow: hidden;
+    border: 1px dashed color-mix(in srgb, var(--accent) 34%, var(--border));
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    background: color-mix(in srgb, var(--accent) 5%, var(--reader-background));
+    font: 12px/1.35 var(--ui-font);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-deleted-correction-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-deleted-correction .cm-mktero-correction-marker {
+    flex: 0 0 auto;
+    margin-inline-start: 0;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-correction-marker:hover:not(:disabled),
+.markdown-editor-host > .cm-editor .cm-mktero-correction-marker:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+    background: color-mix(in srgb, var(--accent) 15%, var(--reader-background));
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-math {

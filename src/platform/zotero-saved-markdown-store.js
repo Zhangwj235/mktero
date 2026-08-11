@@ -255,6 +255,8 @@ export class ZoteroSavedMarkdownStore {
         sourceMap = [],
         cacheKey,
         parserProfile,
+        containsUserCorrections = false,
+        correctionCount = 0,
     }) {
         const pdf = await this.#resolveItem(pdfItem);
         if (!pdf?.isPDFAttachment?.()) {
@@ -312,7 +314,7 @@ export class ZoteroSavedMarkdownStore {
                 temporaryFiles,
                 createdAttachments
             );
-            const bodyHTML = this.renderHTML(markdown, {
+            const renderedHTML = this.renderHTML(markdown, {
                 resolveImageAttachmentKey: href => (
                     resolveAssetAttachmentKey(
                         prepared.assetBasePath,
@@ -322,6 +324,13 @@ export class ZoteroSavedMarkdownStore {
                 ),
                 translate: this.translate,
             });
+            const bodyHTML = containsUserCorrections
+                ? createCorrectionProvenanceBanner(
+                    renderedHTML,
+                    correctionCount,
+                    this.translate
+                )
+                : renderedHTML;
             const snapshotHTMLHash = await this.hash(
                 new TextEncoder().encode(bodyHTML)
             );
@@ -334,6 +343,8 @@ export class ZoteroSavedMarkdownStore {
                 prepared,
                 attachments,
                 snapshotHTMLHash,
+                containsUserCorrections,
+                correctionCount,
             });
             const noteHTML = serializeSavedMarkdownNote({ bodyHTML, manifest });
             note.setNote(noteHTML);
@@ -719,6 +730,8 @@ export class ZoteroSavedMarkdownStore {
         prepared,
         attachments,
         snapshotHTMLHash,
+        containsUserCorrections,
+        correctionCount,
     }) {
         return createSavedMarkdownManifest({
             sourcePDFKey,
@@ -743,6 +756,8 @@ export class ZoteroSavedMarkdownStore {
             })),
             snapshotHTMLHash,
             createdAt: this.now(),
+            containsUserCorrections,
+            correctionCount,
         });
     }
 
@@ -1056,6 +1071,16 @@ function serializeSourceMapJSON(sourceMap, markdownLength) {
     catch {
         return '[]';
     }
+}
+
+function createCorrectionProvenanceBanner(html, correctionCount, translate) {
+    if (!Number.isSafeInteger(correctionCount) || correctionCount < 1) {
+        throw new TypeError('A corrected snapshot requires a correction count');
+    }
+    const message = translate('snapshot.userCorrections', {
+        count: correctionCount,
+    });
+    return '<p><strong>' + escapeHTML(message) + '</strong></p>' + html;
 }
 
 function escapeHTML(value) {
