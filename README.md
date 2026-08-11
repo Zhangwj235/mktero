@@ -89,8 +89,9 @@ the block action bar or `Ctrl/Command+Enter`; the action bar and `Escape` can
 cancel the active change. Table cells save when you leave the cell. The same
 action bar can delete a whole paragraph or heading without removing it one
 character at a time. Deleted blocks appear as compact, reversible placeholders
-only while correction mode is active. Normal reading hides correction markers,
-and the More menu can restore all corrections.
+only while correction mode is active. Normal reading hides correction markers
+and collapses the gaps left by deleted blocks, while the More menu can restore
+all corrections.
 
 Corrections are tied to the current PDF content and MinerU parser profile. They
 are stored separately from the conversion cache, so clearing or expiring the

@@ -30,6 +30,12 @@ function textNodeContaining(element, text) {
     return null;
 }
 
+function renderedLineTexts(document) {
+    return [...document.querySelectorAll('.cm-line')].map(line => (
+        line.textContent
+    ));
+}
+
 function createAnnotationSelectionEditor(initialMarkdown, annotationID) {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -1657,6 +1663,189 @@ test('cancels or deletes a paragraph from the block correction toolbar', async (
         document.querySelector('.mktero-correction-editor-toolbar'),
         null
     );
+    dom.window.close();
+});
+
+test('collapses the empty lines left by a deleted block in read-only mode', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = '# Study\n\n\n\nConclusion.';
+    const deletedBlock = {
+        id: 'deleted-paragraph',
+        type: 'paragraph',
+        from: '# Study\n\n'.length,
+        to: '# Study\n\n'.length,
+        markdown: '',
+    };
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [deletedBlock],
+        correctedBlockIDs: [deletedBlock.id],
+    });
+
+    assert.deepEqual(renderedLineTexts(document), [
+        'Study',
+        '',
+        'Conclusion.',
+    ]);
+
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [deletedBlock],
+        correctedBlockIDs: [deletedBlock.id],
+    });
+    assert.deepEqual(renderedLineTexts(document), [
+        'Study',
+        '',
+        '',
+        '',
+        'Conclusion.',
+    ]);
+    assert.ok(document.querySelector('.cm-mktero-deleted-correction'));
+
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [deletedBlock],
+        correctedBlockIDs: [deletedBlock.id],
+    });
+    assert.deepEqual(renderedLineTexts(document), [
+        'Study',
+        '',
+        'Conclusion.',
+    ]);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('collapses deleted block gaps at document boundaries', () => {
+    const cases = [{
+        name: 'first block with blank-line whitespace',
+        markdown: '\n \t\nAfter',
+        positions: [0],
+        expected: ['After'],
+    }, {
+        name: 'last block with blank-line whitespace',
+        markdown: 'Before\n \t\n',
+        positions: ['Before\n \t\n'.length],
+        expected: ['Before'],
+    }, {
+        name: 'middle block with blank-line whitespace',
+        markdown: 'Before\n\n\n \t\nAfter',
+        positions: ['Before\n\n'.length],
+        expected: ['Before', '', 'After'],
+    }, {
+        name: 'adjacent blocks',
+        markdown: 'Before\n\n\n\n\n\nAfter',
+        positions: [8, 10],
+        expected: ['Before', '', 'After'],
+    }];
+
+    for (const scenario of cases) {
+        const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+            pretendToBeVisual: true,
+        });
+        const { document } = dom.window;
+        const blocks = scenario.positions.map((position, index) => ({
+            id: `deleted-${index}`,
+            type: 'paragraph',
+            from: position,
+            to: position,
+            markdown: '',
+        }));
+        const editor = createInlineMarkdownEditor({
+            parent: document.querySelector('#editor'),
+            initialMarkdown: scenario.markdown,
+        });
+
+        editor.setCorrectionState({
+            enabled: false,
+            blocks,
+            correctedBlockIDs: blocks.map(block => block.id),
+        });
+
+        assert.deepEqual(
+            renderedLineTexts(document),
+            scenario.expected,
+            scenario.name
+        );
+
+        editor.destroy();
+        dom.window.close();
+    }
+});
+
+test('ignores malformed deleted block ranges in read-only mode', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Before\n\nAfter';
+    const blocks = [
+        null,
+        { id: 'negative', type: 'paragraph', from: -1, to: -1 },
+        {
+            id: 'oversized',
+            type: 'paragraph',
+            from: Number.MAX_SAFE_INTEGER,
+            to: Number.MAX_SAFE_INTEGER,
+        },
+        { id: 'string', type: 'paragraph', from: '8', to: '8' },
+        { id: 'table', type: 'table', from: 8, to: 8 },
+        { id: 'unknown', type: 'unknown', from: 8, to: 8 },
+        { id: 'missing-type', from: 8, to: 8 },
+        { type: 'paragraph', from: 8, to: 8 },
+        { id: 'not-deleted', type: 'paragraph', from: 0, to: 6 },
+    ];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    editor.setCorrectionState({
+        enabled: false,
+        blocks,
+        correctedBlockIDs: [
+            'negative',
+            'oversized',
+            'string',
+            'table',
+            'unknown',
+            'missing-type',
+            undefined,
+            'not-deleted',
+        ],
+    });
+
+    assert.deepEqual(renderedLineTexts(document), ['Before', '', 'After']);
+
+    editor.setCorrectionState({
+        enabled: true,
+        blocks,
+        correctedBlockIDs: [
+            'negative',
+            'oversized',
+            'string',
+            'table',
+            'unknown',
+            'missing-type',
+            undefined,
+            'not-deleted',
+        ],
+    });
+    assert.equal(
+        document.querySelectorAll('.cm-mktero-correction-marker').length,
+        1
+    );
+
+    editor.destroy();
     dom.window.close();
 });
 

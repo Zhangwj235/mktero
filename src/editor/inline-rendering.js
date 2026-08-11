@@ -1965,13 +1965,17 @@ function renderedRange(node, state, display, context) {
 }
 
 function decorateCorrections(state, decorations, context) {
-    if (!context.correctionEnabled) return;
+    if (!context.correctionEnabled) {
+        for (const range of deletedCorrectionGapRanges(state, context)) {
+            decorations.push(Decoration.replace({}).range(
+                range.from,
+                range.to
+            ));
+        }
+        return;
+    }
     for (const block of context.correctionBlocks) {
-        if (!context.correctedBlockIDs.has(block.id)
-            || block.type === 'table'
-            || block.from < 0
-            || block.to > state.doc.length
-            || block.to < block.from
+        if (!isRenderableTextCorrection(block, state, context)
             || rangesOverlapEditing(block, context)) {
             continue;
         }
@@ -1991,6 +1995,83 @@ function decorateCorrections(state, decorations, context) {
             block: block.from === block.to,
         }).range(block.to));
     }
+}
+
+function deletedCorrectionGapRanges(state, context) {
+    const markdown = state.doc.toString();
+    const ranges = [];
+    for (const block of context.correctionBlocks) {
+        if (!isRenderableTextCorrection(block, state, context)
+            || block.from !== block.to) {
+            continue;
+        }
+        let from = block.from;
+        let to = blankSeparatorEnd(markdown, block.from);
+        if (to === from) from = blankSeparatorStart(markdown, block.from);
+        if (to > from) ranges.push({ from, to });
+    }
+    ranges.sort((left, right) => left.from - right.from);
+    const merged = [];
+    for (const range of ranges) {
+        const previous = merged.at(-1);
+        if (!previous || range.from > previous.to) {
+            merged.push({ ...range });
+        }
+        else {
+            previous.to = Math.max(previous.to, range.to);
+        }
+    }
+    return merged;
+}
+
+function isRenderableTextCorrection(block, state, context) {
+    return Boolean(block
+        && typeof block === 'object'
+        && typeof block.id === 'string'
+        && block.id
+        && (block.type === 'paragraph' || block.type === 'heading')
+        && Number.isSafeInteger(block.from)
+        && Number.isSafeInteger(block.to)
+        && block.from >= 0
+        && block.to >= block.from
+        && block.to <= state.doc.length
+        && context.correctedBlockIDs.has(block.id));
+}
+
+function blankSeparatorEnd(markdown, position) {
+    let cursor = position;
+    let end = position;
+    while (cursor < markdown.length) {
+        let lineEnd = cursor;
+        while (markdown[lineEnd] === ' ' || markdown[lineEnd] === '\t') {
+            lineEnd++;
+        }
+        if (markdown[lineEnd] === '\r' && markdown[lineEnd + 1] === '\n') {
+            lineEnd++;
+        }
+        if (markdown[lineEnd] !== '\n') break;
+        cursor = lineEnd + 1;
+        end = cursor;
+    }
+    return end;
+}
+
+function blankSeparatorStart(markdown, position) {
+    let cursor = position;
+    let start = position;
+    while (cursor > 0) {
+        let lineStart = cursor;
+        while (markdown[lineStart - 1] === ' '
+            || markdown[lineStart - 1] === '\t') {
+            lineStart--;
+        }
+        if (markdown[lineStart - 1] !== '\n') break;
+        lineStart--;
+        if (markdown[lineStart - 1] === '\r') lineStart--;
+        cursor = lineStart;
+        start = cursor;
+    }
+    return start;
 }
 
 function rangesOverlapEditing(range, context) {
