@@ -260,17 +260,26 @@ class CorrectionMarkerWidget extends WidgetType {
     }
 
     eq(other) {
-        return this.block.id === other.block.id;
+        return this.block.id === other.block.id
+            && this.block.type === other.block.type
+            && this.block.from === other.block.from
+            && this.block.to === other.block.to;
     }
 
     toDOM(view) {
-        const button = createHTMLNode(view.dom.ownerDocument, 'button');
+        const document = view.dom.ownerDocument;
+        const deleted = this.block.from === this.block.to;
+        const button = createHTMLNode(document, 'button');
         button.type = 'button';
         button.className = 'cm-mktero-correction-marker';
-        button.textContent = this.translate('revision.restoreBlock');
+        button.textContent = this.translate(deleted
+            ? 'revision.undoDelete'
+            : 'revision.restoreBlock');
         button.setAttribute(
             'aria-label',
-            this.translate('revision.restoreBlockLabel')
+            this.translate(deleted
+                ? 'revision.undoDeleteLabel'
+                : 'revision.restoreBlockLabel')
         );
         button.addEventListener('click', event => {
             event.preventDefault();
@@ -280,7 +289,15 @@ class CorrectionMarkerWidget extends WidgetType {
                 .catch(error => this.onCorrectionError?.(error))
                 .finally(() => { button.disabled = false; });
         });
-        return button;
+        if (!deleted) return button;
+
+        const placeholder = createHTMLNode(document, 'div');
+        placeholder.className = 'cm-mktero-deleted-correction';
+        const label = createHTMLNode(document, 'span');
+        label.className = 'cm-mktero-deleted-correction-label';
+        label.textContent = this.translate('revision.deletedBlock');
+        placeholder.append(label, button);
+        return placeholder;
     }
 
     ignoreEvent() {
@@ -1948,6 +1965,7 @@ function renderedRange(node, state, display, context) {
 }
 
 function decorateCorrections(state, decorations, context) {
+    if (!context.correctionEnabled) return;
     for (const block of context.correctionBlocks) {
         if (!context.correctedBlockIDs.has(block.id)
             || block.type === 'table'
@@ -1970,6 +1988,7 @@ function decorateCorrections(state, decorations, context) {
                 context.translate
             ),
             side: 1,
+            block: block.from === block.to,
         }).range(block.to));
     }
 }

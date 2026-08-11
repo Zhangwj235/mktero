@@ -196,9 +196,9 @@ test('toggles block correction mode and restores all saved corrections', async (
     const restoreAll = shadow.querySelector('#mktero-restore-corrections');
     assert.equal(toggle.hidden, false);
     assert.equal(restoreAll.hidden, false);
-    assert.match(
-        shadow.querySelector('.markdown-correction-banner').textContent,
-        /1 correction saved locally/i
+    assert.equal(
+        shadow.querySelector('.markdown-correction-banner').hidden,
+        true
     );
 
     toggle.click();
@@ -207,7 +207,7 @@ test('toggles block correction mode and restores all saved corrections', async (
     assert.equal(editorStates.at(-1).enabled, true);
     assert.match(
         shadow.querySelector('.markdown-correction-banner').textContent,
-        /double-click a paragraph, heading, or table cell/i
+        /double-click text or a table cell/i
     );
 
     restoreAll.click();

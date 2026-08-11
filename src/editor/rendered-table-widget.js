@@ -73,7 +73,9 @@ export class RenderedTableWidget extends WidgetType {
             'cm-mktero-rendered',
             'cm-mktero-table',
             this.highlighted ? 'cm-mktero-table-target-highlight' : '',
-            this.corrected ? 'cm-mktero-corrected-block' : '',
+            this.corrected && this.correctionEnabled
+                ? 'cm-mktero-corrected-block'
+                : '',
         ].filter(Boolean).join(' ');
         container.dataset.markdownFrom = String(this.annotationSourceFrom);
         container.dataset.markdownTo = String(
@@ -109,7 +111,9 @@ export class RenderedTableWidget extends WidgetType {
             this.openImagePreview,
             this.translate
         );
-        if (this.corrected) this.#appendRestoreButton(container);
+        if (this.corrected && this.correctionEnabled) {
+            this.#appendRestoreButton(container);
+        }
         return container;
     }
 

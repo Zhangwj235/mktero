@@ -114,6 +114,24 @@ test('keeps the reader toolbar above content without covering it', () => {
     assert.match(editorHost, /overflow:\s*hidden/);
 });
 
+test('keeps block correction actions compact and above the editor', () => {
+    const toolbar = ruleBody('.mktero-correction-editor-toolbar');
+    const button = ruleBody('.mktero-correction-editor-button');
+    const deleted = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-deleted-correction'
+    );
+
+    assert.match(toolbar, /position:\s*absolute/);
+    assert.match(toolbar, /display:\s*flex/);
+    assert.match(toolbar, /z-index:\s*4/);
+    assert.match(toolbar, /flex-wrap:\s*wrap/);
+    assert.match(button, /flex:\s*0 0 auto/);
+    assert.match(button, /white-space:\s*nowrap/);
+    assert.match(deleted, /display:\s*flex/);
+    assert.match(deleted, /border:\s*1px dashed/);
+    assert.match(deleted, /min-height:\s*36px/);
+});
+
 test('styles the reader font picker as part of the top toolbar', () => {
     const picker = ruleBody('.markdown-reader-font-picker');
     const trigger = ruleBody('.markdown-reader-font-select');

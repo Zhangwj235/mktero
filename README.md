@@ -85,9 +85,11 @@ session-only and are not restored after Zotero restarts.
 
 Choose `Correct recognition result` from the More menu, then double-click a
 paragraph, heading, or GFM table cell. Paragraph and heading changes save with
-`Ctrl/Command+Enter`; `Escape` cancels the active change. Table cells save when
-you leave the cell. Delete all content from a paragraph or heading and save to
-remove that block. Each corrected or deleted block can be restored individually,
+the block action bar or `Ctrl/Command+Enter`; the action bar and `Escape` can
+cancel the active change. Table cells save when you leave the cell. The same
+action bar can delete a whole paragraph or heading without removing it one
+character at a time. Deleted blocks appear as compact, reversible placeholders
+only while correction mode is active. Normal reading hides correction markers,
 and the More menu can restore all corrections.
 
 Corrections are tied to the current PDF content and MinerU parser profile. They

@@ -1563,7 +1563,104 @@ test('deletes a whole correction block after removing its final character', asyn
     dom.window.close();
 });
 
-test('restores an individually deleted correction block', async () => {
+test('cancels or deletes a paragraph from the block correction toolbar', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Remove this paragraph.';
+    const submissions = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => submissions.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => 1;
+    const content = document.querySelector('.cm-content');
+    const begin = () => content.dispatchEvent(new dom.window.MouseEvent(
+        'dblclick',
+        {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+        }
+    ));
+
+    begin();
+    const toolbar = document.querySelector(
+        '.mktero-correction-editor-toolbar'
+    );
+    const saveButton = toolbar.querySelector(
+        '.mktero-correction-editor-save'
+    );
+    const cancelButton = toolbar.querySelector(
+        '.mktero-correction-editor-cancel'
+    );
+    const deleteButton = toolbar.querySelector(
+        '.mktero-correction-editor-delete'
+    );
+    assert.equal(toolbar.hidden, false);
+    assert.equal(saveButton.textContent, 'Save changes');
+    assert.equal(cancelButton.textContent, 'Cancel');
+    assert.equal(deleteButton.textContent, 'Delete paragraph');
+
+    view.dispatch({ changes: { from: 0, to: 6, insert: 'Keep' } });
+    cancelButton.click();
+    assert.equal(editor.getMarkdown(), markdown);
+    assert.equal(toolbar.hidden, true);
+    assert.deepEqual(submissions, []);
+
+    begin();
+    view.dispatch({
+        changes: {
+            from: markdown.length - 1,
+            to: markdown.length,
+            insert: '!',
+        },
+    });
+    saveButton.click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(submissions, [{
+        blockID: 'paragraph-1',
+        replacementMarkdown: 'Remove this paragraph!',
+    }]);
+    assert.equal(toolbar.hidden, true);
+
+    begin();
+    document.querySelector('.mktero-correction-editor-delete').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(submissions, [{
+        blockID: 'paragraph-1',
+        replacementMarkdown: 'Remove this paragraph!',
+    }, {
+        blockID: 'paragraph-1',
+        replacementMarkdown: '',
+    }]);
+    assert.equal(editor.getMarkdown(), '');
+    assert.equal(content.getAttribute('contenteditable'), 'false');
+    assert.equal(toolbar.hidden, true);
+
+    editor.destroy();
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-toolbar'),
+        null
+    );
+    dom.window.close();
+});
+
+test('shows a compact deleted-block restore only in correction mode', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
@@ -1576,6 +1673,27 @@ test('restores an individually deleted correction block', async () => {
         onRestoreCorrection: async blockID => restores.push(blockID),
     });
     editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'deleted-paragraph',
+            type: 'paragraph',
+            from: 0,
+            to: 0,
+            markdown: '',
+        }],
+        correctedBlockIDs: ['deleted-paragraph'],
+    });
+
+    assert.equal(
+        document.querySelector('.cm-mktero-correction-marker'),
+        null
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-deleted-correction'),
+        null
+    );
+
+    editor.setCorrectionState({
         enabled: true,
         blocks: [{
             id: 'deleted-paragraph',
@@ -1587,10 +1705,16 @@ test('restores an individually deleted correction block', async () => {
         correctedBlockIDs: ['deleted-paragraph'],
     });
 
+    const placeholder = document.querySelector(
+        '.cm-mktero-deleted-correction'
+    );
     const restoreButton = document.querySelector(
         '.cm-mktero-correction-marker'
     );
+    assert.ok(placeholder);
+    assert.match(placeholder.textContent, /deleted content/i);
     assert.ok(restoreButton);
+    assert.equal(restoreButton.textContent, 'Undo deletion');
     restoreButton.click();
     await new Promise(resolve => setImmediate(resolve));
 
@@ -1983,6 +2107,26 @@ test('edits a captioned GFM table and restores its table block', async () => {
         onCommitCorrection: async correction => commits.push(correction),
         onRestoreCorrection: async blockID => restores.push(blockID),
     });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'captioned-table',
+            type: 'table',
+            from: tableFrom,
+            to: markdown.length,
+            markdown: markdown.slice(tableFrom),
+        }],
+        correctedBlockIDs: ['captioned-table'],
+    });
+    assert.equal(
+        document.querySelector('.cm-mktero-correction-marker'),
+        null
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-corrected-block'),
+        null
+    );
+
     editor.setCorrectionState({
         enabled: true,
         blocks: [{

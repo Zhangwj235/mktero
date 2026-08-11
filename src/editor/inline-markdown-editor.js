@@ -32,6 +32,7 @@ import { createAnnotationPopup } from './annotation-popup.js';
 import { createFigurePreviewPopup } from './figure-preview-popup.js';
 import { createTablePreviewPopup } from './table-preview-popup.js';
 
+const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const editorNavigationMeasureKey = {};
 const DOM_GLOBAL_NAMES = [
     'document',
@@ -185,6 +186,7 @@ export function createInlineMarkdownEditor({
     let correctionBusy = false;
     let tableCorrectionEditing = false;
     let view;
+    let correctionToolbar;
     const removeDOMActivation = installDOMActivation(
         parent,
         ownerWindow,
@@ -353,6 +355,7 @@ export function createInlineMarkdownEditor({
             originalMarkdown: view.state.sliceDoc(block.from, block.to),
         };
         annotationPopup.close();
+        correctionToolbar?.show(block.type);
         view.dispatch({
             selection: {
                 anchor: Math.max(
@@ -377,6 +380,7 @@ export function createInlineMarkdownEditor({
     const endActiveCorrection = ({ revert = false } = {}) => {
         if (!activeCorrection) {
             setEditingEnabled(false);
+            correctionToolbar?.hide();
             return;
         }
         const active = activeCorrection;
@@ -396,6 +400,7 @@ export function createInlineMarkdownEditor({
             ],
         });
         activeCorrection = null;
+        correctionToolbar?.hide();
     };
     const cancelActiveCorrection = () => {
         if (correctionBusy) return;
@@ -406,6 +411,7 @@ export function createInlineMarkdownEditor({
         const active = activeCorrection;
         const replacementMarkdown = view.state.sliceDoc(active.from, active.to);
         correctionBusy = true;
+        correctionToolbar?.setBusy(true);
         try {
             await onCommitCorrection({
                 blockID: active.blockID,
@@ -425,8 +431,27 @@ export function createInlineMarkdownEditor({
         }
         finally {
             correctionBusy = false;
+            correctionToolbar?.setBusy(false);
         }
     };
+    const deleteActiveCorrection = () => {
+        if (!activeCorrection || correctionBusy) return false;
+        view.dispatch({
+            changes: {
+                from: activeCorrection.from,
+                to: activeCorrection.to,
+                insert: '',
+            },
+        });
+        return commitActiveCorrection();
+    };
+    correctionToolbar = createBlockCorrectionToolbar({
+        parent,
+        translate: t,
+        onSave: () => { void commitActiveCorrection(); },
+        onCancel: cancelActiveCorrection,
+        onDelete: () => { void deleteActiveCorrection(); },
+    });
     const startCorrectionFromDoubleClick = event => {
         if (!correctionEnabled
             || event.button !== 0
@@ -546,6 +571,8 @@ export function createInlineMarkdownEditor({
         activateDOMGlobals(ownerWindow);
         activeCorrection = null;
         correctionBusy = false;
+        correctionToolbar?.setBusy(false);
+        correctionToolbar?.hide();
         tableCorrectionEditing = false;
         for (const feature of referenceFeatureList) {
             feature.popup.close();
@@ -656,6 +683,7 @@ export function createInlineMarkdownEditor({
                     startCorrectionFromDoubleClick,
                     true
                 );
+                correctionToolbar?.destroy();
                 annotationPopup.destroy();
                 imagePreview.destroy();
                 view.destroy();
@@ -666,6 +694,106 @@ export function createInlineMarkdownEditor({
             }
         },
     };
+}
+
+function createBlockCorrectionToolbar({
+    parent,
+    translate,
+    onSave,
+    onCancel,
+    onDelete,
+}) {
+    const document = parent.ownerDocument;
+    const toolbar = createHTMLNode(document, 'div');
+    toolbar.className = 'mktero-correction-editor-toolbar';
+    toolbar.setAttribute('role', 'toolbar');
+    toolbar.setAttribute(
+        'aria-label',
+        translate('revision.editorActions')
+    );
+    toolbar.hidden = true;
+
+    const deleteButton = createCorrectionToolbarButton(
+        document,
+        'mktero-correction-editor-delete'
+    );
+    const cancelButton = createCorrectionToolbarButton(
+        document,
+        'mktero-correction-editor-cancel',
+        translate('revision.cancel')
+    );
+    const saveButton = createCorrectionToolbarButton(
+        document,
+        'mktero-correction-editor-save',
+        translate('revision.saveChanges')
+    );
+    toolbar.append(deleteButton, cancelButton, saveButton);
+    parent.append(toolbar);
+
+    const listeners = [
+        [deleteButton, onDelete],
+        [cancelButton, onCancel],
+        [saveButton, onSave],
+    ].map(([button, action]) => {
+        const listener = event => {
+            event.preventDefault();
+            event.stopPropagation();
+            action?.();
+        };
+        button.addEventListener('click', listener);
+        return { button, listener };
+    });
+
+    return {
+        show(blockType) {
+            const key = blockType === 'heading'
+                ? 'revision.deleteHeading'
+                : 'revision.deleteParagraph';
+            const label = translate(key);
+            deleteButton.textContent = label;
+            deleteButton.setAttribute('aria-label', label);
+            deleteButton.setAttribute('title', label);
+            toolbar.hidden = false;
+        },
+        hide() {
+            toolbar.hidden = true;
+        },
+        setBusy(busy) {
+            const disabled = Boolean(busy);
+            toolbar.setAttribute('aria-busy', String(disabled));
+            for (const button of [deleteButton, cancelButton, saveButton]) {
+                button.disabled = disabled;
+            }
+        },
+        destroy() {
+            for (const { button, listener } of listeners) {
+                button.removeEventListener('click', listener);
+            }
+            toolbar.remove();
+        },
+    };
+}
+
+function createCorrectionToolbarButton(document, className, label = '') {
+    const button = createHTMLNode(document, 'button');
+    button.type = 'button';
+    button.className = [
+        'mktero-correction-editor-button',
+        className,
+    ].join(' ');
+    button.textContent = label;
+    if (label) {
+        button.setAttribute('aria-label', label);
+        button.setAttribute('title', label);
+    }
+    return button;
+}
+
+function createHTMLNode(document, tagName) {
+    if (typeof document.createElementNS === 'function') {
+        return document.createElementNS(XHTML_NAMESPACE, tagName);
+    }
+    return document.createElement(tagName);
 }
 
 function editorViewportOffset(editorView) {

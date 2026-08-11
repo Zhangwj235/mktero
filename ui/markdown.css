@@ -682,6 +682,66 @@ main {
     overflow: hidden;
 }
 
+.mktero-correction-editor-toolbar {
+    display: flex;
+    position: absolute;
+    z-index: 4;
+    inset-block-end: 16px;
+    inset-inline-end: 18px;
+    max-width: calc(100% - 36px);
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 7px;
+    padding: 7px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+    box-shadow: var(--shadow-float);
+    font-family: var(--ui-font);
+}
+
+.mktero-correction-editor-button {
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 5px 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    background: var(--surface-raised);
+    cursor: pointer;
+    font: 600 12px/1.2 var(--ui-font);
+    white-space: nowrap;
+}
+
+.mktero-correction-editor-button:hover:not(:disabled),
+.mktero-correction-editor-button:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface-raised));
+}
+
+.mktero-correction-editor-save {
+    border-color: var(--accent);
+    color: var(--accent-contrast);
+    background: var(--accent);
+}
+
+.mktero-correction-editor-save:hover:not(:disabled),
+.mktero-correction-editor-save:focus-visible {
+    background: var(--accent-strong);
+}
+
+.mktero-correction-editor-delete {
+    border-color: color-mix(in srgb, var(--error) 38%, var(--border));
+    color: var(--error);
+}
+
+.mktero-correction-editor-button:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
 .markdown-correction-banner {
     width: 100%;
     flex: 1 0 100%;
@@ -2598,6 +2658,36 @@ main {
     font-size: 11px;
     line-height: 1;
     cursor: pointer;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-deleted-correction {
+    display: flex;
+    width: 100%;
+    min-height: 36px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 8px 0;
+    padding: 5px 8px 5px 12px;
+    overflow: hidden;
+    border: 1px dashed color-mix(in srgb, var(--accent) 34%, var(--border));
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    background: color-mix(in srgb, var(--accent) 5%, var(--reader-background));
+    font: 12px/1.35 var(--ui-font);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-deleted-correction-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-deleted-correction .cm-mktero-correction-marker {
+    flex: 0 0 auto;
+    margin-inline-start: 0;
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-correction-marker:hover:not(:disabled),

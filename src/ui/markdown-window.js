@@ -2057,7 +2057,7 @@ class MarkdownTabView {
         const visible = !loadingView.visible
             && model.status === 'ready'
             && model.renderMode !== 'html'
-            && (model.correctionMode || model.hasCorrections);
+            && model.correctionMode;
         this.elements.correctionBanner.hidden = !visible;
         this.elements.editorSection.setAttribute(
             'aria-label',
@@ -2067,13 +2067,10 @@ class MarkdownTabView {
             this.elements.correctionBanner.textContent = '';
             return;
         }
-        const count = model.correctionCount || 0;
-        const key = model.correctionMode
-            ? 'revision.bannerActive'
-            : count === 1
-                ? 'revision.bannerOne'
-                : 'revision.bannerMany';
-        this.elements.correctionBanner.textContent = this.t(key, { count });
+        this.elements.correctionBanner.textContent = this.t(
+            'revision.bannerActive',
+            { count: model.correctionCount || 0 }
+        );
     }
 
     setDocumentActionsOpen(open) {
