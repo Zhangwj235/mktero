@@ -63,6 +63,9 @@ export class MarkdownTabPresenter {
         onCommitCorrection,
         onRestoreCorrection,
         onRestoreAllCorrections,
+        onSetTranslationMode,
+        onTranslateBlock,
+        onCancelTranslation,
         onChangeAnnotationColor,
         onUpdateAnnotationComment,
         onDeleteAnnotation,
@@ -114,6 +117,15 @@ export class MarkdownTabPresenter {
             if (onRestoreAllCorrections !== undefined) {
                 existing.model.onRestoreAllCorrections
                     = onRestoreAllCorrections;
+            }
+            if (onSetTranslationMode !== undefined) {
+                existing.model.onSetTranslationMode = onSetTranslationMode;
+            }
+            if (onTranslateBlock !== undefined) {
+                existing.model.onTranslateBlock = onTranslateBlock;
+            }
+            if (onCancelTranslation !== undefined) {
+                existing.model.onCancelTranslation = onCancelTranslation;
             }
             if (onChangeAnnotationColor) {
                 existing.model.onChangeAnnotationColor = onChangeAnnotationColor;
@@ -168,6 +180,9 @@ export class MarkdownTabPresenter {
                 onCommitCorrection,
                 onRestoreCorrection,
                 onRestoreAllCorrections,
+                onSetTranslationMode,
+                onTranslateBlock,
+                onCancelTranslation,
                 onChangeAnnotationColor,
                 onUpdateAnnotationComment,
                 onDeleteAnnotation,
@@ -463,6 +478,7 @@ function createInitialModel(
         correctionCount: 0,
         hasCorrections: false,
         correctionMode: false,
+        translationMode: false,
         preserveContent: false,
         resumingTask: false,
         warnings: [],

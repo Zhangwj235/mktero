@@ -219,6 +219,70 @@ test('toggles block correction mode and restores all saved corrections', async (
     view.destroy();
 });
 
+test('toggles AI translation mode and forwards block requests', async () => {
+    const modeChanges = [];
+    const translated = [];
+    const canceled = [];
+    const editorStates = [];
+    let editorOptions;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper\n\nTranslate this paragraph.',
+        sourceKind: 'markdown',
+        translationMode: false,
+        onSetTranslationMode: enabled => modeChanges.push(enabled),
+        onTranslateBlock: async request => {
+            translated.push(request);
+            return { text: '翻译这一段。', model: 'example-chat' };
+        },
+        onCancelTranslation: blockID => canceled.push(blockID),
+    });
+    const { view, shadow } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                setCorrectionState() {},
+                setTranslationState(state) {
+                    editorStates.push(state);
+                },
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    try {
+        const toggle = shadow.querySelector('#mktero-translation-toggle');
+        assert.equal(toggle.hidden, false);
+        assert.equal(toggle.textContent, 'Translate with AI');
+        assert.equal(
+            toggle.querySelector('svg')?.getAttribute('data-lucide'),
+            'languages'
+        );
+
+        toggle.click();
+        assert.deepEqual(modeChanges, [true]);
+
+        view.render({ ...model, translationMode: true });
+        assert.deepEqual(editorStates.at(-1), { enabled: true });
+        assert.equal(toggle.textContent, 'Finish AI translation');
+
+        const request = {
+            blockID: 'translation-0',
+            markdown: 'Translate this paragraph.',
+        };
+        assert.equal((await editorOptions.onTranslateBlock(request)).text, '翻译这一段。');
+        editorOptions.onCancelTranslation(request.blockID);
+        assert.deepEqual(translated, [request]);
+        assert.deepEqual(canceled, ['translation-0']);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('offers a short undo action after deleting a correction block', async () => {
     let editorOptions;
     const restored = [];

@@ -25,6 +25,7 @@ import {
     setInlineEditingRange,
     setReferenceHighlight,
     setTableHighlight,
+    setTranslationRenderingState,
 } from './inline-rendering.js';
 import { createImagePreview } from './image-preview.js';
 import { createCitationPopup } from './citation-popup.js';
@@ -110,6 +111,9 @@ export function createInlineMarkdownEditor({
     onCommitCorrection,
     onRestoreCorrection,
     onCorrectionError,
+    onTranslateBlock,
+    onCancelTranslation,
+    onTranslationError,
     localization = createLocalization(),
 }) {
     const t = localization.t.bind(localization);
@@ -192,6 +196,8 @@ export function createInlineMarkdownEditor({
     let activeTableCorrection = null;
     let view;
     let correctionToolbar;
+    let translationEnabled = false;
+    const translationStates = new Map();
     const removeDOMActivation = installDOMActivation(
         parent,
         ownerWindow,
@@ -290,6 +296,9 @@ export function createInlineMarkdownEditor({
                             state.error ? t('revision.saveFailed') : ''
                         );
                     },
+                    requestTranslation: block => requestBlockTranslation(block),
+                    cancelTranslation: block => cancelBlockTranslation(block),
+                    hideTranslation: block => hideBlockTranslation(block),
                     translate: t,
                 }),
                 editingMode.of([
@@ -314,6 +323,7 @@ export function createInlineMarkdownEditor({
                     keydown(event) {
                         if (!activeCorrection
                             && !tableCorrectionEditing
+                            && !translationEnabled
                             && !event.isComposing
                             && !isCorrectionInteractionTarget(event.target)
                             && ['Enter', 'F2'].includes(event.key)) {
@@ -409,9 +419,107 @@ export function createInlineMarkdownEditor({
             ]),
         });
     };
+    const dispatchTranslationState = () => {
+        view.dispatch({
+            effects: setTranslationRenderingState.of({
+                enabled: translationEnabled,
+                states: new Map(translationStates),
+            }),
+        });
+    };
+    const requestBlockTranslation = async block => {
+        if (!translationEnabled
+            || typeof onTranslateBlock !== 'function'
+            || !block?.id
+            || !block.markdown?.trim()) {
+            return false;
+        }
+        const previous = translationStates.get(block.id);
+        if (previous?.status === 'loading') return false;
+        const token = {};
+        translationStates.set(block.id, {
+            status: 'loading',
+            source: block.source,
+            token,
+        });
+        dispatchTranslationState();
+        try {
+            const result = await onTranslateBlock({
+                blockID: block.id,
+                markdown: block.markdown,
+            });
+            const active = translationStates.get(block.id);
+            if (active?.token !== token) return false;
+            const text = String(result?.text || '').trim();
+            if (!text) {
+                const error = new Error('The AI translation is empty');
+                error.code = 'AI_INVALID_RESPONSE';
+                throw error;
+            }
+            translationStates.set(block.id, {
+                status: 'ready',
+                source: block.source,
+                text,
+                model: String(result?.model || ''),
+            });
+            dispatchTranslationState();
+            return true;
+        }
+        catch (error) {
+            const active = translationStates.get(block.id);
+            if (active?.token !== token) return false;
+            if (isTranslationAbort(error)) {
+                translationStates.delete(block.id);
+            }
+            else {
+                translationStates.set(block.id, {
+                    status: 'error',
+                    source: block.source,
+                    errorKey: translationErrorKey(error),
+                });
+                onTranslationError?.(error);
+            }
+            dispatchTranslationState();
+            return false;
+        }
+    };
+    const cancelBlockTranslation = block => {
+        const active = translationStates.get(block?.id);
+        if (active?.status !== 'loading') return false;
+        translationStates.delete(block.id);
+        try {
+            onCancelTranslation?.(block.id);
+        }
+        catch (error) {
+            onTranslationError?.(error);
+        }
+        dispatchTranslationState();
+        return true;
+    };
+    const hideBlockTranslation = block => {
+        if (!translationStates.delete(block?.id)) return false;
+        dispatchTranslationState();
+        return true;
+    };
+    const clearTranslations = ({ cancel = true } = {}) => {
+        if (cancel) {
+            for (const [blockID, state] of translationStates) {
+                if (state.status === 'loading') {
+                    try {
+                        onCancelTranslation?.(blockID);
+                    }
+                    catch (error) {
+                        onTranslationError?.(error);
+                    }
+                }
+            }
+        }
+        translationStates.clear();
+    };
     const beginActiveCorrection = (block, position) => {
         if (correctionBusy
             || tableCorrectionEditing
+            || translationEnabled
             || !isEditableTextCorrectionBlock(block)
             || typeof onCommitCorrection !== 'function') {
             return false;
@@ -473,9 +581,10 @@ export function createInlineMarkdownEditor({
         activeCorrection = null;
         correctionToolbar?.hide();
     };
-    const cancelActiveCorrection = () => {
-        if (correctionBusy) return;
+    const cancelActiveCorrection = ({ force = false } = {}) => {
+        if (correctionBusy && !force) return false;
         endActiveCorrection({ revert: true });
+        return true;
     };
     const commitActiveCorrection = async () => {
         if (!activeCorrection || correctionBusy || !activeCorrection.dirty) {
@@ -528,6 +637,7 @@ export function createInlineMarkdownEditor({
     const startCorrectionFromDoubleClick = event => {
         if (event.button !== 0
             || tableCorrectionEditing
+            || translationEnabled
             || event.target?.closest?.('.cm-mktero-table')
             || isCorrectionInteractionTarget(event.target)) {
             return;
@@ -643,6 +753,9 @@ export function createInlineMarkdownEditor({
     let currentSourceMap = [];
     const setDocument = ({ markdown, annotationOverlay, sourceMap }) => {
         activateDOMGlobals(ownerWindow);
+        const value = String(markdown || '');
+        const documentChanged = value !== view.state.doc.toString();
+        if (documentChanged) clearTranslations();
         activeTableCorrection?.cancel?.({
             focus: false,
             force: true,
@@ -658,7 +771,6 @@ export function createInlineMarkdownEditor({
             feature.highlight.cancel();
         }
         annotationPopup.close();
-        const value = String(markdown || '');
         currentSourceMap = Array.isArray(sourceMap) ? sourceMap : [];
         const effects = [
             ...referenceFeatureList.map(feature => feature.effect.of(null)),
@@ -666,6 +778,10 @@ export function createInlineMarkdownEditor({
                 annotationOverlay || createEmptyAnnotationOverlay()
             ),
             setInlineEditingRange.of(null),
+            setTranslationRenderingState.of({
+                enabled: translationEnabled,
+                states: new Map(translationStates),
+            }),
             editingMode.reconfigure([
                 EditorView.editable.of(false),
                 EditorState.readOnly.of(true),
@@ -720,6 +836,21 @@ export function createInlineMarkdownEditor({
             });
             repairStalledViewport(view);
         },
+        setTranslationState({ enabled = false } = {}) {
+            activateDOMGlobals(ownerWindow);
+            const nextEnabled = Boolean(enabled)
+                && typeof onTranslateBlock === 'function';
+            if (nextEnabled) {
+                cancelActiveCorrection({ force: true });
+                activeTableCorrection?.cancel?.({
+                    focus: false,
+                    force: true,
+                });
+            }
+            if (!nextEnabled && translationEnabled) clearTranslations();
+            translationEnabled = nextEnabled;
+            dispatchTranslationState();
+        },
         focus() {
             activateDOMGlobals(ownerWindow);
             view.focus();
@@ -742,6 +873,7 @@ export function createInlineMarkdownEditor({
             destroyed = true;
             activateDOMGlobals(ownerWindow);
             try {
+                clearTranslations();
                 for (const feature of referenceFeatureList) {
                     feature.highlight.cancel();
                     feature.popup.destroy();
@@ -1181,4 +1313,26 @@ function releaseDOMGlobals(ownerWindow) {
     }
     previousDOMGlobals = null;
     activeDOMWindow = null;
+}
+
+function translationErrorKey(error) {
+    switch (error?.code) {
+        case 'AI_CONFIGURATION_ERROR':
+        case 'AI_PROVIDER_UNSUPPORTED':
+            return 'ai.configurationRequired';
+        case 'AI_AUTH_ERROR':
+            return 'ai.authenticationFailed';
+        case 'AI_RATE_LIMITED':
+            return 'ai.rateLimited';
+        case 'AI_REQUEST_TIMEOUT':
+            return 'ai.requestTimedOut';
+        default:
+            return 'ai.translationFailed';
+    }
+}
+
+function isTranslationAbort(error) {
+    return error?.name === 'AbortError'
+        || error?.code === 'ABORT_ERR'
+        || error?.code === 'AI_REQUEST_ABORTED';
 }

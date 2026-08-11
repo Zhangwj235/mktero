@@ -2762,6 +2762,89 @@ main {
     background: color-mix(in srgb, var(--accent) 15%, var(--reader-background));
 }
 
+.markdown-editor-host > .cm-editor .cm-mktero-translation {
+    box-sizing: border-box;
+    width: 100%;
+    margin: 6px 0 20px;
+    color: var(--text);
+    font: 12px/1.5 var(--ui-font);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation--loading,
+.markdown-editor-host > .cm-editor .cm-mktero-translation--error,
+.markdown-editor-host > .cm-editor .cm-mktero-translation--ready {
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--accent) 5%, var(--reader-background));
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-header {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 7px;
+    color: var(--muted);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-actions {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation button {
+    min-height: 26px;
+    padding: 3px 9px;
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+    border-radius: 999px;
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent) 7%, var(--reader-background));
+    cursor: pointer;
+    font: 12px/1.25 var(--ui-font);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation button:hover,
+.markdown-editor-host > .cm-editor .cm-mktero-translation button:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+    background: color-mix(in srgb, var(--accent) 14%, var(--reader-background));
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-trigger {
+    display: block;
+    margin-inline-start: auto;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-status,
+.markdown-editor-host > .cm-editor .cm-mktero-translation-error {
+    display: block;
+    color: var(--muted);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-error {
+    color: var(--error);
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-content {
+    color: var(--text);
+    font-family: var(--reader-font);
+    font-size: var(--reader-font-size);
+    line-height: var(--reader-line-height);
+    overflow-wrap: anywhere;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-content > :first-child {
+    margin-top: 0;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-content > :last-child {
+    margin-bottom: 0;
+}
+
 .markdown-editor-host > .cm-editor .cm-mktero-math {
     display: inline-block;
     max-width: 100%;

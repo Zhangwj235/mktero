@@ -20,7 +20,7 @@ test('formats cache statistics for the preferences pane', () => {
     );
 });
 
-test('combines Markdown and PDF index cache usage and clears both', async () => {
+test('combines every local cache usage and clears every store', async () => {
     const cleared = [];
     const cache = createCombinedLocalCache([{
         getStats: async () => ({ entries: 2, sizeBytes: 1536 }),
@@ -28,14 +28,21 @@ test('combines Markdown and PDF index cache usage and clears both', async () => 
     }, {
         getStats: async () => ({ entries: 3, sizeBytes: 2560 }),
         clear: async () => { cleared.push('pdf-index'); },
+    }, {
+        getStats: async () => ({ entries: 4, sizeBytes: 4096 }),
+        clear: async () => { cleared.push('translations'); },
     }]);
 
     assert.deepEqual(await cache.getStats(), {
-        entries: 5,
-        sizeBytes: 4096,
+        entries: 9,
+        sizeBytes: 8192,
     });
     await cache.clear();
-    assert.deepEqual(cleared.sort(), ['markdown', 'pdf-index']);
+    assert.deepEqual(cleared.sort(), [
+        'markdown',
+        'pdf-index',
+        'translations',
+    ]);
 });
 
 test('loads cache usage and clears it from the preferences pane', async () => {
@@ -188,6 +195,66 @@ test('configures the Markdown reader font size from preferences', async () => {
     font.value = 'georgia';
     font.dispatchEvent(new dom.window.Event('change'));
     assert.equal(writes.length, 2);
+});
+
+test('tests the current OpenAI-compatible settings without exposing the key', async () => {
+    const dom = new JSDOM(`<!doctype html><body>
+        <section id="mktero-preferences-pane">
+            <input id="mktero-ai-enabled" type="checkbox" checked>
+            <select id="mktero-ai-provider">
+                <option value="openai-compatible">OpenAI-compatible</option>
+            </select>
+            <input id="mktero-ai-api-base" value="https://api.example.com/v1">
+            <input id="mktero-ai-api-key" value="private-token">
+            <input id="mktero-ai-model" value="example-chat">
+            <select id="mktero-ai-target-language">
+                <option value="zh-CN">Simplified Chinese</option>
+            </select>
+            <input id="mktero-ai-request-timeout" value="45000">
+            <input id="mktero-ai-max-output-tokens" value="3072">
+            <input id="mktero-ai-cache-enabled" type="checkbox">
+            <button id="mktero-ai-test"></button>
+            <span id="mktero-ai-test-status"></span>
+            <span id="mktero-cache-status"></span>
+            <button id="mktero-clear-cache"></button>
+        </section>
+    </body>`);
+    let testedSettings;
+    const controller = createPreferencesController({
+        document: dom.window.document,
+        zotero: {
+            Prefs: { get: () => null },
+            logError: () => {},
+        },
+        cache: {
+            getStats: async () => ({ entries: 0, sizeBytes: 0 }),
+            clear: async () => {},
+        },
+        testAIConnection: async settings => {
+            testedSettings = settings;
+            return { text: 'OK' };
+        },
+    });
+
+    await controller.init();
+    dom.window.document.getElementById('mktero-ai-test').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(testedSettings.apiBase, 'https://api.example.com/v1');
+    assert.equal(testedSettings.apiKey, 'private-token');
+    assert.equal(testedSettings.model, 'example-chat');
+    assert.equal(testedSettings.requestTimeoutMs, '45000');
+    assert.equal(testedSettings.maxOutputTokens, '3072');
+    assert.equal(testedSettings.cacheEnabled, false);
+    assert.equal(
+        dom.window.document.getElementById('mktero-ai-test-status').textContent,
+        'Connection successful'
+    );
+    assert.doesNotMatch(
+        dom.window.document.getElementById('mktero-ai-test-status').textContent,
+        /private-token/
+    );
+    controller.destroy();
 });
 
 test('localizes preferences from Zotero without storing a language choice', async () => {

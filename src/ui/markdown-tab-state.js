@@ -21,6 +21,7 @@ const READY_RESULT_FIELDS = [
     'correctionCount',
     'hasCorrections',
     'correctionMode',
+    'translationMode',
 ];
 
 export function snapshotReadyResult(model) {
@@ -46,6 +47,7 @@ export function createConversionLoadingChanges(
             warningAction: null,
             preserveContent: true,
             resumingTask: false,
+            translationMode: false,
         };
     }
     return {
@@ -64,6 +66,7 @@ export function createConversionLoadingChanges(
         correctionCount: 0,
         hasCorrections: false,
         correctionMode: false,
+        translationMode: false,
         error: '',
         errorAction: null,
         warningAction: null,
@@ -92,6 +95,7 @@ export function createConversionReadyChanges(result) {
         correctionCount: 0,
         hasCorrections: false,
         correctionMode: false,
+        translationMode: false,
         ...result,
         status: 'ready',
         progress: 100,
@@ -122,6 +126,7 @@ export function createConversionFailureChanges(
             warningAction: errorAction,
             preserveContent: false,
             resumingTask: false,
+            translationMode: false,
         };
     }
     return {

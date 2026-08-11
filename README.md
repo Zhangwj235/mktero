@@ -13,7 +13,8 @@ Mktero is a source-linked reflow reader for Zotero 7, 8, and 9. It converts a
 local PDF with MinerU, then opens the resulting Markdown, formulas, tables,
 figures, citations, and annotations in a reading-first Zotero tab. An optional
 correction mode lets you fix recognition errors without changing the immutable
-MinerU result.
+MinerU result, while optional AI translation adds an on-demand translation
+layer below selected Markdown blocks without rewriting the source.
 
 ![Mktero converting, reading, and annotating an academic PDF in Zotero](./docs/assets/mktero-demo.gif)
 
@@ -24,7 +25,8 @@ and return to the original PDF whenever you need to verify the evidence.
 > Mktero is currently in beta. On a cache miss, it uploads the complete PDF to
 > MinerU for conversion. A MinerU API Token is required. See
 > [Privacy and data handling](#privacy-and-data-handling) before using Mktero
-> with sensitive documents.
+> with sensitive documents. AI translation separately sends only the blocks
+> you explicitly translate to the provider you configure.
 
 ## Quick start
 
@@ -60,9 +62,13 @@ Open `Settings -> Mktero` after installation.
 | Body text font | System serif | Choose System serif, Georgia, Cambria, or Times New Roman |
 | Body text size | 18 px | Adjust Markdown and snapshot text from 16 to 22 px while keeping a wide, stable reading column |
 | Reuse conversion results | On | Reuse results for the same PDF content and parser profile |
+| Enable AI translation | Off | Allow on-demand block translation through an OpenAI-compatible Chat Completions endpoint |
+| AI API base URL / API Key / model | OpenAI URL / empty / empty | Connect a hosted provider, or a loopback HTTP server for a local model |
+| Translation language | Simplified Chinese | Choose the target language for new translations |
 
-The API Token is stored unencrypted as a normal preference in the active
-Zotero profile.
+The MinerU API Token and AI API Key are stored unencrypted as normal
+preferences in the active Zotero profile. Use `Test connection` to validate
+the current AI endpoint, key, and model before translating.
 
 ### Open and read a PDF
 
@@ -74,8 +80,8 @@ Zotero profile.
 3. Use the outline, citation and figure previews, source links, and Zotero notes
    panel to navigate the document.
 4. Use the fixed toolbar above the Markdown body to change font and text size.
-   The More menu contains `Manage corrections`, `Reparse PDF`, and
-   `Save snapshot`.
+   The More menu contains `Manage corrections`, `Translate with AI`,
+   `Reparse PDF`, and `Save snapshot`.
 
 Reparsing uploads the PDF again and may consume MinerU quota. The current
 Markdown remains readable until a replacement is ready. Mktero tabs are
@@ -111,6 +117,28 @@ If Actions & Tags for Zotero is installed, Mktero integrates with compatible
 `openFile` and `closeTab` rules for sessions it owns without duplicating native
 reader actions.
 
+### Translate Markdown blocks with AI
+
+Configure and enable AI translation in `Settings -> Mktero`, then choose
+`Translate with AI` from a Markdown tab's More menu. Mktero adds a compact
+Translate action below supported paragraphs and headings. Each request is
+explicit: entering translation mode alone does not send document content.
+Translations appear below the source block, can be retried, hidden, or canceled,
+and never change the Markdown or become part of a saved snapshot.
+
+The first version uses the non-streaming OpenAI-compatible Chat Completions
+contract at `<API base URL>/chat/completions`. A provider or local model is
+compatible only if it accepts that request shape and returns
+`choices[0].message.content`; model availability and names remain provider
+specific. Remote endpoints must use HTTPS. Loopback servers such as Ollama or
+LM Studio may use HTTP and may omit the API Key when authentication is disabled.
+
+Translations are cached locally by document, block content, provider, model,
+target language, and prompt version. Formula-bearing blocks, image blocks,
+tables, code, and raw HTML are excluded from this MVP. Closing the tab, leaving
+translation mode, reparsing, or shutting down Mktero cancels active translation
+requests.
+
 ### Save a portable Zotero snapshot
 
 Choose `Save snapshot` to create a dedicated `Mktero Markdown Snapshot` Note
@@ -130,6 +158,8 @@ library item cannot save a snapshot.
 - Corrects recognition errors in existing paragraphs, headings, and GFM table
   cells, including removing spurious paragraphs or headings, while preserving
   the original MinerU Markdown and correction history.
+- Translates individual paragraphs and headings on demand through a configured
+  OpenAI-compatible provider while keeping the source Markdown read-only.
 - Uses paper-oriented typography with STIX/Noto serif fallbacks, and applies
   asynchronous Shiki syntax highlighting, language labels, and code copying to
   supported fenced code blocks.
@@ -191,17 +221,21 @@ navigation, not as guessed annotation rectangles.
 | --- | --- | --- |
 | Complete PDF on a cache miss | Uploaded to MinerU | Not by Mktero |
 | API Token | Active Zotero profile, unencrypted | No |
+| AI API Key | Active Zotero profile, unencrypted | No |
+| Markdown block selected for translation | Configured AI provider | Not by Mktero |
 | Cached Markdown, figures, source maps, and PDF text indexes | Active Zotero profile, unencrypted | No |
+| Cached AI translations | Active Zotero profile, unencrypted | No |
 | Pending MinerU task IDs and timestamps | Active Zotero profile, unencrypted | No |
 | Pending Markdown annotation records | Active Zotero profile, unencrypted until synchronized | No |
 | Corrected Markdown blocks and their base figures/source maps | Active Zotero profile, unencrypted | No |
 | Synchronized PDF annotations | Local Zotero library | According to Zotero settings |
 | Saved snapshot Note, HTML, Markdown, source map, and figures | Zotero items and attachments, unencrypted | According to Zotero settings |
 
-The local cache does not contain API Tokens or PDF annotation comments. PDF
-annotations and local PDF.js indexes are not sent to MinerU. Source-aware copy
-reads local item metadata and writes only the generated result to the system
-clipboard.
+The local cache does not contain API Tokens, AI API Keys, or PDF annotation
+comments. PDF annotations and local PDF.js indexes are not sent to MinerU or
+the AI provider. Translation sends only the requested Markdown block and the
+translation instructions to the configured AI provider. Source-aware copy reads
+local item metadata and writes only the generated result to the system clipboard.
 
 Correction data is kept outside the normal conversion cache under the active
 Zotero profile. Clearing the cache does not clear corrections. Corrections are
@@ -223,6 +257,10 @@ controlled by Zotero.
   paragraph or heading. It cannot otherwise change document structure, formulas,
   images, or raw HTML. Annotation actions remain separate from Markdown
   corrections.
+- AI translation is an optional transient reading layer. It does not translate
+  a whole document automatically, modify Markdown, sync through Zotero, or save
+  translations into snapshots. The first version supports compatible Chat
+  Completions text responses, not every vendor-specific or Responses API.
 - Only local PDF attachments are supported. Missing or undownloaded files
   cannot be converted.
 - Text annotations require extractable PDF text. A scanned PDF may convert via

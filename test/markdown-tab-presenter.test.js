@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
 import { createLocalization } from '../src/i18n/localization.js';
+import {
+    TranslationRequestTracker,
+} from '../src/ai/translation-request-tracker.js';
 import { MarkdownTabPresenter } from '../src/ui/markdown-tab-presenter.js';
 
 function createMainWindow(document = {}) {
@@ -417,6 +420,36 @@ test('exposes and refreshes the reparse action on the tab model', async () => {
     assert.equal(second.model.cacheKey, null);
 });
 
+test('exposes and refreshes AI translation actions on the tab model', async () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const calls = [];
+    const presenter = createPresenter(mainWindow, harness);
+    const first = presenter.open(42, {
+        onSetTranslationMode: enabled => calls.push(['mode-first', enabled]),
+        onTranslateBlock: request => calls.push(['translate-first', request]),
+        onCancelTranslation: blockID => calls.push(['cancel-first', blockID]),
+    });
+    const second = presenter.open(42, {
+        onSetTranslationMode: enabled => calls.push(['mode-second', enabled]),
+        onTranslateBlock: request => calls.push(['translate-second', request]),
+        onCancelTranslation: blockID => calls.push(['cancel-second', blockID]),
+    });
+    const request = { blockID: 'paragraph-1', markdown: 'Text.' };
+
+    second.model.onSetTranslationMode(true);
+    second.model.onTranslateBlock(request);
+    second.model.onCancelTranslation(request.blockID);
+
+    assert.equal(first.model, second.model);
+    assert.equal(second.model.translationMode, false);
+    assert.deepEqual(calls, [
+        ['mode-second', true],
+        ['translate-second', request],
+        ['cancel-second', 'paragraph-1'],
+    ]);
+});
+
 test('closes another Mktero tab for the same source PDF', () => {
     const mainWindow = createMainWindow();
     const harness = createViewHarness();
@@ -622,6 +655,45 @@ test('classifies replacement and shutdown closes separately', () => {
         ['pdf', 'replacement'],
         ['note', 'shutdown'],
     ]);
+});
+
+test('cancels only the owned translation requests on close and all on dispose', async () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness);
+    const tracker = new TranslationRequestTracker({
+        createAbortController: () => new AbortController(),
+    });
+    const operations = [];
+    const start = documentID => {
+        let finish;
+        const operation = {};
+        operation.promise = tracker.run(documentID, 'paragraph-1', signal => {
+            operation.signal = signal;
+            return new Promise(resolve => { finish = resolve; });
+        });
+        operation.finish = finish;
+        operations.push(operation);
+    };
+    presenter.open(42, {
+        onClose: () => tracker.cancelDocument(42),
+    });
+    presenter.open(84, {
+        onClose: () => tracker.cancelDocument(84),
+    });
+    start(42);
+    start(84);
+
+    mainWindow.added[0].options.onClose();
+
+    assert.equal(operations[0].signal.aborted, true);
+    assert.equal(operations[1].signal.aborted, false);
+
+    presenter.dispose();
+
+    assert.equal(operations[1].signal.aborted, true);
+    for (const operation of operations) operation.finish();
+    await Promise.all(operations.map(operation => operation.promise));
 });
 
 test('ignores conversion updates after the Markdown tab is closed', () => {

@@ -7,6 +7,7 @@ import {
     Copy,
     ExternalLink,
     FileText,
+    Languages,
     LoaderCircle,
     MessageSquarePlus,
     MessageSquareText,
@@ -69,6 +70,10 @@ export const LUCIDE_ICONS = Object.freeze({
     loaderCircle: Object.freeze({
         name: 'loader-circle',
         nodes: LoaderCircle,
+    }),
+    languages: Object.freeze({
+        name: 'languages',
+        nodes: Languages,
     }),
     messageSquareText: Object.freeze({
         name: 'message-square-text',

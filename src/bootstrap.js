@@ -15,6 +15,17 @@ import {
 import {
     createZoteroMarkdownAnnotationStore,
 } from './cache/markdown-annotation-store.js';
+import { createZoteroTranslationCache } from './cache/translation-cache.js';
+import { getAISettings } from './config/ai-preferences.js';
+import {
+    OpenAICompatibleChatClient,
+} from './ai/openai-compatible-chat-client.js';
+import {
+    MarkdownTranslationService,
+} from './ai/markdown-translation-service.js';
+import {
+    TranslationRequestTracker,
+} from './ai/translation-request-tracker.js';
 import { MarkdownDocumentService } from './core/markdown-document-service.js';
 import {
     createMarkdownRevisionSessionRegistry,
@@ -114,6 +125,8 @@ const runtime = {
     service: null,
     presenter: null,
     cache: null,
+    translationCache: null,
+    translationService: null,
     revisionStore: null,
     revisionSessions: null,
     pdfTextIndexCache: null,
@@ -133,6 +146,7 @@ const runtime = {
     localAnnotations: null,
     disposeToolbar: null,
     contextMenus: new Map(),
+    translationRequests: null,
     pdfIndexOperations: new PDFIndexOperationTracker(),
 };
 
@@ -175,6 +189,23 @@ globalThis.startup = async function startup({ id, rootURI }) {
         pathUtils: PathUtils,
     });
     runtime.cache = cache;
+    const translationCache = createZoteroTranslationCache({
+        zotero: Zotero,
+        ioUtils: IOUtils,
+        pathUtils: PathUtils,
+    });
+    runtime.translationCache = translationCache;
+    runtime.translationService = new MarkdownTranslationService({
+        chatClient: new OpenAICompatibleChatClient({
+            createAbortController: createZoteroAbortController,
+        }),
+        cache: translationCache,
+        getSettings: () => getAISettings(Zotero),
+        onCacheError: error => Zotero.logError?.(error),
+    });
+    runtime.translationRequests = new TranslationRequestTracker({
+        createAbortController: createZoteroAbortController,
+    });
     runtime.revisionStore = createZoteroMarkdownRevisionStore({
         zotero: Zotero,
         ioUtils: IOUtils,
@@ -305,6 +336,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
         }
     );
     cache.prune().catch(error => Zotero.logError(error));
+    translationCache.prune().catch(error => Zotero.logError(error));
     pdfTextIndexCache.prune().catch(error => Zotero.logError(error));
     pendingTasks.prune().catch(error => Zotero.logError(error));
     presenter.ensureSessionStateFilter();
@@ -327,6 +359,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
 
 globalThis.shutdown = function shutdown() {
     abortAllConversions();
+    abortAllTranslations();
     destroyAllRevisionSessions();
     runtime.disposeAnnotationObserver?.();
     runtime.localAnnotations?.dispose();
@@ -343,6 +376,9 @@ globalThis.shutdown = function shutdown() {
     runtime.presenter = null;
     runtime.service = null;
     runtime.cache = null;
+    runtime.translationCache = null;
+    runtime.translationService = null;
+    runtime.translationRequests = null;
     runtime.revisionStore = null;
     runtime.revisionSessions = null;
     runtime.pdfTextIndexCache = null;
@@ -386,6 +422,7 @@ async function openItemAsMarkdown(itemID, {
         sourceItemID: itemID,
         onClose: ({ reason = MARKDOWN_TAB_CLOSE_REASONS.USER } = {}) => {
             abortConversion(itemID);
+            abortDocumentTranslations(itemID);
             void closeRevisionSession(itemID);
             void runtime.actionsTags?.closeMarkdownSession({
                 sessionID: itemID,
@@ -400,6 +437,13 @@ async function openItemAsMarkdown(itemID, {
         onCommitCorrection: correction => commitCorrection(itemID, correction),
         onRestoreCorrection: blockID => restoreCorrection(itemID, blockID),
         onRestoreAllCorrections: () => restoreAllCorrections(itemID),
+        onSetTranslationMode: enabled => (
+            setTranslationMode(itemID, enabled)
+        ),
+        onTranslateBlock: request => translateBlock(itemID, request),
+        onCancelTranslation: blockID => (
+            cancelTranslation(itemID, blockID)
+        ),
         onChangeAnnotationColor: (annotationID, color) => (
             runAnnotationAction('changeColor', itemID, annotationID, color)
         ),
@@ -597,7 +641,7 @@ function createSavedMarkdownActions(noteID, sourceItem) {
         return callback(sourceItemID, ...args);
     };
     return {
-        onClose: () => {},
+        onClose: () => abortDocumentTranslations(noteID),
         onReparse: sourceItem
             ? () => requestItemReparse(sourceItem.id, 'saved-note')
             : null,
@@ -614,6 +658,13 @@ function createSavedMarkdownActions(noteID, sourceItem) {
             copySourcedMarkdown(itemID, target)
         )),
         onCopyCode: code => copyCode(code),
+        onSetTranslationMode: enabled => (
+            setTranslationMode(noteID, enabled)
+        ),
+        onTranslateBlock: request => translateBlock(noteID, request),
+        onCancelTranslation: blockID => (
+            cancelTranslation(noteID, blockID)
+        ),
         onChangeAnnotationColor: withSource((itemID, annotationID, color) => (
             runAnnotationAction('changeColor', itemID, annotationID, color)
         )),
@@ -726,10 +777,82 @@ function destroyAllRevisionSessions() {
 function setCorrectionMode(itemID, enabled) {
     const presentation = runtime.presenter?.get(itemID);
     if (!presentation || presentation.model.status !== 'ready') return false;
+    if (enabled) abortDocumentTranslations(itemID);
     runtime.presenter.update(presentation, {
         correctionMode: Boolean(enabled),
+        ...(enabled ? { translationMode: false } : {}),
     });
     return true;
+}
+
+function setTranslationMode(documentID, enabled) {
+    const presentation = runtime.presenter?.get(documentID);
+    if (!presentation
+        || presentation.model.status !== 'ready'
+        || presentation.model.renderMode === 'html') {
+        return false;
+    }
+    const nextEnabled = Boolean(enabled);
+    if (!nextEnabled) abortDocumentTranslations(documentID);
+    runtime.presenter.update(presentation, {
+        translationMode: nextEnabled,
+        ...(nextEnabled ? { correctionMode: false } : {}),
+    });
+    return true;
+}
+
+async function translateBlock(documentID, { blockID, markdown } = {}) {
+    const presentation = runtime.presenter?.get(documentID);
+    const service = runtime.translationService;
+    if (!presentation
+        || presentation.model.status !== 'ready'
+        || !presentation.model.translationMode
+        || typeof service?.translate !== 'function') {
+        const error = new Error('AI translation is unavailable');
+        error.code = 'AI_CONFIGURATION_ERROR';
+        throw error;
+    }
+    const normalizedBlockID = String(blockID || '');
+    if (!normalizedBlockID) {
+        const error = new Error('A translation block ID is required');
+        error.code = 'AI_INVALID_REQUEST';
+        throw error;
+    }
+    const requests = runtime.translationRequests;
+    if (!requests) {
+        const error = new Error('AI translation is unavailable');
+        error.code = 'AI_CONFIGURATION_ERROR';
+        throw error;
+    }
+    return requests.run(
+        documentID,
+        normalizedBlockID,
+        signal => service.translate({
+            documentKey: String(
+                presentation.model.cacheKey
+                || presentation.model.documentID
+                || documentID
+            ),
+            blockID: normalizedBlockID,
+            markdown,
+            signal,
+        })
+    );
+}
+
+function cancelTranslation(documentID, blockID) {
+    return runtime.translationRequests?.cancelBlock(
+        documentID,
+        String(blockID || '')
+    ) || false;
+}
+
+function abortDocumentTranslations(documentID) {
+    runtime.translationRequests?.cancelDocument(documentID);
+}
+
+function abortAllTranslations() {
+    runtime.translationRequests?.abortAll();
 }
 
 function commitCorrection(itemID, correction) {
@@ -819,6 +942,7 @@ async function requestItemReparse(itemID, entryPoint) {
         }
     }
     setCorrectionMode(itemID, false);
+    setTranslationMode(itemID, false);
     await closeRevisionSession(itemID);
     await openItemAsMarkdown(itemID, {
         forceRefresh: true,

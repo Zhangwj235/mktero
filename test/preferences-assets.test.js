@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('ships MinerU token, cache preferences, and localized Markdown UI assets', async () => {
+test('ships conversion, AI, cache preferences, and localized Markdown UI assets', async () => {
     const [
         prefs,
         pane,
@@ -24,6 +24,12 @@ test('ships MinerU token, cache preferences, and localized Markdown UI assets', 
     assert.match(prefs, /pref\("extensions\.mktero\.mineruApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.cacheEnabled", true\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.readerFontSize", 18\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiEnabled", false\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiProvider", "openai-compatible"\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiApiKey", ""\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiRequestTimeoutMs", 30000\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 2048\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiCacheEnabled", true\)/);
     assert.match(
         prefs,
         /pref\("extensions\.mktero\.readerFont", "system-serif"\)/
@@ -35,6 +41,14 @@ test('ships MinerU token, cache preferences, and localized Markdown UI assets', 
     assert.match(pane, /preference="extensions\.mktero\.cacheEnabled"/);
     assert.match(pane, /preference="extensions\.mktero\.readerFontSize"/);
     assert.match(pane, /preference="extensions\.mktero\.readerFont"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiEnabled"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiApiBase"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiApiKey"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiModel"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiRequestTimeoutMs"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiMaxOutputTokens"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiCacheEnabled"/);
+    assert.match(pane, /id="mktero-ai-test"/);
     assert.match(pane, /id="mktero-reader-font-family"/);
     assert.match(pane, /id="mktero-reader-font-size-value"/);
     assert.match(pane, /id="mktero-clear-cache"/);
@@ -44,6 +58,8 @@ test('ships MinerU token, cache preferences, and localized Markdown UI assets', 
     assert.doesNotMatch(visiblePreferenceText, /mineru/i);
     assert.match(script, /createZoteroMarkdownCache/);
     assert.match(script, /createZoteroPDFTextIndexCache/);
+    assert.match(script, /createZoteroTranslationCache/);
+    assert.match(script, /OpenAICompatibleChatClient/);
     assert.match(script, /createCombinedLocalCache/);
     assert.doesNotMatch(script, /setMkteroLanguagePreference/);
     assert.match(bootstrap, /new MinerUClient/);
@@ -68,9 +84,9 @@ test('ships responsive settings cards and a cache switch', async () => {
     ]);
 
     assert.match(pane, /class="mktero-settings-card"/);
-    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 1);
-    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 1);
-    assert.equal((pane.match(/role="switch"/g) || []).length, 1);
+    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 3);
+    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 3);
+    assert.equal((pane.match(/role="switch"/g) || []).length, 3);
     assert.match(styles, /\.mktero-settings-card\s*\{[\s\S]*border-radius:/);
     assert.match(styles, /\.mktero-switch-input:checked\s*\+\s*\.mktero-switch/);
     assert.match(styles, /\.mktero-switch::before/);
@@ -83,8 +99,8 @@ test('presents every preference group as one cohesive settings card', async () =
         readFile(new URL('../ui/preferences.css', import.meta.url), 'utf8'),
     ]);
 
-    assert.equal((pane.match(/class="mktero-settings-card"/g) || []).length, 3);
-    assert.equal((pane.match(/class="mktero-preferences-section"/g) || []).length, 3);
+    assert.equal((pane.match(/class="mktero-settings-card"/g) || []).length, 4);
+    assert.equal((pane.match(/class="mktero-preferences-section"/g) || []).length, 4);
     assert.match(
         pane,
         /id="mktero-mineru-api-key"[\s\S]*aria-describedby="mktero-token-help mktero-token-storage-note"/
