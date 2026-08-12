@@ -93,6 +93,30 @@ test('ships responsive settings cards and a cache switch', async () => {
     assert.match(styles, /@media\s*\(max-width:/);
 });
 
+test('keeps preference inputs visibly distinct from the settings card', async () => {
+    const styles = await readFile(
+        new URL('../ui/preferences.css', import.meta.url),
+        'utf8'
+    );
+
+    assert.match(
+        styles,
+        /\.mktero-field-control input,[\s\S]*?background-color:\s*color-mix\(/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control input,[\s\S]*?color:\s*CanvasText/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control input,[\s\S]*?border:\s*1px\s+solid\s+color-mix\(/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control input,[\s\S]*?opacity:\s*1/s
+    );
+});
+
 test('presents every preference group as one cohesive settings card', async () => {
     const [pane, styles] = await Promise.all([
         readFile(new URL('../ui/preferences.xhtml', import.meta.url), 'utf8'),

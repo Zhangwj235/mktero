@@ -66,6 +66,9 @@ Open `Settings -> Mktero` after installation.
 | AI API base URL / API Key / model | OpenAI URL / empty / empty | Connect a hosted provider, or a loopback HTTP server for a local model |
 | Translation language | Simplified Chinese | Choose the target language for new translations |
 
+The Mktero settings pane uses explicit contrasting input and select controls so
+configured values remain legible in Zotero's light and dark themes.
+
 The MinerU API Token and AI API Key are stored unencrypted as normal
 preferences in the active Zotero profile. Use `Test connection` to validate
 the current AI endpoint, key, and model before translating.

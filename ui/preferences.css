@@ -101,16 +101,19 @@
     width: 100%;
     min-height: 34px;
     padding: 5px 10px;
-    border: 1px solid var(--material-border, rgba(127, 127, 127, 0.38));
+    appearance: auto;
+    border: 1px solid color-mix(in srgb, CanvasText 35%, Canvas);
     border-radius: 7px;
-    background: Field;
-    color: FieldText;
+    background-color: color-mix(in srgb, Canvas 92%, CanvasText 8%);
+    color: CanvasText;
+    color-scheme: light dark;
     font: inherit;
+    opacity: 1;
 }
 
 .mktero-field-control input:hover,
 .mktero-field-control select:hover {
-    border-color: rgba(90, 90, 90, 0.55);
+    border-color: color-mix(in srgb, CanvasText 55%, Canvas);
 }
 
 .mktero-field-control input:focus,
