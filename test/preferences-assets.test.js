@@ -130,6 +130,38 @@ test('does not add a second native arrow to preference selects', async () => {
     assert.doesNotMatch(fieldRule, /appearance:\s*auto/);
 });
 
+test('keeps preference fields in an aligned responsive grid', async () => {
+    const styles = await readFile(
+        new URL('../ui/preferences.css', import.meta.url),
+        'utf8'
+    );
+
+    assert.match(
+        styles,
+        /#mktero-preferences-pane\s*\{[\s\S]*?padding:\s*8px\s+20px\s+36px/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-row,\s*\.mktero-reader-font-row\s*\{[\s\S]*?display:\s*grid/s
+    );
+    assert.match(
+        styles,
+        /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(320px,\s*500px\)/
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control\s*\{[\s\S]*?min-width:\s*0[\s\S]*?width:\s*100%/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control input,[\s\S]*?min-width:\s*0/s
+    );
+    assert.match(
+        styles,
+        /@media\s*\(max-width:\s*720px\)[\s\S]*?\.mktero-field-row,[\s\S]*?grid-template-columns:\s*1fr/s
+    );
+});
+
 test('presents every preference group as one cohesive settings card', async () => {
     const [pane, styles] = await Promise.all([
         readFile(new URL('../ui/preferences.xhtml', import.meta.url), 'utf8'),
