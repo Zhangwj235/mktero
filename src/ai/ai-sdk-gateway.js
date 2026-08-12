@@ -36,9 +36,10 @@ const LOCAL_PROVIDER_API_KEY = 'mktero-local';
 
 export class AISDKGateway {
     constructor({
-        fetch = globalThis.fetch?.bind(globalThis),
+        runtimeWindow = resolveRuntimeWindow(),
+        fetch = bindRuntimeMethod(runtimeWindow, 'fetch')
+            || globalThis.fetch?.bind(globalThis),
         createAbortController = createRuntimeAbortController,
-        timerWindow = resolveTimerWindow(),
         setTimer,
         clearTimer,
         generate = generateText,
@@ -54,8 +55,10 @@ export class AISDKGateway {
         }
         this.fetch = fetch;
         this.createAbortController = createAbortController;
-        this.setTimer = setTimer || bindTimer(timerWindow, 'setTimeout');
-        this.clearTimer = clearTimer || bindTimer(timerWindow, 'clearTimeout');
+        this.setTimer = setTimer
+            || bindRuntimeMethod(runtimeWindow, 'setTimeout');
+        this.clearTimer = clearTimer
+            || bindRuntimeMethod(runtimeWindow, 'clearTimeout');
         this.generate = generate;
     }
 
@@ -131,7 +134,7 @@ export class AISDKGateway {
     }
 }
 
-function resolveTimerWindow() {
+function resolveRuntimeWindow() {
     if (typeof globalThis.window?.setTimeout === 'function') {
         return globalThis.window;
     }
@@ -147,9 +150,11 @@ function resolveTimerWindow() {
     return globalThis;
 }
 
-function bindTimer(timerWindow, method) {
-    const timer = timerWindow?.[method];
-    return typeof timer === 'function' ? timer.bind(timerWindow) : undefined;
+function bindRuntimeMethod(runtimeWindow, method) {
+    const value = runtimeWindow?.[method];
+    return typeof value === 'function'
+        ? value.bind(runtimeWindow)
+        : undefined;
 }
 
 function reasoningProviderOptions(configuration) {

@@ -390,7 +390,7 @@ globalThis.MkteroPreferences = {
         ]);
         const aiGateway = new AISDKGateway({
             createAbortController: createRuntimeAbortController,
-            timerWindow: document?.defaultView,
+            runtimeWindow: document?.defaultView,
         });
         const translationService = new MarkdownTranslationService({
             aiGateway,

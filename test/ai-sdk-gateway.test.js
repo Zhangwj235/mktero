@@ -107,20 +107,20 @@ test('passes the configured reasoning level to AI SDK Core', async () => {
 
 test('binds request timeout functions to their runtime window', async () => {
     const calls = [];
-    const timerWindow = {
+    const runtimeWindow = {
         setTimeout(callback, delay) {
-            assert.equal(this, timerWindow);
+            assert.equal(this, runtimeWindow);
             calls.push({ type: 'set', callback, delay });
             return 7;
         },
         clearTimeout(timerID) {
-            assert.equal(this, timerWindow);
+            assert.equal(this, runtimeWindow);
             calls.push({ type: 'clear', timerID });
         },
     };
     const gateway = new AISDKGateway({
         fetch: async () => assert.fail('provider fetch should be lazy'),
-        timerWindow,
+        runtimeWindow,
         generate: async () => ({ text: 'Completed' }),
     });
 
@@ -142,6 +142,33 @@ test('binds request timeout functions to their runtime window', async () => {
         delay: undefined,
         timerID: 7,
     }]);
+});
+
+test('binds the provider fetch function to its runtime window', async () => {
+    const calls = [];
+    const runtimeWindow = {
+        fetch(input, init) {
+            assert.equal(this, runtimeWindow);
+            calls.push({ input: String(input), init });
+            return jsonResponse({
+                choices: [{
+                    message: { role: 'assistant', content: 'Window result' },
+                }],
+            });
+        },
+        setTimeout: globalThis.setTimeout,
+        clearTimeout: globalThis.clearTimeout,
+    };
+    const gateway = new AISDKGateway({ runtimeWindow });
+
+    const result = await gateway.generateText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(result.text, 'Window result');
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].input, /chat\/completions$/);
 });
 
 test('uses the OpenAI Chat Completions wire protocol through AI SDK Core', async () => {
