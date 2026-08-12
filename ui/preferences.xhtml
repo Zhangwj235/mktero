@@ -210,8 +210,8 @@
                     <html:input id="mktero-ai-request-timeout"
                                 type="number"
                                 min="1000"
-                                max="120000"
-                                step="1000"
+                                max="3600000"
+                                step="10000"
                                 preference="extensions.mktero.aiRequestTimeoutMs"
                                 aria-describedby="mktero-ai-request-timeout-help" />
                 </html:div>
@@ -225,9 +225,9 @@
                 <html:div class="mktero-field-control mktero-field-control-compact mktero-field-control-numeric">
                     <html:input id="mktero-ai-max-output-tokens"
                                 type="number"
-                                min="64"
-                                max="16384"
-                                step="64"
+                                min="0"
+                                max="262144"
+                                step="1024"
                                 preference="extensions.mktero.aiMaxOutputTokens"
                                 aria-describedby="mktero-ai-max-output-tokens-help" />
                 </html:div>

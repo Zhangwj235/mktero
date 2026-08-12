@@ -52,11 +52,11 @@ test('reads and normalizes the configured AI settings', () => {
     });
 });
 
-test('uses full-document defaults and preserves an explicit streaming opt-out', () => {
+test('uses full-document request defaults and preserves a streaming opt-out', () => {
     const defaults = getAISettings({ Prefs: { get: () => undefined } });
     assert.equal(defaults.streaming, true);
-    assert.equal(defaults.requestTimeoutMs, 120_000);
-    assert.equal(defaults.maxOutputTokens, 16_384);
+    assert.equal(defaults.requestTimeoutMs, 600_000);
+    assert.equal(defaults.maxOutputTokens, 0);
     assert.equal(getAISettings({
         Prefs: {
             get: key => key === AI_STREAMING_PREF ? false : undefined,
@@ -70,6 +70,20 @@ test('uses full-document defaults and preserves an explicit streaming opt-out', 
         apiKey: 'token',
         model: 'model',
     }).streaming, true);
+});
+
+test('allows full-document timeout and output token budgets', () => {
+    const settings = getAISettings({
+        Prefs: {
+            get: key => ({
+                [AI_REQUEST_TIMEOUT_PREF]: 3_600_001,
+                [AI_MAX_OUTPUT_TOKENS_PREF]: 262_145,
+            })[key],
+        },
+    });
+
+    assert.equal(settings.requestTimeoutMs, 3_600_000);
+    assert.equal(settings.maxOutputTokens, 262_144);
 });
 
 test('uses provider-default reasoning unless a supported level is configured', () => {

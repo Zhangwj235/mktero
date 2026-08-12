@@ -19,6 +19,7 @@ import {
     AI_PROTOCOL_OPENAI_CHAT,
     AI_PROTOCOL_OPENAI_RESPONSES,
     AI_PROTOCOL_OPEN_RESPONSES,
+    AI_MAX_OUTPUT_TOKENS,
     AI_PROVIDER_ALIBABA,
     AI_PROVIDER_ANTHROPIC,
     AI_PROVIDER_CUSTOM,
@@ -82,17 +83,11 @@ export class AISDKGateway {
         maxResponseBytes,
     }) {
         const configuration = validateAISettings(settings);
-        const inputByteLimit = normalizeByteLimit(
+        const limits = normalizeRequestByteLimits({
             maxInputBytes,
-            DEFAULT_MAX_AI_INPUT_BYTES,
-            MAX_AI_INPUT_BYTES
-        );
-        const responseByteLimit = normalizeByteLimit(
             maxResponseBytes,
-            DEFAULT_MAX_AI_RESPONSE_BYTES,
-            MAX_AI_RESPONSE_BYTES
-        );
-        const prompt = validateMessages(messages, inputByteLimit);
+        });
+        const prompt = validateMessages(messages, limits.input);
         throwIfAborted(signal);
         const controller = this.createAbortController();
         let timedOut = false;
@@ -108,7 +103,11 @@ export class AISDKGateway {
         try {
             const boundedFetch = createBoundedFetch(
                 this.fetch,
-                responseByteLimit
+                limits.response
+            );
+            const outputTokens = normalizeOutputTokens(
+                maxOutputTokens,
+                configuration.maxOutputTokens
             );
             const result = await this.generate({
                 model: createLanguageModel(configuration, boundedFetch),
@@ -116,10 +115,9 @@ export class AISDKGateway {
                 ...(prompt.instructions
                     ? { instructions: prompt.instructions }
                     : {}),
-                maxOutputTokens: normalizeOutputTokens(
-                    maxOutputTokens,
-                    configuration.maxOutputTokens
-                ),
+                ...(outputTokens === null
+                    ? {}
+                    : { maxOutputTokens: outputTokens }),
                 reasoning: configuration.reasoning,
                 ...reasoningProviderOptions(configuration),
                 maxRetries: 0,
@@ -132,11 +130,12 @@ export class AISDKGateway {
                     'AI_INVALID_RESPONSE'
                 );
             }
-            if (byteLength(text) > responseByteLimit) {
+            if (byteLength(text) > limits.response) {
                 throw responseTooLargeError();
             }
             return {
                 text,
+                finishReason: normalizeFinishReason(result?.finishReason),
                 model: responseModel(result, configuration.model),
                 usage: normalizeUsage(result?.usage),
             };
@@ -169,17 +168,11 @@ export class AISDKGateway {
         maxResponseBytes,
     }) {
         const configuration = validateAISettings(settings);
-        const inputByteLimit = normalizeByteLimit(
+        const limits = normalizeRequestByteLimits({
             maxInputBytes,
-            DEFAULT_MAX_AI_INPUT_BYTES,
-            MAX_AI_INPUT_BYTES
-        );
-        const responseByteLimit = normalizeByteLimit(
             maxResponseBytes,
-            DEFAULT_MAX_AI_RESPONSE_BYTES,
-            MAX_AI_RESPONSE_BYTES
-        );
-        const prompt = validateMessages(messages, inputByteLimit);
+        });
+        const prompt = validateMessages(messages, limits.input);
         throwIfAborted(signal);
         const controller = this.createAbortController();
         let timedOut = false;
@@ -195,7 +188,11 @@ export class AISDKGateway {
         try {
             const boundedFetch = createBoundedFetch(
                 this.fetch,
-                responseByteLimit
+                limits.response
+            );
+            const outputTokens = normalizeOutputTokens(
+                maxOutputTokens,
+                configuration.maxOutputTokens
             );
             let streamError = null;
             const result = await this.stream({
@@ -204,10 +201,9 @@ export class AISDKGateway {
                 ...(prompt.instructions
                     ? { instructions: prompt.instructions }
                     : {}),
-                maxOutputTokens: normalizeOutputTokens(
-                    maxOutputTokens,
-                    configuration.maxOutputTokens
-                ),
+                ...(outputTokens === null
+                    ? {}
+                    : { maxOutputTokens: outputTokens }),
                 reasoning: configuration.reasoning,
                 ...reasoningProviderOptions(configuration),
                 maxRetries: 0,
@@ -220,14 +216,18 @@ export class AISDKGateway {
                 throw invalidResponseError();
             }
             let accumulated = '';
+            const responseBytes = createIncrementalByteCounter();
             for await (const delta of result.textStream) {
                 const chunk = String(delta || '');
                 if (!chunk) continue;
                 accumulated += chunk;
-                if (byteLength(accumulated) > responseByteLimit) {
+                if (responseBytes.add(chunk) > limits.response) {
                     throw responseTooLargeError();
                 }
                 onTextDelta?.(chunk, accumulated);
+            }
+            if (responseBytes.finish() > limits.response) {
+                throw responseTooLargeError();
             }
             if (timedOut) {
                 throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
@@ -242,6 +242,9 @@ export class AISDKGateway {
             throwIfAborted(signal);
             const usage = result.usage ? await result.usage : null;
             const response = result.response ? await result.response : null;
+            const finishReason = result.finishReason
+                ? await result.finishReason
+                : null;
             if (streamError) throw streamError;
             if (timedOut) {
                 throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
@@ -249,6 +252,7 @@ export class AISDKGateway {
             throwIfAborted(signal);
             return {
                 text,
+                finishReason: normalizeFinishReason(finishReason),
                 model: responseModel({ response }, configuration.model),
                 usage: normalizeUsage(usage),
             };
@@ -495,15 +499,64 @@ function isLoopbackURL(value) {
 }
 
 function normalizeOutputTokens(value, fallback) {
-    const number = Number(value);
-    if (!Number.isFinite(number)) return fallback;
-    return Math.max(1, Math.min(16_384, Math.round(number)));
+    const number = Number(value ?? fallback);
+    if (!Number.isFinite(number) || number <= 0) return null;
+    return Math.max(1, Math.min(AI_MAX_OUTPUT_TOKENS, Math.round(number)));
+}
+
+function normalizeFinishReason(value) {
+    const reason = String(value?.unified || value || '').trim().toLowerCase();
+    return [
+        'stop',
+        'length',
+        'content-filter',
+        'tool-calls',
+        'error',
+        'other',
+    ].includes(reason) ? reason : null;
+}
+
+function createIncrementalByteCounter() {
+    let total = 0;
+    let pendingHighSurrogate = '';
+    return {
+        add(value) {
+            let chunk = pendingHighSurrogate + String(value || '');
+            pendingHighSurrogate = '';
+            if (/[\uD800-\uDBFF]$/.test(chunk)) {
+                pendingHighSurrogate = chunk.at(-1);
+                chunk = chunk.slice(0, -1);
+            }
+            total += byteLength(chunk);
+            return total;
+        },
+        finish() {
+            total += byteLength(pendingHighSurrogate);
+            pendingHighSurrogate = '';
+            return total;
+        },
+    };
 }
 
 function normalizeByteLimit(value, fallback, maximum) {
     const number = Number(value);
     if (!Number.isFinite(number)) return fallback;
     return Math.max(1, Math.min(maximum, Math.round(number)));
+}
+
+function normalizeRequestByteLimits({ maxInputBytes, maxResponseBytes }) {
+    return {
+        input: normalizeByteLimit(
+            maxInputBytes,
+            DEFAULT_MAX_AI_INPUT_BYTES,
+            MAX_AI_INPUT_BYTES
+        ),
+        response: normalizeByteLimit(
+            maxResponseBytes,
+            DEFAULT_MAX_AI_RESPONSE_BYTES,
+            MAX_AI_RESPONSE_BYTES
+        ),
+    };
 }
 
 function normalizeUsage(usage) {

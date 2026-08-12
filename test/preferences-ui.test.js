@@ -236,8 +236,8 @@ test('tests the current AI SDK settings without exposing the key', async () => {
             <select id="mktero-ai-target-language">
                 <option value="zh-CN">Simplified Chinese</option>
             </select>
-            <input id="mktero-ai-request-timeout" value="45000">
-            <input id="mktero-ai-max-output-tokens" value="3072">
+            <input id="mktero-ai-request-timeout" value="600000">
+            <input id="mktero-ai-max-output-tokens" value="0">
             <input id="mktero-ai-streaming" type="checkbox" checked>
             <button id="mktero-ai-test"></button>
             <span id="mktero-ai-test-status"></span>
@@ -272,8 +272,16 @@ test('tests the current AI SDK settings without exposing the key', async () => {
     assert.equal(testedSettings.apiKey, 'private-token');
     assert.equal(testedSettings.model, 'example-chat');
     assert.equal(testedSettings.reasoning, 'high');
-    assert.equal(testedSettings.requestTimeoutMs, '45000');
-    assert.equal(testedSettings.maxOutputTokens, '3072');
+    assert.equal(testedSettings.requestTimeoutMs, '600000');
+    assert.equal(testedSettings.maxOutputTokens, '0');
+    assert.equal(
+        dom.window.document.getElementById('mktero-ai-request-timeout').max,
+        '3600000'
+    );
+    assert.equal(
+        dom.window.document.getElementById('mktero-ai-max-output-tokens').max,
+        '262144'
+    );
     assert.equal(testedSettings.streaming, true);
     assert.equal(
         dom.window.document.getElementById('mktero-ai-test-status').textContent,

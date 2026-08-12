@@ -78,8 +78,11 @@ test('translates a complete Markdown document in one provider request', async ()
     });
 
     assert.equal(requests.length, 1);
-    assert.match(requests[0], /^# Paper\n\nOriginal paragraph\./);
-    assert.match(requests[0], /MKTEROPROTECTED\d+PLACEHOLDER$/);
+    assert.match(requests[0], /^MKTEROBLOCK\d+STARTMARKER/);
+    assert.match(requests[0], /# Paper/);
+    assert.match(requests[0], /Original paragraph\./);
+    assert.match(requests[0], /MKTEROPROTECTED\d+PLACEHOLDER/);
+    assert.match(requests[0], /MKTEROBLOCK\d+ENDMARKER$/);
     assert.doesNotMatch(requests[0], /code\(\)/);
     assert.equal(
         result.translatedMarkdown,
@@ -102,7 +105,13 @@ test('streams the complete document by default and uses the selected language', 
         aiGateway: {
             async streamText(request) {
                 requests.push(request);
-                return { text: '# Article traduit', model: 'stream-model' };
+                return {
+                    text: translateSingleBlockRequest(
+                        request.messages[1].content,
+                        '# Article traduit'
+                    ),
+                    model: 'stream-model',
+                };
             },
             generateText: assert.fail,
         },
@@ -128,7 +137,12 @@ test('isolates document translations by reasoning and source content', async () 
     const cacheInputs = [];
     const service = new MarkdownTranslationService({
         aiGateway: {
-            generateText: async () => ({ text: '# 论文' }),
+            generateText: async request => ({
+                text: translateSingleBlockRequest(
+                    request.messages[1].content,
+                    '# 论文'
+                ),
+            }),
         },
         getSettings: () => ({
             ...SETTINGS,
@@ -154,7 +168,12 @@ test('keeps a completed document translation when caching fails', async () => {
     const cacheErrors = [];
     const service = new MarkdownTranslationService({
         aiGateway: {
-            generateText: async () => ({ text: '# 论文' }),
+            generateText: async request => ({
+                text: translateSingleBlockRequest(
+                    request.messages[1].content,
+                    '# 论文'
+                ),
+            }),
         },
         cache: {
             getTranslation: async () => null,
@@ -179,9 +198,14 @@ test('continues translating without persistence when cache hashing fails', async
     let providerCalls = 0;
     const service = new MarkdownTranslationService({
         aiGateway: {
-            async generateText() {
+            async generateText(request) {
                 providerCalls++;
-                return { text: '# 论文' };
+                return {
+                    text: translateSingleBlockRequest(
+                        request.messages[1].content,
+                        '# 论文'
+                    ),
+                };
             },
         },
         cache: {
@@ -213,7 +237,12 @@ test('continues translating when reading the Markdown translation cache fails', 
     const cacheErrors = [];
     const service = new MarkdownTranslationService({
         aiGateway: {
-            generateText: async () => ({ text: '# 论文' }),
+            generateText: async request => ({
+                text: translateSingleBlockRequest(
+                    request.messages[1].content,
+                    '# 论文'
+                ),
+            }),
         },
         cache: {
             getTranslation: async () => { throw new Error('cache unreadable'); },
@@ -237,7 +266,12 @@ test('always stores completed translations with the Markdown cache entry', async
     const cached = [];
     const service = new MarkdownTranslationService({
         aiGateway: {
-            generateText: async () => ({ text: '# 论文' }),
+            generateText: async request => ({
+                text: translateSingleBlockRequest(
+                    request.messages[1].content,
+                    '# 论文'
+                ),
+            }),
         },
         cache: {
             getTranslation: async () => null,
@@ -376,7 +410,12 @@ test('counts restored protected content toward the document output limit', async
                 const placeholder = requestMarkdown.match(
                     /MKTEROPROTECTED\d+PLACEHOLDER/
                 )?.[0];
-                return { text: `${'译'.repeat(1_024)} ${placeholder}` };
+                return {
+                    text: translateSingleBlockRequest(
+                        requestMarkdown,
+                        `${'译'.repeat(1_024)} ${placeholder}`
+                    ),
+                };
             },
         },
         cache: {
@@ -451,6 +490,55 @@ test('does not cache a structurally incomplete document response', async () => {
     assert.equal(calls, 1);
 });
 
+test('does not cache a document response truncated by the output limit', async () => {
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText() {
+                return {
+                    text: '部分译文',
+                    finishReason: 'length',
+                };
+            },
+        },
+        cache: {
+            getTranslation: async () => null,
+            putTranslation: assert.fail,
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: 'One paragraph.',
+    }), error => error?.code === 'AI_OUTPUT_TRUNCATED');
+});
+
+test('does not cache a streamed document truncated by the output limit', async () => {
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            generateText: assert.fail,
+            async streamText() {
+                return {
+                    text: '部分译文',
+                    finishReason: 'length',
+                };
+            },
+        },
+        cache: {
+            getTranslation: async () => null,
+            putTranslation: assert.fail,
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: true }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: 'One paragraph.',
+    }), error => error?.code === 'AI_OUTPUT_TRUNCATED');
+});
+
 test('stops a complete document translation when canceled', async () => {
     const controller = new AbortController();
     let calls = 0;
@@ -481,9 +569,14 @@ test('stops a complete document translation when canceled', async () => {
 function createBoundaryService({ output, onProviderCall = () => {} }) {
     return new MarkdownTranslationService({
         aiGateway: {
-            async generateText() {
+            async generateText(request) {
                 onProviderCall();
-                return { text: output };
+                return {
+                    text: translateSingleBlockRequest(
+                        request.messages[1].content,
+                        output
+                    ),
+                };
             },
         },
         cache: {
@@ -493,4 +586,15 @@ function createBoundaryService({ output, onProviderCall = () => {} }) {
         getSettings: () => ({ ...SETTINGS, streaming: false }),
         createCacheKey: async () => 'c'.repeat(64),
     });
+}
+
+function translateSingleBlockRequest(requestMarkdown, translatedMarkdown) {
+    const pattern = /(MKTEROBLOCK\d+STARTMARKER\n\n)[\s\S]*?(\n\nMKTEROBLOCK\d+ENDMARKER)/;
+    if (!pattern.test(requestMarkdown)) {
+        throw new Error('A marked single-block request is required');
+    }
+    return requestMarkdown.replace(
+        pattern,
+        (_, start, end) => `${start}${translatedMarkdown}${end}`
+    );
 }

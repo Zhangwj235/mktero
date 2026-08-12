@@ -68,8 +68,8 @@ Open `Settings -> Mktero` after installation.
 | AI base URL / API Key / provider / protocol / model | OpenAI Responses / empty model | Route AI calls through Vercel AI SDK Core to a hosted provider or loopback model server |
 | Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese for new translations |
 | Reasoning effort | Automatic | Let the provider choose, or request off, low, medium, high, or extra-high reasoning from supported models |
-| Request timeout | 120,000 ms | Stop a full-document request when the provider exceeds this duration |
-| Maximum output tokens | 16,384 | Cap the complete translated document response |
+| Request timeout | 600,000 ms | Allow up to one hour for one complete document request |
+| Maximum output tokens | Automatic (0) | Let the provider choose by default, or allow up to 262,144 tokens when the selected model supports it |
 
 The Mktero settings pane uses an aligned two-column layout for labels and
 controls, keeps Zotero's native select affordance, and uses explicit

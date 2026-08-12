@@ -17,7 +17,10 @@ import {
     MarkdownTranslationService,
 } from '../ai/markdown-translation-service.js';
 import { createRuntimeAbortController } from '../platform/abort-controller.js';
-import { getZoteroLocale } from '../config/mineru-preferences.js';
+import {
+    getZoteroLocale,
+    PREFERENCE_CONTROL_LIMITS,
+} from '../config/mineru-preferences.js';
 import {
     getMarkdownReaderFont,
     getMarkdownReaderFontSize,
@@ -96,6 +99,12 @@ export function createPreferencesController({
     const aiTestStatus = document.getElementById('mktero-ai-test-status');
     const aiProviderInput = document.getElementById('mktero-ai-provider');
     const aiProtocolInput = document.getElementById('mktero-ai-protocol');
+    const aiRequestTimeoutInput = document.getElementById(
+        'mktero-ai-request-timeout'
+    );
+    const aiMaxOutputTokensInput = document.getElementById(
+        'mktero-ai-max-output-tokens'
+    );
     const t = (key, variables) => localization.t(key, variables);
     let initialized = false;
     let aiTestController = null;
@@ -164,6 +173,19 @@ export function createPreferencesController({
         aiProtocolInput.value = settings.protocol;
         updateAIProtocolOptions({ persist: false });
         aiProviderInput.addEventListener('change', updateAIProtocolOptions);
+    }
+
+    function initializeAINumericControls() {
+        if (aiRequestTimeoutInput) {
+            aiRequestTimeoutInput.max = String(
+                PREFERENCE_CONTROL_LIMITS.aiRequestTimeoutMs
+            );
+        }
+        if (aiMaxOutputTokensInput) {
+            aiMaxOutputTokensInput.max = String(
+                PREFERENCE_CONTROL_LIMITS.aiMaxOutputTokens
+            );
+        }
     }
 
     async function refresh() {
@@ -237,6 +259,7 @@ export function createPreferencesController({
             aiTestButton?.addEventListener('click', testAI);
             localize();
             initializeAIProvider();
+            initializeAINumericControls();
             initializeReaderFont();
             initializeReaderFontSize();
             await refresh();

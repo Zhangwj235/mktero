@@ -23,11 +23,13 @@ const PROTECTED_NODE_TYPES = new Set([
     'CodeBlock',
 ]);
 const PROTECTED_PLACEHOLDER_PATTERN = /MKTEROPROTECTED\d+PLACEHOLDER/g;
+const DOCUMENT_MARKER_PATTERN = /MKTEROBLOCK\d+(?:START|END)MARKER/g;
 
 export function collectMarkdownTranslationBlocks(markdown) {
     const source = String(markdown || '');
     const blocks = [];
     const createPlaceholder = createProtectedPlaceholderFactory(source);
+    const createDocumentMarkers = createDocumentMarkerFactory(source);
     let ordinal = 0;
     for (let node = MARKDOWN_PARSER.parse(source).topNode.firstChild;
         node;
@@ -52,6 +54,7 @@ export function collectMarkdownTranslationBlocks(markdown) {
                 from: 0,
                 to: blockMarkdown.length,
             }], createPlaceholder);
+        const documentMarkers = createDocumentMarkers();
         blocks.push({
             id: `translation-${ordinal}-${node.from}-${node.to}-${type}`,
             type,
@@ -61,6 +64,7 @@ export function collectMarkdownTranslationBlocks(markdown) {
             markdown: blockMarkdown,
             requestMarkdown: requestBlock.markdown,
             protectedFragments: requestBlock.fragments,
+            ...documentMarkers,
             translatable,
         });
         ordinal++;
@@ -70,7 +74,11 @@ export function collectMarkdownTranslationBlocks(markdown) {
 
 export function createMarkdownTranslationRequest(markdown, blocks) {
     if (!blocks.length) return String(markdown || '');
-    return blocks.map(block => block.requestMarkdown).join('\n\n');
+    return blocks.map(block => [
+        block.documentStartMarker,
+        block.requestMarkdown,
+        block.documentEndMarker,
+    ].join('\n\n')).join('\n\n');
 }
 
 export function collectDocumentTranslations(
@@ -82,29 +90,18 @@ export function collectDocumentTranslations(
         throw new TypeError('Markdown translation blocks are required');
     }
     const request = String(requestMarkdown || '');
+    if (request !== createMarkdownTranslationRequest('', blocks)) {
+        throw new Error('The Markdown translation request is invalid');
+    }
     const translated = String(translatedMarkdown || '').trim();
     if (!translated) throw new Error('The translated Markdown document is empty');
-    const requestNodes = topLevelNodes(request);
-    const translatedNodes = topLevelNodes(translated);
-    if (requestNodes.length !== blocks.length
-        || translatedNodes.length !== requestNodes.length) {
-        throw new Error('The translated Markdown document changed its structure');
-    }
+    const translatedBlocks = extractMarkedDocumentBlocks(blocks, translated);
     const translations = [];
     for (let index = 0; index < blocks.length; index++) {
         const block = blocks[index];
-        const requestNode = requestNodes[index];
-        const translatedNode = translatedNodes[index];
-        const translatedBlock = translated.slice(
-            translatedNode.from,
-            translatedNode.to
-        );
-        if (translatedNode.name !== requestNode.name) {
-            throw new Error('The translated Markdown document changed its structure');
-        }
+        const translatedBlock = translatedBlocks[index];
         if (!block.translatable) {
-            const requestBlock = request.slice(requestNode.from, requestNode.to);
-            if (translatedBlock !== requestBlock) {
+            if (translatedBlock !== block.requestMarkdown) {
                 throw new Error(
                     'The translated Markdown document changed protected content'
                 );
@@ -118,6 +115,39 @@ export function collectDocumentTranslations(
         });
     }
     return translations;
+}
+
+function extractMarkedDocumentBlocks(blocks, translated) {
+    const expectedMarkers = blocks.flatMap(block => [
+        block.documentStartMarker,
+        block.documentEndMarker,
+    ]);
+    const actualMarkers = translated.match(DOCUMENT_MARKER_PATTERN) || [];
+    if (actualMarkers.length !== expectedMarkers.length
+        || actualMarkers.some((marker, index) => marker !== expectedMarkers[index])) {
+        throw new Error(
+            'The translated Markdown document changed its block order or structure'
+        );
+    }
+    const translatedBlocks = [];
+    let cursor = 0;
+    for (const block of blocks) {
+        const start = translated.indexOf(block.documentStartMarker, cursor);
+        if (start < 0 || translated.slice(cursor, start).trim()) {
+            throw new Error('The translated Markdown document changed its structure');
+        }
+        const contentFrom = start + block.documentStartMarker.length;
+        const end = translated.indexOf(block.documentEndMarker, contentFrom);
+        if (end < 0) {
+            throw new Error('The translated Markdown document changed its structure');
+        }
+        translatedBlocks.push(translated.slice(contentFrom, end).trim());
+        cursor = end + block.documentEndMarker.length;
+    }
+    if (translated.slice(cursor).trim()) {
+        throw new Error('The translated Markdown document changed its structure');
+    }
+    return translatedBlocks;
 }
 
 export function assembleTranslatedMarkdown(markdown, blocks, translations) {
@@ -251,6 +281,14 @@ function collectProtectedRanges(node, markdown) {
             to: match.index + match[0].length,
         });
     }
+    for (const match of markdown.matchAll(
+        new RegExp(DOCUMENT_MARKER_PATTERN.source, 'g')
+    )) {
+        ranges.push({
+            from: match.index,
+            to: match.index + match[0].length,
+        });
+    }
     return selectOuterRanges(ranges, markdown.length);
 }
 
@@ -375,6 +413,28 @@ function createProtectedPlaceholderFactory(source) {
         } while (reserved.has(placeholder));
         reserved.add(placeholder);
         return placeholder;
+    };
+}
+
+function createDocumentMarkerFactory(source) {
+    const reserved = new Set(
+        String(source || '').match(DOCUMENT_MARKER_PATTERN) || []
+    );
+    let markerIndex = 0;
+    return () => {
+        let start;
+        let end;
+        do {
+            start = `MKTEROBLOCK${markerIndex}STARTMARKER`;
+            end = `MKTEROBLOCK${markerIndex}ENDMARKER`;
+            markerIndex++;
+        } while (reserved.has(start) || reserved.has(end));
+        reserved.add(start);
+        reserved.add(end);
+        return {
+            documentStartMarker: start,
+            documentEndMarker: end,
+        };
     };
 }
 

@@ -265,8 +265,9 @@ test('creates and validates one protected full-document translation payload', ()
     const blocks = collectMarkdownTranslationBlocks(markdown);
     const request = createMarkdownTranslationRequest(markdown, blocks);
 
-    assert.match(request, /^# Paper\n\nRead MKTEROPROTECTED0PLACEHOLDER/);
-    assert.match(request, /MKTEROPROTECTED\d+PLACEHOLDER$/);
+    assert.match(request, /^MKTEROBLOCK\d+STARTMARKER\n\n# Paper/);
+    assert.match(request, /Read MKTEROPROTECTED0PLACEHOLDER/);
+    assert.match(request, /MKTEROBLOCK\d+ENDMARKER$/);
     assert.doesNotMatch(request, /model\.fit|doNotTranslate/);
 
     const translated = request
@@ -290,7 +291,7 @@ test('rejects a full-document response that changes protected blocks', () => {
     const blocks = collectMarkdownTranslationBlocks(markdown);
     const request = createMarkdownTranslationRequest(markdown, blocks);
     const protectedBlock = request.match(
-        /MKTEROPROTECTED\d+PLACEHOLDER$/
+        /MKTEROPROTECTED\d+PLACEHOLDER/
     )?.[0];
 
     assert.throws(
@@ -303,6 +304,23 @@ test('rejects a full-document response that changes protected blocks', () => {
             )
         ),
         /protected|structure/i
+    );
+});
+
+test('rejects a full-document response that reorders same-type blocks', () => {
+    const markdown = 'First paragraph.\n\nSecond paragraph.';
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const request = createMarkdownTranslationRequest(markdown, blocks);
+    const wrappedBlocks = request.split(/\n\n(?=MKTEROBLOCK\d+STARTMARKER)/);
+
+    assert.equal(wrappedBlocks.length, 2);
+    assert.throws(
+        () => collectDocumentTranslations(
+            request,
+            blocks,
+            [wrappedBlocks[1], wrappedBlocks[0]].join('\n\n')
+        ),
+        /structure|order/i
     );
 });
 
@@ -321,7 +339,8 @@ test('separates adjacent protected and translatable top-level blocks', () => {
     );
 
     assert.equal(blocks.length, 2);
-    assert.match(request, /PLACEHOLDER\n\nTranslate/);
+    assert.match(request, /PLACEHOLDER\n\nMKTEROBLOCK\d+ENDMARKER/);
+    assert.match(request, /STARTMARKER\n\nTranslate/);
     assert.equal(
         assembleTranslatedMarkdown(markdown, blocks, translations),
         '```js\ncode();\n```\n翻译这个段落。'

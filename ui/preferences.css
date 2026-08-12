@@ -127,8 +127,8 @@
 }
 
 .mktero-field-control-numeric {
-    flex-basis: 220px;
-    width: 220px;
+    flex-basis: 240px;
+    width: 240px;
 }
 
 /* Zotero supplies the select dropmarker; forcing native appearance duplicates it on macOS. */
@@ -346,7 +346,7 @@
     }
 
     .mktero-field-control-numeric {
-        width: min(220px, 100%);
+        width: min(240px, 100%);
     }
 }
 

@@ -55,6 +55,7 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
             request = value;
             return {
                 text: 'Completed',
+                finishReason: 'stop',
                 response: { modelId: 'provider-model' },
                 usage: {
                     inputTokens: 10,
@@ -79,6 +80,7 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
     assert.ok(request.abortSignal);
     assert.deepEqual(result, {
         text: 'Completed',
+        finishReason: 'stop',
         model: 'provider-model',
         usage: {
             inputTokens: 10,
@@ -86,6 +88,42 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
             totalTokens: 14,
         },
     });
+});
+
+test('omits the output token limit when the provider should choose it', async () => {
+    let request;
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async value => {
+            request = value;
+            return { text: 'Completed', finishReason: 'stop' };
+        },
+    });
+
+    await gateway.generateText({
+        settings: { ...SETTINGS, maxOutputTokens: 0 },
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(Object.hasOwn(request, 'maxOutputTokens'), false);
+});
+
+test('passes a full-document output token budget to AI SDK Core', async () => {
+    let request;
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async value => {
+            request = value;
+            return { text: 'Completed' };
+        },
+    });
+
+    await gateway.generateText({
+        settings: { ...SETTINGS, maxOutputTokens: 65_536 },
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(request.maxOutputTokens, 65_536);
 });
 
 test('accepts explicit full-document input and response byte budgets', async () => {
@@ -127,6 +165,7 @@ test('calls AI SDK streamText and reports cumulative text deltas', async () => {
                     totalTokens: 5,
                 }),
                 response: Promise.resolve({ modelId: 'stream-model' }),
+                finishReason: Promise.resolve('stop'),
             };
         },
     });
@@ -146,6 +185,7 @@ test('calls AI SDK streamText and reports cumulative text deltas', async () => {
     ]);
     assert.deepEqual(result, {
         text: 'Partial',
+        finishReason: 'stop',
         model: 'stream-model',
         usage: {
             inputTokens: 3,
@@ -153,6 +193,44 @@ test('calls AI SDK streamText and reports cumulative text deltas', async () => {
             totalTokens: 5,
         },
     });
+});
+
+test('propagates length finish reasons for complete-response validation', async () => {
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async () => ({
+            text: 'Partial translation',
+            finishReason: 'length',
+        }),
+    });
+
+    const result = await gateway.generateText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(result.finishReason, 'length');
+});
+
+test('propagates length finish reasons from streamed responses', async () => {
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        stream: async () => ({
+            textStream: {
+                async *[Symbol.asyncIterator]() {
+                    yield 'Partial translation';
+                },
+            },
+            finishReason: Promise.resolve('length'),
+        }),
+    });
+
+    const result = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(result.finishReason, 'length');
 });
 
 test('rejects a streaming response that reports an error after text ends', async () => {

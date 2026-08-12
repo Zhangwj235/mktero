@@ -1010,6 +1010,9 @@ function localizeTranslationError(error) {
     if (error?.code === 'AI_REQUEST_TIMEOUT') {
         return runtimeTranslate('ai.requestTimedOut');
     }
+    if (error?.code === 'AI_OUTPUT_TRUNCATED') {
+        return runtimeTranslate('ai.outputTruncated');
+    }
     return runtimeTranslate('ai.documentTranslationFailed');
 }
 
