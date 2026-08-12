@@ -124,15 +124,15 @@ export class MarkdownTranslationService {
         const connectionSettings = validateAISettings({
             ...settings,
             enabled: true,
-            reasoning: 'provider-default',
+            reasoning: 'none',
         });
         return this.aiGateway.generateText({
             settings: connectionSettings,
             messages: [{
                 role: 'user',
-                content: 'Reply with exactly: OK',
+                content: 'hi',
             }],
-            maxOutputTokens: 8,
+            maxOutputTokens: 4,
             signal,
         });
     }

@@ -188,11 +188,11 @@ test('tests a valid connection before AI translation is enabled', async () => {
 
     assert.equal(result.text, 'OK');
     assert.equal(request.settings.enabled, true);
-    assert.equal(request.settings.reasoning, 'provider-default');
-    assert.equal(request.maxOutputTokens, 8);
+    assert.equal(request.settings.reasoning, 'none');
+    assert.equal(request.maxOutputTokens, 4);
     assert.deepEqual(request.messages, [{
         role: 'user',
-        content: 'Reply with exactly: OK',
+        content: 'hi',
     }]);
 });
 
