@@ -10,26 +10,26 @@
 
         <html:div class="mktero-settings-card">
             <html:div class="mktero-setting-row mktero-field-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-mineru-api-key"><html:strong data-i18n="preferences.apiToken.label"></html:strong></html:label>
                     <html:small id="mktero-token-help"
                                 data-i18n="preferences.apiToken.help"></html:small>
-                </html:span>
-                <html:span class="mktero-field-control mktero-token-control">
+                </html:div>
+                <html:div class="mktero-field-control mktero-token-control">
                     <html:input id="mktero-mineru-api-key"
                                 type="password"
                                 preference="extensions.mktero.mineruApiKey"
                                 aria-describedby="mktero-token-help mktero-token-storage-note"
                                 autocomplete="off"
                                 spellcheck="false" />
-                    <html:span class="mktero-field-meta">
+                    <html:div class="mktero-field-meta">
                         <html:small id="mktero-token-storage-note"
                                     data-i18n="preferences.apiToken.storage"></html:small>
                         <label is="zotero-text-link"
                                href="https://mineru.net/apiManage/token"
                                data-i18n="preferences.apiToken.manage"></label>
-                    </html:span>
-                </html:span>
+                    </html:div>
+                </html:div>
             </html:div>
         </html:div>
     </groupbox>
@@ -60,25 +60,25 @@
             </html:label>
 
             <html:div class="mktero-setting-row mktero-field-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-ai-provider"><html:strong data-i18n="preferences.ai.providerLabel"></html:strong></html:label>
                     <html:small data-i18n="preferences.ai.providerHelp"></html:small>
-                </html:span>
-                <html:span class="mktero-field-control">
+                </html:div>
+                <html:div class="mktero-field-control">
                     <html:select id="mktero-ai-provider"
                                  preference="extensions.mktero.aiProvider">
                         <html:option value="openai-compatible"
                                      data-i18n="preferences.ai.provider.openAICompatible"></html:option>
                     </html:select>
-                </html:span>
+                </html:div>
             </html:div>
 
             <html:div class="mktero-setting-row mktero-field-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-ai-api-base"><html:strong data-i18n="preferences.ai.apiBaseLabel"></html:strong></html:label>
                     <html:small id="mktero-ai-api-base-help" data-i18n="preferences.ai.apiBaseHelp"></html:small>
-                </html:span>
-                <html:span class="mktero-field-control">
+                </html:div>
+                <html:div class="mktero-field-control">
                     <html:input id="mktero-ai-api-base"
                                 type="url"
                                 preference="extensions.mktero.aiApiBase"
@@ -86,15 +86,15 @@
                                 maxlength="2048"
                                 autocomplete="off"
                                 spellcheck="false" />
-                </html:span>
+                </html:div>
             </html:div>
 
             <html:div class="mktero-setting-row mktero-field-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-ai-api-key"><html:strong data-i18n="preferences.ai.apiKeyLabel"></html:strong></html:label>
                     <html:small id="mktero-ai-api-key-help" data-i18n="preferences.ai.apiKeyHelp"></html:small>
-                </html:span>
-                <html:span class="mktero-field-control">
+                </html:div>
+                <html:div class="mktero-field-control">
                     <html:input id="mktero-ai-api-key"
                                 type="password"
                                 preference="extensions.mktero.aiApiKey"
@@ -104,15 +104,15 @@
                                 spellcheck="false" />
                     <html:small id="mktero-ai-api-key-storage"
                                 data-i18n="preferences.ai.apiKeyStorage"></html:small>
-                </html:span>
+                </html:div>
             </html:div>
 
             <html:div class="mktero-setting-row mktero-field-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-ai-model"><html:strong data-i18n="preferences.ai.modelLabel"></html:strong></html:label>
                     <html:small id="mktero-ai-model-help" data-i18n="preferences.ai.modelHelp"></html:small>
-                </html:span>
-                <html:span class="mktero-field-control">
+                </html:div>
+                <html:div class="mktero-field-control">
                     <html:input id="mktero-ai-model"
                                 type="text"
                                 preference="extensions.mktero.aiModel"
@@ -120,15 +120,15 @@
                                 maxlength="512"
                                 autocomplete="off"
                                 spellcheck="false" />
-                </html:span>
+                </html:div>
             </html:div>
 
             <html:div class="mktero-setting-row mktero-field-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-ai-target-language"><html:strong data-i18n="preferences.ai.targetLanguageLabel"></html:strong></html:label>
                     <html:small data-i18n="preferences.ai.targetLanguageHelp"></html:small>
-                </html:span>
-                <html:span class="mktero-field-control">
+                </html:div>
+                <html:div class="mktero-field-control">
                     <html:select id="mktero-ai-target-language"
                                  preference="extensions.mktero.aiTargetLanguage">
                         <html:option value="zh-CN" data-i18n="preferences.ai.language.zhCN"></html:option>
@@ -137,15 +137,15 @@
                         <html:option value="ja-JP" data-i18n="preferences.ai.language.jaJP"></html:option>
                         <html:option value="ko-KR" data-i18n="preferences.ai.language.koKR"></html:option>
                     </html:select>
-                </html:span>
+                </html:div>
             </html:div>
 
             <html:div class="mktero-setting-row mktero-field-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-ai-request-timeout"><html:strong data-i18n="preferences.ai.requestTimeoutLabel"></html:strong></html:label>
                     <html:small id="mktero-ai-request-timeout-help" data-i18n="preferences.ai.requestTimeoutHelp"></html:small>
-                </html:span>
-                <html:span class="mktero-field-control">
+                </html:div>
+                <html:div class="mktero-field-control">
                     <html:input id="mktero-ai-request-timeout"
                                 type="number"
                                 min="1000"
@@ -153,15 +153,15 @@
                                 step="1000"
                                 preference="extensions.mktero.aiRequestTimeoutMs"
                                 aria-describedby="mktero-ai-request-timeout-help" />
-                </html:span>
+                </html:div>
             </html:div>
 
             <html:div class="mktero-setting-row mktero-field-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-ai-max-output-tokens"><html:strong data-i18n="preferences.ai.maxOutputTokensLabel"></html:strong></html:label>
                     <html:small id="mktero-ai-max-output-tokens-help" data-i18n="preferences.ai.maxOutputTokensHelp"></html:small>
-                </html:span>
-                <html:span class="mktero-field-control">
+                </html:div>
+                <html:div class="mktero-field-control">
                     <html:input id="mktero-ai-max-output-tokens"
                                 type="number"
                                 min="64"
@@ -169,7 +169,7 @@
                                 step="64"
                                 preference="extensions.mktero.aiMaxOutputTokens"
                                 aria-describedby="mktero-ai-max-output-tokens-help" />
-                </html:span>
+                </html:div>
             </html:div>
 
             <html:label class="mktero-setting-row mktero-switch-row"
@@ -214,12 +214,12 @@
 
         <html:div class="mktero-settings-card">
             <html:div class="mktero-setting-row mktero-reader-font-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-reader-font-size"><html:strong data-i18n="preferences.reader.fontSizeLabel"></html:strong></html:label>
                     <html:small id="mktero-reader-font-size-help"
                                 data-i18n="preferences.reader.fontSizeHelp"></html:small>
-                </html:span>
-                <html:span class="mktero-reader-font-control">
+                </html:div>
+                <html:div class="mktero-reader-font-control">
                     <html:input id="mktero-reader-font-size"
                                 type="range"
                                 min="16"
@@ -231,15 +231,15 @@
                     <html:output id="mktero-reader-font-size-value"
                                  for="mktero-reader-font-size"
                                  aria-live="polite">18 px</html:output>
-                </html:span>
+                </html:div>
             </html:div>
             <html:div class="mktero-setting-row mktero-reader-font-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-reader-font-family"><html:strong data-i18n="preferences.reader.fontFamilyLabel"></html:strong></html:label>
                     <html:small id="mktero-reader-font-family-help"
                                 data-i18n="preferences.reader.fontFamilyHelp"></html:small>
-                </html:span>
-                <html:span class="mktero-reader-font-control">
+                </html:div>
+                <html:div class="mktero-reader-font-control">
                     <html:select id="mktero-reader-font-family"
                                  preference="extensions.mktero.readerFont"
                                  aria-describedby="mktero-reader-font-family-help">
@@ -248,7 +248,7 @@
                         <html:option value="cambria" data-i18n="viewer.fontCambria">Cambria</html:option>
                         <html:option value="times-new-roman" data-i18n="viewer.fontTimesNewRoman">Times New Roman</html:option>
                     </html:select>
-                </html:span>
+                </html:div>
             </html:div>
         </html:div>
     </groupbox>
@@ -280,14 +280,14 @@
             </html:label>
 
             <html:div class="mktero-setting-row mktero-cache-usage-row">
-                <html:span class="mktero-setting-copy">
+                <html:div class="mktero-setting-copy">
                     <html:strong data-i18n="preferences.cache.usageLabel"></html:strong>
                     <html:small id="mktero-cache-status"
                                 role="status"
                                 aria-live="polite"
                                 aria-busy="true"
                                 data-i18n="preferences.cache.calculating"></html:small>
-                </html:span>
+                </html:div>
                 <html:button id="mktero-clear-cache"
                              type="button"
                              data-i18n="preferences.cache.clear"></html:button>

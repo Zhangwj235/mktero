@@ -81,10 +81,18 @@
 }
 
 .mktero-setting-copy {
+    box-sizing: border-box;
     display: grid;
-    flex: 1 1 0;
+    flex: 1 1 auto;
     gap: 4px;
     min-width: 0;
+}
+
+/* Keep the descriptive column readable when Zotero lays out XHTML inside XUL. */
+.mktero-field-row > .mktero-setting-copy,
+.mktero-reader-font-row > .mktero-setting-copy {
+    flex: 1 1 auto;
+    min-width: 280px;
 }
 
 .mktero-setting-copy strong {
@@ -103,12 +111,13 @@
 }
 
 .mktero-field-control {
+    box-sizing: border-box;
     display: grid;
-    flex: 0 1 500px;
+    flex: 0 1 460px;
     gap: 6px;
     min-width: 0;
-    width: min(52%, 500px);
-    max-width: 500px;
+    width: 460px;
+    max-width: 48%;
 }
 
 /* Zotero supplies the select dropmarker; forcing native appearance duplicates it on macOS. */
@@ -170,8 +179,8 @@
     display: flex;
     box-sizing: border-box;
     flex: 0 1 340px;
-    width: min(42%, 340px);
-    max-width: 340px;
+    width: 340px;
+    max-width: 42%;
     min-width: 0;
     align-items: center;
     gap: 12px;
@@ -179,8 +188,8 @@
 
 .mktero-reader-font-control input,
 .mktero-reader-font-control select {
-    min-width: 120px;
     flex: 1 1 auto;
+    min-width: 0;
     accent-color: AccentColor;
 }
 
@@ -299,8 +308,13 @@
     .mktero-field-control,
     .mktero-reader-font-control {
         width: 100%;
-        flex-basis: auto;
+        flex: 0 0 auto;
         max-width: none;
+    }
+
+    .mktero-field-row > .mktero-setting-copy,
+    .mktero-reader-font-row > .mktero-setting-copy {
+        min-width: 0;
     }
 }
 

@@ -131,10 +131,10 @@ test('does not add a second native arrow to preference selects', async () => {
 });
 
 test('keeps preference fields in an aligned responsive flex layout', async () => {
-    const styles = await readFile(
-        new URL('../ui/preferences.css', import.meta.url),
-        'utf8'
-    );
+    const [pane, styles] = await Promise.all([
+        readFile(new URL('../ui/preferences.xhtml', import.meta.url), 'utf8'),
+        readFile(new URL('../ui/preferences.css', import.meta.url), 'utf8'),
+    ]);
 
     assert.match(
         styles,
@@ -150,11 +150,19 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
     );
     assert.match(
         styles,
-        /\.mktero-field-control\s*\{[\s\S]*?flex:\s*0\s+1\s+500px[\s\S]*?width:\s*min\(52%,\s*500px\)/s
+        /\.mktero-field-control\s*\{[\s\S]*?flex:\s*0\s+1\s+460px[\s\S]*?width:\s*460px[\s\S]*?max-width:\s*48%/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-row\s*>\s*\.mktero-setting-copy[\s\S]*?min-width:\s*280px/s
     );
     assert.match(
         styles,
         /\.mktero-field-control input,[\s\S]*?min-width:\s*0/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-reader-font-control input,[\s\S]*?min-width:\s*0/s
     );
     assert.match(
         styles,
@@ -163,6 +171,18 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
     assert.doesNotMatch(
         styles,
         /\.mktero-field-row,[\s\S]*?display:\s*grid/s
+    );
+    assert.equal(
+        (pane.match(
+            /class="mktero-setting-row mktero-(?:field|reader-font)-row"/g
+        ) || []).length,
+        10
+    );
+    assert.equal(
+        (pane.match(
+            /<html:div class="mktero-(?:field|reader-font)-control(?: [^"]+)?">/g
+        ) || []).length,
+        10
     );
 });
 
