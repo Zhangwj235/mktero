@@ -92,7 +92,7 @@
 .mktero-field-row > .mktero-setting-copy,
 .mktero-reader-font-row > .mktero-setting-copy {
     flex: 1 1 auto;
-    min-width: 280px;
+    min-width: 240px;
 }
 
 .mktero-setting-copy strong {
@@ -120,6 +120,17 @@
     max-width: 48%;
 }
 
+.mktero-field-control-compact {
+    flex-basis: 320px;
+    width: 320px;
+    max-width: 36%;
+}
+
+.mktero-field-control-numeric {
+    flex-basis: 220px;
+    width: 220px;
+}
+
 /* Zotero supplies the select dropmarker; forcing native appearance duplicates it on macOS. */
 .mktero-field-control input,
 .mktero-field-control select {
@@ -140,6 +151,18 @@
 
 .mktero-field-control select {
     padding-inline-end: 32px;
+}
+
+/* Gecko paints number steppers on a separate native white surface on macOS. */
+.mktero-field-control input[type='number'] {
+    -moz-appearance: textfield;
+    text-align: end;
+}
+
+.mktero-field-control input[type='number']::-webkit-inner-spin-button,
+.mktero-field-control input[type='number']::-webkit-outer-spin-button {
+    margin: 0;
+    appearance: none;
 }
 
 .mktero-field-control input:hover,
@@ -293,7 +316,7 @@
     background: color-mix(in srgb, currentColor 3%, transparent);
 }
 
-@media (max-width: 800px) {
+@media (max-width: 700px) {
     #mktero-preferences-pane {
         padding-inline: 16px;
     }
@@ -315,6 +338,15 @@
     .mktero-field-row > .mktero-setting-copy,
     .mktero-reader-font-row > .mktero-setting-copy {
         min-width: 0;
+    }
+
+    .mktero-field-control-compact {
+        width: min(320px, 100%);
+        max-width: 100%;
+    }
+
+    .mktero-field-control-numeric {
+        width: min(220px, 100%);
     }
 }
 

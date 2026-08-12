@@ -154,7 +154,7 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
     );
     assert.match(
         styles,
-        /\.mktero-field-row\s*>\s*\.mktero-setting-copy[\s\S]*?min-width:\s*280px/s
+        /\.mktero-field-row\s*>\s*\.mktero-setting-copy[\s\S]*?min-width:\s*240px/s
     );
     assert.match(
         styles,
@@ -166,7 +166,7 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
     );
     assert.match(
         styles,
-        /@media\s*\(max-width:\s*800px\)[\s\S]*?\.mktero-field-row,[\s\S]*?flex-direction:\s*column/s
+        /@media\s*\(max-width:\s*700px\)[\s\S]*?\.mktero-field-row,[\s\S]*?flex-direction:\s*column/s
     );
     assert.doesNotMatch(
         styles,
@@ -183,6 +183,44 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
             /<html:div class="mktero-(?:field|reader-font)-control(?: [^"]+)?">/g
         ) || []).length,
         10
+    );
+});
+
+test('keeps choice and numeric AI controls compact without native spinners', async () => {
+    const [pane, styles] = await Promise.all([
+        readFile(new URL('../ui/preferences.xhtml', import.meta.url), 'utf8'),
+        readFile(new URL('../ui/preferences.css', import.meta.url), 'utf8'),
+    ]);
+
+    assert.match(
+        pane,
+        /class="mktero-field-control mktero-field-control-compact"[\s\S]*?id="mktero-ai-target-language"/
+    );
+    assert.equal(
+        (pane.match(
+            /class="mktero-field-control mktero-field-control-compact mktero-field-control-numeric"/g
+        ) || []).length,
+        2
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control-compact\s*\{[\s\S]*?flex-basis:\s*320px[\s\S]*?width:\s*320px[\s\S]*?max-width:\s*36%/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control-numeric\s*\{[\s\S]*?flex-basis:\s*220px[\s\S]*?width:\s*220px/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control input\[type='number'\]\s*\{[\s\S]*?-moz-appearance:\s*textfield/s
+    );
+    assert.match(
+        styles,
+        /::-webkit-inner-spin-button[\s\S]*?appearance:\s*none/s
+    );
+    assert.match(
+        styles,
+        /@media\s*\(max-width:\s*700px\)[\s\S]*?\.mktero-field-control-compact\s*\{[\s\S]*?width:\s*min\(320px,\s*100%\)[\s\S]*?max-width:\s*100%/s
     );
 });
 
