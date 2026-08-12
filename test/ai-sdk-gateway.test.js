@@ -88,6 +88,24 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
     });
 });
 
+test('accepts explicit full-document input and response byte budgets', async () => {
+    const input = 'x'.repeat(256 * 1024);
+    const output = 'y'.repeat(1024 * 1024 + 1);
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async () => ({ text: output }),
+    });
+
+    const result = await gateway.generateText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: input }],
+        maxInputBytes: 512 * 1024,
+        maxResponseBytes: 2 * 1024 * 1024,
+    });
+
+    assert.equal(result.text.length, output.length);
+});
+
 test('calls AI SDK streamText and reports cumulative text deltas', async () => {
     let request;
     const deltas = [];

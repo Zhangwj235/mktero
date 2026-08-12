@@ -28,8 +28,8 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(prefs, /pref\("extensions\.mktero\.aiProvider", "openai"\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiProtocol", "openai-responses"\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiApiKey", ""\)/);
-    assert.match(prefs, /pref\("extensions\.mktero\.aiRequestTimeoutMs", 30000\)/);
-    assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 2048\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiRequestTimeoutMs", 120000\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 16384\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiReasoning", "provider-default"\)/);
     assert.doesNotMatch(prefs, /extensions\.mktero\.aiCacheEnabled/);
     assert.match(

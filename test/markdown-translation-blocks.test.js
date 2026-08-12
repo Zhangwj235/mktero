@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
     assembleTranslatedMarkdown,
     collectMarkdownTranslationBlocks,
+    collectDocumentTranslations,
     createComparisonMarkdown,
+    createMarkdownTranslationRequest,
     validateTranslatedBlock,
 } from '../src/markdown/markdown-translation-blocks.js';
 
@@ -247,6 +249,82 @@ test('assembles a complete translated article while preserving document spacing'
     assert.equal(
         assembleTranslatedMarkdown(markdown, blocks, translations),
         '# 论文\n\n译文段落。\n\n![Figure](figure.png)\n'
+    );
+});
+
+test('creates and validates one protected full-document translation payload', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Read `model.fit()` before continuing.',
+        '',
+        '```js',
+        'doNotTranslate();',
+        '```',
+    ].join('\n');
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const request = createMarkdownTranslationRequest(markdown, blocks);
+
+    assert.match(request, /^# Paper\n\nRead MKTEROPROTECTED0PLACEHOLDER/);
+    assert.match(request, /MKTEROPROTECTED\d+PLACEHOLDER$/);
+    assert.doesNotMatch(request, /model\.fit|doNotTranslate/);
+
+    const translated = request
+        .replace('# Paper', '# 论文')
+        .replace('Read', '运行')
+        .replace('before continuing.', '后继续。');
+    const translations = collectDocumentTranslations(
+        request,
+        blocks,
+        translated
+    );
+
+    assert.equal(
+        assembleTranslatedMarkdown(markdown, blocks, translations),
+        '# 论文\n\n运行 `model.fit()` 后继续。\n\n```js\ndoNotTranslate();\n```'
+    );
+});
+
+test('rejects a full-document response that changes protected blocks', () => {
+    const markdown = '# Paper\n\n```js\ncode();\n```';
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const request = createMarkdownTranslationRequest(markdown, blocks);
+    const protectedBlock = request.match(
+        /MKTEROPROTECTED\d+PLACEHOLDER$/
+    )?.[0];
+
+    assert.throws(
+        () => collectDocumentTranslations(
+            request,
+            blocks,
+            request.replace(
+                protectedBlock,
+                'changed'
+            )
+        ),
+        /protected|structure/i
+    );
+});
+
+test('separates adjacent protected and translatable top-level blocks', () => {
+    const markdown = '```js\ncode();\n```\nTranslate this paragraph.';
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const request = createMarkdownTranslationRequest(markdown, blocks);
+    const translated = request.replace(
+        'Translate this paragraph.',
+        '翻译这个段落。'
+    );
+    const translations = collectDocumentTranslations(
+        request,
+        blocks,
+        translated
+    );
+
+    assert.equal(blocks.length, 2);
+    assert.match(request, /PLACEHOLDER\n\nTranslate/);
+    assert.equal(
+        assembleTranslatedMarkdown(markdown, blocks, translations),
+        '```js\ncode();\n```\n翻译这个段落。'
     );
 });
 

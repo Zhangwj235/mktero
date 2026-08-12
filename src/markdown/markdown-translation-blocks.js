@@ -27,6 +27,7 @@ const PROTECTED_PLACEHOLDER_PATTERN = /MKTEROPROTECTED\d+PLACEHOLDER/g;
 export function collectMarkdownTranslationBlocks(markdown) {
     const source = String(markdown || '');
     const blocks = [];
+    const createPlaceholder = createProtectedPlaceholderFactory(source);
     let ordinal = 0;
     for (let node = MARKDOWN_PARSER.parse(source).topNode.firstChild;
         node;
@@ -36,8 +37,21 @@ export function collectMarkdownTranslationBlocks(markdown) {
         const protectedRanges = collectProtectedRanges(node, blockMarkdown);
         const protectedBlock = protectMarkdown(
             blockMarkdown,
-            protectedRanges
+            protectedRanges,
+            createPlaceholder
         );
+        const translatable = isTranslatableBlock(
+            node,
+            blockMarkdown,
+            protectedBlock.markdown,
+            protectedBlock.fragments
+        );
+        const requestBlock = translatable
+            ? protectedBlock
+            : protectMarkdown(blockMarkdown, [{
+                from: 0,
+                to: blockMarkdown.length,
+            }], createPlaceholder);
         blocks.push({
             id: `translation-${ordinal}-${node.from}-${node.to}-${type}`,
             type,
@@ -45,18 +59,65 @@ export function collectMarkdownTranslationBlocks(markdown) {
             from: node.from,
             to: node.to,
             markdown: blockMarkdown,
-            requestMarkdown: protectedBlock.markdown,
-            protectedFragments: protectedBlock.fragments,
-            translatable: isTranslatableBlock(
-                node,
-                blockMarkdown,
-                protectedBlock.markdown,
-                protectedBlock.fragments
-            ),
+            requestMarkdown: requestBlock.markdown,
+            protectedFragments: requestBlock.fragments,
+            translatable,
         });
         ordinal++;
     }
     return blocks;
+}
+
+export function createMarkdownTranslationRequest(markdown, blocks) {
+    if (!blocks.length) return String(markdown || '');
+    return blocks.map(block => block.requestMarkdown).join('\n\n');
+}
+
+export function collectDocumentTranslations(
+    requestMarkdown,
+    blocks,
+    translatedMarkdown
+) {
+    if (!Array.isArray(blocks)) {
+        throw new TypeError('Markdown translation blocks are required');
+    }
+    const request = String(requestMarkdown || '');
+    const translated = String(translatedMarkdown || '').trim();
+    if (!translated) throw new Error('The translated Markdown document is empty');
+    const requestNodes = topLevelNodes(request);
+    const translatedNodes = topLevelNodes(translated);
+    if (requestNodes.length !== blocks.length
+        || translatedNodes.length !== requestNodes.length) {
+        throw new Error('The translated Markdown document changed its structure');
+    }
+    const translations = [];
+    for (let index = 0; index < blocks.length; index++) {
+        const block = blocks[index];
+        const requestNode = requestNodes[index];
+        const translatedNode = translatedNodes[index];
+        const translatedBlock = translated.slice(
+            translatedNode.from,
+            translatedNode.to
+        );
+        if (translatedNode.name !== requestNode.name) {
+            throw new Error('The translated Markdown document changed its structure');
+        }
+        if (!block.translatable) {
+            const requestBlock = request.slice(requestNode.from, requestNode.to);
+            if (translatedBlock !== requestBlock) {
+                throw new Error(
+                    'The translated Markdown document changed protected content'
+                );
+            }
+            continue;
+        }
+        validateTranslatedBlock(block, translatedBlock);
+        translations.push({
+            id: block.id,
+            markdown: translatedBlock,
+        });
+    }
+    return translations;
 }
 
 export function assembleTranslatedMarkdown(markdown, blocks, translations) {
@@ -284,17 +345,12 @@ function selectOuterRanges(ranges, sourceLength) {
     return selected;
 }
 
-function protectMarkdown(markdown, ranges) {
+function protectMarkdown(markdown, ranges, createPlaceholder) {
     const fragments = [];
     const chunks = [];
     let cursor = 0;
-    let placeholderIndex = 0;
     for (const range of ranges) {
-        let placeholder;
-        do {
-            placeholder = `MKTEROPROTECTED${placeholderIndex}PLACEHOLDER`;
-            placeholderIndex++;
-        } while (markdown.includes(placeholder));
+        const placeholder = createPlaceholder();
         chunks.push(markdown.slice(cursor, range.from), placeholder);
         fragments.push({
             placeholder,
@@ -304,6 +360,22 @@ function protectMarkdown(markdown, ranges) {
     }
     chunks.push(markdown.slice(cursor));
     return { markdown: chunks.join(''), fragments };
+}
+
+function createProtectedPlaceholderFactory(source) {
+    const reserved = new Set(
+        String(source || '').match(PROTECTED_PLACEHOLDER_PATTERN) || []
+    );
+    let placeholderIndex = 0;
+    return () => {
+        let placeholder;
+        do {
+            placeholder = `MKTEROPROTECTED${placeholderIndex}PLACEHOLDER`;
+            placeholderIndex++;
+        } while (reserved.has(placeholder));
+        reserved.add(placeholder);
+        return placeholder;
+    };
 }
 
 function validateProtectedPlaceholders(block, translated) {

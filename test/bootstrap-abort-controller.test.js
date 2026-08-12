@@ -70,7 +70,7 @@ test('aborts live AI SDK requests across bootstrap translation lifecycles', {
         ['extensions.mktero.aiModel', 'test-chat'],
         ['extensions.mktero.aiTargetLanguage', 'zh-CN'],
         ['extensions.mktero.aiRequestTimeoutMs', 120_000],
-        ['extensions.mktero.aiMaxOutputTokens', 2_048],
+        ['extensions.mktero.aiMaxOutputTokens', 16_384],
     ]);
     const observerService = createObserverService();
     globalThis.Zotero = {

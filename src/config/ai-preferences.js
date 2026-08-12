@@ -29,8 +29,8 @@ export const AI_PROTOCOL_GOOGLE = 'google-generative-ai';
 export const AI_DEFAULT_API_BASE = 'https://api.openai.com/v1';
 export const AI_DEFAULT_TARGET_LANGUAGE = 'zh-CN';
 export const AI_DEFAULT_REASONING = 'provider-default';
-export const AI_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-export const AI_DEFAULT_MAX_OUTPUT_TOKENS = 2_048;
+export const AI_DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+export const AI_DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 
 const MAX_AI_API_BASE_LENGTH = 2_048;
 const MAX_AI_API_KEY_LENGTH = 16_384;

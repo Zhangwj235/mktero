@@ -52,8 +52,11 @@ test('reads and normalizes the configured AI settings', () => {
     });
 });
 
-test('enables streaming by default and preserves an explicit opt-out', () => {
-    assert.equal(getAISettings({ Prefs: { get: () => undefined } }).streaming, true);
+test('uses full-document defaults and preserves an explicit streaming opt-out', () => {
+    const defaults = getAISettings({ Prefs: { get: () => undefined } });
+    assert.equal(defaults.streaming, true);
+    assert.equal(defaults.requestTimeoutMs, 120_000);
+    assert.equal(defaults.maxOutputTokens, 16_384);
     assert.equal(getAISettings({
         Prefs: {
             get: key => key === AI_STREAMING_PREF ? false : undefined,

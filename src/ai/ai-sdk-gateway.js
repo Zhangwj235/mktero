@@ -34,8 +34,10 @@ import {
 } from '../platform/abort-controller.js';
 
 const MAX_AI_MESSAGES = 100;
-const MAX_AI_INPUT_BYTES = 256 * 1024;
-const MAX_AI_RESPONSE_BYTES = 1024 * 1024;
+const DEFAULT_MAX_AI_INPUT_BYTES = 256 * 1024;
+const DEFAULT_MAX_AI_RESPONSE_BYTES = 1024 * 1024;
+const MAX_AI_INPUT_BYTES = 4 * 1024 * 1024 + 256 * 1024;
+const MAX_AI_RESPONSE_BYTES = 8 * 1024 * 1024;
 const LOCAL_PROVIDER_API_KEY = 'mktero-local';
 
 export class AISDKGateway {
@@ -76,9 +78,21 @@ export class AISDKGateway {
         messages,
         signal,
         maxOutputTokens,
+        maxInputBytes,
+        maxResponseBytes,
     }) {
         const configuration = validateAISettings(settings);
-        const prompt = validateMessages(messages);
+        const inputByteLimit = normalizeByteLimit(
+            maxInputBytes,
+            DEFAULT_MAX_AI_INPUT_BYTES,
+            MAX_AI_INPUT_BYTES
+        );
+        const responseByteLimit = normalizeByteLimit(
+            maxResponseBytes,
+            DEFAULT_MAX_AI_RESPONSE_BYTES,
+            MAX_AI_RESPONSE_BYTES
+        );
+        const prompt = validateMessages(messages, inputByteLimit);
         throwIfAborted(signal);
         const controller = this.createAbortController();
         let timedOut = false;
@@ -92,7 +106,10 @@ export class AISDKGateway {
             }, configuration.requestTimeoutMs)
             : null;
         try {
-            const boundedFetch = createBoundedFetch(this.fetch);
+            const boundedFetch = createBoundedFetch(
+                this.fetch,
+                responseByteLimit
+            );
             const result = await this.generate({
                 model: createLanguageModel(configuration, boundedFetch),
                 messages: prompt.messages,
@@ -115,7 +132,7 @@ export class AISDKGateway {
                     'AI_INVALID_RESPONSE'
                 );
             }
-            if (byteLength(text) > MAX_AI_RESPONSE_BYTES) {
+            if (byteLength(text) > responseByteLimit) {
                 throw responseTooLargeError();
             }
             return {
@@ -148,9 +165,21 @@ export class AISDKGateway {
         signal,
         maxOutputTokens,
         onTextDelta,
+        maxInputBytes,
+        maxResponseBytes,
     }) {
         const configuration = validateAISettings(settings);
-        const prompt = validateMessages(messages);
+        const inputByteLimit = normalizeByteLimit(
+            maxInputBytes,
+            DEFAULT_MAX_AI_INPUT_BYTES,
+            MAX_AI_INPUT_BYTES
+        );
+        const responseByteLimit = normalizeByteLimit(
+            maxResponseBytes,
+            DEFAULT_MAX_AI_RESPONSE_BYTES,
+            MAX_AI_RESPONSE_BYTES
+        );
+        const prompt = validateMessages(messages, inputByteLimit);
         throwIfAborted(signal);
         const controller = this.createAbortController();
         let timedOut = false;
@@ -164,7 +193,10 @@ export class AISDKGateway {
             }, configuration.requestTimeoutMs)
             : null;
         try {
-            const boundedFetch = createBoundedFetch(this.fetch);
+            const boundedFetch = createBoundedFetch(
+                this.fetch,
+                responseByteLimit
+            );
             let streamError = null;
             const result = await this.stream({
                 model: createLanguageModel(configuration, boundedFetch),
@@ -192,7 +224,7 @@ export class AISDKGateway {
                 const chunk = String(delta || '');
                 if (!chunk) continue;
                 accumulated += chunk;
-                if (byteLength(accumulated) > MAX_AI_RESPONSE_BYTES) {
+                if (byteLength(accumulated) > responseByteLimit) {
                     throw responseTooLargeError();
                 }
                 onTextDelta?.(chunk, accumulated);
@@ -358,7 +390,7 @@ function providerApiKey(configuration) {
         : undefined);
 }
 
-function validateMessages(messages) {
+function validateMessages(messages, maxInputBytes) {
     if (!Array.isArray(messages)
         || !messages.length
         || messages.length > MAX_AI_MESSAGES) {
@@ -372,7 +404,7 @@ function validateMessages(messages) {
         }
         return { role, content };
     });
-    if (byteLength(JSON.stringify(normalized)) > MAX_AI_INPUT_BYTES) {
+    if (byteLength(JSON.stringify(normalized)) > maxInputBytes) {
         throw aiError('The AI input is too large', 'AI_INPUT_TOO_LARGE');
     }
     const firstNonSystem = normalized.findIndex(message => (
@@ -391,12 +423,12 @@ function validateMessages(messages) {
     };
 }
 
-function createBoundedFetch(fetch) {
+function createBoundedFetch(fetch, maxResponseBytes) {
     return async (input, init) => {
         const response = await fetch(input, init);
         const declaredLength = Number(response?.headers?.get?.('Content-Length'));
         if (Number.isFinite(declaredLength)
-            && declaredLength > MAX_AI_RESPONSE_BYTES) {
+            && declaredLength > maxResponseBytes) {
             await response?.body?.cancel?.().catch?.(() => {});
             throw responseTooLargeError();
         }
@@ -415,7 +447,7 @@ function createBoundedFetch(fetch) {
                         throw invalidResponseError();
                     }
                     totalBytes += value.byteLength;
-                    if (totalBytes > MAX_AI_RESPONSE_BYTES) {
+                    if (totalBytes > maxResponseBytes) {
                         await reader.cancel?.().catch?.(() => {});
                         throw responseTooLargeError();
                     }
@@ -466,6 +498,12 @@ function normalizeOutputTokens(value, fallback) {
     const number = Number(value);
     if (!Number.isFinite(number)) return fallback;
     return Math.max(1, Math.min(16_384, Math.round(number)));
+}
+
+function normalizeByteLimit(value, fallback, maximum) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.max(1, Math.min(maximum, Math.round(number)));
 }
 
 function normalizeUsage(usage) {
