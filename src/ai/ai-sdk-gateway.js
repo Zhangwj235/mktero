@@ -90,6 +90,8 @@ export class AISDKGateway {
                     maxOutputTokens,
                     configuration.maxOutputTokens
                 ),
+                reasoning: configuration.reasoning,
+                ...reasoningProviderOptions(configuration),
                 maxRetries: 0,
                 abortSignal: controller.signal,
             });
@@ -126,6 +128,24 @@ export class AISDKGateway {
             signal?.removeEventListener('abort', relayAbort);
         }
     }
+}
+
+function reasoningProviderOptions(configuration) {
+    if (configuration.provider !== AI_PROVIDER_MINIMAX
+        || configuration.reasoning === 'provider-default') {
+        return {};
+    }
+    return {
+        providerOptions: {
+            minimax: {
+                thinking: {
+                    type: configuration.reasoning === 'none'
+                        ? 'disabled'
+                        : 'adaptive',
+                },
+            },
+        },
+    };
 }
 
 export function createLanguageModel(configuration, fetch) {

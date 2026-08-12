@@ -11,6 +11,7 @@ import {
     AI_PROTOCOL_OPENAI_RESPONSES,
     AI_PROTOCOL_PREF,
     AI_PROVIDER_PREF,
+    AI_REASONING_PREF,
     AI_REQUEST_TIMEOUT_PREF,
     AI_TARGET_LANGUAGE_PREF,
     getAISettings,
@@ -26,6 +27,7 @@ test('reads and normalizes the configured AI settings', () => {
         [AI_API_BASE_PREF, ' https://example.com/v1/ '],
         [AI_API_KEY_PREF, ' secret-token '],
         [AI_MODEL_PREF, ' example-chat '],
+        [AI_REASONING_PREF, 'high'],
         [AI_TARGET_LANGUAGE_PREF, 'zh-CN'],
         [AI_REQUEST_TIMEOUT_PREF, 45_000],
         [AI_MAX_OUTPUT_TOKENS_PREF, 3_000],
@@ -42,11 +44,31 @@ test('reads and normalizes the configured AI settings', () => {
         apiBase: 'https://example.com/v1',
         apiKey: 'secret-token',
         model: 'example-chat',
+        reasoning: 'high',
         targetLanguage: 'zh-CN',
         requestTimeoutMs: 45_000,
         maxOutputTokens: 3_000,
         cacheEnabled: false,
     });
+});
+
+test('uses provider-default reasoning unless a supported level is configured', () => {
+    for (const [stored, expected] of [
+        [undefined, 'provider-default'],
+        ['none', 'none'],
+        ['low', 'low'],
+        ['medium', 'medium'],
+        ['high', 'high'],
+        ['xhigh', 'xhigh'],
+        ['unsupported', 'provider-default'],
+    ]) {
+        const settings = getAISettings({
+            Prefs: {
+                get: key => key === AI_REASONING_PREF ? stored : undefined,
+            },
+        });
+        assert.equal(settings.reasoning, expected);
+    }
 });
 
 test('accepts the expanded AI translation language choices', () => {

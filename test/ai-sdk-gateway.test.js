@@ -73,6 +73,7 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
     assert.equal(request.model.provider, 'mktero-compatible.chat');
     assert.deepEqual(request.messages, [{ role: 'user', content: 'Test' }]);
     assert.equal(request.maxOutputTokens, 64);
+    assert.equal(request.reasoning, 'provider-default');
     assert.equal(request.maxRetries, 0);
     assert.ok(request.abortSignal);
     assert.deepEqual(result, {
@@ -84,6 +85,24 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
             totalTokens: 14,
         },
     });
+});
+
+test('passes the configured reasoning level to AI SDK Core', async () => {
+    let request;
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async value => {
+            request = value;
+            return { text: 'Completed' };
+        },
+    });
+
+    await gateway.generateText({
+        settings: { ...SETTINGS, reasoning: 'high' },
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(request.reasoning, 'high');
 });
 
 test('uses the OpenAI Chat Completions wire protocol through AI SDK Core', async () => {
@@ -111,7 +130,7 @@ test('uses the OpenAI Chat Completions wire protocol through AI SDK Core', async
     });
 
     const result = await gateway.generateText({
-        settings: SETTINGS,
+        settings: { ...SETTINGS, reasoning: 'high' },
         messages: [{ role: 'user', content: 'Test' }],
     });
 
@@ -121,6 +140,7 @@ test('uses the OpenAI Chat Completions wire protocol through AI SDK Core', async
         role: 'user',
         content: 'Test',
     }]);
+    assert.equal(JSON.parse(request.init.body).reasoning_effort, 'high');
     assert.equal(result.text, 'Chat result');
 });
 
@@ -160,13 +180,16 @@ test('uses the OpenAI Responses wire protocol through AI SDK Core', async () => 
             ...SETTINGS,
             provider: 'openai',
             protocol: 'openai-responses',
+            model: 'o3',
+            reasoning: 'high',
         },
         messages: [{ role: 'user', content: 'Test' }],
     });
 
     assert.equal(request.url, 'https://api.example.com/v1/responses');
     assert.equal(request.init.method, 'POST');
-    assert.equal(JSON.parse(request.init.body).model, 'example-chat');
+    assert.equal(JSON.parse(request.init.body).model, 'o3');
+    assert.equal(JSON.parse(request.init.body).reasoning.effort, 'high');
     assert.equal(result.text, 'Responses result');
 });
 
@@ -190,8 +213,10 @@ test('uses the Anthropic Messages wire protocol through AI SDK Core', async () =
     const result = await gateway.generateText({
         settings: {
             ...SETTINGS,
-            provider: 'custom',
+            provider: 'anthropic',
             protocol: 'anthropic-messages',
+            model: 'claude-sonnet-4-6',
+            reasoning: 'high',
         },
         messages: [{ role: 'user', content: 'Test' }],
     });
@@ -201,6 +226,8 @@ test('uses the Anthropic Messages wire protocol through AI SDK Core', async () =
     assert.deepEqual(JSON.parse(request.init.body).messages[0].content, [
         { type: 'text', text: 'Test' },
     ]);
+    assert.equal(JSON.parse(request.init.body).thinking.type, 'adaptive');
+    assert.equal(JSON.parse(request.init.body).output_config.effort, 'high');
     assert.equal(result.text, 'Anthropic result');
 });
 
@@ -232,6 +259,7 @@ test('uses the Google Generative Language wire protocol through AI SDK Core', as
             provider: 'custom',
             protocol: 'google-generative-ai',
             apiBase: 'https://generativelanguage.googleapis.com/v1beta',
+            reasoning: 'medium',
         },
         messages: [{ role: 'user', content: 'Test' }],
     });
@@ -239,6 +267,7 @@ test('uses the Google Generative Language wire protocol through AI SDK Core', as
     assert.match(request.url, /:generateContent$/);
     assert.equal(request.init.method, 'POST');
     assert.equal(JSON.parse(request.init.body).contents[0].parts[0].text, 'Test');
+    assert.ok(JSON.parse(request.init.body).generationConfig.thinkingConfig.thinkingBudget > 0);
     assert.equal(result.text, 'Google result');
 });
 
@@ -265,6 +294,7 @@ test('uses the Open Responses wire protocol through AI SDK Core', async () => {
             ...SETTINGS,
             provider: 'custom',
             protocol: 'open-responses',
+            reasoning: 'high',
         },
         messages: [{ role: 'user', content: 'Test' }],
     });
@@ -272,7 +302,114 @@ test('uses the Open Responses wire protocol through AI SDK Core', async () => {
     assert.equal(request.url, 'https://api.example.com/v1/responses');
     assert.equal(request.init.method, 'POST');
     assert.equal(JSON.parse(request.init.body).model, 'example-chat');
+    assert.equal(JSON.parse(request.init.body).reasoning.effort, 'high');
     assert.equal(result.text, 'Open result');
+});
+
+test('maps reasoning strength through domestic provider adapters', async t => {
+    const cases = [{
+        name: 'DeepSeek',
+        provider: 'deepseek',
+        expected: body => {
+            assert.equal(body.thinking.type, 'enabled');
+            assert.equal(body.reasoning_effort, 'high');
+        },
+    }, {
+        name: 'Alibaba',
+        provider: 'alibaba',
+        expected: body => {
+            assert.equal(body.enable_thinking, true);
+            assert.ok(body.thinking_budget > 0);
+        },
+    }, {
+        name: 'Moonshot AI',
+        provider: 'moonshotai',
+        expected: body => {
+            assert.equal(body.reasoning_effort, 'high');
+        },
+    }];
+
+    for (const { name, provider, expected } of cases) {
+        await t.test(name, async () => {
+            let request;
+            const gateway = new AISDKGateway({
+                fetch: async (url, init) => {
+                    request = { url: String(url), init };
+                    return jsonResponse({
+                        id: 'chatcmpl-test',
+                        object: 'chat.completion',
+                        created: 1,
+                        model: 'provider-model',
+                        choices: [{
+                            index: 0,
+                            message: {
+                                role: 'assistant',
+                                content: 'Provider result',
+                            },
+                            finish_reason: 'stop',
+                        }],
+                    });
+                },
+            });
+
+            const result = await gateway.generateText({
+                settings: {
+                    ...SETTINGS,
+                    provider,
+                    reasoning: 'high',
+                },
+                messages: [{ role: 'user', content: 'Test' }],
+            });
+
+            assert.equal(request.init.method, 'POST');
+            expected(JSON.parse(request.init.body));
+            assert.equal(result.text, 'Provider result');
+        });
+    }
+});
+
+test('maps MiniMax reasoning to its supported thinking modes', async t => {
+    for (const [reasoning, thinkingType] of [
+        ['high', 'adaptive'],
+        ['none', 'disabled'],
+    ]) {
+        await t.test(reasoning, async () => {
+            let request;
+            const gateway = new AISDKGateway({
+                fetch: async (url, init) => {
+                    request = { url: String(url), init };
+                    return jsonResponse({
+                        id: 'msg-test',
+                        type: 'message',
+                        role: 'assistant',
+                        model: 'minimax-m2.5',
+                        content: [{
+                            type: 'text',
+                            text: 'MiniMax result',
+                        }],
+                        stop_reason: 'end_turn',
+                        usage: { input_tokens: 3, output_tokens: 2 },
+                    });
+                },
+            });
+
+            const result = await gateway.generateText({
+                settings: {
+                    ...SETTINGS,
+                    provider: 'minimax',
+                    protocol: 'anthropic-messages',
+                    model: 'minimax-m2.5',
+                    reasoning,
+                },
+                messages: [{ role: 'user', content: 'Test' }],
+            });
+
+            const body = JSON.parse(request.init.body);
+            assert.equal(body.thinking.type, thinkingType);
+            assert.equal(body.thinking.budget_tokens, undefined);
+            assert.equal(result.text, 'MiniMax result');
+        });
+    }
 });
 
 test('uses a safe local credential when a loopback provider has no API key', async () => {

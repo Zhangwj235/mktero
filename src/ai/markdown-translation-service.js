@@ -1,4 +1,7 @@
-import { validateAISettings } from '../config/ai-preferences.js';
+import {
+    normalizeReasoning,
+    validateAISettings,
+} from '../config/ai-preferences.js';
 import { sha256Hex } from '../core/sha256.js';
 
 export const TRANSLATION_PROMPT_VERSION = 'mktero-translation-v1';
@@ -65,6 +68,7 @@ export class MarkdownTranslationService {
             protocol: settings.protocol,
             apiBase: settings.apiBase,
             model: settings.model,
+            reasoning: normalizeReasoning(settings.reasoning),
             targetLanguage: settings.targetLanguage,
             promptVersion: TRANSLATION_PROMPT_VERSION,
         }));
@@ -120,6 +124,7 @@ export class MarkdownTranslationService {
         const connectionSettings = validateAISettings({
             ...settings,
             enabled: true,
+            reasoning: 'provider-default',
         });
         return this.aiGateway.generateText({
             settings: connectionSettings,

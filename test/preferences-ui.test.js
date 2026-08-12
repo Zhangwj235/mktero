@@ -210,6 +210,9 @@ test('tests the current AI SDK settings without exposing the key', async () => {
             <input id="mktero-ai-api-base" value="https://api.example.com/v1">
             <input id="mktero-ai-api-key" value="private-token">
             <input id="mktero-ai-model" value="example-chat">
+            <select id="mktero-ai-reasoning">
+                <option value="high" selected>High</option>
+            </select>
             <select id="mktero-ai-target-language">
                 <option value="zh-CN">Simplified Chinese</option>
             </select>
@@ -248,6 +251,7 @@ test('tests the current AI SDK settings without exposing the key', async () => {
     assert.equal(testedSettings.protocol, 'openai-chat-completions');
     assert.equal(testedSettings.apiKey, 'private-token');
     assert.equal(testedSettings.model, 'example-chat');
+    assert.equal(testedSettings.reasoning, 'high');
     assert.equal(testedSettings.requestTimeoutMs, '45000');
     assert.equal(testedSettings.maxOutputTokens, '3072');
     assert.equal(testedSettings.cacheEnabled, false);

@@ -65,6 +65,7 @@ Open `Settings -> Mktero` after installation.
 | Enable AI features | Off | Allow on-demand block translation through the configured model service |
 | AI base URL / API Key / provider / protocol / model | OpenAI Responses / empty model | Route AI calls through Vercel AI SDK Core to a hosted provider or loopback model server |
 | Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese for new translations |
+| Reasoning effort | Automatic | Let the provider choose, or request off, low, medium, high, or extra-high reasoning from supported models |
 
 The Mktero settings pane uses an aligned two-column layout for labels and
 controls, keeps Zotero's native select affordance, and uses explicit
@@ -142,7 +143,7 @@ such as Ollama or LM Studio may use HTTP and may omit the API Key when
 authentication is disabled.
 
 Translations are cached locally by document, block content, provider, protocol,
-model, target language, and prompt version. Formula-bearing blocks, image blocks,
+model, reasoning effort, target language, and prompt version. Formula-bearing blocks, image blocks,
 tables, code, and raw HTML are excluded from this MVP. Closing the tab, leaving
 translation mode, reparsing, or shutting down Mktero cancels active translation
 requests.
@@ -267,8 +268,8 @@ controlled by Zotero.
   corrections.
 - AI translation is an optional transient reading layer. It does not translate
   a whole document automatically, modify Markdown, sync through Zotero, or save
-  translations into snapshots. The first version supports compatible Chat
-  Completions text responses, not every vendor-specific or Responses API.
+  translations into snapshots. Reasoning effort is applied only when the
+  configured provider and model support it; unsupported models may ignore it.
 - Only local PDF attachments are supported. Missing or undownloaded files
   cannot be converted.
 - Text annotations require extractable PDF text. A scanned PDF may convert via

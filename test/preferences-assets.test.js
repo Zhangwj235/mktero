@@ -30,6 +30,7 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(prefs, /pref\("extensions\.mktero\.aiApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiRequestTimeoutMs", 30000\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 2048\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiReasoning", "provider-default"\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiCacheEnabled", true\)/);
     assert.match(
         prefs,
@@ -50,6 +51,9 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(pane, /preference="extensions\.mktero\.aiModel"/);
     assert.match(pane, /preference="extensions\.mktero\.aiRequestTimeoutMs"/);
     assert.match(pane, /preference="extensions\.mktero\.aiMaxOutputTokens"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiReasoning"/);
+    assert.match(pane, /<html:option value="provider-default" data-i18n="preferences\.ai\.reasoning\.auto"><\/html:option>/);
+    assert.match(pane, /<html:option value="xhigh" data-i18n="preferences\.ai\.reasoning\.xhigh"><\/html:option>/);
     assert.match(pane, /preference="extensions\.mktero\.aiCacheEnabled"/);
     assert.match(pane, /<html:option value="es-ES" data-i18n="preferences\.ai\.language\.esES"><\/html:option>/);
     assert.match(pane, /<html:option value="fr-FR" data-i18n="preferences\.ai\.language\.frFR"><\/html:option>/);
@@ -182,13 +186,13 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
         (pane.match(
             /class="mktero-setting-row mktero-(?:field|reader-font)-row"/g
         ) || []).length,
-        11
+        12
     );
     assert.equal(
         (pane.match(
             /<html:div class="mktero-(?:field|reader-font)-control(?: [^"]+)?">/g
         ) || []).length,
-        11
+        12
     );
 });
 

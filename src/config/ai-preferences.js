@@ -4,6 +4,7 @@ export const AI_PROTOCOL_PREF = 'extensions.mktero.aiProtocol';
 export const AI_API_BASE_PREF = 'extensions.mktero.aiApiBase';
 export const AI_API_KEY_PREF = 'extensions.mktero.aiApiKey';
 export const AI_MODEL_PREF = 'extensions.mktero.aiModel';
+export const AI_REASONING_PREF = 'extensions.mktero.aiReasoning';
 export const AI_TARGET_LANGUAGE_PREF = 'extensions.mktero.aiTargetLanguage';
 export const AI_REQUEST_TIMEOUT_PREF = 'extensions.mktero.aiRequestTimeoutMs';
 export const AI_MAX_OUTPUT_TOKENS_PREF = 'extensions.mktero.aiMaxOutputTokens';
@@ -27,12 +28,21 @@ export const AI_PROTOCOL_GOOGLE = 'google-generative-ai';
 
 export const AI_DEFAULT_API_BASE = 'https://api.openai.com/v1';
 export const AI_DEFAULT_TARGET_LANGUAGE = 'zh-CN';
+export const AI_DEFAULT_REASONING = 'provider-default';
 export const AI_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const AI_DEFAULT_MAX_OUTPUT_TOKENS = 2_048;
 
 const MAX_AI_API_BASE_LENGTH = 2_048;
 const MAX_AI_API_KEY_LENGTH = 16_384;
 const MAX_AI_MODEL_LENGTH = 512;
+const AI_REASONING_LEVELS = new Set([
+    AI_DEFAULT_REASONING,
+    'none',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+]);
 const AI_TARGET_LANGUAGES = new Set([
     'zh-CN',
     'zh-TW',
@@ -79,6 +89,7 @@ export function getAISettings(zotero) {
         ),
         apiKey: String(get(AI_API_KEY_PREF) || '').trim(),
         model: String(get(AI_MODEL_PREF) || '').trim(),
+        reasoning: normalizeReasoning(get(AI_REASONING_PREF)),
         targetLanguage: normalizeTargetLanguage(
             get(AI_TARGET_LANGUAGE_PREF)
         ),
@@ -151,6 +162,7 @@ export function validateAISettings(settings) {
         apiBase,
         apiKey,
         model,
+        reasoning: normalizeReasoning(settings.reasoning),
         targetLanguage: normalizeTargetLanguage(settings.targetLanguage),
         requestTimeoutMs: normalizeInteger(
             settings.requestTimeoutMs,
@@ -201,6 +213,13 @@ export function normalizeTargetLanguage(value) {
     return AI_TARGET_LANGUAGES.has(language)
         ? language
         : AI_DEFAULT_TARGET_LANGUAGE;
+}
+
+export function normalizeReasoning(value) {
+    const reasoning = String(value || '').trim();
+    return AI_REASONING_LEVELS.has(reasoning)
+        ? reasoning
+        : AI_DEFAULT_REASONING;
 }
 
 function normalizeProvider(value) {

@@ -124,6 +124,50 @@ test('returns a matching cached translation without calling Chat', async () => {
     assert.equal(calls, 0);
 });
 
+test('isolates cached translations by reasoning level', async () => {
+    const cacheInputs = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            generateText: async () => ({ text: 'Translated' }),
+        },
+        getSettings: () => ({ ...SETTINGS, reasoning: 'high' }),
+        createCacheKey: async value => {
+            cacheInputs.push(JSON.parse(value));
+            return 'reasoning-cache-key';
+        },
+    });
+
+    await service.translate({
+        documentKey: 'pdf-hash',
+        blockID: 'paragraph-1',
+        markdown: 'Source paragraph.',
+    });
+
+    assert.equal(cacheInputs[0].reasoning, 'high');
+});
+
+test('uses the automatic reasoning cache bucket for missing or invalid settings', async () => {
+    const cacheInputs = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            generateText: async () => ({ text: 'Translated' }),
+        },
+        getSettings: () => ({ ...SETTINGS, reasoning: 'not-a-level' }),
+        createCacheKey: async value => {
+            cacheInputs.push(JSON.parse(value));
+            return 'automatic-cache-key';
+        },
+    });
+
+    await service.translate({
+        documentKey: 'pdf-hash',
+        blockID: 'paragraph-1',
+        markdown: 'Source paragraph.',
+    });
+
+    assert.equal(cacheInputs[0].reasoning, 'provider-default');
+});
+
 test('tests a valid connection before AI translation is enabled', async () => {
     let request;
     const service = new MarkdownTranslationService({
@@ -133,13 +177,18 @@ test('tests a valid connection before AI translation is enabled', async () => {
                 return { text: 'OK', model: 'example-chat' };
             },
         },
-        getSettings: () => ({ ...SETTINGS, enabled: false }),
+        getSettings: () => ({
+            ...SETTINGS,
+            enabled: false,
+            reasoning: 'xhigh',
+        }),
     });
 
     const result = await service.testConnection();
 
     assert.equal(result.text, 'OK');
     assert.equal(request.settings.enabled, true);
+    assert.equal(request.settings.reasoning, 'provider-default');
     assert.equal(request.maxOutputTokens, 8);
     assert.deepEqual(request.messages, [{
         role: 'user',
