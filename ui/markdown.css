@@ -858,19 +858,19 @@ main {
 
 .markdown-translation-action {
     display: inline-flex;
-    min-width: 104px;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
     min-height: 32px;
+    flex: 0 0 32px;
     align-items: center;
     justify-content: center;
-    gap: 7px;
-    padding: 5px 10px;
+    padding: 0;
     border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
     border-radius: var(--radius-sm);
     color: var(--accent-strong);
     background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
     cursor: pointer;
-    font: 600 12px/1.25 var(--ui-font);
-    white-space: nowrap;
 }
 
 .markdown-translation-action:hover:not(:disabled),

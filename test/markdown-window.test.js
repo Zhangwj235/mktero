@@ -250,7 +250,9 @@ test('translates the document and switches between three reading modes', async (
         const translate = shadow.querySelector('#mktero-translate-document');
         const selector = shadow.querySelector('#mktero-translation-view');
         assert.equal(translate.hidden, false);
-        assert.equal(translate.textContent, 'Translate document');
+        assert.equal(translate.textContent, '');
+        assert.equal(translate.getAttribute('aria-label'), 'Translate document');
+        assert.equal(translate.getAttribute('title'), 'Translate document');
         assert.equal(
             translate.querySelector('svg')?.getAttribute('data-lucide'),
             'languages'
@@ -268,7 +270,9 @@ test('translates the document and switches between three reading modes', async (
             comparisonMarkdown: '# Paper\n\n> # 论文',
         };
         view.render(translatedModel);
-        assert.equal(translate.textContent, 'Translated');
+        assert.equal(translate.textContent, '');
+        assert.equal(translate.getAttribute('aria-label'), 'Translated');
+        assert.equal(translate.getAttribute('title'), 'Translated');
         assert.equal(selector.disabled, false);
 
         selector.options[1].setAttribute('selected', 'selected');

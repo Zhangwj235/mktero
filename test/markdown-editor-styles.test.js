@@ -398,6 +398,15 @@ test('styles secondary document actions as a toolbar popover', () => {
     assert.match(reparsing, /animation:\s*mktero-spin 0\.85s linear infinite/);
 });
 
+test('keeps document translation as a compact icon button', () => {
+    const action = ruleBody('.markdown-translation-action');
+    assert.match(action, /width:\s*32px/);
+    assert.match(action, /min-width:\s*32px/);
+    assert.match(action, /height:\s*32px/);
+    assert.match(action, /min-height:\s*32px/);
+    assert.match(action, /padding:\s*0/);
+});
+
 test('styles citation popups and temporary reference highlights', () => {
     const citation = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-citation'

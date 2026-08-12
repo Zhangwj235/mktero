@@ -868,7 +868,6 @@ class MarkdownTabView {
             correctionToggle: documentActions.correctionToggle,
             correctionToggleLabel: documentActions.correctionToggleLabel,
             translateDocument: documentActions.translateDocument,
-            translateDocumentLabel: documentActions.translateDocumentLabel,
             translationView: documentActions.translationView,
             translationViewLabel: documentActions.translationViewLabel,
             restoreCorrections: documentActions.restoreCorrections,
@@ -1095,12 +1094,6 @@ class MarkdownTabView {
                 size: 18,
             }
         ));
-        const translateDocumentLabel = this.createElement(
-            'span',
-            { class: 'markdown-translation-action-label' },
-            this.t('ai.translateDocument')
-        );
-        translateDocument.appendChild(translateDocumentLabel);
         const translationViewLabel = this.createElement(
             'label',
             {
@@ -1208,7 +1201,6 @@ class MarkdownTabView {
             correctionToggle,
             correctionToggleLabel,
             translateDocument,
-            translateDocumentLabel,
             translationView,
             translationViewLabel,
             restoreCorrections,
@@ -2038,7 +2030,6 @@ class MarkdownTabView {
             translationLabel
         );
         this.elements.translateDocument.setAttribute('title', translationLabel);
-        this.elements.translateDocumentLabel.textContent = translationLabel;
         this.elements.translationViewLabel.textContent = this.t(
             'ai.translationViewLabel'
         );
