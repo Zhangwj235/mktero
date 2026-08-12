@@ -12,7 +12,7 @@
 Mktero 是一个适用于 Zotero 7、8 和 9 的来源关联重排阅读器。它通过 MinerU
 转换本地 PDF，并在阅读优先的 Zotero 标签页中展示 Markdown 正文、公式、表格、
 图片、学术引用和标注；可选的校对模式允许修正识别错误，同时保留不可变的 MinerU
-原始结果。
+原始结果；可选的 AI 翻译可以翻译整篇文章，并在原文、译文和按块对比阅读之间切换。
 
 ![Mktero 在 Zotero 中转换、阅读和标注学术 PDF](./docs/assets/mktero-demo.gif)
 
@@ -21,6 +21,7 @@ Mktero 是一个适用于 Zotero 7、8 和 9 的来源关联重排阅读器。�
 > [!IMPORTANT]
 > Mktero 目前处于 Beta 阶段。缓存未命中时，完整 PDF 会上传到 MinerU 进行转换，
 > 因此需要 MinerU API Token。处理敏感文档前，请先阅读[缓存与隐私](#缓存与隐私)。
+> 全文 AI 翻译是独立的数据发送路径，会把文章中可翻译的 Markdown 内容块发送给所配置的 Provider。
 
 ## 快速开始
 
@@ -54,8 +55,13 @@ Mktero 是一个适用于 Zotero 7、8 和 9 的来源关联重排阅读器。�
 | Body text font | 系统衬线字体 | 可选系统衬线、Georgia、Cambria 或 Times New Roman |
 | Body text size | 18 px | 在 16–22 px 间调整 Markdown 和快照字号，同时保持宽且稳定的阅读版心 |
 | Reuse conversion results | 开启 | 复用相同 PDF 内容和解析配置对应的结果 |
+| 启用 AI 功能 | 关闭 | 通过配置的模型服务翻译整篇 Markdown 文章 |
+| 流式响应 | 开启 | 流式接收每个内容块的响应；关闭后等待每个内容块完整返回 |
+| AI Base URL / API Key / 模型厂商 / 协议 / 模型 | OpenAI Responses / 模型为空 | 通过 Vercel AI SDK Core 连接托管 Provider 或回环地址上的本地模型服务 |
+| 翻译语言 | 简体中文 | 可选择简体中文、繁体中文、英文、日文、韩文、西班牙语、法语或葡萄牙语（巴西）作为之后翻译的目标语言 |
 
-API Token 会作为普通首选项未加密地保存在当前 Zotero 配置文件中。
+MinerU API Token 和 AI API Key 都会作为普通首选项未加密地保存在当前 Zotero
+配置文件中。开始翻译前，可使用“测试连接”验证当前 AI 地址、Key、模型厂商、协议和模型。
 
 ### 打开和阅读 PDF
 
@@ -64,8 +70,8 @@ API Token 会作为普通首选项未加密地保存在当前 Zotero 配置文�
 2. Mktero 会打开临时标签页，并显示上传、转换和下载进度。存在有效缓存时会跳过
    远程转换。
 3. 使用目录、引用和图表预览、来源链接以及 Zotero 笔记面板浏览文档。
-4. 使用 Markdown 正文上方的固定工具栏调整字体和字号；右侧更多菜单包含
-   `管理校对`、`重新解析 PDF` 和 `保存快照`。
+4. 使用 Markdown 正文上方的固定工具栏调整字体和字号、翻译全文或切换阅读模式；
+   右侧更多菜单包含 `管理校对`、`重新解析 PDF` 和 `保存快照`。
 
 重新解析会再次上传 PDF，并可能消耗 MinerU 额度。新结果准备完成前，当前 Markdown
 仍可继续阅读。Mktero 标签页仅在当前会话存在，重启 Zotero 后不会自动恢复。
@@ -91,6 +97,31 @@ API Token 会作为普通首选项未加密地保存在当前 Zotero 配置文�
 如果安装了 Actions & Tags for Zotero，Mktero 会为自己拥有的阅读会话兼容执行
 `openFile` 和 `closeTab` 规则，同时避免重复触发原生阅读器动作。
 
+### 使用 AI 翻译整篇 Markdown 文章
+
+先在 `设置 -> Mktero` 中配置并启用 AI 翻译，再点击 Markdown 标签页工具栏中的
+`翻译全文`。Mktero 会按文档顺序翻译支持的顶层 Markdown 内容块，并原样保留代码、
+图片、独立公式、链接定义和原始 HTML。翻译只会在用户明确点击后开始，不会改写原始
+Markdown，也不会进入保存的快照。工具栏显示已完成内容块的进度，并允许在内容块之间
+取消。默认使用流式传输，但阅读器只在每个内容块完成后更新进度，不会按每个 token 重绘全文。
+
+翻译完成后，可以在工具栏选择 `阅读原文`、`阅读译文` 或 `对比阅读`。每次打开文档默认
+显示原文；对比阅读按内容块显示原文在上、译文在下。由于译文不再共享原 Markdown 的字符
+位置，PDF 标注和来源跳转只在阅读原文时启用。
+
+Mktero 的所有 AI 调用都通过 Vercel AI SDK Core。内置 OpenAI、Anthropic、Google
+Gemini、DeepSeek、阿里云百炼、Moonshot/Kimi 和 MiniMax 适配器，并支持自定义兼容
+服务。协议决定调用 OpenAI Responses、OpenAI Chat Completions、Open Responses、
+Anthropic Messages 或 Google Generative Language；设置页只允许选择与当前模型厂商兼容
+的协议。可用模型及其 ID 仍由厂商决定。远程地址必须使用 HTTPS；Ollama、LM Studio 等
+运行在回环地址上的本地服务可以使用 HTTP，在服务未启用认证时也可以不填 API Key。
+
+完整译文和对比阅读所需的内容块映射保存在对应 PDF 的 Markdown 缓存条目中，并按原文、
+Provider、协议、模型、思考强度、目标语言和 Prompt 版本区分。清除、替换或淘汰该 Markdown
+缓存条目时会同时删除译文。列表、引用和 GFM 表格会翻译；图片、代码、独立公式、链接定义
+和原始 HTML 保持原样。关闭标签页、重新解析、校对 Markdown 或关闭 Mktero 时，进行中的
+翻译请求都会取消。
+
 ### 保存便携 Zotero 快照
 
 选择 `保存快照` 后，Mktero 会在 PDF 所属文献条目下创建专用的
@@ -106,6 +137,7 @@ PDF 不能保存快照。
 - 将 OCR 结果、双栏正文、公式、表格、图片、列表和代码重排成连续阅读文档。
 - 在保留 MinerU 原始 Markdown 和校对历史的前提下，修正已有段落、标题和 GFM 表格
   单元格中的识别错误，并可删除多余的段落或标题。
+- 通过配置的 Vercel AI SDK Provider 翻译整篇 Markdown，并支持原文、译文和按块对比阅读。
 - 使用适合论文阅读的 STIX/Noto 衬线字体回退，并为支持的围栏代码块异步提供 Shiki
   语法高亮、语言标签和代码复制。
 - 当 MinerU 把标题提取到表格前后，或把表格标题误分配给下一张图片时，自动恢复相邻
@@ -153,15 +185,20 @@ PDF 物理页；区域坐标只用于来源跳转，不会被当作猜测的标�
 | --- | --- | --- |
 | 缓存未命中时的完整 PDF | 上传到 MinerU | Mktero 不同步 |
 | API Token | 当前 Zotero 配置文件，未加密 | 否 |
+| AI API Key | 当前 Zotero 配置文件，未加密 | 否 |
+| 用户选择全文翻译后文章中可翻译的 Markdown 内容块 | 配置的 AI Provider | Mktero 不同步 |
 | 缓存的 Markdown、图片、来源映射和 PDF 文字索引 | 当前 Zotero 配置文件，未加密 | 否 |
+| 缓存的 AI 译文 | 当前 Zotero 配置文件，未加密 | 否 |
 | 待完成 MinerU 任务的 ID 和时间戳 | 当前 Zotero 配置文件，未加密 | 否 |
 | 待同步的 Markdown 标注记录 | 当前 Zotero 配置文件，同步前未加密保存 | 否 |
 | 校对后的 Markdown 内容块及其基础图片和来源映射 | 当前 Zotero 配置文件，未加密 | 否 |
 | 已同步的 PDF 标注 | 本地 Zotero 文库 | 取决于 Zotero 设置 |
 | 保存的快照 Note、HTML、Markdown、来源映射和图片 | Zotero 条目和附件，未加密 | 取决于 Zotero 设置 |
 
-本地缓存不包含 API Token 或 PDF 标注评论。PDF 标注和本地 PDF.js 索引不会发送给
-MinerU。“复制并附带来源”只读取本地条目元数据，并将生成的结果写入系统剪贴板。
+本地缓存不包含 API Token、AI API Key 或 PDF 标注评论。PDF 标注和本地 PDF.js 索引
+不会发送给 MinerU 或 AI Provider。全文翻译会向配置的 AI Provider 发送支持的
+Markdown 内容块和翻译指令。“复制并附带来源”只读取本地条目元数据，并将生成的结果
+写入系统剪贴板。
 
 校对数据保存在当前 Zotero 配置文件中，并独立于普通转换缓存；清理缓存不会清理校对。
 校对默认只保存在当前设备，除非用户将其保存到 Zotero 快照。包含校对的快照会明确显示
@@ -178,6 +215,8 @@ MinerU。“复制并附带来源”只读取本地条目元数据，并将生�
 - Markdown 默认只读。校对模式可以替换已有段落、标题和 GFM 表格单元格的内容，也可
   删除已有段落或标题；除此之外不能改变文档结构、公式、图片或原始 HTML。标注操作与
   Markdown 校对相互独立。
+- AI 翻译是可选的本地缓存阅读层，不会自动开始，不修改原始 Markdown，不通过 Zotero
+  同步，也不会把译文写入快照。所有调用通过 Vercel AI SDK Core，并按所选模型厂商和协议路由。
 - 仅支持本地 PDF 附件；缺失或尚未下载的文件无法转换。
 - 文本标注依赖可提取的 PDF 文字层。扫描版 PDF 可能可以通过 OCR 转换，但仍无法生成
   精确的 Zotero 高亮矩形。

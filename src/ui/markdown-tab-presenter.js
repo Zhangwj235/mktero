@@ -13,6 +13,7 @@ import {
 } from '../config/reader-preferences.js';
 import { createLocalization } from '../i18n/localization.js';
 import { createMarkdownTabView } from './markdown-window.js';
+import { createEmptyTranslationState } from './markdown-tab-state.js';
 
 const TAB_TYPE = 'mktero';
 const TAB_ICON = 'markdown';
@@ -63,6 +64,9 @@ export class MarkdownTabPresenter {
         onCommitCorrection,
         onRestoreCorrection,
         onRestoreAllCorrections,
+        onTranslateDocument,
+        onCancelDocumentTranslation,
+        onSetTranslationView,
         onChangeAnnotationColor,
         onUpdateAnnotationComment,
         onDeleteAnnotation,
@@ -114,6 +118,16 @@ export class MarkdownTabPresenter {
             if (onRestoreAllCorrections !== undefined) {
                 existing.model.onRestoreAllCorrections
                     = onRestoreAllCorrections;
+            }
+            if (onTranslateDocument !== undefined) {
+                existing.model.onTranslateDocument = onTranslateDocument;
+            }
+            if (onCancelDocumentTranslation !== undefined) {
+                existing.model.onCancelDocumentTranslation
+                    = onCancelDocumentTranslation;
+            }
+            if (onSetTranslationView !== undefined) {
+                existing.model.onSetTranslationView = onSetTranslationView;
             }
             if (onChangeAnnotationColor) {
                 existing.model.onChangeAnnotationColor = onChangeAnnotationColor;
@@ -168,6 +182,9 @@ export class MarkdownTabPresenter {
                 onCommitCorrection,
                 onRestoreCorrection,
                 onRestoreAllCorrections,
+                onTranslateDocument,
+                onCancelDocumentTranslation,
+                onSetTranslationView,
                 onChangeAnnotationColor,
                 onUpdateAnnotationComment,
                 onDeleteAnnotation,
@@ -463,6 +480,7 @@ function createInitialModel(
         correctionCount: 0,
         hasCorrections: false,
         correctionMode: false,
+        ...createEmptyTranslationState(),
         preserveContent: false,
         resumingTask: false,
         warnings: [],

@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import * as preferencesUI from '../src/ui/preferences.js';
+import {
+    withSuccessfulClearNotification,
+} from '../src/cache/cache-events.js';
 
 const {
     createCombinedLocalCache,
@@ -20,7 +23,7 @@ test('formats cache statistics for the preferences pane', () => {
     );
 });
 
-test('combines Markdown and PDF index cache usage and clears both', async () => {
+test('combines every local cache usage and clears every store', async () => {
     const cleared = [];
     const cache = createCombinedLocalCache([{
         getStats: async () => ({ entries: 2, sizeBytes: 1536 }),
@@ -28,14 +31,21 @@ test('combines Markdown and PDF index cache usage and clears both', async () => 
     }, {
         getStats: async () => ({ entries: 3, sizeBytes: 2560 }),
         clear: async () => { cleared.push('pdf-index'); },
+    }, {
+        getStats: async () => ({ entries: 4, sizeBytes: 4096 }),
+        clear: async () => { cleared.push('translations'); },
     }]);
 
     assert.deepEqual(await cache.getStats(), {
-        entries: 5,
-        sizeBytes: 4096,
+        entries: 9,
+        sizeBytes: 8192,
     });
     await cache.clear();
-    assert.deepEqual(cleared.sort(), ['markdown', 'pdf-index']);
+    assert.deepEqual(cleared.sort(), [
+        'markdown',
+        'pdf-index',
+        'translations',
+    ]);
 });
 
 test('loads cache usage and clears it from the preferences pane', async () => {
@@ -86,6 +96,23 @@ test('loads cache usage and clears it from the preferences pane', async () => {
     assert.equal(button.disabled, false);
     assert.equal(status.textContent, 'No local cache entries');
     assert.equal(status.attributes['aria-busy'], 'false');
+});
+
+test('notifies after Markdown cache deletion when another cache fails', async () => {
+    const notifications = [];
+    const cache = createCombinedLocalCache([
+        withSuccessfulClearNotification({
+            getStats: async () => ({ entries: 1, sizeBytes: 10 }),
+            clear: async () => {},
+        }, () => notifications.push('markdown-cleared')),
+        {
+            getStats: async () => ({ entries: 1, sizeBytes: 10 }),
+            clear: async () => { throw new Error('PDF index unavailable'); },
+        },
+    ]);
+
+    await assert.rejects(() => cache.clear(), /PDF index unavailable/);
+    assert.deepEqual(notifications, ['markdown-cleared']);
 });
 
 test('restores cache controls when clearing the cache fails', async () => {
@@ -188,6 +215,122 @@ test('configures the Markdown reader font size from preferences', async () => {
     font.value = 'georgia';
     font.dispatchEvent(new dom.window.Event('change'));
     assert.equal(writes.length, 2);
+});
+
+test('tests the current AI SDK settings without exposing the key', async () => {
+    const dom = new JSDOM(`<!doctype html><body>
+        <section id="mktero-preferences-pane">
+            <input id="mktero-ai-enabled" type="checkbox" checked>
+            <select id="mktero-ai-provider">
+                <option value="custom">Custom</option>
+            </select>
+            <select id="mktero-ai-protocol">
+                <option value="openai-chat-completions">OpenAI Chat Completions</option>
+            </select>
+            <input id="mktero-ai-api-base" value="https://api.example.com/v1">
+            <input id="mktero-ai-api-key" value="private-token">
+            <input id="mktero-ai-model" value="example-chat">
+            <select id="mktero-ai-reasoning">
+                <option value="high" selected>High</option>
+            </select>
+            <select id="mktero-ai-target-language">
+                <option value="zh-CN">Simplified Chinese</option>
+            </select>
+            <input id="mktero-ai-request-timeout" value="45000">
+            <input id="mktero-ai-max-output-tokens" value="3072">
+            <input id="mktero-ai-streaming" type="checkbox" checked>
+            <button id="mktero-ai-test"></button>
+            <span id="mktero-ai-test-status"></span>
+            <span id="mktero-cache-status"></span>
+            <button id="mktero-clear-cache"></button>
+        </section>
+    </body>`);
+    let testedSettings;
+    const controller = createPreferencesController({
+        document: dom.window.document,
+        zotero: {
+            Prefs: { get: () => null },
+            logError: () => {},
+        },
+        cache: {
+            getStats: async () => ({ entries: 0, sizeBytes: 0 }),
+            clear: async () => {},
+        },
+        testAIConnection: async settings => {
+            testedSettings = settings;
+            return { text: 'OK' };
+        },
+    });
+
+    await controller.init();
+    dom.window.document.getElementById('mktero-ai-test').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(testedSettings.apiBase, 'https://api.example.com/v1');
+    assert.equal(testedSettings.provider, 'custom');
+    assert.equal(testedSettings.protocol, 'openai-chat-completions');
+    assert.equal(testedSettings.apiKey, 'private-token');
+    assert.equal(testedSettings.model, 'example-chat');
+    assert.equal(testedSettings.reasoning, 'high');
+    assert.equal(testedSettings.requestTimeoutMs, '45000');
+    assert.equal(testedSettings.maxOutputTokens, '3072');
+    assert.equal(testedSettings.streaming, true);
+    assert.equal(
+        dom.window.document.getElementById('mktero-ai-test-status').textContent,
+        'Connection successful'
+    );
+    assert.doesNotMatch(
+        dom.window.document.getElementById('mktero-ai-test-status').textContent,
+        /private-token/
+    );
+    controller.destroy();
+});
+
+test('shows legacy OpenAI-compatible settings as custom Chat Completions', async () => {
+    const dom = new JSDOM(`<!doctype html><body>
+        <section id="mktero-preferences-pane">
+            <select id="mktero-ai-provider">
+                <option value="openai">OpenAI</option>
+                <option value="custom">Custom</option>
+            </select>
+            <select id="mktero-ai-protocol">
+                <option value="openai-responses">OpenAI Responses</option>
+                <option value="openai-chat-completions">Chat Completions</option>
+                <option value="open-responses">Open Responses</option>
+                <option value="anthropic-messages">Anthropic Messages</option>
+                <option value="google-generative-ai">Google</option>
+            </select>
+            <span id="mktero-cache-status"></span>
+            <button id="mktero-clear-cache"></button>
+        </section>
+    </body>`);
+    const values = new Map([
+        ['extensions.mktero.aiProvider', 'openai-compatible'],
+        ['extensions.mktero.aiProtocol', 'openai-responses'],
+    ]);
+    const controller = createPreferencesController({
+        document: dom.window.document,
+        zotero: {
+            Prefs: { get: key => values.get(key) },
+            logError: assert.fail,
+        },
+        cache: {
+            getStats: async () => ({ entries: 0, sizeBytes: 0 }),
+            clear: async () => {},
+        },
+    });
+
+    await controller.init();
+
+    assert.equal(
+        dom.window.document.getElementById('mktero-ai-provider').value,
+        'custom'
+    );
+    assert.equal(
+        dom.window.document.getElementById('mktero-ai-protocol').value,
+        'openai-chat-completions'
+    );
+    controller.destroy();
 });
 
 test('localizes preferences from Zotero without storing a language choice', async () => {

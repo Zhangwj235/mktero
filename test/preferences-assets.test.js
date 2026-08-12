@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('ships MinerU token, cache preferences, and localized Markdown UI assets', async () => {
+test('ships conversion, AI, cache preferences, and localized Markdown UI assets', async () => {
     const [
         prefs,
         pane,
@@ -24,6 +24,14 @@ test('ships MinerU token, cache preferences, and localized Markdown UI assets', 
     assert.match(prefs, /pref\("extensions\.mktero\.mineruApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.cacheEnabled", true\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.readerFontSize", 18\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiEnabled", false\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiProvider", "openai"\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiProtocol", "openai-responses"\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiApiKey", ""\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiRequestTimeoutMs", 30000\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 2048\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiReasoning", "provider-default"\)/);
+    assert.doesNotMatch(prefs, /extensions\.mktero\.aiCacheEnabled/);
     assert.match(
         prefs,
         /pref\("extensions\.mktero\.readerFont", "system-serif"\)/
@@ -35,6 +43,22 @@ test('ships MinerU token, cache preferences, and localized Markdown UI assets', 
     assert.match(pane, /preference="extensions\.mktero\.cacheEnabled"/);
     assert.match(pane, /preference="extensions\.mktero\.readerFontSize"/);
     assert.match(pane, /preference="extensions\.mktero\.readerFont"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiEnabled"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiProvider"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiProtocol"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiApiBase"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiApiKey"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiModel"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiRequestTimeoutMs"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiMaxOutputTokens"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiReasoning"/);
+    assert.match(pane, /<html:option value="provider-default" data-i18n="preferences\.ai\.reasoning\.auto"><\/html:option>/);
+    assert.match(pane, /<html:option value="xhigh" data-i18n="preferences\.ai\.reasoning\.xhigh"><\/html:option>/);
+    assert.doesNotMatch(pane, /extensions\.mktero\.aiCacheEnabled/);
+    assert.match(pane, /<html:option value="es-ES" data-i18n="preferences\.ai\.language\.esES"><\/html:option>/);
+    assert.match(pane, /<html:option value="fr-FR" data-i18n="preferences\.ai\.language\.frFR"><\/html:option>/);
+    assert.match(pane, /<html:option value="pt-BR" data-i18n="preferences\.ai\.language\.ptBR"><\/html:option>/);
+    assert.match(pane, /id="mktero-ai-test"/);
     assert.match(pane, /id="mktero-reader-font-family"/);
     assert.match(pane, /id="mktero-reader-font-size-value"/);
     assert.match(pane, /id="mktero-clear-cache"/);
@@ -44,6 +68,8 @@ test('ships MinerU token, cache preferences, and localized Markdown UI assets', 
     assert.doesNotMatch(visiblePreferenceText, /mineru/i);
     assert.match(script, /createZoteroMarkdownCache/);
     assert.match(script, /createZoteroPDFTextIndexCache/);
+    assert.match(script, /createZoteroTranslationCache/);
+    assert.match(script, /AISDKGateway/);
     assert.match(script, /createCombinedLocalCache/);
     assert.doesNotMatch(script, /setMkteroLanguagePreference/);
     assert.match(bootstrap, /new MinerUClient/);
@@ -68,13 +94,146 @@ test('ships responsive settings cards and a cache switch', async () => {
     ]);
 
     assert.match(pane, /class="mktero-settings-card"/);
-    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 1);
-    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 1);
-    assert.equal((pane.match(/role="switch"/g) || []).length, 1);
+    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 3);
+    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 3);
+    assert.equal((pane.match(/role="switch"/g) || []).length, 3);
+    assert.match(pane, /id="mktero-ai-streaming"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiStreaming"/);
     assert.match(styles, /\.mktero-settings-card\s*\{[\s\S]*border-radius:/);
     assert.match(styles, /\.mktero-switch-input:checked\s*\+\s*\.mktero-switch/);
     assert.match(styles, /\.mktero-switch::before/);
     assert.match(styles, /@media\s*\(max-width:/);
+});
+
+test('keeps preference inputs visibly distinct from the settings card', async () => {
+    const styles = await readFile(
+        new URL('../ui/preferences.css', import.meta.url),
+        'utf8'
+    );
+
+    assert.match(
+        styles,
+        /\.mktero-field-control input,[\s\S]*?background-color:\s*color-mix\(/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control input,[\s\S]*?color:\s*CanvasText/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control input,[\s\S]*?border:\s*1px\s+solid\s+color-mix\(/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control input,[\s\S]*?opacity:\s*1/s
+    );
+});
+
+test('does not add a second native arrow to preference selects', async () => {
+    const styles = await readFile(
+        new URL('../ui/preferences.css', import.meta.url),
+        'utf8'
+    );
+    const fieldRule = styles.match(
+        /\.mktero-field-control input,\s*\.mktero-field-control select\s*\{([\s\S]*?)\}/
+    )?.[1] || '';
+
+    assert.ok(fieldRule);
+    assert.doesNotMatch(fieldRule, /appearance:\s*auto/);
+});
+
+test('keeps preference fields in an aligned responsive flex layout', async () => {
+    const [pane, styles] = await Promise.all([
+        readFile(new URL('../ui/preferences.xhtml', import.meta.url), 'utf8'),
+        readFile(new URL('../ui/preferences.css', import.meta.url), 'utf8'),
+    ]);
+
+    assert.match(
+        styles,
+        /#mktero-preferences-pane\s*\{[\s\S]*?padding:\s*8px\s+20px\s+36px/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-row\s*\{[\s\S]*?align-items:\s*flex-start/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-reader-font-row\s*\{[\s\S]*?align-items:\s*center/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control\s*\{[\s\S]*?flex:\s*0\s+1\s+460px[\s\S]*?width:\s*460px[\s\S]*?max-width:\s*48%/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-row\s*>\s*\.mktero-setting-copy[\s\S]*?min-width:\s*240px/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control input,[\s\S]*?min-width:\s*0/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-reader-font-control input,[\s\S]*?min-width:\s*0/s
+    );
+    assert.match(
+        styles,
+        /@media\s*\(max-width:\s*700px\)[\s\S]*?\.mktero-field-row,[\s\S]*?flex-direction:\s*column/s
+    );
+    assert.doesNotMatch(
+        styles,
+        /\.mktero-field-row,[\s\S]*?display:\s*grid/s
+    );
+    assert.equal(
+        (pane.match(
+            /class="mktero-setting-row mktero-(?:field|reader-font)-row"/g
+        ) || []).length,
+        12
+    );
+    assert.equal(
+        (pane.match(
+            /<html:div class="mktero-(?:field|reader-font)-control(?: [^"]+)?">/g
+        ) || []).length,
+        12
+    );
+});
+
+test('keeps choice and numeric AI controls compact without native spinners', async () => {
+    const [pane, styles] = await Promise.all([
+        readFile(new URL('../ui/preferences.xhtml', import.meta.url), 'utf8'),
+        readFile(new URL('../ui/preferences.css', import.meta.url), 'utf8'),
+    ]);
+
+    assert.match(
+        pane,
+        /class="mktero-field-control mktero-field-control-compact"[\s\S]*?id="mktero-ai-target-language"/
+    );
+    assert.equal(
+        (pane.match(
+            /class="mktero-field-control mktero-field-control-compact mktero-field-control-numeric"/g
+        ) || []).length,
+        2
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control-compact\s*\{[\s\S]*?flex-basis:\s*320px[\s\S]*?width:\s*320px[\s\S]*?max-width:\s*36%/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control-numeric\s*\{[\s\S]*?flex-basis:\s*220px[\s\S]*?width:\s*220px/s
+    );
+    assert.match(
+        styles,
+        /\.mktero-field-control input\[type='number'\]\s*\{[\s\S]*?-moz-appearance:\s*textfield/s
+    );
+    assert.match(
+        styles,
+        /::-webkit-inner-spin-button[\s\S]*?appearance:\s*none/s
+    );
+    assert.match(
+        styles,
+        /@media\s*\(max-width:\s*700px\)[\s\S]*?\.mktero-field-control-compact\s*\{[\s\S]*?width:\s*min\(320px,\s*100%\)[\s\S]*?max-width:\s*100%/s
+    );
 });
 
 test('presents every preference group as one cohesive settings card', async () => {
@@ -83,8 +242,8 @@ test('presents every preference group as one cohesive settings card', async () =
         readFile(new URL('../ui/preferences.css', import.meta.url), 'utf8'),
     ]);
 
-    assert.equal((pane.match(/class="mktero-settings-card"/g) || []).length, 3);
-    assert.equal((pane.match(/class="mktero-preferences-section"/g) || []).length, 3);
+    assert.equal((pane.match(/class="mktero-settings-card"/g) || []).length, 4);
+    assert.equal((pane.match(/class="mktero-preferences-section"/g) || []).length, 4);
     assert.match(
         pane,
         /id="mktero-mineru-api-key"[\s\S]*aria-describedby="mktero-token-help mktero-token-storage-note"/

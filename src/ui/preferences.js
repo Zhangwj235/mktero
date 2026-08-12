@@ -1,7 +1,22 @@
 import { createZoteroMarkdownCache } from '../cache/markdown-cache.js';
 import {
+    notifyLocalCacheCleared,
+    withSuccessfulClearNotification,
+} from '../cache/cache-events.js';
+import {
     createZoteroPDFTextIndexCache,
 } from '../cache/pdf-text-index-cache.js';
+import { createZoteroTranslationCache } from '../cache/translation-cache.js';
+import {
+    AI_PROTOCOL_PREF,
+    getAIProtocolsForProvider,
+    getAISettings,
+} from '../config/ai-preferences.js';
+import { AISDKGateway } from '../ai/ai-sdk-gateway.js';
+import {
+    MarkdownTranslationService,
+} from '../ai/markdown-translation-service.js';
+import { createRuntimeAbortController } from '../platform/abort-controller.js';
 import { getZoteroLocale } from '../config/mineru-preferences.js';
 import {
     getMarkdownReaderFont,
@@ -63,6 +78,8 @@ export function createPreferencesController({
     localization = createLocalization({
         zoteroLocale: getZoteroLocale(zotero, services),
     }),
+    testAIConnection = null,
+    createAbortController = createRuntimeAbortController,
 }) {
     const status = document.getElementById('mktero-cache-status');
     const clearButton = document.getElementById('mktero-clear-cache');
@@ -75,8 +92,13 @@ export function createPreferencesController({
     const readerFontInput = document.getElementById(
         'mktero-reader-font-family'
     );
+    const aiTestButton = document.getElementById('mktero-ai-test');
+    const aiTestStatus = document.getElementById('mktero-ai-test-status');
+    const aiProviderInput = document.getElementById('mktero-ai-provider');
+    const aiProtocolInput = document.getElementById('mktero-ai-protocol');
     const t = (key, variables) => localization.t(key, variables);
     let initialized = false;
+    let aiTestController = null;
 
     function localize() {
         localizePreferencesDocument(document, localization);
@@ -114,6 +136,36 @@ export function createPreferencesController({
         readerFontInput.addEventListener('change', updateReaderFont);
     }
 
+    function updateAIProtocolOptions({ persist = true } = {}) {
+        if (!aiProviderInput || !aiProtocolInput) return;
+        const protocols = getAIProtocolsForProvider(aiProviderInput.value);
+        for (const option of aiProtocolInput.options) {
+            const available = protocols.includes(option.value);
+            option.hidden = !available;
+            option.disabled = !available;
+        }
+        if (!protocols.includes(aiProtocolInput.value)) {
+            aiProtocolInput.value = protocols[0] || '';
+            if (persist && aiProtocolInput.value) {
+                zotero?.Prefs?.set?.(
+                    AI_PROTOCOL_PREF,
+                    aiProtocolInput.value,
+                    true
+                );
+            }
+        }
+        aiProtocolInput.disabled = protocols.length < 2;
+    }
+
+    function initializeAIProvider() {
+        if (!aiProviderInput || !aiProtocolInput) return;
+        const settings = getAISettings(zotero);
+        aiProviderInput.value = settings.provider;
+        aiProtocolInput.value = settings.protocol;
+        updateAIProtocolOptions({ persist: false });
+        aiProviderInput.addEventListener('change', updateAIProtocolOptions);
+    }
+
     async function refresh() {
         status.setAttribute('aria-busy', 'true');
         try {
@@ -146,12 +198,45 @@ export function createPreferencesController({
         }
     }
 
+    async function testAI() {
+        if (!aiTestButton || typeof testAIConnection !== 'function') return;
+        aiTestController?.abort?.();
+        aiTestController = createAbortController();
+        const controller = aiTestController;
+        aiTestButton.disabled = true;
+        if (aiTestStatus) aiTestStatus.textContent = t('preferences.ai.testing');
+        try {
+            await testAIConnection(
+                readAISettingsFromControls(document, zotero),
+                controller.signal
+            );
+            if (aiTestController === controller && aiTestStatus) {
+                aiTestStatus.textContent = t('preferences.ai.testSuccess');
+            }
+        }
+        catch (error) {
+            if (controller.signal?.aborted) return;
+            zotero.logError?.(error);
+            if (aiTestController === controller && aiTestStatus) {
+                aiTestStatus.textContent = t(aiTestErrorKey(error));
+            }
+        }
+        finally {
+            if (aiTestController === controller) {
+                aiTestController = null;
+                aiTestButton.disabled = false;
+            }
+        }
+    }
+
     return {
         async init() {
             if (initialized) return;
             initialized = true;
             clearButton.addEventListener('click', clear);
+            aiTestButton?.addEventListener('click', testAI);
             localize();
+            initializeAIProvider();
             initializeReaderFont();
             initializeReaderFontSize();
             await refresh();
@@ -160,6 +245,13 @@ export function createPreferencesController({
             if (!initialized) return;
             initialized = false;
             clearButton.removeEventListener('click', clear);
+            aiTestButton?.removeEventListener('click', testAI);
+            aiTestController?.abort?.();
+            aiTestController = null;
+            aiProviderInput?.removeEventListener(
+                'change',
+                updateAIProtocolOptions
+            );
             readerFontSizeInput?.removeEventListener(
                 'input',
                 updateReaderFontSize
@@ -167,6 +259,44 @@ export function createPreferencesController({
             readerFontInput?.removeEventListener('change', updateReaderFont);
         },
     };
+}
+
+export function readAISettingsFromControls(document, zotero) {
+    const settings = getAISettings(zotero);
+    const value = id => document.getElementById(id)?.value;
+    return {
+        ...settings,
+        enabled: document.getElementById('mktero-ai-enabled')?.checked
+            ?? settings.enabled,
+        provider: value('mktero-ai-provider') ?? settings.provider,
+        protocol: value('mktero-ai-protocol') ?? settings.protocol,
+        apiBase: value('mktero-ai-api-base') ?? settings.apiBase,
+        apiKey: value('mktero-ai-api-key') ?? settings.apiKey,
+        model: value('mktero-ai-model') ?? settings.model,
+        reasoning: value('mktero-ai-reasoning') ?? settings.reasoning,
+        targetLanguage: value('mktero-ai-target-language')
+            ?? settings.targetLanguage,
+        requestTimeoutMs: value('mktero-ai-request-timeout')
+            ?? settings.requestTimeoutMs,
+        maxOutputTokens: value('mktero-ai-max-output-tokens')
+            ?? settings.maxOutputTokens,
+        streaming: document.getElementById('mktero-ai-streaming')
+            ?.checked ?? settings.streaming,
+    };
+}
+
+function aiTestErrorKey(error) {
+    if (error?.code === 'AI_AUTH_ERROR') {
+        return 'preferences.ai.testAuthenticationFailed';
+    }
+    if (error?.code === 'AI_RATE_LIMITED') {
+        return 'preferences.ai.testRateLimited';
+    }
+    if (error?.code === 'AI_CONFIGURATION_ERROR'
+        || error?.code === 'AI_PROVIDER_UNSUPPORTED') {
+        return 'preferences.ai.testConfigurationFailed';
+    }
+    return 'preferences.ai.testFailed';
 }
 
 export function localizePreferencesDocument(document, localization) {
@@ -245,19 +375,45 @@ globalThis.MkteroPreferences = {
         const document = event.target?.ownerDocument
             || event.currentTarget?.ownerDocument
             || globalThis.document;
+        const markdownCache = createZoteroMarkdownCache({
+            zotero: Zotero,
+            ioUtils: IOUtils,
+            pathUtils: PathUtils,
+        });
         const cache = createCombinedLocalCache([
-            createZoteroMarkdownCache({
-                zotero: Zotero,
-                ioUtils: IOUtils,
-                pathUtils: PathUtils,
-            }),
+            withSuccessfulClearNotification(markdownCache, () => (
+                notifyLocalCacheCleared(
+                    typeof Services === 'undefined' ? null : Services
+                )
+            )),
             createZoteroPDFTextIndexCache({
                 zotero: Zotero,
                 ioUtils: IOUtils,
                 pathUtils: PathUtils,
             }),
+            createZoteroTranslationCache({
+                zotero: Zotero,
+                ioUtils: IOUtils,
+                pathUtils: PathUtils,
+            }),
         ]);
-        const controller = createPreferencesController({ document, zotero: Zotero, cache });
+        const aiGateway = new AISDKGateway({
+            createAbortController: createRuntimeAbortController,
+            runtimeWindow: document?.defaultView,
+        });
+        const translationService = new MarkdownTranslationService({
+            aiGateway,
+            getSettings: () => getAISettings(Zotero),
+        });
+        const controller = createPreferencesController({
+            document,
+            zotero: Zotero,
+            cache,
+            testAIConnection: (settings, signal) => (
+                translationService.testConnection({ settings, signal })
+            ),
+            createAbortController: createRuntimeAbortController,
+        });
         await controller.init();
         return () => controller.destroy();
     },

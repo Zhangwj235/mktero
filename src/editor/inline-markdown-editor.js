@@ -192,6 +192,34 @@ export function createInlineMarkdownEditor({
     let activeTableCorrection = null;
     let view;
     let correctionToolbar;
+    let stalledViewportRepairFrame = null;
+    const cancelStalledViewportRepair = () => {
+        if (stalledViewportRepairFrame === null) return;
+        ownerWindow.cancelAnimationFrame?.(stalledViewportRepairFrame);
+        stalledViewportRepairFrame = null;
+    };
+    const deferStalledViewportRepair = scrollTop => {
+        cancelStalledViewportRepair();
+        if (typeof ownerWindow.requestAnimationFrame !== 'function') return;
+        stalledViewportRepairFrame = ownerWindow.requestAnimationFrame(() => {
+            stalledViewportRepairFrame = null;
+            if (destroyed) return;
+            activateDOMGlobals(ownerWindow);
+            try {
+                view.measure();
+            }
+            catch {
+                // Keep the rendered viewport when host geometry is unavailable.
+            }
+            finally {
+                if (!destroyed) view.scrollDOM.scrollTop = scrollTop;
+            }
+        });
+    };
+    const repairViewport = () => repairStalledViewport(
+        view,
+        deferStalledViewportRepair
+    );
     const removeDOMActivation = installDOMActivation(
         parent,
         ownerWindow,
@@ -206,7 +234,7 @@ export function createInlineMarkdownEditor({
             const isEditorScroll = event.type === 'scroll'
                 && event.target === view.scrollDOM;
             const viewportRepaired = isEditorScroll
-                && repairStalledViewport(view);
+                && repairViewport();
             view.requestMeasure();
             if (isEditorScroll) {
                 onViewportChange?.(editorViewportOffset(view));
@@ -473,9 +501,10 @@ export function createInlineMarkdownEditor({
         activeCorrection = null;
         correctionToolbar?.hide();
     };
-    const cancelActiveCorrection = () => {
-        if (correctionBusy) return;
+    const cancelActiveCorrection = ({ force = false } = {}) => {
+        if (correctionBusy && !force) return false;
         endActiveCorrection({ revert: true });
+        return true;
     };
     const commitActiveCorrection = async () => {
         if (!activeCorrection || correctionBusy || !activeCorrection.dirty) {
@@ -643,6 +672,7 @@ export function createInlineMarkdownEditor({
     let currentSourceMap = [];
     const setDocument = ({ markdown, annotationOverlay, sourceMap }) => {
         activateDOMGlobals(ownerWindow);
+        const value = String(markdown || '');
         activeTableCorrection?.cancel?.({
             focus: false,
             force: true,
@@ -658,7 +688,6 @@ export function createInlineMarkdownEditor({
             feature.highlight.cancel();
         }
         annotationPopup.close();
-        const value = String(markdown || '');
         currentSourceMap = Array.isArray(sourceMap) ? sourceMap : [];
         const effects = [
             ...referenceFeatureList.map(feature => feature.effect.of(null)),
@@ -718,7 +747,7 @@ export function createInlineMarkdownEditor({
                     correctedBlockIDs,
                 }),
             });
-            repairStalledViewport(view);
+            repairViewport();
         },
         focus() {
             activateDOMGlobals(ownerWindow);
@@ -773,6 +802,7 @@ export function createInlineMarkdownEditor({
                     startCorrectionFromDoubleClick,
                     true
                 );
+                cancelStalledViewportRepair();
                 correctionToolbar?.destroy();
                 annotationPopup.destroy();
                 imagePreview.destroy();
@@ -945,7 +975,7 @@ function editorViewportOffset(editorView) {
     }
 }
 
-function repairStalledViewport(editorView) {
+function repairStalledViewport(editorView, deferRepair = () => {}) {
     if (editorView.inView) return false;
     const scrollTop = Number(editorView.scrollDOM?.scrollTop);
     const clientHeight = Number(editorView.scrollDOM?.clientHeight);
@@ -969,7 +999,12 @@ function repairStalledViewport(editorView) {
         editorView.dispatch({
             effects: EditorView.scrollIntoView(centerOffset, { y: 'center' }),
         });
-        editorView.measure();
+        try {
+            editorView.measure();
+        }
+        catch {
+            deferRepair(scrollTop);
+        }
     }
     finally {
         editorView.scrollDOM.scrollTop = scrollTop;

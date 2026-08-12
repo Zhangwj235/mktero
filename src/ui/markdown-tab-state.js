@@ -21,6 +21,12 @@ const READY_RESULT_FIELDS = [
     'correctionCount',
     'hasCorrections',
     'correctionMode',
+    'translationView',
+    'translationStatus',
+    'translationProgress',
+    'translatedMarkdown',
+    'comparisonMarkdown',
+    'translationError',
 ];
 
 export function snapshotReadyResult(model) {
@@ -46,6 +52,7 @@ export function createConversionLoadingChanges(
             warningAction: null,
             preserveContent: true,
             resumingTask: false,
+            ...createEmptyTranslationState(),
         };
     }
     return {
@@ -64,6 +71,7 @@ export function createConversionLoadingChanges(
         correctionCount: 0,
         hasCorrections: false,
         correctionMode: false,
+        ...createEmptyTranslationState(),
         error: '',
         errorAction: null,
         warningAction: null,
@@ -92,6 +100,7 @@ export function createConversionReadyChanges(result) {
         correctionCount: 0,
         hasCorrections: false,
         correctionMode: false,
+        ...createEmptyTranslationState(),
         ...result,
         status: 'ready',
         progress: 100,
@@ -122,6 +131,7 @@ export function createConversionFailureChanges(
             warningAction: errorAction,
             preserveContent: false,
             resumingTask: false,
+            ...createEmptyTranslationState(),
         };
     }
     return {
@@ -131,5 +141,16 @@ export function createConversionFailureChanges(
         warningAction: null,
         preserveContent: false,
         resumingTask: false,
+    };
+}
+
+export function createEmptyTranslationState() {
+    return {
+        translationView: 'original',
+        translationStatus: 'none',
+        translationProgress: 0,
+        translatedMarkdown: '',
+        comparisonMarkdown: '',
+        translationError: '',
     };
 }

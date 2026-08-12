@@ -9,12 +9,21 @@ import {
     createMinerUCacheKey,
     createZoteroMarkdownCache,
 } from './cache/markdown-cache.js';
+import { observeLocalCacheCleared } from './cache/cache-events.js';
 import {
     createZoteroPDFTextIndexCache,
 } from './cache/pdf-text-index-cache.js';
 import {
     createZoteroMarkdownAnnotationStore,
 } from './cache/markdown-annotation-store.js';
+import { getAISettings } from './config/ai-preferences.js';
+import { AISDKGateway } from './ai/ai-sdk-gateway.js';
+import {
+    MarkdownTranslationService,
+} from './ai/markdown-translation-service.js';
+import {
+    TranslationRequestTracker,
+} from './ai/translation-request-tracker.js';
 import { MarkdownDocumentService } from './core/markdown-document-service.js';
 import {
     createMarkdownRevisionSessionRegistry,
@@ -106,6 +115,7 @@ import {
     createConversionLoadingChanges,
     createConversionProgressChanges,
     createConversionReadyChanges,
+    createEmptyTranslationState,
     snapshotReadyResult,
 } from './ui/markdown-tab-state.js';
 
@@ -114,6 +124,7 @@ const runtime = {
     service: null,
     presenter: null,
     cache: null,
+    translationService: null,
     revisionStore: null,
     revisionSessions: null,
     pdfTextIndexCache: null,
@@ -129,10 +140,12 @@ const runtime = {
     clipboard: null,
     evidenceReference: null,
     disposeAnnotationObserver: null,
+    disposeCacheObserver: null,
     annotationOverlayRefresher: null,
     localAnnotations: null,
     disposeToolbar: null,
     contextMenus: new Map(),
+    translationRequests: null,
     pdfIndexOperations: new PDFIndexOperationTracker(),
 };
 
@@ -175,6 +188,18 @@ globalThis.startup = async function startup({ id, rootURI }) {
         pathUtils: PathUtils,
     });
     runtime.cache = cache;
+    runtime.translationService = new MarkdownTranslationService({
+        aiGateway: new AISDKGateway({
+            createAbortController: createZoteroAbortController,
+            runtimeWindow: Zotero.getMainWindow?.(),
+        }),
+        cache,
+        getSettings: () => getAISettings(Zotero),
+        onCacheError: error => Zotero.logError?.(error),
+    });
+    runtime.translationRequests = new TranslationRequestTracker({
+        createAbortController: createZoteroAbortController,
+    });
     runtime.revisionStore = createZoteroMarkdownRevisionStore({
         zotero: Zotero,
         ioUtils: IOUtils,
@@ -304,6 +329,10 @@ globalThis.startup = async function startup({ id, rootURI }) {
             onError: error => Zotero.logError?.(error),
         }
     );
+    runtime.disposeCacheObserver = observeLocalCacheCleared(
+        typeof Services === 'undefined' ? null : Services,
+        resetOpenDocumentTranslations
+    );
     cache.prune().catch(error => Zotero.logError(error));
     pdfTextIndexCache.prune().catch(error => Zotero.logError(error));
     pendingTasks.prune().catch(error => Zotero.logError(error));
@@ -327,8 +356,10 @@ globalThis.startup = async function startup({ id, rootURI }) {
 
 globalThis.shutdown = function shutdown() {
     abortAllConversions();
+    abortAllTranslations();
     destroyAllRevisionSessions();
     runtime.disposeAnnotationObserver?.();
+    runtime.disposeCacheObserver?.();
     runtime.localAnnotations?.dispose();
     runtime.pdfAnnotationLocator?.dispose();
     runtime.annotationOverlayRefresher?.dispose();
@@ -343,6 +374,8 @@ globalThis.shutdown = function shutdown() {
     runtime.presenter = null;
     runtime.service = null;
     runtime.cache = null;
+    runtime.translationService = null;
+    runtime.translationRequests = null;
     runtime.revisionStore = null;
     runtime.revisionSessions = null;
     runtime.pdfTextIndexCache = null;
@@ -357,6 +390,7 @@ globalThis.shutdown = function shutdown() {
     runtime.clipboard = null;
     runtime.evidenceReference = null;
     runtime.disposeAnnotationObserver = null;
+    runtime.disposeCacheObserver = null;
     runtime.annotationOverlayRefresher = null;
     runtime.localAnnotations = null;
     runtime.preferencePaneID = null;
@@ -386,6 +420,7 @@ async function openItemAsMarkdown(itemID, {
         sourceItemID: itemID,
         onClose: ({ reason = MARKDOWN_TAB_CLOSE_REASONS.USER } = {}) => {
             abortConversion(itemID);
+            abortDocumentTranslations(itemID);
             void closeRevisionSession(itemID);
             void runtime.actionsTags?.closeMarkdownSession({
                 sessionID: itemID,
@@ -400,6 +435,9 @@ async function openItemAsMarkdown(itemID, {
         onCommitCorrection: correction => commitCorrection(itemID, correction),
         onRestoreCorrection: blockID => restoreCorrection(itemID, blockID),
         onRestoreAllCorrections: () => restoreAllCorrections(itemID),
+        onTranslateDocument: () => translateDocument(itemID),
+        onCancelDocumentTranslation: () => cancelDocumentTranslation(itemID),
+        onSetTranslationView: view => setTranslationView(itemID, view),
         onChangeAnnotationColor: (annotationID, color) => (
             runAnnotationAction('changeColor', itemID, annotationID, color)
         ),
@@ -500,10 +538,14 @@ async function openItemAsMarkdown(itemID, {
             controller.signal
         );
         throwIfRevisionAborted(controller.signal);
+        const readyResult = await attachCachedDocumentTranslation(
+            revisionResult,
+            controller.signal
+        );
         runtime.presenter?.update(
             presentation,
             createConversionReadyChanges(
-                localizeConversionResult(revisionResult, runtimeTranslate)
+                localizeConversionResult(readyResult, runtimeTranslate)
             )
         );
     }
@@ -597,7 +639,6 @@ function createSavedMarkdownActions(noteID, sourceItem) {
         return callback(sourceItemID, ...args);
     };
     return {
-        onClose: () => {},
         onReparse: sourceItem
             ? () => requestItemReparse(sourceItem.id, 'saved-note')
             : null,
@@ -726,10 +767,111 @@ function destroyAllRevisionSessions() {
 function setCorrectionMode(itemID, enabled) {
     const presentation = runtime.presenter?.get(itemID);
     if (!presentation || presentation.model.status !== 'ready') return false;
+    if (enabled) abortDocumentTranslations(itemID);
     runtime.presenter.update(presentation, {
         correctionMode: Boolean(enabled),
+        ...(enabled ? { translationView: 'original' } : {}),
     });
     return true;
+}
+
+function setTranslationView(documentID, view) {
+    const presentation = runtime.presenter?.get(documentID);
+    if (!presentation
+        || presentation.model.status !== 'ready'
+        || presentation.model.renderMode === 'html'
+        || presentation.model.translationStatus !== 'ready') {
+        return false;
+    }
+    const normalized = ['original', 'translated', 'compare'].includes(view)
+        ? view
+        : 'original';
+    runtime.presenter.update(presentation, {
+        translationView: normalized,
+        ...(normalized !== 'original' ? { correctionMode: false } : {}),
+    });
+    return true;
+}
+
+async function translateDocument(documentID) {
+    const presentation = runtime.presenter?.get(documentID);
+    const service = runtime.translationService;
+    if (!presentation
+        || presentation.model.status !== 'ready'
+        || presentation.model.renderMode === 'html'
+        || typeof service?.translateDocument !== 'function') {
+        const error = new Error('AI translation is unavailable');
+        error.code = 'AI_CONFIGURATION_ERROR';
+        throw error;
+    }
+    const requests = runtime.translationRequests;
+    if (!requests) {
+        const error = new Error('AI translation is unavailable');
+        error.code = 'AI_CONFIGURATION_ERROR';
+        throw error;
+    }
+    runtime.presenter.update(presentation, {
+        correctionMode: false,
+        translationView: 'original',
+        translationStatus: 'loading',
+        translationProgress: 0,
+        translationError: '',
+    });
+    try {
+        const result = await requests.run(
+            documentID,
+            'document',
+            signal => service.translateDocument({
+                documentKey: String(presentation.model.cacheKey || ''),
+                markdown: presentation.model.markdown,
+                signal,
+                onProgress: ({ completed, total }) => {
+                    if (runtime.presenter?.get(documentID) !== presentation) return;
+                    runtime.presenter.update(presentation, {
+                        translationProgress: total
+                            ? Math.round(completed / total * 100)
+                            : 100,
+                    });
+                },
+            })
+        );
+        if (runtime.presenter?.get(documentID) !== presentation) return result;
+        runtime.presenter.update(presentation, {
+            translationStatus: 'ready',
+            translationProgress: 100,
+            translatedMarkdown: result.translatedMarkdown,
+            comparisonMarkdown: result.comparisonMarkdown,
+            translationError: '',
+        });
+        return result;
+    }
+    catch (error) {
+        if (runtime.presenter?.get(documentID) === presentation) {
+            runtime.presenter.update(presentation, {
+                translationStatus: 'none',
+                translationProgress: 0,
+                translationView: 'original',
+                translationError: error?.name === 'AbortError'
+                    ? ''
+                    : localizeTranslationError(error),
+            });
+        }
+        if (error?.name !== 'AbortError') Zotero.logError?.(error);
+        throw error;
+    }
+}
+
+function cancelDocumentTranslation(documentID) {
+    return runtime.translationRequests?.cancelBlock(documentID, 'document')
+        || false;
+}
+
+function abortDocumentTranslations(documentID) {
+    runtime.translationRequests?.cancelDocument(documentID);
+}
+
+function abortAllTranslations() {
+    runtime.translationRequests?.abortAll();
 }
 
 function commitCorrection(itemID, correction) {
@@ -760,6 +902,9 @@ async function updateRevisionSession(itemID, mutate) {
         throw new Error('The Markdown correction session is unavailable');
     }
     const snapshot = await mutate(entry.session);
+    abortDocumentTranslations(itemID);
+    await runtime.cache?.deleteTranslation?.(snapshot.cacheKey)
+        .catch(error => Zotero.logError?.(error));
     if (runtime.revisionSessions?.get(itemID) !== entry
         || runtime.presenter?.get(itemID) !== presentation) {
         return snapshot;
@@ -771,6 +916,7 @@ async function updateRevisionSession(itemID, mutate) {
         itemID,
         annotationOverlay: createEmptyAnnotationOverlay(),
         warnings: uniqueWarnings(entry.baseWarnings),
+        ...createEmptyTranslationState(),
     });
     let annotationResult;
     try {
@@ -800,6 +946,14 @@ async function updateRevisionSession(itemID, mutate) {
     return snapshot;
 }
 
+function resetOpenDocumentTranslations() {
+    abortAllTranslations();
+    for (const presentation of runtime.presenter?.list?.() || []) {
+        if (presentation.model.status !== 'ready') continue;
+        runtime.presenter.update(presentation, createEmptyTranslationState());
+    }
+}
+
 async function requestItemReparse(itemID, entryPoint) {
     const entry = runtime.revisionSessions?.get(itemID)
         || await loadRevisionSessionForItem(itemID);
@@ -819,12 +973,44 @@ async function requestItemReparse(itemID, entryPoint) {
         }
     }
     setCorrectionMode(itemID, false);
+    abortDocumentTranslations(itemID);
     await closeRevisionSession(itemID);
     await openItemAsMarkdown(itemID, {
         forceRefresh: true,
         entryPoint,
     });
     return true;
+}
+
+async function attachCachedDocumentTranslation(result, signal) {
+    if (!result?.cacheKey || !result.markdown) return result;
+    if (signal?.aborted) throw signal.reason || new Error('Aborted');
+    const cached = await runtime.translationService
+        ?.getCachedDocumentTranslation?.({
+            documentKey: result.cacheKey,
+            markdown: result.markdown,
+        });
+    if (signal?.aborted) throw signal.reason || new Error('Aborted');
+    if (!cached) return result;
+    return {
+        ...result,
+        translationStatus: 'ready',
+        translationProgress: 100,
+        translationView: 'original',
+        translatedMarkdown: cached.translatedMarkdown,
+        comparisonMarkdown: cached.comparisonMarkdown,
+        translationError: '',
+    };
+}
+
+function localizeTranslationError(error) {
+    if (error?.code === 'AI_CONFIGURATION_ERROR') {
+        return runtimeTranslate('ai.configurationRequired');
+    }
+    if (error?.code === 'AI_REQUEST_TIMEOUT') {
+        return runtimeTranslate('ai.requestTimedOut');
+    }
+    return runtimeTranslate('ai.documentTranslationFailed');
 }
 
 async function loadRevisionSessionForItem(itemID) {

@@ -62,6 +62,8 @@ test('keeps the current Markdown visible while a forced reparse is running', () 
     assert.deepEqual(loading.correctedBlockIDs, ['block-0']);
     assert.equal(loading.correctionCount, 1);
     assert.equal(loading.hasCorrections, true);
+    assert.equal(loading.translationView, 'original');
+    assert.equal(loading.translationStatus, 'none');
 });
 
 test('tracks whether loading progress belongs to a resumed task', () => {
@@ -124,6 +126,12 @@ test('uses the normal empty and error states without a previous result', () => {
         correctionCount: 0,
         hasCorrections: false,
         correctionMode: false,
+        translationView: 'original',
+        translationStatus: 'none',
+        translationProgress: 0,
+        translatedMarkdown: '',
+        comparisonMarkdown: '',
+        translationError: '',
         error: '',
         errorAction: null,
         warningAction: null,
@@ -156,6 +164,12 @@ test('clears figures when a successful reparse has no assets', () => {
         correctionCount: 0,
         hasCorrections: false,
         correctionMode: false,
+        translationView: 'original',
+        translationStatus: 'none',
+        translationProgress: 0,
+        translatedMarkdown: '',
+        comparisonMarkdown: '',
+        translationError: '',
         title: 'Reparsed paper',
         markdown: '# Reparsed',
         sourceKind: 'markdown',

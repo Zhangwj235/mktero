@@ -219,6 +219,83 @@ test('toggles block correction mode and restores all saved corrections', async (
     view.destroy();
 });
 
+test('translates the document and switches between three reading modes', async () => {
+    const actions = [];
+    const renderedDocuments = [];
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper\n\nTranslate this paragraph.',
+        sourceKind: 'markdown',
+        translationStatus: 'none',
+        translationView: 'original',
+        onTranslateDocument: () => actions.push('translate'),
+        onCancelDocumentTranslation: () => actions.push('cancel'),
+        onSetTranslationView: view => actions.push(view),
+    });
+    const { view, shadow } = createView(model, {}, {
+        editorFactory() {
+            return {
+                setDocument(document) {
+                    renderedDocuments.push(document);
+                },
+                setCorrectionState() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    try {
+        const translate = shadow.querySelector('#mktero-translate-document');
+        const selector = shadow.querySelector('#mktero-translation-view');
+        assert.equal(translate.hidden, false);
+        assert.equal(translate.textContent, '');
+        assert.equal(translate.getAttribute('aria-label'), 'Translate document');
+        assert.equal(translate.getAttribute('title'), 'Translate document');
+        assert.equal(
+            translate.querySelector('svg')?.getAttribute('data-lucide'),
+            'languages'
+        );
+        assert.equal(selector.value, 'original');
+        assert.equal(selector.disabled, true);
+
+        translate.click();
+        assert.deepEqual(actions, ['translate']);
+
+        const translatedModel = {
+            ...model,
+            translationStatus: 'ready',
+            translatedMarkdown: '# 论文\n\n翻译这一段。',
+            comparisonMarkdown: '# Paper\n\n> # 论文',
+        };
+        view.render(translatedModel);
+        assert.equal(translate.textContent, '');
+        assert.equal(translate.getAttribute('aria-label'), 'Translated');
+        assert.equal(translate.getAttribute('title'), 'Translated');
+        assert.equal(selector.disabled, false);
+
+        selector.options[1].setAttribute('selected', 'selected');
+        selector.options[0].removeAttribute('selected');
+        selector.dispatchEvent(new selector.ownerDocument.defaultView.Event(
+            'change',
+            { bubbles: true }
+        ));
+        assert.deepEqual(actions, ['translate', 'translated']);
+
+        view.render({ ...translatedModel, translationView: 'translated' });
+        assert.equal(renderedDocuments.at(-1).markdown, '# 论文\n\n翻译这一段。');
+        assert.deepEqual(renderedDocuments.at(-1).sourceMap, []);
+        assert.deepEqual(renderedDocuments.at(-1).annotationOverlay, {
+            matched: [],
+            unmatched: [],
+        });
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('offers a short undo action after deleting a correction block', async () => {
     let editorOptions;
     const restored = [];

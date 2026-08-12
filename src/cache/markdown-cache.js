@@ -9,11 +9,13 @@ import { sha256Hex } from '../core/sha256.js';
 const CACHE_SCHEMA_VERSION = 1;
 const METADATA_FILE = 'entry.json';
 const MARKDOWN_FILE = 'document.md';
+const TRANSLATION_SCHEMA_VERSION = 1;
 const DEFAULT_MAX_BYTES = 512 * 1024 * 1024;
 const DEFAULT_MAX_ENTRIES = 100;
 const DEFAULT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const DEFAULT_MAX_SOURCE_MAP_BYTES = 20 * 1024 * 1024;
 export const DEFAULT_MAX_SOURCE_LOCATIONS = 100_000;
+export const DEFAULT_MAX_TRANSLATION_BYTES = 16 * 1024 * 1024;
 export const DEFAULT_MINERU_PARSER_PROFILE = MINERU_PARSER_PROFILE_ID;
 
 export function createZoteroMarkdownCache({ zotero, ioUtils, pathUtils }) {
@@ -52,6 +54,7 @@ export class MarkdownCache {
         maxAgeMs = DEFAULT_MAX_AGE_MS,
         maxSourceMapBytes = DEFAULT_MAX_SOURCE_MAP_BYTES,
         maxSourceLocations = DEFAULT_MAX_SOURCE_LOCATIONS,
+        maxTranslationBytes = DEFAULT_MAX_TRANSLATION_BYTES,
     }) {
         if (!rootPath) throw new TypeError('A cache root path is required');
         if (!ioUtils) throw new TypeError('An IOUtils adapter is required');
@@ -65,6 +68,7 @@ export class MarkdownCache {
         this.maxAgeMs = maxAgeMs;
         this.maxSourceMapBytes = maxSourceMapBytes;
         this.maxSourceLocations = maxSourceLocations;
+        this.maxTranslationBytes = maxTranslationBytes;
         this.operationTail = Promise.resolve();
     }
 
@@ -79,8 +83,13 @@ export class MarkdownCache {
         if (!(await this.io.exists(metadataPath))) return null;
 
         try {
-            const metadata = JSON.parse(await this.io.readUTF8(metadataPath));
+            let metadata = JSON.parse(await this.io.readUTF8(metadataPath));
             validateMetadata(metadata, cacheKey, this.maxSourceMapBytes);
+            metadata = await this.#repairInvalidTranslationMetadata(
+                entryPath,
+                metadataPath,
+                metadata
+            );
             if (this.#isExpired(metadata)) {
                 await this.io.remove(entryPath, { recursive: true, ignoreAbsent: true });
                 return null;
@@ -151,6 +160,171 @@ export class MarkdownCache {
         return this.#withOperation(() => this.#put(cacheKey, result));
     }
 
+    getTranslation(cacheKey, translationKey) {
+        validateCacheKey(cacheKey);
+        validateCacheKey(translationKey);
+        return this.#withOperation(() => this.#getTranslation(
+            cacheKey,
+            translationKey
+        ));
+    }
+
+    async #getTranslation(cacheKey, translationKey) {
+        const entryPath = this.#entryPath(cacheKey);
+        const metadataPath = this.path.join(entryPath, METADATA_FILE);
+        if (!(await this.io.exists(metadataPath))) return null;
+        let metadata;
+        try {
+            metadata = JSON.parse(await this.io.readUTF8(metadataPath));
+            validateMetadata(metadata, cacheKey, this.maxSourceMapBytes);
+            metadata = await this.#repairInvalidTranslationMetadata(
+                entryPath,
+                metadataPath,
+                metadata
+            );
+        }
+        catch {
+            return null;
+        }
+        if (metadata.translationKey !== translationKey
+            || !metadata.translationFile) {
+            return null;
+        }
+        const translationPath = this.path.join(
+            entryPath,
+            metadata.translationFile
+        );
+        try {
+            const fileInfo = await this.io.stat(translationPath);
+            if (!Number.isSafeInteger(fileInfo?.size)
+                || fileInfo.size !== metadata.translationBytes
+                || fileInfo.size > this.maxTranslationBytes
+                || (fileInfo.type && fileInfo.type !== 'regular')) {
+                throw new Error('Cached translation file size is invalid');
+            }
+            const serialized = await this.io.readUTF8(translationPath);
+            if (new TextEncoder().encode(serialized).length !== fileInfo.size) {
+                throw new Error('Cached translation size is invalid');
+            }
+            const record = JSON.parse(serialized);
+            validateTranslationRecord(
+                record,
+                translationKey,
+                this.maxTranslationBytes
+            );
+            return translationValue(record);
+        }
+        catch {
+            await this.#removeTranslationReference(
+                entryPath,
+                metadataPath,
+                metadata
+            ).catch(() => {});
+            return null;
+        }
+    }
+
+    putTranslation(cacheKey, translationKey, translation) {
+        validateCacheKey(cacheKey);
+        validateCacheKey(translationKey);
+        validateTranslationValue(translation);
+        return this.#withOperation(() => this.#putTranslation(
+            cacheKey,
+            translationKey,
+            translation
+        ));
+    }
+
+    deleteTranslation(cacheKey) {
+        validateCacheKey(cacheKey);
+        return this.#withOperation(() => this.#deleteTranslation(cacheKey));
+    }
+
+    async #deleteTranslation(cacheKey) {
+        const entryPath = this.#entryPath(cacheKey);
+        const metadataPath = this.path.join(entryPath, METADATA_FILE);
+        const metadata = await this.#readMetadata(
+            entryPath,
+            metadataPath,
+            cacheKey
+        );
+        if (!metadata?.translationFile) return false;
+        const translationPath = this.path.join(
+            entryPath,
+            metadata.translationFile
+        );
+        const translationBytes = metadata.translationBytes || 0;
+        const nextMetadata = { ...metadata };
+        delete nextMetadata.translationFile;
+        delete nextMetadata.translationKey;
+        delete nextMetadata.translationBytes;
+        nextMetadata.sizeBytes = Math.max(
+            nextMetadata.markdownBytes,
+            nextMetadata.sizeBytes - translationBytes
+        );
+        await this.#writeMetadata(metadataPath, nextMetadata);
+        await this.io.remove(translationPath, { ignoreAbsent: true })
+            .catch(() => {});
+        return true;
+    }
+
+    async #putTranslation(cacheKey, translationKey, translation) {
+        const entryPath = this.#entryPath(cacheKey);
+        const metadataPath = this.path.join(entryPath, METADATA_FILE);
+        const metadata = await this.#readMetadata(
+            entryPath,
+            metadataPath,
+            cacheKey
+        );
+        if (!metadata) throw new Error('The Markdown cache entry is unavailable');
+        const generation = createGenerationID(this.now());
+        const translationFile = `translation-${generation}.json`;
+        const translationPath = this.path.join(entryPath, translationFile);
+        const temporaryPath = `${translationPath}.tmp`;
+        const record = {
+            schemaVersion: TRANSLATION_SCHEMA_VERSION,
+            translationKey,
+            ...translationValue(translation),
+        };
+        const serialized = JSON.stringify(record);
+        const translationBytes = new TextEncoder().encode(serialized).length;
+        if (translationBytes > this.maxTranslationBytes) {
+            throw new Error('Cached translation exceeds the size limit');
+        }
+        try {
+            await this.io.writeUTF8(translationPath, serialized, {
+                tmpPath: temporaryPath,
+            });
+            const previousTranslationFile = metadata.translationFile;
+            const previousTranslationBytes = metadata.translationBytes || 0;
+            const nextMetadata = {
+                ...metadata,
+                translationFile,
+                translationKey,
+                translationBytes,
+                sizeBytes: metadata.sizeBytes
+                    - previousTranslationBytes
+                    + translationBytes,
+                lastAccessedAt: this.now(),
+            };
+            await this.#writeMetadata(metadataPath, nextMetadata);
+            if (previousTranslationFile
+                && previousTranslationFile !== translationFile) {
+                await this.io.remove(
+                    this.path.join(entryPath, previousTranslationFile),
+                    { ignoreAbsent: true }
+                ).catch(() => {});
+            }
+        }
+        catch (error) {
+            await Promise.all([translationPath, temporaryPath].map(filePath => (
+                this.io.remove(filePath, { ignoreAbsent: true }).catch(() => {})
+            )));
+            throw error;
+        }
+        await this.#scan({ removeInvalid: true, enforceLimits: true });
+    }
+
     async #put(cacheKey, result) {
         const entryPath = this.#entryPath(cacheKey);
         const assetsPath = this.path.join(entryPath, 'assets');
@@ -159,7 +333,11 @@ export class MarkdownCache {
         await this.io.makeDirectory(assetsPath, { ignoreExisting: true });
 
         const metadataPath = this.path.join(entryPath, METADATA_FILE);
-        const previousMetadata = await this.#readMetadata(metadataPath, cacheKey);
+        const previousMetadata = await this.#readMetadata(
+            entryPath,
+            metadataPath,
+            cacheKey
+        );
         const generation = createGenerationID(this.now());
         const markdownFile = `document-${generation}.md`;
         const sourceMapFile = `source-map-${generation}.json`;
@@ -268,7 +446,13 @@ export class MarkdownCache {
                 const cacheKey = this.path.filename(entryPath);
                 validateCacheKey(cacheKey);
                 validateMetadata(metadata, cacheKey, this.maxSourceMapBytes);
-                if (this.#isExpired(metadata, now)) {
+                const repairedMetadata = await this.#repairInvalidTranslationMetadata(
+                    entryPath,
+                    this.path.join(entryPath, METADATA_FILE),
+                    metadata,
+                    { persist: removeInvalid }
+                );
+                if (this.#isExpired(repairedMetadata, now)) {
                     if (removeInvalid) {
                         await this.io.remove(entryPath, {
                             recursive: true,
@@ -279,8 +463,8 @@ export class MarkdownCache {
                 }
                 entries.push({
                     path: entryPath,
-                    lastAccessedAt: metadata.lastAccessedAt,
-                    sizeBytes: metadata.sizeBytes,
+                    lastAccessedAt: repairedMetadata.lastAccessedAt,
+                    sizeBytes: repairedMetadata.sizeBytes,
                 });
             }
             catch {
@@ -349,16 +533,57 @@ export class MarkdownCache {
         return this.io.readUTF8(filePath);
     }
 
-    async #readMetadata(metadataPath, cacheKey) {
+    async #readMetadata(entryPath, metadataPath, cacheKey) {
         if (!(await this.io.exists(metadataPath))) return null;
         try {
             const metadata = JSON.parse(await this.io.readUTF8(metadataPath));
             validateMetadata(metadata, cacheKey, this.maxSourceMapBytes);
-            return metadata;
+            return this.#repairInvalidTranslationMetadata(
+                entryPath,
+                metadataPath,
+                metadata
+            );
         }
         catch {
             return null;
         }
+    }
+
+    async #repairInvalidTranslationMetadata(
+        entryPath,
+        metadataPath,
+        metadata,
+        { persist = true } = {}
+    ) {
+        if (hasValidTranslationMetadata(
+            metadata,
+            this.maxTranslationBytes
+        )) {
+            return metadata;
+        }
+        if (!persist) return withoutTranslationReference(metadata);
+        return this.#removeTranslationReference(
+            entryPath,
+            metadataPath,
+            metadata
+        );
+    }
+
+    async #removeTranslationReference(entryPath, metadataPath, metadata) {
+        const translationFile = isSafeTranslationFile(metadata?.translationFile)
+            ? metadata.translationFile
+            : null;
+        const nextMetadata = withoutTranslationReference(metadata);
+        try {
+            await this.#writeMetadata(metadataPath, nextMetadata);
+            if (translationFile) {
+                await this.io.remove(this.path.join(entryPath, translationFile), {
+                    ignoreAbsent: true,
+                }).catch(() => {});
+            }
+        }
+        catch {}
+        return nextMetadata;
     }
 
     async #removeReferencedFiles(entryPath, metadata) {
@@ -371,6 +596,9 @@ export class MarkdownCache {
             ...(metadata.assets || []).map(asset => (
                 this.path.join(entryPath, 'assets', asset.file)
             )),
+            ...(metadata.translationFile
+                ? [this.path.join(entryPath, metadata.translationFile)]
+                : []),
         ];
         await Promise.all(files.map(filePath => this.io.remove(filePath, {
             ignoreAbsent: true,
@@ -408,7 +636,11 @@ function validateCacheKey(cacheKey) {
     }
 }
 
-function validateMetadata(metadata, cacheKey, maxSourceMapBytes) {
+function validateMetadata(
+    metadata,
+    cacheKey,
+    maxSourceMapBytes
+) {
     if (metadata?.schemaVersion !== CACHE_SCHEMA_VERSION
         || metadata.cacheKey !== cacheKey
         || !Number.isFinite(metadata.markdownBytes)
@@ -442,6 +674,81 @@ function validateMetadata(metadata, cacheKey, maxSourceMapBytes) {
             throw new Error('Invalid cached image metadata');
         }
     }
+}
+
+function hasValidTranslationMetadata(metadata, maxTranslationBytes) {
+    const fields = [
+        metadata.translationFile,
+        metadata.translationKey,
+        metadata.translationBytes,
+    ];
+    if (fields.every(value => value === undefined)) return true;
+    return isSafeTranslationFile(metadata.translationFile)
+        && /^[a-f0-9]{64}$/.test(String(metadata.translationKey))
+        && Number.isSafeInteger(metadata.translationBytes)
+        && metadata.translationBytes >= 0
+        && metadata.translationBytes <= maxTranslationBytes;
+}
+
+function isSafeTranslationFile(file) {
+    return /^translation-[a-z0-9-]+\.json$/.test(String(file || ''));
+}
+
+function cachedDocumentSize(metadata) {
+    return metadata.markdownBytes
+        + (metadata.sourceMapBytes || 0)
+        + metadata.assets.reduce((total, asset) => total + asset.size, 0);
+}
+
+function withoutTranslationReference(metadata) {
+    const value = { ...metadata };
+    delete value.translationFile;
+    delete value.translationKey;
+    delete value.translationBytes;
+    value.sizeBytes = cachedDocumentSize(value);
+    return value;
+}
+
+function validateTranslationRecord(record, translationKey, maxBytes) {
+    if (record?.schemaVersion !== TRANSLATION_SCHEMA_VERSION
+        || record.translationKey !== translationKey
+        || new TextEncoder().encode(JSON.stringify(record)).length > maxBytes) {
+        throw new Error('Invalid cached translation metadata');
+    }
+    validateTranslationValue(record);
+}
+
+function validateTranslationValue(value) {
+    if (typeof value?.translatedMarkdown !== 'string'
+        || typeof value.comparisonMarkdown !== 'string'
+        || !Array.isArray(value.blocks)
+        || value.blocks.length > 100_000
+        || typeof value.model !== 'string'
+        || typeof value.targetLanguage !== 'string'
+        || typeof value.promptVersion !== 'string') {
+        throw new Error('Invalid cached document translation');
+    }
+    for (const block of value.blocks) {
+        if (typeof block?.id !== 'string'
+            || !block.id
+            || typeof block.markdown !== 'string') {
+            throw new Error('Invalid cached Markdown block translation');
+        }
+    }
+}
+
+function translationValue(value) {
+    return {
+        translatedMarkdown: value.translatedMarkdown,
+        comparisonMarkdown: value.comparisonMarkdown,
+        blocks: value.blocks.map(block => ({
+            id: block.id,
+            markdown: block.markdown,
+        })),
+        model: value.model,
+        targetLanguage: value.targetLanguage,
+        promptVersion: value.promptVersion,
+    };
 }
 
 function validateSourceMap(sourceMap, markdownLength, maxLocations) {

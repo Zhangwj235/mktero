@@ -6068,6 +6068,89 @@ test('keeps the scrolled region rendered when correction mode is enabled', () =>
     assert.equal(resultingScrollTop, 600);
 });
 
+test('restores scrolling after a deferred stalled viewport measurement', () => {
+    const {
+        blocks,
+        dom,
+        editor,
+        scroller,
+        view,
+    } = createStalledViewportFixture({
+        paragraphCount: 40,
+        targetParagraph: 32,
+        scrollTop: 600,
+    });
+    const scheduled = new Map();
+    let nextFrame = 0;
+    dom.window.requestAnimationFrame = callback => {
+        nextFrame++;
+        scheduled.set(nextFrame, callback);
+        return nextFrame;
+    };
+    dom.window.cancelAnimationFrame = frame => scheduled.delete(frame);
+    view.requestMeasure = () => {};
+    let measurements = 0;
+    view.measure = () => {
+        measurements++;
+        if (measurements === 1) throw new Error('geometry unavailable');
+        scroller.scrollTop = 950;
+    };
+
+    editor.setCorrectionState({ enabled: true, blocks });
+    assert.equal(scroller.scrollTop, 600);
+    assert.equal(scheduled.size, 1);
+    const [[frame, callback]] = scheduled;
+    scheduled.delete(frame);
+    callback();
+
+    assert.equal(measurements, 2);
+    assert.equal(scroller.scrollTop, 600);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('cancels a deferred viewport measurement when the editor is destroyed', () => {
+    const {
+        blocks,
+        dom,
+        editor,
+        view,
+    } = createStalledViewportFixture({
+        paragraphCount: 40,
+        targetParagraph: 32,
+        scrollTop: 600,
+    });
+    const scheduled = new Map();
+    const canceled = [];
+    let nextFrame = 0;
+    dom.window.requestAnimationFrame = callback => {
+        nextFrame++;
+        scheduled.set(nextFrame, callback);
+        return nextFrame;
+    };
+    dom.window.cancelAnimationFrame = frame => {
+        canceled.push(frame);
+        scheduled.delete(frame);
+    };
+    view.requestMeasure = () => {};
+    let measurements = 0;
+    view.measure = () => {
+        measurements++;
+        throw new Error('geometry unavailable');
+    };
+
+    editor.setCorrectionState({ enabled: true, blocks });
+    const [[frame, callback]] = scheduled;
+    editor.destroy();
+
+    assert.ok(canceled.includes(frame));
+    callback();
+    assert.equal(measurements, 1);
+
+    dom.window.close();
+});
+
 test('corrects outline navigation after the offscreen heading is rendered', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
