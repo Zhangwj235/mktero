@@ -237,9 +237,6 @@ class MarkdownTabView {
                 this.restoreCorrection(blockID)
             ),
             onCorrectionError: error => this.reportCorrectionError(error),
-            onTranslateBlock: request => this.translateBlock(request),
-            onCancelTranslation: blockID => this.cancelTranslation(blockID),
-            onTranslationError: error => this.reportTranslationError(error),
             localization: this.localization,
         });
         this.syncOutline('');
@@ -267,8 +264,11 @@ class MarkdownTabView {
         elements.content.setAttribute('aria-busy', String(loadingView.visible));
         elements.error.hidden = model.status !== 'error';
         elements.errorMessage.textContent = model.error || '';
-        this.syncWarningToast(model.warnings, {
-            persistent: Boolean(model.warningAction),
+        this.syncWarningToast([
+            ...(model.warnings || []),
+            ...(model.translationError ? [model.translationError] : []),
+        ], {
+            persistent: Boolean(model.warningAction || model.translationError),
         });
         this.syncContentVisibility(showContent);
         this.syncDocumentActions(model, loadingView);
@@ -300,7 +300,6 @@ class MarkdownTabView {
                 blocks: model.editableBlocks || [],
                 correctedBlockIDs: model.correctedBlockIDs || [],
             });
-            this.editor.setTranslationState?.({ enabled: false });
             return;
         }
 
@@ -315,12 +314,19 @@ class MarkdownTabView {
                 this.syncOutline('');
                 this.syncNotes(createEmptyAnnotationOverlay(), 0);
                 this.editor.setCorrectionState?.({ enabled: false });
-                this.editor.setTranslationState?.({ enabled: false });
                 return;
             }
             elements.editorHost.hidden = false;
             elements.snapshotHost.hidden = true;
-            const markdown = model.markdown || '';
+            const translatedView = model.translationStatus === 'ready'
+                && model.translationView === 'translated';
+            const comparisonView = model.translationStatus === 'ready'
+                && model.translationView === 'compare';
+            const markdown = translatedView
+                ? model.translatedMarkdown || ''
+                : comparisonView
+                    ? model.comparisonMarkdown || ''
+                    : model.markdown || '';
             const documentChanged = this.renderedRenderMode !== 'markdown'
                 || this.renderedMarkdown !== markdown;
             const restoreAnchor = documentChanged
@@ -331,21 +337,21 @@ class MarkdownTabView {
                     this.activeNavigationOffset
                 )
                 : null;
-            const annotationOverlay = model.annotationOverlay
-                || createEmptyAnnotationOverlay();
+            const annotationOverlay = translatedView || comparisonView
+                ? createEmptyAnnotationOverlay()
+                : model.annotationOverlay || createEmptyAnnotationOverlay();
             const assetsChanged = this.syncAssetURLs();
             this.editor.setDocument({
                 markdown,
                 annotationOverlay,
-                sourceMap: Array.isArray(model.sourceMap) ? model.sourceMap : [],
+                sourceMap: translatedView || comparisonView
+                    ? []
+                    : Array.isArray(model.sourceMap) ? model.sourceMap : [],
             });
             this.editor.setCorrectionState?.({
                 enabled: Boolean(model.correctionMode),
                 blocks: model.editableBlocks || [],
                 correctedBlockIDs: model.correctedBlockIDs || [],
-            });
-            this.editor.setTranslationState?.({
-                enabled: Boolean(model.translationMode),
             });
             this.renderedMarkdown = markdown;
             this.renderedRenderMode = 'markdown';
@@ -861,8 +867,10 @@ class MarkdownTabView {
             reparseLabel: documentActions.reparseLabel,
             correctionToggle: documentActions.correctionToggle,
             correctionToggleLabel: documentActions.correctionToggleLabel,
-            translationToggle: documentActions.translationToggle,
-            translationToggleLabel: documentActions.translationToggleLabel,
+            translateDocument: documentActions.translateDocument,
+            translateDocumentLabel: documentActions.translateDocumentLabel,
+            translationView: documentActions.translationView,
+            translationViewLabel: documentActions.translationViewLabel,
             restoreCorrections: documentActions.restoreCorrections,
             restoreCorrectionsLabel: documentActions.restoreCorrectionsLabel,
             saveSnapshot: documentActions.saveSnapshot,
@@ -1072,14 +1080,14 @@ class MarkdownTabView {
             this.t('revision.restoreAll')
         );
         restoreCorrections.appendChild(restoreCorrectionsLabel);
-        const translationToggle = this.createElement('button', {
-            id: 'mktero-translation-toggle',
-            class: 'markdown-reader-action markdown-reader-action--child',
+        const translateDocument = this.createElement('button', {
+            id: 'mktero-translate-document',
+            class: 'markdown-translation-action',
             type: 'button',
-            'aria-label': this.t('ai.translationModeStart'),
-            title: this.t('ai.translationModeStart'),
+            'aria-label': this.t('ai.translateDocument'),
+            title: this.t('ai.translateDocument'),
         });
-        translationToggle.appendChild(createLucideIcon(
+        translateDocument.appendChild(createLucideIcon(
             this.document,
             LUCIDE_ICONS.languages,
             {
@@ -1087,12 +1095,45 @@ class MarkdownTabView {
                 size: 18,
             }
         ));
-        const translationToggleLabel = this.createElement(
+        const translateDocumentLabel = this.createElement(
             'span',
-            { class: 'markdown-reader-action-label' },
-            this.t('ai.translationModeStart')
+            { class: 'markdown-translation-action-label' },
+            this.t('ai.translateDocument')
         );
-        translationToggle.appendChild(translationToggleLabel);
+        translateDocument.appendChild(translateDocumentLabel);
+        const translationViewLabel = this.createElement(
+            'label',
+            {
+                class: 'markdown-translation-view-label',
+                for: 'mktero-translation-view',
+            },
+            this.t('ai.translationViewLabel')
+        );
+        const translationView = this.createElement('select', {
+            id: 'mktero-translation-view',
+            class: 'markdown-translation-view',
+            'aria-label': this.t('ai.translationViewLabel'),
+        });
+        for (const option of [
+            ['original', 'ai.translationView.original'],
+            ['translated', 'ai.translationView.translated'],
+            ['compare', 'ai.translationView.compare'],
+        ]) {
+            translationView.appendChild(this.createElement(
+                'option',
+                { value: option[0], 'data-i18n': option[1] },
+                this.t(option[1])
+            ));
+        }
+        const translationControls = this.createElement('div', {
+            class: 'markdown-translation-controls',
+        });
+        appendChildren(
+            translationControls,
+            translateDocument,
+            translationViewLabel,
+            translationView
+        );
         const reparse = this.createElement('button', {
             id: 'mktero-reparse',
             class: 'markdown-reader-action markdown-reader-action--child',
@@ -1136,7 +1177,6 @@ class MarkdownTabView {
         );
         saveSnapshot.appendChild(saveSnapshotLabel);
         menu.appendChild(correctionToggle);
-        menu.appendChild(translationToggle);
         menu.appendChild(restoreCorrections);
         menu.appendChild(reparse);
         menu.appendChild(saveSnapshot);
@@ -1154,6 +1194,7 @@ class MarkdownTabView {
         appendChildren(
             editorActions,
             readerControls,
+            translationControls,
             status,
             toggle,
             menu
@@ -1166,8 +1207,10 @@ class MarkdownTabView {
             reparseLabel,
             correctionToggle,
             correctionToggleLabel,
-            translationToggle,
-            translationToggleLabel,
+            translateDocument,
+            translateDocumentLabel,
+            translationView,
+            translationViewLabel,
             restoreCorrections,
             restoreCorrectionsLabel,
             saveSnapshot,
@@ -1241,8 +1284,11 @@ class MarkdownTabView {
         this.listen(this.elements.correctionToggle, 'click', () => {
             this.toggleCorrectionMode();
         });
-        this.listen(this.elements.translationToggle, 'click', () => {
-            this.toggleTranslationMode();
+        this.listen(this.elements.translateDocument, 'click', () => {
+            this.runDocumentTranslationAction();
+        });
+        this.listen(this.elements.translationView, 'change', () => {
+            this.setTranslationView(this.elements.translationView.value);
         });
         this.listen(this.elements.restoreCorrections, 'click', () => {
             void this.restoreAllCorrections();
@@ -1533,32 +1579,30 @@ class MarkdownTabView {
         }
     }
 
-    toggleTranslationMode() {
-        if (this.elements.translationToggle.disabled
-            || this.documentActionBusy
-            || typeof this.model.onSetTranslationMode !== 'function') {
+    runDocumentTranslationAction() {
+        if (this.elements.translateDocument.disabled
+            || this.documentActionBusy) {
             return;
         }
-        this.setDocumentActionsOpen(false);
+        let operation;
         try {
-            this.model.onSetTranslationMode(!this.model.translationMode);
+            operation = this.model.translationStatus === 'loading'
+                ? this.model.onCancelDocumentTranslation?.()
+                : this.model.onTranslateDocument?.();
         }
         catch (error) {
             this.reportTranslationError(error);
+            return;
         }
+        Promise.resolve(operation).catch(error => {
+            this.reportTranslationError(error);
+        });
     }
 
-    translateBlock(request) {
-        if (typeof this.model.onTranslateBlock !== 'function') {
-            const error = new Error('AI translation is unavailable');
-            error.code = 'AI_CONFIGURATION_ERROR';
-            throw error;
-        }
-        return this.model.onTranslateBlock(request);
-    }
-
-    cancelTranslation(blockID) {
-        return this.model.onCancelTranslation?.(blockID);
+    setTranslationView(view) {
+        if (this.elements.translationView.disabled
+            || typeof this.model.onSetTranslationView !== 'function') return;
+        this.model.onSetTranslationView(view);
     }
 
     reportTranslationError(error) {
@@ -1979,15 +2023,28 @@ class MarkdownTabView {
         );
         this.elements.correctionToggle.setAttribute('title', correctionLabel);
         this.elements.correctionToggleLabel.textContent = correctionLabel;
-        const translationLabel = this.t(this.model.translationMode
-            ? 'ai.translationModeFinish'
-            : 'ai.translationModeStart');
-        this.elements.translationToggle.setAttribute(
+        const translationLabelKey = this.model.translationStatus === 'loading'
+            ? 'ai.cancelDocumentTranslation'
+            : this.model.translationStatus === 'ready'
+                ? 'ai.translatedDocument'
+                : 'ai.translateDocument';
+        const translationLabel = this.model.translationStatus === 'loading'
+            ? this.t(translationLabelKey, {
+                progress: this.model.translationProgress || 0,
+            })
+            : this.t(translationLabelKey);
+        this.elements.translateDocument.setAttribute(
             'aria-label',
             translationLabel
         );
-        this.elements.translationToggle.setAttribute('title', translationLabel);
-        this.elements.translationToggleLabel.textContent = translationLabel;
+        this.elements.translateDocument.setAttribute('title', translationLabel);
+        this.elements.translateDocumentLabel.textContent = translationLabel;
+        this.elements.translationViewLabel.textContent = this.t(
+            'ai.translationViewLabel'
+        );
+        for (const option of this.elements.translationView.options) {
+            option.textContent = this.t(option.getAttribute('data-i18n'));
+        }
         this.elements.correctionUndoMessage.textContent = this.t(
             'revision.deletedUndo'
         );
@@ -2111,8 +2168,7 @@ class MarkdownTabView {
             && typeof model.onRestoreAllCorrections === 'function';
         const translationAvailable = model.status === 'ready'
             && model.renderMode !== 'html'
-            && typeof model.onSetTranslationMode === 'function'
-            && typeof model.onTranslateBlock === 'function';
+            && typeof model.onTranslateDocument === 'function';
         const documentActionsAvailable = reparseAvailable
             || saveAvailable
             || correctionAvailable
@@ -2141,7 +2197,9 @@ class MarkdownTabView {
         this.elements.reparse.hidden = !reparseAvailable;
         this.elements.saveSnapshot.hidden = !saveAvailable;
         this.elements.correctionToggle.hidden = !correctionAvailable;
-        this.elements.translationToggle.hidden = !translationAvailable;
+        this.elements.translateDocument.hidden = !translationAvailable;
+        this.elements.translationView.hidden = !translationAvailable;
+        this.elements.translationViewLabel.hidden = !translationAvailable;
         this.elements.restoreCorrections.hidden = !restoreAvailable;
         this.elements.actionToggle.hidden = !documentActionsAvailable;
         this.elements.readerFontSize.hidden = !readerControlsAvailable;
@@ -2155,9 +2213,30 @@ class MarkdownTabView {
         this.elements.correctionToggle.disabled = !correctionAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);
-        this.elements.translationToggle.disabled = !translationAvailable
+        this.elements.translateDocument.disabled = !translationAvailable
+            || loadingView.visible
+            || model.translationStatus === 'ready'
+            || (Boolean(this.documentActionBusy)
+                && model.translationStatus !== 'loading');
+        this.elements.translationView.disabled = !translationAvailable
+            || model.translationStatus !== 'ready'
             || loadingView.visible
             || Boolean(this.documentActionBusy);
+        const translationView = model.translationStatus === 'ready'
+            ? model.translationView || 'original'
+            : 'original';
+        for (const option of this.elements.translationView.options) {
+            if (option.value === translationView) {
+                option.setAttribute('selected', 'selected');
+            }
+            else {
+                option.removeAttribute('selected');
+            }
+        }
+        this.elements.translateDocument.setAttribute(
+            'aria-busy',
+            String(model.translationStatus === 'loading')
+        );
         this.elements.restoreCorrections.disabled = !restoreAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);
@@ -2280,7 +2359,6 @@ class MarkdownTabView {
         this.elements.reparse.setAttribute('tabindex', menuTabIndex);
         this.elements.saveSnapshot.setAttribute('tabindex', menuTabIndex);
         this.elements.correctionToggle.setAttribute('tabindex', menuTabIndex);
-        this.elements.translationToggle.setAttribute('tabindex', menuTabIndex);
         this.elements.restoreCorrections.setAttribute(
             'tabindex',
             menuTabIndex

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
     AI_API_BASE_PREF,
     AI_API_KEY_PREF,
-    AI_CACHE_ENABLED_PREF,
     AI_ENABLED_PREF,
     AI_MAX_OUTPUT_TOKENS_PREF,
     AI_MODEL_PREF,
@@ -32,7 +31,6 @@ test('reads and normalizes the configured AI settings', () => {
         [AI_TARGET_LANGUAGE_PREF, 'zh-CN'],
         [AI_REQUEST_TIMEOUT_PREF, 45_000],
         [AI_MAX_OUTPUT_TOKENS_PREF, 3_000],
-        [AI_CACHE_ENABLED_PREF, false],
         [AI_STREAMING_PREF, false],
     ]);
     const settings = getAISettings({
@@ -50,7 +48,6 @@ test('reads and normalizes the configured AI settings', () => {
         targetLanguage: 'zh-CN',
         requestTimeoutMs: 45_000,
         maxOutputTokens: 3_000,
-        cacheEnabled: false,
         streaming: false,
     });
 });

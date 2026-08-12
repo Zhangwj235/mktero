@@ -219,34 +219,27 @@ test('toggles block correction mode and restores all saved corrections', async (
     view.destroy();
 });
 
-test('toggles AI translation mode and forwards block requests', async () => {
-    const modeChanges = [];
-    const translated = [];
-    const canceled = [];
-    const editorStates = [];
-    let editorOptions;
+test('translates the document and switches between three reading modes', async () => {
+    const actions = [];
+    const renderedDocuments = [];
     const model = createModel({
         status: 'ready',
         progress: 100,
         markdown: '# Paper\n\nTranslate this paragraph.',
         sourceKind: 'markdown',
-        translationMode: false,
-        onSetTranslationMode: enabled => modeChanges.push(enabled),
-        onTranslateBlock: async request => {
-            translated.push(request);
-            return { text: '翻译这一段。', model: 'example-chat' };
-        },
-        onCancelTranslation: blockID => canceled.push(blockID),
+        translationStatus: 'none',
+        translationView: 'original',
+        onTranslateDocument: () => actions.push('translate'),
+        onCancelDocumentTranslation: () => actions.push('cancel'),
+        onSetTranslationView: view => actions.push(view),
     });
     const { view, shadow } = createView(model, {}, {
-        editorFactory(options) {
-            editorOptions = options;
+        editorFactory() {
             return {
-                setDocument() {},
-                setCorrectionState() {},
-                setTranslationState(state) {
-                    editorStates.push(state);
+                setDocument(document) {
+                    renderedDocuments.push(document);
                 },
+                setCorrectionState() {},
                 refreshRendering() {},
                 destroy() {},
             };
@@ -254,29 +247,45 @@ test('toggles AI translation mode and forwards block requests', async () => {
     });
 
     try {
-        const toggle = shadow.querySelector('#mktero-translation-toggle');
-        assert.equal(toggle.hidden, false);
-        assert.equal(toggle.textContent, 'Translate with AI');
+        const translate = shadow.querySelector('#mktero-translate-document');
+        const selector = shadow.querySelector('#mktero-translation-view');
+        assert.equal(translate.hidden, false);
+        assert.equal(translate.textContent, 'Translate document');
         assert.equal(
-            toggle.querySelector('svg')?.getAttribute('data-lucide'),
+            translate.querySelector('svg')?.getAttribute('data-lucide'),
             'languages'
         );
+        assert.equal(selector.value, 'original');
+        assert.equal(selector.disabled, true);
 
-        toggle.click();
-        assert.deepEqual(modeChanges, [true]);
+        translate.click();
+        assert.deepEqual(actions, ['translate']);
 
-        view.render({ ...model, translationMode: true });
-        assert.deepEqual(editorStates.at(-1), { enabled: true });
-        assert.equal(toggle.textContent, 'Finish AI translation');
-
-        const request = {
-            blockID: 'translation-0',
-            markdown: 'Translate this paragraph.',
+        const translatedModel = {
+            ...model,
+            translationStatus: 'ready',
+            translatedMarkdown: '# 论文\n\n翻译这一段。',
+            comparisonMarkdown: '# Paper\n\n> # 论文',
         };
-        assert.equal((await editorOptions.onTranslateBlock(request)).text, '翻译这一段。');
-        editorOptions.onCancelTranslation(request.blockID);
-        assert.deepEqual(translated, [request]);
-        assert.deepEqual(canceled, ['translation-0']);
+        view.render(translatedModel);
+        assert.equal(translate.textContent, 'Translated');
+        assert.equal(selector.disabled, false);
+
+        selector.options[1].setAttribute('selected', 'selected');
+        selector.options[0].removeAttribute('selected');
+        selector.dispatchEvent(new selector.ownerDocument.defaultView.Event(
+            'change',
+            { bubbles: true }
+        ));
+        assert.deepEqual(actions, ['translate', 'translated']);
+
+        view.render({ ...translatedModel, translationView: 'translated' });
+        assert.equal(renderedDocuments.at(-1).markdown, '# 论文\n\n翻译这一段。');
+        assert.deepEqual(renderedDocuments.at(-1).sourceMap, []);
+        assert.deepEqual(renderedDocuments.at(-1).annotationOverlay, {
+            matched: [],
+            unmatched: [],
+        });
     }
     finally {
         view.destroy();

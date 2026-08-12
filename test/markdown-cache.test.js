@@ -97,6 +97,105 @@ test('stores an intentionally empty user-edited Markdown document', async t => {
     });
 });
 
+test('stores a document translation inside its Markdown cache entry', async t => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
+    t.after(() => rm(rootPath, { recursive: true, force: true }));
+    const options = {
+        rootPath,
+        ioUtils: createNodeIOUtils(),
+        pathUtils: { join: path.join, filename: path.basename },
+    };
+    const cache = new MarkdownCache(options);
+    const translationKey = 'c'.repeat(64);
+    const translation = {
+        translatedMarkdown: '# 论文',
+        comparisonMarkdown: '# Paper\n\n> # 论文',
+        blocks: [{ id: 'translation-0', markdown: '# 论文' }],
+        model: 'example-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: 'translation-v1',
+    };
+    await cache.put(CACHE_KEY, { markdown: '# Paper' });
+
+    await cache.putTranslation(CACHE_KEY, translationKey, translation);
+
+    assert.deepEqual(
+        await new MarkdownCache(options).getTranslation(CACHE_KEY, translationKey),
+        translation
+    );
+    assert.equal((await cache.getStats()).entries, 1);
+    assert.ok((await cache.getStats()).sizeBytes > 7);
+});
+
+test('replacing or clearing Markdown removes its stored translation', async t => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
+    t.after(() => rm(rootPath, { recursive: true, force: true }));
+    const cache = new MarkdownCache({
+        rootPath,
+        ioUtils: createNodeIOUtils(),
+        pathUtils: { join: path.join, filename: path.basename },
+    });
+    const translationKey = 'c'.repeat(64);
+    const translation = {
+        translatedMarkdown: '# 论文',
+        comparisonMarkdown: '# Paper\n\n> # 论文',
+        blocks: [{ id: 'translation-0', markdown: '# 论文' }],
+        model: 'example-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: 'translation-v1',
+    };
+    await cache.put(CACHE_KEY, { markdown: '# Paper' });
+    await cache.putTranslation(CACHE_KEY, translationKey, translation);
+
+    await cache.put(CACHE_KEY, { markdown: '# Reparsed paper' });
+    assert.equal(await cache.getTranslation(CACHE_KEY, translationKey), null);
+
+    await cache.putTranslation(CACHE_KEY, translationKey, translation);
+    await cache.clear();
+    assert.equal(await cache.getTranslation(CACHE_KEY, translationKey), null);
+});
+
+test('keeps cached Markdown when its stored translation is corrupted', async t => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
+    t.after(() => rm(rootPath, { recursive: true, force: true }));
+    const cache = new MarkdownCache({
+        rootPath,
+        ioUtils: createNodeIOUtils(),
+        pathUtils: { join: path.join, filename: path.basename },
+    });
+    const translationKey = 'c'.repeat(64);
+    await cache.put(CACHE_KEY, { markdown: '# Paper' });
+    await cache.putTranslation(CACHE_KEY, translationKey, {
+        translatedMarkdown: '# 论文',
+        comparisonMarkdown: '# Paper\n\n> # 论文',
+        blocks: [{ id: 'translation-0', markdown: '# 论文' }],
+        model: 'example-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: 'translation-v1',
+    });
+    const entryPath = path.join(rootPath, 'entries', CACHE_KEY);
+    const metadataPath = path.join(entryPath, 'entry.json');
+    const metadata = JSON.parse(await readFile(metadataPath, 'utf8'));
+    await writeFile(
+        path.join(entryPath, metadata.translationFile),
+        '{not-json'
+    );
+
+    assert.equal(
+        await cache.getTranslation(CACHE_KEY, translationKey),
+        null
+    );
+    assert.equal((await cache.get(CACHE_KEY)).markdown, '# Paper');
+    const repairedMetadata = JSON.parse(await readFile(metadataPath, 'utf8'));
+    assert.equal('translationFile' in repairedMetadata, false);
+    assert.equal('translationKey' in repairedMetadata, false);
+    assert.equal('translationBytes' in repairedMetadata, false);
+    assert.deepEqual(await cache.getStats(), {
+        entries: 1,
+        sizeBytes: new TextEncoder().encode('# Paper').length,
+    });
+});
+
 test('reads a cache entry created before source maps were available', async t => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
     t.after(() => rm(rootPath, { recursive: true, force: true }));

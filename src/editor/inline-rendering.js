@@ -60,7 +60,6 @@ export const setFigureHighlight = StateEffect.define();
 export const setAnnotationOverlay = StateEffect.define();
 export const setInlineEditingRange = StateEffect.define();
 export const setCorrectionRenderingState = StateEffect.define();
-export const setTranslationRenderingState = StateEffect.define();
 
 class RenderedMarkdownWidget extends WidgetType {
     constructor({
@@ -309,162 +308,6 @@ class CorrectionMarkerWidget extends WidgetType {
     }
 }
 
-class TranslationWidget extends WidgetType {
-    constructor({
-        block,
-        state,
-        requestTranslation,
-        cancelTranslation,
-        hideTranslation,
-        openLink,
-        translate,
-    }) {
-        super();
-        this.block = block;
-        this.state = state || { status: 'idle' };
-        this.requestTranslation = requestTranslation;
-        this.cancelTranslation = cancelTranslation;
-        this.hideTranslation = hideTranslation;
-        this.openLink = openLink;
-        this.translate = translate;
-        this.key = JSON.stringify([
-            block.id,
-            block.source,
-            this.state.status,
-            this.state.text || '',
-            this.state.errorKey || '',
-        ]);
-    }
-
-    eq(other) {
-        return this.key === other.key;
-    }
-
-    toDOM(view) {
-        const document = view.dom.ownerDocument;
-        const container = createHTMLNode(document, 'section');
-        container.className = [
-            'cm-mktero-translation',
-            `cm-mktero-translation--${this.state.status}`,
-        ].join(' ');
-        container.setAttribute('aria-label', this.translate('ai.translationLabel'));
-        if (this.state.status === 'idle') {
-            container.append(this.#button(
-                document,
-                'cm-mktero-translation-trigger',
-                'ai.translateBlock',
-                () => this.requestTranslation?.(this.block)
-            ));
-            return container;
-        }
-
-        const header = createHTMLNode(document, 'div');
-        header.className = 'cm-mktero-translation-header';
-        const label = createHTMLNode(document, 'strong');
-        label.textContent = this.translate('ai.translationLabel');
-        const actions = createHTMLNode(document, 'span');
-        actions.className = 'cm-mktero-translation-actions';
-        header.append(label, actions);
-        container.append(header);
-
-        if (this.state.status === 'loading') {
-            if (this.state.text) {
-                const content = createHTMLNode(document, 'div');
-                content.className = 'cm-mktero-translation-content';
-                appendRenderedMarkdown(
-                    content,
-                    this.state.text,
-                    () => null,
-                    false,
-                    this.translate
-                );
-                content.addEventListener('mousedown', event => {
-                    openRenderedLink(event, this.openLink);
-                });
-                container.append(content);
-            }
-            const status = createHTMLNode(document, 'span');
-            status.className = 'cm-mktero-translation-status';
-            status.setAttribute('role', 'status');
-            status.textContent = this.translate('ai.translating');
-            actions.append(this.#button(
-                document,
-                'cm-mktero-translation-cancel',
-                'ai.cancelTranslation',
-                () => this.cancelTranslation?.(this.block)
-            ));
-            container.append(status);
-            return container;
-        }
-
-        if (this.state.status === 'error') {
-            const error = createHTMLNode(document, 'span');
-            error.className = 'cm-mktero-translation-error';
-            error.setAttribute('role', 'alert');
-            error.textContent = this.translate(
-                this.state.errorKey || 'ai.translationFailed'
-            );
-            actions.append(this.#button(
-                document,
-                'cm-mktero-translation-retry',
-                'ai.retryTranslation',
-                () => this.requestTranslation?.(this.block)
-            ));
-            container.append(error);
-            return container;
-        }
-
-        const content = createHTMLNode(document, 'div');
-        content.className = 'cm-mktero-translation-content';
-        appendRenderedMarkdown(
-            content,
-            this.state.text,
-            () => null,
-            false,
-            this.translate
-        );
-        content.addEventListener('mousedown', event => {
-            openRenderedLink(event, this.openLink);
-        });
-        actions.append(
-            this.#button(
-                document,
-                'cm-mktero-translation-retry',
-                'ai.translateAgain',
-                () => this.requestTranslation?.(this.block)
-            ),
-            this.#button(
-                document,
-                'cm-mktero-translation-hide',
-                'ai.hideTranslation',
-                () => this.hideTranslation?.(this.block)
-            )
-        );
-        container.append(content);
-        return container;
-    }
-
-    #button(document, className, labelKey, action) {
-        const button = createHTMLNode(document, 'button');
-        button.type = 'button';
-        button.className = className;
-        const label = this.translate(labelKey);
-        button.textContent = label;
-        button.setAttribute('aria-label', label);
-        button.setAttribute('title', label);
-        button.addEventListener('click', event => {
-            event.preventDefault();
-            event.stopPropagation();
-            action();
-        });
-        return button;
-    }
-
-    ignoreEvent() {
-        return true;
-    }
-}
-
 export function enhanceRenderedCodeBlocks(
     root,
     document,
@@ -661,9 +504,6 @@ export function createInlineRenderingExtension({
     restoreCorrection,
     onCorrectionError,
     onCorrectionEditingChange,
-    requestTranslation,
-    cancelTranslation,
-    hideTranslation,
     translate = translateEnglish,
 }) {
     const context = {
@@ -682,9 +522,6 @@ export function createInlineRenderingExtension({
         restoreCorrection,
         onCorrectionError,
         onCorrectionEditingChange,
-        requestTranslation,
-        cancelTranslation,
-        hideTranslation,
         translate,
         renderVersion: 0,
         highlightedReferenceID: null,
@@ -696,8 +533,6 @@ export function createInlineRenderingExtension({
         correctionManagementEnabled: false,
         correctionBlocks: [],
         correctedBlockIDs: new Set(),
-        translationEnabled: false,
-        translationStates: new Map(),
         citationAnalysisDocument: null,
         citationAnalysis: null,
         citationTargets: new Map(),
@@ -725,7 +560,6 @@ export function createInlineRenderingExtension({
             let annotationOverlayChanged = false;
             let editingRangeChanged = false;
             let correctionStateChanged = false;
-            let translationStateChanged = false;
             if (shouldRefresh) context.renderVersion++;
             for (const effect of transaction.effects) {
                 if (effect.is(setReferenceHighlight)) {
@@ -765,14 +599,6 @@ export function createInlineRenderingExtension({
                     );
                     correctionStateChanged = true;
                 }
-                else if (effect.is(setTranslationRenderingState)) {
-                    const value = effect.value || {};
-                    context.translationEnabled = Boolean(value.enabled);
-                    context.translationStates = value.states instanceof Map
-                        ? value.states
-                        : new Map();
-                    translationStateChanged = true;
-                }
             }
             if (transaction.docChanged
                 || syntaxTreeChanged
@@ -782,7 +608,6 @@ export function createInlineRenderingExtension({
                 || annotationOverlayChanged
                 || editingRangeChanged
                 || correctionStateChanged
-                || translationStateChanged
                 || shouldRefresh) {
                 return buildDecorations(transaction.state, context);
             }
@@ -1027,7 +852,6 @@ function buildDecorations(state, context) {
         [...renderedGroups, ...renderedMathRanges]
     );
     decorateCorrections(state, decorations, context);
-    decorateTranslations(state, decorations, context);
     return Decoration.set(decorations, true);
 }
 
@@ -2175,69 +1999,6 @@ function decorateCorrections(state, decorations, context) {
             block: block.from === block.to,
         }).range(block.to));
     }
-}
-
-function decorateTranslations(state, decorations, context) {
-    if (!context.translationEnabled
-        || typeof context.requestTranslation !== 'function') {
-        return;
-    }
-    for (const block of translatableBlocks(state)) {
-        if (rangesOverlapEditing(block, context)) continue;
-        const current = context.translationStates.get(block.id);
-        const translationState = current?.source === block.source
-            ? current
-            : { status: 'idle', source: block.source };
-        decorations.push(Decoration.widget({
-            widget: new TranslationWidget({
-                block,
-                state: translationState,
-                requestTranslation: context.requestTranslation,
-                cancelTranslation: context.cancelTranslation,
-                hideTranslation: context.hideTranslation,
-                openLink: context.openLink,
-                translate: context.translate,
-            }),
-            side: 2,
-            block: true,
-        }).range(block.to));
-    }
-}
-
-function translatableBlocks(state) {
-    const blocks = [];
-    let ordinal = 0;
-    for (let node = syntaxTree(state).topNode.firstChild;
-        node;
-        node = node.nextSibling) {
-        const type = node.name === 'Paragraph'
-            ? 'paragraph'
-            : isHeadingNode(node.name)
-                ? 'heading'
-                : null;
-        if (!type) continue;
-        const source = state.sliceDoc(node.from, node.to);
-        if (!source.trim()
-            || findInlineMathMatches(source).length
-            || findDisplayMathMatches(source).length
-            || /!\[[^\]]*\]\s*\(/.test(source)) {
-            continue;
-        }
-        const markdown = type === 'heading'
-            ? source.replace(/^\s{0,3}#{1,6}\s+/, '')
-            : source;
-        if (!markdown.trim()) continue;
-        blocks.push({
-            id: `translation-${ordinal}-${node.from}-${node.to}-${type}`,
-            type,
-            from: node.from,
-            to: node.to,
-            source,
-            markdown,
-        });
-        ordinal++;
-    }
-    return blocks;
 }
 
 function deletedCorrectionGapRanges(state, context) {

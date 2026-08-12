@@ -137,6 +137,30 @@ test('calls AI SDK streamText and reports cumulative text deltas', async () => {
     });
 });
 
+test('rejects a streaming response that reports an error after text ends', async () => {
+    const providerError = new Error('late stream failure');
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        stream: async request => ({
+            textStream: {
+                async *[Symbol.asyncIterator]() {
+                    yield 'Partial';
+                },
+            },
+            usage: Promise.resolve().then(() => {
+                request.onError({ error: providerError });
+                return { totalTokens: 1 };
+            }),
+            response: Promise.resolve({ modelId: 'stream-model' }),
+        }),
+    });
+
+    await assert.rejects(() => gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    }), error => error?.code === 'AI_NETWORK_ERROR');
+});
+
 test('aborts a streaming AI SDK request when the Mktero timeout elapses', async () => {
     let scheduled;
     let receivedSignal;

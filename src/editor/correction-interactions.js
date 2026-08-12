@@ -12,7 +12,6 @@ const CORRECTION_INTERACTION_SELECTOR = [
     '.cm-mktero-figure-reference',
     '.cm-mktero-pdf-annotation',
     '.cm-mktero-pdf-annotation-note',
-    '.cm-mktero-translation',
 ].join(', ');
 
 export function isCorrectionInteractionTarget(target) {

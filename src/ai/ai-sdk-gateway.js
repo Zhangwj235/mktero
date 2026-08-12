@@ -210,6 +210,11 @@ export class AISDKGateway {
             throwIfAborted(signal);
             const usage = result.usage ? await result.usage : null;
             const response = result.response ? await result.response : null;
+            if (streamError) throw streamError;
+            if (timedOut) {
+                throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
+            }
+            throwIfAborted(signal);
             return {
                 text,
                 model: responseModel({ response }, configuration.model),

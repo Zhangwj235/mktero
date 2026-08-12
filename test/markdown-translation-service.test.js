@@ -15,215 +15,6 @@ const SETTINGS = Object.freeze({
     targetLanguage: 'zh-CN',
     requestTimeoutMs: 30_000,
     maxOutputTokens: 2_048,
-    cacheEnabled: true,
-});
-
-test('translates one Markdown block and stores the normalized result', async () => {
-    const puts = [];
-    let completion;
-    const service = new MarkdownTranslationService({
-        aiGateway: {
-            async generateText(request) {
-                completion = request;
-                return {
-                    text: '  翻译结果  ',
-                    model: 'provider-model',
-                    usage: { totalTokens: 12 },
-                };
-            },
-        },
-        cache: {
-            get: async () => null,
-            put: async (key, value) => puts.push({ key, value }),
-        },
-        getSettings: () => SETTINGS,
-        createCacheKey: async value => `key:${value.length}`,
-    });
-
-    const result = await service.translate({
-        documentKey: 'pdf-hash',
-        blockID: 'paragraph-1',
-        markdown: 'Source paragraph.',
-    });
-
-    assert.equal(completion.settings, SETTINGS);
-    assert.equal(completion.messages[0].role, 'system');
-    assert.match(completion.messages[0].content, /Simplified Chinese/);
-    assert.deepEqual(completion.messages[1], {
-        role: 'user',
-        content: 'Source paragraph.',
-    });
-    assert.equal(result.text, '翻译结果');
-    assert.equal(result.cacheHit, false);
-    assert.equal(puts.length, 1);
-    assert.deepEqual(puts[0].value, {
-        text: '翻译结果',
-        model: 'provider-model',
-        targetLanguage: 'zh-CN',
-        promptVersion: TRANSLATION_PROMPT_VERSION,
-    });
-});
-
-test('uses streaming translation by default and forwards text deltas', async () => {
-    const deltas = [];
-    let streamRequest;
-    const service = new MarkdownTranslationService({
-        aiGateway: {
-            async streamText(request) {
-                streamRequest = request;
-                request.onTextDelta('译', '译');
-                request.onTextDelta('文', '译文');
-                return { text: '译文', model: 'stream-model' };
-            },
-            generateText: assert.fail,
-        },
-        getSettings: () => ({ ...SETTINGS, streaming: true }),
-        createCacheKey: async () => 'stream-key',
-    });
-
-    const result = await service.translate({
-        documentKey: 'pdf-hash',
-        blockID: 'paragraph-1',
-        markdown: 'Source paragraph.',
-        onTextDelta: (delta, accumulated) => deltas.push({ delta, accumulated }),
-    });
-
-    assert.equal(typeof streamRequest.onTextDelta, 'function');
-    assert.deepEqual(deltas, [
-        { delta: '译', accumulated: '译' },
-        { delta: '文', accumulated: '译文' },
-    ]);
-    assert.equal(result.text, '译文');
-});
-
-test('uses non-streaming translation when the setting is disabled', async () => {
-    let mode = '';
-    const service = new MarkdownTranslationService({
-        aiGateway: {
-            streamText: async () => {
-                mode = 'stream';
-                return { text: 'wrong' };
-            },
-            generateText: async () => {
-                mode = 'generate';
-                return { text: '译文' };
-            },
-        },
-        getSettings: () => ({ ...SETTINGS, streaming: false }),
-        createCacheKey: async () => 'non-stream-key',
-    });
-
-    await service.translate({
-        documentKey: 'pdf-hash',
-        blockID: 'paragraph-1',
-        markdown: 'Source paragraph.',
-    });
-
-    assert.equal(mode, 'generate');
-});
-
-test('uses the configured expanded language name in the translation prompt', async () => {
-    for (const [targetLanguage, languageName] of [
-        ['es-ES', 'Spanish'],
-        ['fr-FR', 'French'],
-        ['pt-BR', 'Brazilian Portuguese'],
-    ]) {
-        let completion;
-        const service = new MarkdownTranslationService({
-            aiGateway: {
-                async generateText(request) {
-                    completion = request;
-                    return { text: 'Translated' };
-                },
-            },
-            getSettings: () => ({ ...SETTINGS, targetLanguage }),
-            createCacheKey: async () => `key:${targetLanguage}`,
-        });
-
-        await service.translate({
-            documentKey: 'pdf-hash',
-            blockID: 'paragraph-1',
-            markdown: 'Source paragraph.',
-        });
-
-        assert.match(completion.messages[0].content, new RegExp(languageName));
-    }
-});
-
-test('returns a matching cached translation without calling Chat', async () => {
-    let calls = 0;
-    const cached = {
-        text: '缓存译文',
-        model: 'example-chat',
-        targetLanguage: 'zh-CN',
-        promptVersion: TRANSLATION_PROMPT_VERSION,
-    };
-    const service = new MarkdownTranslationService({
-        aiGateway: {
-            generateText: async () => { calls++; },
-        },
-        cache: {
-            get: async () => cached,
-            put: assert.fail,
-        },
-        getSettings: () => SETTINGS,
-        createCacheKey: async () => 'cached-key',
-    });
-
-    assert.deepEqual(await service.translate({
-        documentKey: 'pdf-hash',
-        blockID: 'paragraph-1',
-        markdown: 'Source paragraph.',
-    }), {
-        ...cached,
-        cacheHit: true,
-        usage: null,
-    });
-    assert.equal(calls, 0);
-});
-
-test('isolates cached translations by reasoning level', async () => {
-    const cacheInputs = [];
-    const service = new MarkdownTranslationService({
-        aiGateway: {
-            generateText: async () => ({ text: 'Translated' }),
-        },
-        getSettings: () => ({ ...SETTINGS, reasoning: 'high' }),
-        createCacheKey: async value => {
-            cacheInputs.push(JSON.parse(value));
-            return 'reasoning-cache-key';
-        },
-    });
-
-    await service.translate({
-        documentKey: 'pdf-hash',
-        blockID: 'paragraph-1',
-        markdown: 'Source paragraph.',
-    });
-
-    assert.equal(cacheInputs[0].reasoning, 'high');
-});
-
-test('uses the automatic reasoning cache bucket for missing or invalid settings', async () => {
-    const cacheInputs = [];
-    const service = new MarkdownTranslationService({
-        aiGateway: {
-            generateText: async () => ({ text: 'Translated' }),
-        },
-        getSettings: () => ({ ...SETTINGS, reasoning: 'not-a-level' }),
-        createCacheKey: async value => {
-            cacheInputs.push(JSON.parse(value));
-            return 'automatic-cache-key';
-        },
-    });
-
-    await service.translate({
-        documentKey: 'pdf-hash',
-        blockID: 'paragraph-1',
-        markdown: 'Source paragraph.',
-    });
-
-    assert.equal(cacheInputs[0].reasoning, 'provider-default');
 });
 
 test('tests a valid connection before AI translation is enabled', async () => {
@@ -246,7 +37,7 @@ test('tests a valid connection before AI translation is enabled', async () => {
 
     assert.equal(result.text, 'OK');
     assert.equal(request.settings.enabled, true);
-    assert.equal(request.settings.reasoning, 'none');
+    assert.equal(request.settings.reasoning, 'provider-default');
     assert.equal(request.maxOutputTokens, 4);
     assert.deepEqual(request.messages, [{
         role: 'user',
@@ -254,81 +45,418 @@ test('tests a valid connection before AI translation is enabled', async () => {
     }]);
 });
 
-test('keeps a successful translation usable when cache operations fail', async () => {
+test('translates a complete Markdown document block by block', async () => {
+    const requests = [];
+    const progress = [];
+    const cached = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                requests.push(request.messages[1].content);
+                return {
+                    text: requests.length === 1 ? '# 论文' : '译文段落。',
+                    model: 'provider-model',
+                    usage: { totalTokens: 10 },
+                };
+            },
+        },
+        cache: {
+            getTranslation: async () => null,
+            putTranslation: async (...args) => cached.push(args),
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper\n\nOriginal paragraph.\n\n```js\ncode();\n```',
+        onProgress: value => progress.push(value),
+    });
+
+    assert.deepEqual(requests, ['# Paper', 'Original paragraph.']);
+    assert.equal(
+        result.translatedMarkdown,
+        '# 论文\n\n译文段落。\n\n```js\ncode();\n```'
+    );
+    assert.match(result.comparisonMarkdown, /# Paper\n\n> # 论文/);
+    assert.equal(result.totalBlocks, 2);
+    assert.equal(result.completedBlocks, 2);
+    assert.equal(result.cacheHit, false);
+    assert.deepEqual(progress, [{ completed: 1, total: 2 }, {
+        completed: 2,
+        total: 2,
+    }]);
+    assert.equal(cached.length, 1);
+    assert.equal(cached[0][0], 'a'.repeat(64));
+    assert.equal(cached[0][1], 'c'.repeat(64));
+    assert.equal(cached[0][2].translatedMarkdown, result.translatedMarkdown);
+});
+
+test('streams document blocks by default and uses the selected language', async () => {
+    const requests = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async streamText(request) {
+                requests.push(request);
+                return { text: '# Article traduit', model: 'stream-model' };
+            },
+            generateText: assert.fail,
+        },
+        getSettings: () => ({
+            ...SETTINGS,
+            streaming: true,
+            targetLanguage: 'fr-FR',
+        }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+
+    assert.equal(requests.length, 1);
+    assert.match(requests[0].messages[0].content, /French/);
+    assert.equal(result.translatedMarkdown, '# Article traduit');
+});
+
+test('isolates document translations by reasoning and source content', async () => {
+    const cacheInputs = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            generateText: async () => ({ text: '# 论文' }),
+        },
+        getSettings: () => ({
+            ...SETTINGS,
+            streaming: false,
+            reasoning: 'high',
+        }),
+        createCacheKey: async value => {
+            cacheInputs.push(JSON.parse(value));
+            return 'c'.repeat(64);
+        },
+    });
+
+    await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+
+    assert.equal(cacheInputs[0].source, '# Paper');
+    assert.equal(cacheInputs[0].reasoning, 'high');
+});
+
+test('keeps a completed document translation when caching fails', async () => {
     const cacheErrors = [];
     const service = new MarkdownTranslationService({
         aiGateway: {
-            generateText: async () => ({
-                text: '译文',
-                model: 'example-chat',
-            }),
+            generateText: async () => ({ text: '# 论文' }),
         },
         cache: {
-            get: async () => { throw new Error('read failed'); },
-            put: async () => { throw new Error('write failed'); },
+            getTranslation: async () => null,
+            putTranslation: async () => { throw new Error('disk full'); },
         },
-        getSettings: () => SETTINGS,
-        createCacheKey: async () => 'cache-key',
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
         onCacheError: error => cacheErrors.push(error.message),
     });
 
-    const result = await service.translate({
-        documentKey: 'pdf-hash',
-        blockID: 'paragraph-1',
-        markdown: 'Source paragraph.',
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
     });
 
-    assert.equal(result.text, '译文');
-    assert.equal(result.cacheHit, false);
-    assert.deepEqual(cacheErrors, ['read failed', 'write failed']);
+    assert.equal(result.translatedMarkdown, '# 论文');
+    assert.deepEqual(cacheErrors, ['disk full']);
 });
 
-test('does not call Chat when AI is disabled or the block is oversized', async () => {
-    let calls = 0;
-    const createService = settings => new MarkdownTranslationService({
-        aiGateway: { generateText: async () => { calls++; } },
-        getSettings: () => settings,
-        createCacheKey: async () => 'key',
+test('continues translating without persistence when cache hashing fails', async () => {
+    const cacheErrors = [];
+    let providerCalls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText() {
+                providerCalls++;
+                return { text: '# 论文' };
+            },
+        },
+        cache: {
+            getTranslation: assert.fail,
+            putTranslation: assert.fail,
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => { throw new Error('hash unavailable'); },
+        onCacheError: error => cacheErrors.push(error.message),
     });
 
-    await assert.rejects(
-        createService({ ...SETTINGS, enabled: false }).translate({
-            documentKey: 'pdf-hash',
-            blockID: 'paragraph-1',
-            markdown: 'Source paragraph.',
-        }),
-        error => error?.code === 'AI_CONFIGURATION_ERROR'
-    );
-    await assert.rejects(
-        createService(SETTINGS).translate({
-            documentKey: 'pdf-hash',
-            blockID: 'paragraph-1',
-            markdown: 'x'.repeat(65 * 1024),
-        }),
-        error => error?.code === 'AI_INPUT_TOO_LARGE'
-    );
-    assert.equal(calls, 0);
+    const cached = await service.getCachedDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+
+    assert.equal(cached, null);
+    assert.equal(result.translatedMarkdown, '# 论文');
+    assert.equal(result.translationKey, null);
+    assert.equal(providerCalls, 1);
+    assert.deepEqual(cacheErrors, ['hash unavailable', 'hash unavailable']);
 });
 
-test('rejects missing or oversized cache identifiers before calling Chat', async () => {
+test('continues translating when reading the Markdown translation cache fails', async () => {
+    const cacheErrors = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            generateText: async () => ({ text: '# 论文' }),
+        },
+        cache: {
+            getTranslation: async () => { throw new Error('cache unreadable'); },
+            putTranslation: async () => {},
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+        onCacheError: error => cacheErrors.push(error.message),
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+
+    assert.equal(result.translatedMarkdown, '# 论文');
+    assert.deepEqual(cacheErrors, ['cache unreadable']);
+});
+
+test('always stores completed translations with the Markdown cache entry', async () => {
+    const cached = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            generateText: async () => ({ text: '# 论文' }),
+        },
+        cache: {
+            getTranslation: async () => null,
+            putTranslation: async (...args) => cached.push(args),
+        },
+        getSettings: () => ({
+            ...SETTINGS,
+            cacheEnabled: false,
+            streaming: false,
+        }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+
+    assert.equal(cached.length, 1);
+});
+
+for (const [name, output] of [
+    ['raw HTML', '<script>alert(1)</script>'],
+    ['a Markdown image', '![Injected](https://example.com/tracker.png)'],
+]) {
+    test(`rejects ${name} returned by the AI provider`, async () => {
+        const service = createBoundaryService({ output });
+
+        await assert.rejects(() => service.translateDocument({
+            documentKey: 'a'.repeat(64),
+            markdown: 'Translate this paragraph.',
+        }), error => error?.code === 'AI_INVALID_RESPONSE');
+    });
+}
+
+test('rejects a Markdown block over 64 KB before calling the provider', async () => {
+    let providerCalls = 0;
+    const service = createBoundaryService({
+        output: '译文。',
+        onProviderCall: () => { providerCalls++; },
+    });
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: `Paragraph ${'x'.repeat(64 * 1024)}.`,
+    }), error => error?.code === 'AI_INPUT_TOO_LARGE');
+    assert.equal(providerCalls, 0);
+});
+
+test('counts protected content toward the 64 KB input limit', async () => {
+    let providerCalls = 0;
+    const service = createBoundaryService({
+        output: '译文。',
+        onProviderCall: () => { providerCalls++; },
+    });
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: `Translate \`${'x'.repeat(64 * 1024)}\`.`,
+    }), error => error?.code === 'AI_INPUT_TOO_LARGE');
+    assert.equal(providerCalls, 0);
+});
+
+test('rejects more than 2,000 translatable blocks before calling the provider', async () => {
+    let providerCalls = 0;
+    const service = createBoundaryService({
+        output: '译文。',
+        onProviderCall: () => { providerCalls++; },
+    });
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: Array.from(
+            { length: 2_001 },
+            (_, index) => `Paragraph ${index}.`
+        ).join('\n\n'),
+    }), error => error?.code === 'AI_INPUT_TOO_LARGE');
+    assert.equal(providerCalls, 0);
+});
+
+test('rejects cumulative translation input over 4 MB before calling the provider', async () => {
+    let providerCalls = 0;
+    const service = createBoundaryService({
+        output: '译文。',
+        onProviderCall: () => { providerCalls++; },
+    });
+    const paragraph = `Paragraph ${'x'.repeat(60 * 1024)}.`;
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: Array.from({ length: 69 }, () => paragraph).join('\n\n'),
+    }), error => error?.code === 'AI_INPUT_TOO_LARGE');
+    assert.equal(providerCalls, 0);
+});
+
+test('rejects a translated Markdown block over 256 KB', async () => {
+    const service = createBoundaryService({
+        output: `译文${'文'.repeat(256 * 1024)}`,
+    });
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: 'Translate this paragraph.',
+    }), error => error?.code === 'AI_RESPONSE_TOO_LARGE');
+});
+
+test('rejects a document translation over 4 MB without caching it', async () => {
+    let providerCalls = 0;
+    const service = createBoundaryService({
+        output: `译${'x'.repeat(255 * 1024)}`,
+        onProviderCall: () => { providerCalls++; },
+    });
+    service.cache.putTranslation = assert.fail;
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: Array.from(
+            { length: 17 },
+            (_, index) => `Paragraph ${index}.`
+        ).join('\n\n'),
+    }), error => error?.code === 'AI_RESPONSE_TOO_LARGE');
+    assert.equal(providerCalls, 17);
+});
+
+test('loads a complete document translation without calling the provider', async () => {
+    const cached = {
+        translatedMarkdown: '# 论文',
+        comparisonMarkdown: '# Paper\n\n> # 论文',
+        blocks: [{ id: 'translation-0-0-7-heading', markdown: '# 论文' }],
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+    };
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => cached,
+            putTranslation: assert.fail,
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    const result = await service.getCachedDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+
+    assert.deepEqual(result, {
+        ...cached,
+        translationKey: 'c'.repeat(64),
+        cacheHit: true,
+        totalBlocks: 1,
+        completedBlocks: 1,
+    });
+});
+
+test('does not cache a partial document when a later block fails', async () => {
     let calls = 0;
     const service = new MarkdownTranslationService({
-        aiGateway: { generateText: async () => { calls++; } },
-        getSettings: () => SETTINGS,
-        createCacheKey: async () => 'key',
+        aiGateway: {
+            async generateText() {
+                calls++;
+                if (calls === 2) throw new Error('provider failed');
+                return { text: '# 论文' };
+            },
+        },
+        cache: {
+            getTranslation: async () => null,
+            putTranslation: assert.fail,
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
     });
 
-    for (const request of [{
-        documentKey: '',
-        blockID: 'paragraph-1',
-    }, {
-        documentKey: 'pdf-hash',
-        blockID: 'x'.repeat(513),
-    }]) {
-        await assert.rejects(
-            service.translate({ ...request, markdown: 'Source paragraph.' }),
-            error => error?.code === 'AI_INVALID_REQUEST'
-        );
-    }
-    assert.equal(calls, 0);
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper\n\nParagraph.',
+    }), /provider failed/);
+    assert.equal(calls, 2);
 });
+
+test('stops document translation before the next block when canceled', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText() {
+                calls++;
+                controller.abort();
+                return { text: '# 论文' };
+            },
+        },
+        cache: {
+            getTranslation: async () => null,
+            putTranslation: assert.fail,
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper\n\nParagraph.',
+        signal: controller.signal,
+    }), error => error?.name === 'AbortError');
+    assert.equal(calls, 1);
+});
+
+function createBoundaryService({ output, onProviderCall = () => {} }) {
+    return new MarkdownTranslationService({
+        aiGateway: {
+            async generateText() {
+                onProviderCall();
+                return { text: output };
+            },
+        },
+        cache: {
+            getTranslation: async () => null,
+            putTranslation: async () => {},
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+}

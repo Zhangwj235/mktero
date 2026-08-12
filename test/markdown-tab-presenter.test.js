@@ -420,33 +420,33 @@ test('exposes and refreshes the reparse action on the tab model', async () => {
     assert.equal(second.model.cacheKey, null);
 });
 
-test('exposes and refreshes AI translation actions on the tab model', async () => {
+test('exposes and refreshes document translation actions on the tab model', async () => {
     const mainWindow = createMainWindow();
     const harness = createViewHarness();
     const calls = [];
     const presenter = createPresenter(mainWindow, harness);
     const first = presenter.open(42, {
-        onSetTranslationMode: enabled => calls.push(['mode-first', enabled]),
-        onTranslateBlock: request => calls.push(['translate-first', request]),
-        onCancelTranslation: blockID => calls.push(['cancel-first', blockID]),
+        onTranslateDocument: () => calls.push(['translate-first']),
+        onCancelDocumentTranslation: () => calls.push(['cancel-first']),
+        onSetTranslationView: view => calls.push(['view-first', view]),
     });
     const second = presenter.open(42, {
-        onSetTranslationMode: enabled => calls.push(['mode-second', enabled]),
-        onTranslateBlock: request => calls.push(['translate-second', request]),
-        onCancelTranslation: blockID => calls.push(['cancel-second', blockID]),
+        onTranslateDocument: () => calls.push(['translate-second']),
+        onCancelDocumentTranslation: () => calls.push(['cancel-second']),
+        onSetTranslationView: view => calls.push(['view-second', view]),
     });
-    const request = { blockID: 'paragraph-1', markdown: 'Text.' };
 
-    second.model.onSetTranslationMode(true);
-    second.model.onTranslateBlock(request);
-    second.model.onCancelTranslation(request.blockID);
+    second.model.onTranslateDocument();
+    second.model.onCancelDocumentTranslation();
+    second.model.onSetTranslationView('compare');
 
     assert.equal(first.model, second.model);
-    assert.equal(second.model.translationMode, false);
+    assert.equal(second.model.translationView, 'original');
+    assert.equal(second.model.translationStatus, 'none');
     assert.deepEqual(calls, [
-        ['mode-second', true],
-        ['translate-second', request],
-        ['cancel-second', 'paragraph-1'],
+        ['translate-second'],
+        ['cancel-second'],
+        ['view-second', 'compare'],
     ]);
 });
 

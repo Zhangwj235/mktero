@@ -30,6 +30,7 @@ test('aborts live AI SDK requests across bootstrap translation lifecycles', {
         'fetch',
         'startup',
         'shutdown',
+        'Services',
         '__MKTERO_MARKDOWN_STYLES__',
     ]);
     const profilePath = await mkdtemp(path.join(
@@ -70,8 +71,8 @@ test('aborts live AI SDK requests across bootstrap translation lifecycles', {
         ['extensions.mktero.aiTargetLanguage', 'zh-CN'],
         ['extensions.mktero.aiRequestTimeoutMs', 120_000],
         ['extensions.mktero.aiMaxOutputTokens', 2_048],
-        ['extensions.mktero.aiCacheEnabled', false],
     ]);
+    const observerService = createObserverService();
     globalThis.Zotero = {
         version: '9.0.6',
         locale: 'en-US',
@@ -98,6 +99,7 @@ test('aborts live AI SDK requests across bootstrap translation lifecycles', {
     };
     globalThis.IOUtils = ioUtils;
     globalThis.PathUtils = pathUtils;
+    globalThis.Services = { obs: observerService };
     globalThis.__MKTERO_MARKDOWN_STYLES__ = readFileSync(
         new URL('../ui/markdown.css', import.meta.url),
         'utf8'
@@ -153,22 +155,38 @@ test('aborts live AI SDK requests across bootstrap translation lifecycles', {
     let root = await waitFor(() => mainWindow.tabRoot('tab-1'));
     let shadow = root.shadowRoot;
     await waitFor(() => !shadow.querySelector(
-        '#mktero-translation-toggle'
+        '#mktero-translate-document'
     )?.disabled);
 
     startTranslation(shadow);
     const exitSignal = await waitFor(() => chatSignals[0]);
-    shadow.querySelector('#mktero-translation-toggle').click();
+    shadow.querySelector('#mktero-translate-document').click();
     await waitFor(() => exitSignal.aborted);
+    await waitFor(() => shadow.querySelector(
+        '#mktero-translate-document'
+    )?.getAttribute('aria-busy') === 'false');
 
     startTranslation(shadow);
-    const reparseSignal = await waitFor(() => chatSignals[1]);
+    const cacheClearSignal = await waitFor(() => chatSignals[1]);
+    observerService.notifyObservers(null, 'mktero-cache-cleared');
+    await waitFor(() => cacheClearSignal.aborted);
+    await waitFor(() => shadow.querySelector(
+        '#mktero-translate-document'
+    )?.getAttribute('aria-busy') === 'false');
+    assert.equal(shadow.querySelector('#mktero-translation-view').disabled, true);
+    assert.equal(shadow.querySelector('#mktero-translation-view').value, 'original');
+
+    startTranslation(shadow);
+    const reparseSignal = await waitFor(() => chatSignals[2]);
     shadow.querySelector('#mktero-reparse').click();
     await waitFor(() => reparseSignal.aborted);
     await waitFor(() => !shadow.querySelector('#mktero-reparse')?.disabled);
+    await waitFor(() => shadow.querySelector(
+        '#mktero-translate-document'
+    )?.getAttribute('aria-busy') === 'false');
 
     startTranslation(shadow);
-    const closeSignal = await waitFor(() => chatSignals[2]);
+    const closeSignal = await waitFor(() => chatSignals[3]);
     mainWindow.Zotero_Tabs.close('tab-1');
     await waitFor(() => closeSignal.aborted);
 
@@ -176,17 +194,18 @@ test('aborts live AI SDK requests across bootstrap translation lifecycles', {
     root = await waitFor(() => mainWindow.tabRoot('tab-2'));
     shadow = root.shadowRoot;
     await waitFor(() => !shadow.querySelector(
-        '#mktero-translation-toggle'
+        '#mktero-translate-document'
     )?.disabled);
     startTranslation(shadow);
-    const shutdownSignal = await waitFor(() => chatSignals[3]);
+    const shutdownSignal = await waitFor(() => chatSignals[4]);
     globalThis.shutdown();
     await waitFor(() => shutdownSignal.aborted);
+    assert.equal(observerService.count('mktero-cache-cleared'), 0);
 
     assert.deepEqual(
-        [exitSignal, reparseSignal, closeSignal, shutdownSignal]
+        [exitSignal, cacheClearSignal, reparseSignal, closeSignal, shutdownSignal]
             .map(signal => signal.aborted),
-        [true, true, true, true]
+        [true, true, true, true, true]
     );
     assert.ok(errors.every(error => !String(error).includes('test-token')));
 });
@@ -354,9 +373,26 @@ function createMainWindow(AbortController, alerts) {
     };
 }
 
+function createObserverService() {
+    const listeners = new Map();
+    return {
+        addObserver(observer, topic) {
+            listeners.set(topic, observer);
+        },
+        removeObserver(observer, topic) {
+            if (listeners.get(topic) === observer) listeners.delete(topic);
+        },
+        notifyObservers(subject, topic) {
+            listeners.get(topic)?.observe(subject, topic);
+        },
+        count(topic) {
+            return Number(listeners.has(topic));
+        },
+    };
+}
+
 function startTranslation(shadow) {
-    shadow.querySelector('#mktero-translation-toggle').click();
-    const trigger = shadow.querySelector('.cm-mktero-translation-trigger');
+    const trigger = shadow.querySelector('#mktero-translate-document');
     assert.ok(trigger);
     trigger.click();
 }

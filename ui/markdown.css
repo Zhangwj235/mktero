@@ -846,6 +846,72 @@ main {
     gap: 10px;
 }
 
+.markdown-translation-controls {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    margin-inline-start: auto;
+    padding-inline-start: 10px;
+    border-inline-start: 1px solid var(--border-subtle);
+}
+
+.markdown-translation-action {
+    display: inline-flex;
+    min-width: 104px;
+    min-height: 32px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 5px 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+    border-radius: var(--radius-sm);
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
+    cursor: pointer;
+    font: 600 12px/1.25 var(--ui-font);
+    white-space: nowrap;
+}
+
+.markdown-translation-action:hover:not(:disabled),
+.markdown-translation-action:focus-visible {
+    border-color: var(--accent);
+    outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    outline-offset: 1px;
+    background: color-mix(in srgb, var(--accent) 13%, var(--surface-raised));
+}
+
+.markdown-translation-action:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.markdown-translation-view-label {
+    color: var(--text);
+    font: 550 12.5px/1.2 var(--ui-font);
+    white-space: nowrap;
+}
+
+.markdown-translation-view {
+    width: auto;
+    min-width: 106px;
+    max-width: 144px;
+    min-height: 32px;
+    padding: 4px 28px 4px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    background-color: var(--surface-raised);
+    font: 12.5px/1.2 var(--ui-font);
+}
+
+.markdown-translation-view:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline-offset: 1px;
+}
+
+.markdown-translation-view:disabled { opacity: 0.55; }
+
 .markdown-reader-action-menu {
     position: absolute;
     top: calc(100% + 8px);
@@ -2762,89 +2828,6 @@ main {
     background: color-mix(in srgb, var(--accent) 15%, var(--reader-background));
 }
 
-.markdown-editor-host > .cm-editor .cm-mktero-translation {
-    box-sizing: border-box;
-    width: 100%;
-    margin: 6px 0 20px;
-    color: var(--text);
-    font: 12px/1.5 var(--ui-font);
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation--loading,
-.markdown-editor-host > .cm-editor .cm-mktero-translation--error,
-.markdown-editor-host > .cm-editor .cm-mktero-translation--ready {
-    padding: 10px 12px;
-    border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--accent) 5%, var(--reader-background));
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation-header {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 7px;
-    color: var(--muted);
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation-actions {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: 6px;
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation button {
-    min-height: 26px;
-    padding: 3px 9px;
-    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
-    border-radius: 999px;
-    color: var(--accent-strong);
-    background: color-mix(in srgb, var(--accent) 7%, var(--reader-background));
-    cursor: pointer;
-    font: 12px/1.25 var(--ui-font);
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation button:hover,
-.markdown-editor-host > .cm-editor .cm-mktero-translation button:focus-visible {
-    border-color: var(--accent);
-    outline: none;
-    background: color-mix(in srgb, var(--accent) 14%, var(--reader-background));
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation-trigger {
-    display: block;
-    margin-inline-start: auto;
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation-status,
-.markdown-editor-host > .cm-editor .cm-mktero-translation-error {
-    display: block;
-    color: var(--muted);
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation-error {
-    color: var(--error);
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation-content {
-    color: var(--text);
-    font-family: var(--reader-font);
-    font-size: var(--reader-font-size);
-    line-height: var(--reader-line-height);
-    overflow-wrap: anywhere;
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation-content > :first-child {
-    margin-top: 0;
-}
-
-.markdown-editor-host > .cm-editor .cm-mktero-translation-content > :last-child {
-    margin-bottom: 0;
-}
-
 .markdown-editor-host > .cm-editor .cm-mktero-math {
     display: inline-block;
     max-width: 100%;
@@ -2922,6 +2905,13 @@ main {
     }
 
     .markdown-reader-controls { gap: 8px; }
+    .markdown-translation-controls {
+        width: 100%;
+        margin-inline-start: 0;
+        padding: 5px 0 1px;
+        border-inline-start: 0;
+        border-top: 1px solid var(--border-subtle);
+    }
     .markdown-reader-font-label { display: none; }
     .markdown-reader-font-family { padding-inline-start: 8px; }
     .markdown-reader-font-picker {

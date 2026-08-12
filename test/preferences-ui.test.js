@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import * as preferencesUI from '../src/ui/preferences.js';
+import {
+    withSuccessfulClearNotification,
+} from '../src/cache/cache-events.js';
 
 const {
     createCombinedLocalCache,
@@ -93,6 +96,23 @@ test('loads cache usage and clears it from the preferences pane', async () => {
     assert.equal(button.disabled, false);
     assert.equal(status.textContent, 'No local cache entries');
     assert.equal(status.attributes['aria-busy'], 'false');
+});
+
+test('notifies after Markdown cache deletion when another cache fails', async () => {
+    const notifications = [];
+    const cache = createCombinedLocalCache([
+        withSuccessfulClearNotification({
+            getStats: async () => ({ entries: 1, sizeBytes: 10 }),
+            clear: async () => {},
+        }, () => notifications.push('markdown-cleared')),
+        {
+            getStats: async () => ({ entries: 1, sizeBytes: 10 }),
+            clear: async () => { throw new Error('PDF index unavailable'); },
+        },
+    ]);
+
+    await assert.rejects(() => cache.clear(), /PDF index unavailable/);
+    assert.deepEqual(notifications, ['markdown-cleared']);
 });
 
 test('restores cache controls when clearing the cache fails', async () => {
@@ -218,7 +238,6 @@ test('tests the current AI SDK settings without exposing the key', async () => {
             </select>
             <input id="mktero-ai-request-timeout" value="45000">
             <input id="mktero-ai-max-output-tokens" value="3072">
-            <input id="mktero-ai-cache-enabled" type="checkbox">
             <input id="mktero-ai-streaming" type="checkbox" checked>
             <button id="mktero-ai-test"></button>
             <span id="mktero-ai-test-status"></span>
@@ -255,7 +274,6 @@ test('tests the current AI SDK settings without exposing the key', async () => {
     assert.equal(testedSettings.reasoning, 'high');
     assert.equal(testedSettings.requestTimeoutMs, '45000');
     assert.equal(testedSettings.maxOutputTokens, '3072');
-    assert.equal(testedSettings.cacheEnabled, false);
     assert.equal(testedSettings.streaming, true);
     assert.equal(
         dom.window.document.getElementById('mktero-ai-test-status').textContent,

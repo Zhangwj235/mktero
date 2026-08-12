@@ -133,228 +133,6 @@ test('keeps Markdown as the source of truth in a read-only surface', () => {
     dom.window.close();
 });
 
-test('translates a paragraph below the read-only Markdown without changing source', async () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    const markdown = '# Heading\n\nParagraph to translate.';
-    let request;
-    const editor = createInlineMarkdownEditor({
-        parent: document.querySelector('#editor'),
-        initialMarkdown: markdown,
-        onTranslateBlock: async value => {
-            request = value;
-            return {
-                text: '这是[安全链接](https://example.com)，不是[脚本](javascript:alert(1))。',
-                model: 'example-chat',
-                cacheHit: false,
-            };
-        },
-    });
-    editor.setTranslationState({ enabled: true });
-    const buttons = document.querySelectorAll(
-        '.cm-mktero-translation-trigger'
-    );
-
-    assert.equal(buttons.length, 2);
-    buttons[1].click();
-    await new Promise(resolve => setImmediate(resolve));
-
-    assert.equal(request.markdown, 'Paragraph to translate.');
-    assert.match(
-        document.querySelector('.cm-mktero-translation-content').textContent,
-        /这是安全链接.*不是脚本/
-    );
-    assert.equal(
-        document.querySelector('.cm-mktero-translation-content a')
-            ?.getAttribute('href'),
-        'https://example.com'
-    );
-    assert.equal(
-        document.querySelectorAll('.cm-mktero-translation-content a').length,
-        1
-    );
-    assert.equal(editor.getMarkdown(), markdown);
-
-    editor.destroy();
-    dom.window.close();
-});
-
-test('shows partial streamed translation text while a block is loading', async () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    let finish;
-    const editor = createInlineMarkdownEditor({
-        parent: document.querySelector('#editor'),
-        initialMarkdown: 'Paragraph to translate.',
-        onTranslateBlock: request => new Promise(resolve => {
-            request.onTextDelta('Part', 'Part');
-            request.onTextDelta('ial', 'Partial');
-            finish = resolve;
-        }),
-    });
-    editor.setTranslationState({ enabled: true });
-    document.querySelector('.cm-mktero-translation-trigger').click();
-    await new Promise(resolve => setImmediate(resolve));
-
-    assert.match(
-        document.querySelector('.cm-mktero-translation-content').textContent,
-        /Partial/
-    );
-    assert.ok(document.querySelector('.cm-mktero-translation-cancel'));
-    finish({ text: 'Partial result' });
-    await new Promise(resolve => setImmediate(resolve));
-    editor.destroy();
-    dom.window.close();
-});
-
-test('cancels an in-flight block translation without showing a stale result', async () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    let finish;
-    const cancelled = [];
-    const editor = createInlineMarkdownEditor({
-        parent: document.querySelector('#editor'),
-        initialMarkdown: 'Paragraph to translate.',
-        onTranslateBlock: () => new Promise(resolve => { finish = resolve; }),
-        onCancelTranslation: blockID => cancelled.push(blockID),
-    });
-    editor.setTranslationState({ enabled: true });
-
-    document.querySelector('.cm-mktero-translation-trigger').click();
-    document.querySelector('.cm-mktero-translation-cancel').click();
-    finish({ text: 'Stale result' });
-    await new Promise(resolve => setImmediate(resolve));
-
-    assert.equal(cancelled.length, 1);
-    assert.equal(
-        document.querySelector('.cm-mktero-translation-content'),
-        null
-    );
-    assert.ok(document.querySelector('.cm-mktero-translation-trigger'));
-
-    editor.destroy();
-    dom.window.close();
-});
-
-test('cancels in-flight translations when the Markdown editor is destroyed', async () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    let finish;
-    const cancelled = [];
-    const editor = createInlineMarkdownEditor({
-        parent: document.querySelector('#editor'),
-        initialMarkdown: 'Paragraph to translate.',
-        onTranslateBlock: () => new Promise(resolve => { finish = resolve; }),
-        onCancelTranslation: blockID => cancelled.push(blockID),
-    });
-    editor.setTranslationState({ enabled: true });
-    document.querySelector('.cm-mktero-translation-trigger').click();
-
-    editor.destroy();
-
-    assert.equal(cancelled.length, 1);
-    finish({ text: 'Stale result' });
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(document.querySelector('.cm-mktero-translation-content'), null);
-    dom.window.close();
-});
-
-test('shows a safe configuration message when block translation is unavailable', async () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    const editor = createInlineMarkdownEditor({
-        parent: document.querySelector('#editor'),
-        initialMarkdown: 'Paragraph to translate.',
-        onTranslateBlock: async () => {
-            const error = new Error('provider details');
-            error.code = 'AI_CONFIGURATION_ERROR';
-            throw error;
-        },
-    });
-    editor.setTranslationState({ enabled: true });
-
-    document.querySelector('.cm-mktero-translation-trigger').click();
-    await new Promise(resolve => setImmediate(resolve));
-
-    assert.equal(
-        document.querySelector('.cm-mktero-translation-error').textContent,
-        'Configure and enable AI translation in Mktero settings.'
-    );
-    assert.doesNotMatch(document.body.textContent, /provider details/);
-
-    editor.destroy();
-    dom.window.close();
-});
-
-test('keeps AI translation mode mutually exclusive with block correction', () => {
-    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const { document } = dom.window;
-    const markdown = 'Paragraph to translate.';
-    const editor = createInlineMarkdownEditor({
-        parent: document.querySelector('#editor'),
-        initialMarkdown: markdown,
-        onCommitCorrection: async () => {},
-        onTranslateBlock: async () => ({ text: '译文' }),
-    });
-    editor.setCorrectionState({
-        enabled: false,
-        blocks: [{
-            id: 'paragraph-1',
-            type: 'paragraph',
-            from: 0,
-            to: markdown.length,
-            markdown,
-        }],
-    });
-    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
-    const content = document.querySelector('.cm-content');
-    view.posAtCoords = () => 1;
-    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-    }));
-    view.dispatch({ changes: { from: 0, to: 9, insert: 'Changed' } });
-
-    editor.setTranslationState({ enabled: true });
-
-    assert.equal(editor.getMarkdown(), markdown);
-    assert.equal(content.getAttribute('contenteditable'), 'false');
-    assert.equal(
-        document.querySelector('.mktero-correction-editor-toolbar').hidden,
-        true
-    );
-    assert.ok(document.querySelector('.cm-mktero-translation-trigger'));
-
-    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-    }));
-    view.dispatch({ selection: { anchor: 1 } });
-    content.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
-        key: 'F2',
-        bubbles: true,
-        cancelable: true,
-    }));
-    assert.equal(content.getAttribute('contenteditable'), 'false');
-
-    editor.destroy();
-    dom.window.close();
-});
-
 test('opens a reliably mapped PDF source from the selection actions', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -6104,65 +5882,6 @@ test('supports editors owned by two Zotero windows at the same time', () => {
     firstDOM.window.close();
 });
 
-test('isolates translation cancellation across two Zotero windows', async () => {
-    const firstDOM = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const secondDOM = new JSDOM('<!doctype html><div id="editor"></div>', {
-        pretendToBeVisual: true,
-    });
-    const canceled = [];
-    let finishFirst;
-    let finishSecond;
-    const firstEditor = createInlineMarkdownEditor({
-        parent: firstDOM.window.document.querySelector('#editor'),
-        initialMarkdown: '# First',
-        onTranslateBlock: () => new Promise(resolve => {
-            finishFirst = resolve;
-        }),
-        onCancelTranslation: blockID => canceled.push(['first', blockID]),
-    });
-    const secondEditor = createInlineMarkdownEditor({
-        parent: secondDOM.window.document.querySelector('#editor'),
-        initialMarkdown: '# Second',
-        onTranslateBlock: () => new Promise(resolve => {
-            finishSecond = resolve;
-        }),
-        onCancelTranslation: blockID => canceled.push(['second', blockID]),
-    });
-    firstEditor.setTranslationState({ enabled: true });
-    secondEditor.setTranslationState({ enabled: true });
-    firstDOM.window.document.querySelector(
-        '.cm-mktero-translation-trigger'
-    ).click();
-    secondDOM.window.document.querySelector(
-        '.cm-mktero-translation-trigger'
-    ).click();
-
-    firstEditor.destroy();
-
-    assert.equal(canceled.length, 1);
-    assert.equal(canceled[0][0], 'first');
-    assert.ok(secondDOM.window.document.querySelector(
-        '.cm-mktero-translation-cancel'
-    ));
-
-    finishFirst({ text: 'Stale first translation' });
-    finishSecond({ text: 'Second translation' });
-    await new Promise(resolve => setImmediate(resolve));
-    assert.match(
-        secondDOM.window.document.querySelector(
-            '.cm-mktero-translation-content'
-        ).textContent,
-        /Second translation/
-    );
-    assert.equal(canceled.some(([windowName]) => windowName === 'second'), false);
-
-    secondEditor.destroy();
-    secondDOM.window.close();
-    firstDOM.window.close();
-});
-
 test('activates the owning Zotero window before CodeMirror handles scrolling', () => {
     const originalRequestMeasure = EditorView.prototype.requestMeasure;
     const originalMeasure = EditorView.prototype.measure;
@@ -6347,6 +6066,89 @@ test('keeps the scrolled region rendered when correction mode is enabled', () =>
     assert.ok(resultingViewport.from <= targetOffset);
     assert.ok(resultingViewport.to >= targetOffset + targetText.length);
     assert.equal(resultingScrollTop, 600);
+});
+
+test('restores scrolling after a deferred stalled viewport measurement', () => {
+    const {
+        blocks,
+        dom,
+        editor,
+        scroller,
+        view,
+    } = createStalledViewportFixture({
+        paragraphCount: 40,
+        targetParagraph: 32,
+        scrollTop: 600,
+    });
+    const scheduled = new Map();
+    let nextFrame = 0;
+    dom.window.requestAnimationFrame = callback => {
+        nextFrame++;
+        scheduled.set(nextFrame, callback);
+        return nextFrame;
+    };
+    dom.window.cancelAnimationFrame = frame => scheduled.delete(frame);
+    view.requestMeasure = () => {};
+    let measurements = 0;
+    view.measure = () => {
+        measurements++;
+        if (measurements === 1) throw new Error('geometry unavailable');
+        scroller.scrollTop = 950;
+    };
+
+    editor.setCorrectionState({ enabled: true, blocks });
+    assert.equal(scroller.scrollTop, 600);
+    assert.equal(scheduled.size, 1);
+    const [[frame, callback]] = scheduled;
+    scheduled.delete(frame);
+    callback();
+
+    assert.equal(measurements, 2);
+    assert.equal(scroller.scrollTop, 600);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('cancels a deferred viewport measurement when the editor is destroyed', () => {
+    const {
+        blocks,
+        dom,
+        editor,
+        view,
+    } = createStalledViewportFixture({
+        paragraphCount: 40,
+        targetParagraph: 32,
+        scrollTop: 600,
+    });
+    const scheduled = new Map();
+    const canceled = [];
+    let nextFrame = 0;
+    dom.window.requestAnimationFrame = callback => {
+        nextFrame++;
+        scheduled.set(nextFrame, callback);
+        return nextFrame;
+    };
+    dom.window.cancelAnimationFrame = frame => {
+        canceled.push(frame);
+        scheduled.delete(frame);
+    };
+    view.requestMeasure = () => {};
+    let measurements = 0;
+    view.measure = () => {
+        measurements++;
+        throw new Error('geometry unavailable');
+    };
+
+    editor.setCorrectionState({ enabled: true, blocks });
+    const [[frame, callback]] = scheduled;
+    editor.destroy();
+
+    assert.ok(canceled.includes(frame));
+    callback();
+    assert.equal(measurements, 1);
+
+    dom.window.close();
 });
 
 test('corrects outline navigation after the offscreen heading is rendered', () => {

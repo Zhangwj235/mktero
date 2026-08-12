@@ -1,5 +1,9 @@
 import { createZoteroMarkdownCache } from '../cache/markdown-cache.js';
 import {
+    notifyLocalCacheCleared,
+    withSuccessfulClearNotification,
+} from '../cache/cache-events.js';
+import {
     createZoteroPDFTextIndexCache,
 } from '../cache/pdf-text-index-cache.js';
 import { createZoteroTranslationCache } from '../cache/translation-cache.js';
@@ -276,8 +280,6 @@ export function readAISettingsFromControls(document, zotero) {
             ?? settings.requestTimeoutMs,
         maxOutputTokens: value('mktero-ai-max-output-tokens')
             ?? settings.maxOutputTokens,
-        cacheEnabled: document.getElementById('mktero-ai-cache-enabled')
-            ?.checked ?? settings.cacheEnabled,
         streaming: document.getElementById('mktero-ai-streaming')
             ?.checked ?? settings.streaming,
     };
@@ -373,12 +375,17 @@ globalThis.MkteroPreferences = {
         const document = event.target?.ownerDocument
             || event.currentTarget?.ownerDocument
             || globalThis.document;
+        const markdownCache = createZoteroMarkdownCache({
+            zotero: Zotero,
+            ioUtils: IOUtils,
+            pathUtils: PathUtils,
+        });
         const cache = createCombinedLocalCache([
-            createZoteroMarkdownCache({
-                zotero: Zotero,
-                ioUtils: IOUtils,
-                pathUtils: PathUtils,
-            }),
+            withSuccessfulClearNotification(markdownCache, () => (
+                notifyLocalCacheCleared(
+                    typeof Services === 'undefined' ? null : Services
+                )
+            )),
             createZoteroPDFTextIndexCache({
                 zotero: Zotero,
                 ioUtils: IOUtils,
