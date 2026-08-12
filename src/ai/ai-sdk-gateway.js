@@ -305,7 +305,7 @@ function createBoundedFetch(fetch) {
                         controller.close();
                         return;
                     }
-                    if (!(value instanceof Uint8Array)) {
+                    if (!isByteView(value)) {
                         throw invalidResponseError();
                     }
                     totalBytes += value.byteLength;
@@ -329,6 +329,12 @@ function createBoundedFetch(fetch) {
             headers: response.headers,
         });
     };
+}
+
+function isByteView(value) {
+    return ArrayBuffer.isView(value)
+        && value.BYTES_PER_ELEMENT === 1
+        && typeof value.byteLength === 'number';
 }
 
 function responsesEndpoint(apiBase) {
@@ -384,6 +390,13 @@ function nonNegativeInteger(value) {
 
 function apiCallError(error) {
     const status = Number(error.statusCode) || 0;
+    if (status >= 200 && status < 300) {
+        return aiStatusError(
+            'The AI provider returned an invalid response',
+            'AI_INVALID_RESPONSE',
+            status
+        );
+    }
     if (status === 401 || status === 403) {
         return aiStatusError('AI authentication failed', 'AI_AUTH_ERROR', status);
     }

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { APICallError } from 'ai';
 import {
     AISDKGateway,
@@ -169,6 +170,38 @@ test('binds the provider fetch function to its runtime window', async () => {
     assert.equal(result.text, 'Window result');
     assert.equal(calls.length, 1);
     assert.match(calls[0].input, /chat\/completions$/);
+});
+
+test('accepts response bytes created in the Zotero window realm', async () => {
+    const payload = JSON.stringify({
+        choices: [{
+            message: { role: 'assistant', content: 'Cross-realm result' },
+        }],
+    });
+    const foreignBytes = vm.runInNewContext(
+        'new Uint8Array(bytes)',
+        { bytes: [...new TextEncoder().encode(payload)] }
+    );
+    assert.equal(foreignBytes instanceof Uint8Array, false);
+    const response = new Response(new ReadableStream({
+        start(controller) {
+            controller.enqueue(foreignBytes);
+            controller.close();
+        },
+    }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+    });
+    const gateway = new AISDKGateway({
+        fetch: async () => response,
+    });
+
+    const result = await gateway.generateText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(result.text, 'Cross-realm result');
 });
 
 test('uses the OpenAI Chat Completions wire protocol through AI SDK Core', async () => {
@@ -571,6 +604,7 @@ test('enforces output budgets after AI SDK generation', async () => {
 
 test('maps AI SDK HTTP errors without exposing provider response data', async () => {
     for (const [statusCode, code] of [
+        [200, 'AI_INVALID_RESPONSE'],
         [401, 'AI_AUTH_ERROR'],
         [429, 'AI_RATE_LIMITED'],
         [500, 'AI_HTTP_ERROR'],
