@@ -131,6 +131,8 @@ test('evaluates the packaged bootstrap without Node runtime globals', async () =
         ReadableStream: class ReadableStream {},
         TransformStream: class TransformStream {},
         WritableStream: class WritableStream {},
+        TextDecoderStream: class TextDecoderStream {},
+        TextEncoderStream: class TextEncoderStream {},
     };
     const context = vm.createContext({
         console,
@@ -161,6 +163,8 @@ test('bridges Web Streams from the Zotero main window before AI SDK loading', as
         ReadableStream: class ReadableStream {},
         TransformStream: class TransformStream {},
         WritableStream: class WritableStream {},
+        TextDecoderStream: class TextDecoderStream {},
+        TextEncoderStream: class TextEncoderStream {},
     };
     const context = vm.createContext({
         Zotero: { getMainWindow: () => streams },
@@ -169,6 +173,8 @@ test('bridges Web Streams from the Zotero main window before AI SDK loading', as
     assert.equal(context.ReadableStream, streams.ReadableStream);
     assert.equal(context.TransformStream, streams.TransformStream);
     assert.equal(context.WritableStream, streams.WritableStream);
+    assert.equal(context.TextDecoderStream, streams.TextDecoderStream);
+    assert.equal(context.TextEncoderStream, streams.TextEncoderStream);
 });
 
 test('bridges Web Streams from the hidden DOM window when the main window is unavailable', async () => {
@@ -176,6 +182,8 @@ test('bridges Web Streams from the hidden DOM window when the main window is una
         ReadableStream: class ReadableStream {},
         TransformStream: class TransformStream {},
         WritableStream: class WritableStream {},
+        TextDecoderStream: class TextDecoderStream {},
+        TextEncoderStream: class TextEncoderStream {},
     };
     const source = await readFile(
         path.join(projectRoot, 'src', 'platform', 'web-streams.js'),
@@ -187,6 +195,7 @@ test('bridges Web Streams from the hidden DOM window when the main window is una
     });
     vm.runInContext(source, context);
     assert.equal(context.TransformStream, streams.TransformStream);
+    assert.equal(context.TextDecoderStream, streams.TextDecoderStream);
 });
 
 async function buildProject() {

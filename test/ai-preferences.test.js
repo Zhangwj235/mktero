@@ -13,6 +13,7 @@ import {
     AI_PROVIDER_PREF,
     AI_REASONING_PREF,
     AI_REQUEST_TIMEOUT_PREF,
+    AI_STREAMING_PREF,
     AI_TARGET_LANGUAGE_PREF,
     getAISettings,
     normalizeAIBaseURL,
@@ -32,6 +33,7 @@ test('reads and normalizes the configured AI settings', () => {
         [AI_REQUEST_TIMEOUT_PREF, 45_000],
         [AI_MAX_OUTPUT_TOKENS_PREF, 3_000],
         [AI_CACHE_ENABLED_PREF, false],
+        [AI_STREAMING_PREF, false],
     ]);
     const settings = getAISettings({
         Prefs: { get: key => values.get(key) },
@@ -49,7 +51,25 @@ test('reads and normalizes the configured AI settings', () => {
         requestTimeoutMs: 45_000,
         maxOutputTokens: 3_000,
         cacheEnabled: false,
+        streaming: false,
     });
+});
+
+test('enables streaming by default and preserves an explicit opt-out', () => {
+    assert.equal(getAISettings({ Prefs: { get: () => undefined } }).streaming, true);
+    assert.equal(getAISettings({
+        Prefs: {
+            get: key => key === AI_STREAMING_PREF ? false : undefined,
+        },
+    }).streaming, false);
+    assert.equal(validateAISettings({
+        enabled: true,
+        provider: 'openai',
+        protocol: AI_PROTOCOL_OPENAI_RESPONSES,
+        apiBase: 'https://api.example.com/v1',
+        apiKey: 'token',
+        model: 'model',
+    }).streaming, true);
 });
 
 test('uses provider-default reasoning unless a supported level is configured', () => {

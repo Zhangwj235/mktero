@@ -9,6 +9,7 @@ export const AI_TARGET_LANGUAGE_PREF = 'extensions.mktero.aiTargetLanguage';
 export const AI_REQUEST_TIMEOUT_PREF = 'extensions.mktero.aiRequestTimeoutMs';
 export const AI_MAX_OUTPUT_TOKENS_PREF = 'extensions.mktero.aiMaxOutputTokens';
 export const AI_CACHE_ENABLED_PREF = 'extensions.mktero.aiCacheEnabled';
+export const AI_STREAMING_PREF = 'extensions.mktero.aiStreaming';
 
 export const AI_PROVIDER_OPENAI = 'openai';
 export const AI_PROVIDER_ANTHROPIC = 'anthropic';
@@ -106,6 +107,7 @@ export function getAISettings(zotero) {
             16_384
         ),
         cacheEnabled: get(AI_CACHE_ENABLED_PREF) !== false,
+        streaming: get(AI_STREAMING_PREF) !== false,
     };
 }
 
@@ -176,6 +178,7 @@ export function validateAISettings(settings) {
             64,
             16_384
         ),
+        streaming: settings.streaming !== false,
     };
 }
 

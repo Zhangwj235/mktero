@@ -13,3 +13,4 @@ pref("extensions.mktero.aiTargetLanguage", "zh-CN");
 pref("extensions.mktero.aiRequestTimeoutMs", 30000);
 pref("extensions.mktero.aiMaxOutputTokens", 2048);
 pref("extensions.mktero.aiCacheEnabled", true);
+pref("extensions.mktero.aiStreaming", true);

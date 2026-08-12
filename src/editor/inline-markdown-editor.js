@@ -440,6 +440,7 @@ export function createInlineMarkdownEditor({
         translationStates.set(block.id, {
             status: 'loading',
             source: block.source,
+            text: '',
             token,
         });
         dispatchTranslationState();
@@ -447,6 +448,15 @@ export function createInlineMarkdownEditor({
             const result = await onTranslateBlock({
                 blockID: block.id,
                 markdown: block.markdown,
+                onTextDelta(delta, accumulated) {
+                    const active = translationStates.get(block.id);
+                    if (active?.token !== token) return;
+                    translationStates.set(block.id, {
+                        ...active,
+                        text: String(accumulated || delta || ''),
+                    });
+                    dispatchTranslationState();
+                },
             });
             const active = translationStates.get(block.id);
             if (active?.token !== token) return false;

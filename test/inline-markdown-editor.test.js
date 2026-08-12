@@ -181,6 +181,36 @@ test('translates a paragraph below the read-only Markdown without changing sourc
     dom.window.close();
 });
 
+test('shows partial streamed translation text while a block is loading', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    let finish;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: 'Paragraph to translate.',
+        onTranslateBlock: request => new Promise(resolve => {
+            request.onTextDelta('Part', 'Part');
+            request.onTextDelta('ial', 'Partial');
+            finish = resolve;
+        }),
+    });
+    editor.setTranslationState({ enabled: true });
+    document.querySelector('.cm-mktero-translation-trigger').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.match(
+        document.querySelector('.cm-mktero-translation-content').textContent,
+        /Partial/
+    );
+    assert.ok(document.querySelector('.cm-mktero-translation-cancel'));
+    finish({ text: 'Partial result' });
+    await new Promise(resolve => setImmediate(resolve));
+    editor.destroy();
+    dom.window.close();
+});
+
 test('cancels an in-flight block translation without showing a stale result', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

@@ -88,6 +88,97 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
     });
 });
 
+test('calls AI SDK streamText and reports cumulative text deltas', async () => {
+    let request;
+    const deltas = [];
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async () => assert.fail('non-streaming API should not run'),
+        stream: async value => {
+            request = value;
+            return {
+                textStream: {
+                    async *[Symbol.asyncIterator]() {
+                        yield 'Part';
+                        yield 'ial';
+                    },
+                },
+                usage: Promise.resolve({
+                    inputTokens: 3,
+                    outputTokens: 2,
+                    totalTokens: 5,
+                }),
+                response: Promise.resolve({ modelId: 'stream-model' }),
+            };
+        },
+    });
+
+    const result = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+        onTextDelta: (delta, accumulated) => deltas.push({ delta, accumulated }),
+    });
+
+    assert.equal(request.model.provider, 'mktero-compatible.chat');
+    assert.equal(request.maxRetries, 0);
+    assert.ok(request.abortSignal);
+    assert.deepEqual(deltas, [
+        { delta: 'Part', accumulated: 'Part' },
+        { delta: 'ial', accumulated: 'Partial' },
+    ]);
+    assert.deepEqual(result, {
+        text: 'Partial',
+        model: 'stream-model',
+        usage: {
+            inputTokens: 3,
+            outputTokens: 2,
+            totalTokens: 5,
+        },
+    });
+});
+
+test('aborts a streaming AI SDK request when the Mktero timeout elapses', async () => {
+    let scheduled;
+    let receivedSignal;
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail(),
+        setTimer: callback => {
+            scheduled = callback;
+            return 1;
+        },
+        clearTimer: () => {},
+        stream: async request => {
+            receivedSignal = request.abortSignal;
+            return {
+                textStream: {
+                    async *[Symbol.asyncIterator]() {
+                        await new Promise((resolve, reject) => {
+                            request.abortSignal.addEventListener('abort', () => {
+                                const error = new Error('aborted');
+                                error.name = 'AbortError';
+                                reject(error);
+                            });
+                        });
+                    },
+                },
+            };
+        },
+    });
+
+    const completion = gateway.streamText({
+        settings: { ...SETTINGS, requestTimeoutMs: 1_000 },
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    scheduled();
+
+    await assert.rejects(
+        completion,
+        error => error?.code === 'AI_REQUEST_TIMEOUT'
+    );
+    assert.equal(receivedSignal.aborted, true);
+});
+
 test('passes the configured reasoning level to AI SDK Core', async () => {
     let request;
     const gateway = new AISDKGateway({

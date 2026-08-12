@@ -15,6 +15,8 @@ for (const name of [
     'ReadableStream',
     'TransformStream',
     'WritableStream',
+    'TextDecoderStream',
+    'TextEncoderStream',
 ]) {
     if (typeof globalThis[name] !== 'function'
         && typeof (mainWindow?.[name] || hiddenWindow?.[name]) === 'function') {

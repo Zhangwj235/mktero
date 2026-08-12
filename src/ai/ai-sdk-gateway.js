@@ -1,5 +1,9 @@
 import '../platform/web-streams.js';
-import { APICallError, generateText } from 'ai';
+import {
+    APICallError,
+    generateText,
+    streamText as streamTextResult,
+} from 'ai';
 import { createAlibaba } from '@ai-sdk/alibaba';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createDeepSeek } from '@ai-sdk/deepseek';
@@ -43,6 +47,7 @@ export class AISDKGateway {
         setTimer,
         clearTimer,
         generate = generateText,
+        stream = streamTextResult,
     } = {}) {
         if (typeof fetch !== 'function') {
             throw new TypeError('A fetch implementation is required');
@@ -53,6 +58,9 @@ export class AISDKGateway {
         if (typeof generate !== 'function') {
             throw new TypeError('An AI SDK generateText implementation is required');
         }
+        if (typeof stream !== 'function') {
+            throw new TypeError('An AI SDK streamText implementation is required');
+        }
         this.fetch = fetch;
         this.createAbortController = createAbortController;
         this.setTimer = setTimer
@@ -60,6 +68,7 @@ export class AISDKGateway {
         this.clearTimer = clearTimer
             || bindRuntimeMethod(runtimeWindow, 'clearTimeout');
         this.generate = generate;
+        this.stream = stream;
     }
 
     async generateText({
@@ -113,6 +122,98 @@ export class AISDKGateway {
                 text,
                 model: responseModel(result, configuration.model),
                 usage: normalizeUsage(result?.usage),
+            };
+        }
+        catch (error) {
+            if (timedOut) {
+                throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
+            }
+            if (signal?.aborted) throw abortReason(signal);
+            if (isAIError(error)) throw error;
+            if (APICallError.isInstance(error)) throw apiCallError(error);
+            if (isAbortError(error)) throw error;
+            throw aiError('The AI provider could not be reached', 'AI_NETWORK_ERROR');
+        }
+        finally {
+            if (timeoutID !== null && typeof this.clearTimer === 'function') {
+                this.clearTimer(timeoutID);
+            }
+            signal?.removeEventListener('abort', relayAbort);
+        }
+    }
+
+    async streamText({
+        settings,
+        messages,
+        signal,
+        maxOutputTokens,
+        onTextDelta,
+    }) {
+        const configuration = validateAISettings(settings);
+        const prompt = validateMessages(messages);
+        throwIfAborted(signal);
+        const controller = this.createAbortController();
+        let timedOut = false;
+        const relayAbort = () => controller.abort(signal?.reason);
+        signal?.addEventListener('abort', relayAbort, { once: true });
+        const timeoutID = configuration.requestTimeoutMs > 0
+            && typeof this.setTimer === 'function'
+            ? this.setTimer(() => {
+                timedOut = true;
+                controller.abort();
+            }, configuration.requestTimeoutMs)
+            : null;
+        try {
+            const boundedFetch = createBoundedFetch(this.fetch);
+            let streamError = null;
+            const result = await this.stream({
+                model: createLanguageModel(configuration, boundedFetch),
+                messages: prompt.messages,
+                ...(prompt.instructions
+                    ? { instructions: prompt.instructions }
+                    : {}),
+                maxOutputTokens: normalizeOutputTokens(
+                    maxOutputTokens,
+                    configuration.maxOutputTokens
+                ),
+                reasoning: configuration.reasoning,
+                ...reasoningProviderOptions(configuration),
+                maxRetries: 0,
+                abortSignal: controller.signal,
+                onError: ({ error }) => {
+                    streamError = error;
+                },
+            });
+            if (!result?.textStream?.[Symbol.asyncIterator]) {
+                throw invalidResponseError();
+            }
+            let accumulated = '';
+            for await (const delta of result.textStream) {
+                const chunk = String(delta || '');
+                if (!chunk) continue;
+                accumulated += chunk;
+                if (byteLength(accumulated) > MAX_AI_RESPONSE_BYTES) {
+                    throw responseTooLargeError();
+                }
+                onTextDelta?.(chunk, accumulated);
+            }
+            if (timedOut) {
+                throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
+            }
+            throwIfAborted(signal);
+            if (streamError) throw streamError;
+            const text = accumulated.trim();
+            if (!text) throw invalidResponseError();
+            if (timedOut) {
+                throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
+            }
+            throwIfAborted(signal);
+            const usage = result.usage ? await result.usage : null;
+            const response = result.response ? await result.response : null;
+            return {
+                text,
+                model: responseModel({ response }, configuration.model),
+                usage: normalizeUsage(usage),
             };
         }
         catch (error) {

@@ -219,6 +219,7 @@ test('tests the current AI SDK settings without exposing the key', async () => {
             <input id="mktero-ai-request-timeout" value="45000">
             <input id="mktero-ai-max-output-tokens" value="3072">
             <input id="mktero-ai-cache-enabled" type="checkbox">
+            <input id="mktero-ai-streaming" type="checkbox" checked>
             <button id="mktero-ai-test"></button>
             <span id="mktero-ai-test-status"></span>
             <span id="mktero-cache-status"></span>
@@ -255,6 +256,7 @@ test('tests the current AI SDK settings without exposing the key', async () => {
     assert.equal(testedSettings.requestTimeoutMs, '45000');
     assert.equal(testedSettings.maxOutputTokens, '3072');
     assert.equal(testedSettings.cacheEnabled, false);
+    assert.equal(testedSettings.streaming, true);
     assert.equal(
         dom.window.document.getElementById('mktero-ai-test-status').textContent,
         'Connection successful'

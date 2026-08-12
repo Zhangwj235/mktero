@@ -64,6 +64,64 @@ test('translates one Markdown block and stores the normalized result', async () 
     });
 });
 
+test('uses streaming translation by default and forwards text deltas', async () => {
+    const deltas = [];
+    let streamRequest;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async streamText(request) {
+                streamRequest = request;
+                request.onTextDelta('译', '译');
+                request.onTextDelta('文', '译文');
+                return { text: '译文', model: 'stream-model' };
+            },
+            generateText: assert.fail,
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: true }),
+        createCacheKey: async () => 'stream-key',
+    });
+
+    const result = await service.translate({
+        documentKey: 'pdf-hash',
+        blockID: 'paragraph-1',
+        markdown: 'Source paragraph.',
+        onTextDelta: (delta, accumulated) => deltas.push({ delta, accumulated }),
+    });
+
+    assert.equal(typeof streamRequest.onTextDelta, 'function');
+    assert.deepEqual(deltas, [
+        { delta: '译', accumulated: '译' },
+        { delta: '文', accumulated: '译文' },
+    ]);
+    assert.equal(result.text, '译文');
+});
+
+test('uses non-streaming translation when the setting is disabled', async () => {
+    let mode = '';
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            streamText: async () => {
+                mode = 'stream';
+                return { text: 'wrong' };
+            },
+            generateText: async () => {
+                mode = 'generate';
+                return { text: '译文' };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'non-stream-key',
+    });
+
+    await service.translate({
+        documentKey: 'pdf-hash',
+        blockID: 'paragraph-1',
+        markdown: 'Source paragraph.',
+    });
+
+    assert.equal(mode, 'generate');
+});
+
 test('uses the configured expanded language name in the translation prompt', async () => {
     for (const [targetLanguage, languageName] of [
         ['es-ES', 'Spanish'],

@@ -94,9 +94,11 @@ test('ships responsive settings cards and a cache switch', async () => {
     ]);
 
     assert.match(pane, /class="mktero-settings-card"/);
-    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 3);
-    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 3);
-    assert.equal((pane.match(/role="switch"/g) || []).length, 3);
+    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 4);
+    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 4);
+    assert.equal((pane.match(/role="switch"/g) || []).length, 4);
+    assert.match(pane, /id="mktero-ai-streaming"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiStreaming"/);
     assert.match(styles, /\.mktero-settings-card\s*\{[\s\S]*border-radius:/);
     assert.match(styles, /\.mktero-switch-input:checked\s*\+\s*\.mktero-switch/);
     assert.match(styles, /\.mktero-switch::before/);

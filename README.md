@@ -63,6 +63,7 @@ Open `Settings -> Mktero` after installation.
 | Body text size | 18 px | Adjust Markdown and snapshot text from 16 to 22 px while keeping a wide, stable reading column |
 | Reuse conversion results | On | Reuse results for the same PDF content and parser profile |
 | Enable AI features | Off | Allow on-demand block translation through the configured model service |
+| Stream responses | On | Show translations while they are generated; turn off to wait for the complete result |
 | AI base URL / API Key / provider / protocol / model | OpenAI Responses / empty model | Route AI calls through Vercel AI SDK Core to a hosted provider or loopback model server |
 | Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese for new translations |
 | Reasoning effort | Automatic | Let the provider choose, or request off, low, medium, high, or extra-high reasoning from supported models |
@@ -130,7 +131,10 @@ Configure and enable AI translation in `Settings -> Mktero`, then choose
 Translate action below supported paragraphs and headings. Each request is
 explicit: entering translation mode alone does not send document content.
 Translations appear below the source block, can be retried, hidden, or canceled,
-and never change the Markdown or become part of a saved snapshot.
+and never change the Markdown or become part of a saved snapshot. Streaming is
+enabled by default so partial results appear as they arrive; disable it in
+settings to show only complete responses. Connection tests always use a short
+non-streaming request.
 
 All AI calls pass through Vercel AI SDK Core. Mktero includes adapters for
 OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud Model Studio,

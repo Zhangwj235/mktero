@@ -278,6 +278,8 @@ export function readAISettingsFromControls(document, zotero) {
             ?? settings.maxOutputTokens,
         cacheEnabled: document.getElementById('mktero-ai-cache-enabled')
             ?.checked ?? settings.cacheEnabled,
+        streaming: document.getElementById('mktero-ai-streaming')
+            ?.checked ?? settings.streaming,
     };
 }
 

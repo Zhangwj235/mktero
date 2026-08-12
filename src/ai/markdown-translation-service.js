@@ -44,7 +44,7 @@ export class MarkdownTranslationService {
         this.onCacheError = onCacheError;
     }
 
-    async translate({ documentKey, blockID, markdown, signal }) {
+    async translate({ documentKey, blockID, markdown, signal, onTextDelta }) {
         const settings = this.getSettings();
         validateAISettings(settings);
         const source = String(markdown || '').trim();
@@ -87,11 +87,27 @@ export class MarkdownTranslationService {
                 this.onCacheError(error);
             }
         }
-        const result = await this.aiGateway.generateText({
+        const reportTextDelta = typeof onTextDelta === 'function'
+            ? (delta, accumulated) => {
+                if (byteLength(accumulated) > MAX_TRANSLATION_OUTPUT_BYTES) {
+                    throw aiError(
+                        'The AI translation is too large',
+                        'AI_RESPONSE_TOO_LARGE'
+                    );
+                }
+                onTextDelta(delta, accumulated);
+            }
+            : null;
+        const request = {
             settings,
             messages: translationMessages(source, settings.targetLanguage),
             signal,
-        });
+            ...(reportTextDelta ? { onTextDelta: reportTextDelta } : {}),
+        };
+        const result = settings.streaming !== false
+            && typeof this.aiGateway.streamText === 'function'
+            ? await this.aiGateway.streamText(request)
+            : await this.aiGateway.generateText(request);
         const text = String(result?.text || '').trim();
         if (!text) {
             throw aiError('The AI translation is empty', 'AI_INVALID_RESPONSE');

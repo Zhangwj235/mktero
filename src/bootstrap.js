@@ -800,7 +800,11 @@ function setTranslationMode(documentID, enabled) {
     return true;
 }
 
-async function translateBlock(documentID, { blockID, markdown } = {}) {
+async function translateBlock(documentID, {
+    blockID,
+    markdown,
+    onTextDelta,
+} = {}) {
     const presentation = runtime.presenter?.get(documentID);
     const service = runtime.translationService;
     if (!presentation
@@ -835,6 +839,7 @@ async function translateBlock(documentID, { blockID, markdown } = {}) {
             blockID: normalizedBlockID,
             markdown,
             signal,
+            onTextDelta,
         })
     );
 }

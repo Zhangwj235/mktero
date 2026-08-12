@@ -368,6 +368,21 @@ class TranslationWidget extends WidgetType {
         container.append(header);
 
         if (this.state.status === 'loading') {
+            if (this.state.text) {
+                const content = createHTMLNode(document, 'div');
+                content.className = 'cm-mktero-translation-content';
+                appendRenderedMarkdown(
+                    content,
+                    this.state.text,
+                    () => null,
+                    false,
+                    this.translate
+                );
+                content.addEventListener('mousedown', event => {
+                    openRenderedLink(event, this.openLink);
+                });
+                container.append(content);
+            }
             const status = createHTMLNode(document, 'span');
             status.className = 'cm-mktero-translation-status';
             status.setAttribute('role', 'status');
