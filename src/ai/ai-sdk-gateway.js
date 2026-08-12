@@ -1,3 +1,4 @@
+import '../platform/web-streams.js';
 import { APICallError, generateText } from 'ai';
 import { createAlibaba } from '@ai-sdk/alibaba';
 import { createAnthropic } from '@ai-sdk/anthropic';

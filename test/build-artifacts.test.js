@@ -127,18 +127,22 @@ test('evaluates the packaged bootstrap without Node runtime globals', async () =
         path.join(projectRoot, 'build', 'package', 'bootstrap.js'),
         'utf8'
     );
+    const windowStreams = {
+        ReadableStream: class ReadableStream {},
+        TransformStream: class TransformStream {},
+        WritableStream: class WritableStream {},
+    };
     const context = vm.createContext({
         console,
         URL,
         TextEncoder,
         TextDecoder,
-        ReadableStream,
-        TransformStream,
+        Zotero: { getMainWindow: () => windowStreams },
+        Blob,
+        FormData,
         Response,
         Request,
         Headers,
-        Blob,
-        FormData,
         AbortController,
         setTimeout,
         clearTimeout,
@@ -146,6 +150,43 @@ test('evaluates the packaged bootstrap without Node runtime globals', async () =
     vm.runInContext(source, context);
     assert.equal(typeof context.startup, 'function');
     assert.equal(typeof context.shutdown, 'function');
+});
+
+test('bridges Web Streams from the Zotero main window before AI SDK loading', async () => {
+    const source = await readFile(
+        path.join(projectRoot, 'src', 'platform', 'web-streams.js'),
+        'utf8'
+    );
+    const streams = {
+        ReadableStream: class ReadableStream {},
+        TransformStream: class TransformStream {},
+        WritableStream: class WritableStream {},
+    };
+    const context = vm.createContext({
+        Zotero: { getMainWindow: () => streams },
+    });
+    vm.runInContext(source, context);
+    assert.equal(context.ReadableStream, streams.ReadableStream);
+    assert.equal(context.TransformStream, streams.TransformStream);
+    assert.equal(context.WritableStream, streams.WritableStream);
+});
+
+test('bridges Web Streams from the hidden DOM window when the main window is unavailable', async () => {
+    const streams = {
+        ReadableStream: class ReadableStream {},
+        TransformStream: class TransformStream {},
+        WritableStream: class WritableStream {},
+    };
+    const source = await readFile(
+        path.join(projectRoot, 'src', 'platform', 'web-streams.js'),
+        'utf8'
+    );
+    const context = vm.createContext({
+        Zotero: { getMainWindow: () => null },
+        Services: { appShell: { hiddenDOMWindow: streams } },
+    });
+    vm.runInContext(source, context);
+    assert.equal(context.TransformStream, streams.TransformStream);
 });
 
 async function buildProject() {
