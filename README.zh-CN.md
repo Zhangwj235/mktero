@@ -55,12 +55,12 @@ Mktero 是一个适用于 Zotero 7、8 和 9 的来源关联重排阅读器。�
 | Body text font | 系统衬线字体 | 可选系统衬线、Georgia、Cambria 或 Times New Roman |
 | Body text size | 18 px | 在 16–22 px 间调整 Markdown 和快照字号，同时保持宽且稳定的阅读版心 |
 | Reuse conversion results | 开启 | 复用相同 PDF 内容和解析配置对应的结果 |
-| 启用 AI 翻译 | 关闭 | 通过兼容 OpenAI Chat Completions 的接口按需翻译内容块 |
-| AI API Base URL / API Key / 模型 | OpenAI 地址 / 空 / 空 | 连接托管 Provider，或运行在回环地址上的本地模型服务 |
+| 启用 AI 功能 | 关闭 | 通过配置的模型服务按需翻译内容块 |
+| AI Base URL / API Key / 模型厂商 / 协议 / 模型 | OpenAI Responses / 模型为空 | 通过 Vercel AI SDK Core 连接托管 Provider 或回环地址上的本地模型服务 |
 | 翻译语言 | 简体中文 | 可选择简体中文、繁体中文、英文、日文、韩文、西班牙语、法语或葡萄牙语（巴西）作为之后翻译的目标语言 |
 
 MinerU API Token 和 AI API Key 都会作为普通首选项未加密地保存在当前 Zotero
-配置文件中。开始翻译前，可使用“测试连接”验证当前 AI 地址、Key 和模型。
+配置文件中。开始翻译前，可使用“测试连接”验证当前 AI 地址、Key、模型厂商、协议和模型。
 
 ### 打开和阅读 PDF
 
@@ -103,13 +103,14 @@ MinerU API Token 和 AI API Key 都会作为普通首选项未加密地保存在
 需要用户明确点击；仅进入翻译模式不会发送任何文档内容。译文显示在原文下方，可以重试、
 隐藏或取消，且不会修改 Markdown，也不会进入保存的快照。
 
-第一版调用 `<API Base URL>/chat/completions` 上的非流式 OpenAI-compatible Chat
-Completions 接口。只有能够接受该请求结构并返回 `choices[0].message.content` 的 Provider
-或本地模型才兼容；可用模型和模型名仍由 Provider 决定。远程地址必须使用 HTTPS；Ollama、
-LM Studio 等运行在回环地址上的本地服务可以使用 HTTP，在服务未启用认证时也可以不填
-API Key。
+Mktero 的所有 AI 调用都通过 Vercel AI SDK Core。内置 OpenAI、Anthropic、Google
+Gemini、DeepSeek、阿里云百炼、Moonshot/Kimi 和 MiniMax 适配器，并支持自定义兼容
+服务。协议决定调用 OpenAI Responses、OpenAI Chat Completions、Open Responses、
+Anthropic Messages 或 Google Generative Language；设置页只允许选择与当前模型厂商兼容
+的协议。可用模型及其 ID 仍由厂商决定。远程地址必须使用 HTTPS；Ollama、LM Studio 等
+运行在回环地址上的本地服务可以使用 HTTP，在服务未启用认证时也可以不填 API Key。
 
-译文缓存按文档、内容块原文、Provider、模型、目标语言和 Prompt 版本区分，并保存在
+译文缓存按文档、内容块原文、Provider、协议、模型、目标语言和 Prompt 版本区分，并保存在
 本机。第一版不翻译包含公式的内容块、图片、表格、代码或原始 HTML。关闭标签页、退出
 翻译模式、重新解析或关闭 Mktero 时，进行中的翻译请求都会取消。
 
@@ -128,7 +129,7 @@ PDF 不能保存快照。
 - 将 OCR 结果、双栏正文、公式、表格、图片、列表和代码重排成连续阅读文档。
 - 在保留 MinerU 原始 Markdown 和校对历史的前提下，修正已有段落、标题和 GFM 表格
   单元格中的识别错误，并可删除多余的段落或标题。
-- 通过配置的 OpenAI-compatible Provider 按需翻译单个段落和标题，同时保持 Markdown
+- 通过配置的 Vercel AI SDK Provider 按需翻译单个段落和标题，同时保持 Markdown
   原文只读。
 - 使用适合论文阅读的 STIX/Noto 衬线字体回退，并为支持的围栏代码块异步提供 Shiki
   语法高亮、语言标签和代码复制。

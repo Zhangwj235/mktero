@@ -20,7 +20,7 @@ import {
     createZoteroMarkdownCache,
 } from '../src/cache/markdown-cache.js';
 
-test('aborts live Chat requests across bootstrap translation lifecycles', {
+test('aborts live AI SDK requests across bootstrap translation lifecycles', {
     timeout: 15_000,
 }, async t => {
     const previousGlobals = captureGlobals([
@@ -62,7 +62,8 @@ test('aborts live Chat requests across bootstrap translation lifecycles', {
     const preferences = new Map([
         ['extensions.mktero.cacheEnabled', true],
         ['extensions.mktero.aiEnabled', true],
-        ['extensions.mktero.aiProvider', 'openai-compatible'],
+        ['extensions.mktero.aiProvider', 'custom'],
+        ['extensions.mktero.aiProtocol', 'openai-chat-completions'],
         ['extensions.mktero.aiApiBase', 'https://ai.example.com/v1'],
         ['extensions.mktero.aiApiKey', 'test-token'],
         ['extensions.mktero.aiModel', 'test-chat'],

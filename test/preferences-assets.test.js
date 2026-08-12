@@ -25,7 +25,8 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(prefs, /pref\("extensions\.mktero\.cacheEnabled", true\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.readerFontSize", 18\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiEnabled", false\)/);
-    assert.match(prefs, /pref\("extensions\.mktero\.aiProvider", "openai-compatible"\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiProvider", "openai"\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiProtocol", "openai-responses"\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiRequestTimeoutMs", 30000\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 2048\)/);
@@ -42,6 +43,8 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(pane, /preference="extensions\.mktero\.readerFontSize"/);
     assert.match(pane, /preference="extensions\.mktero\.readerFont"/);
     assert.match(pane, /preference="extensions\.mktero\.aiEnabled"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiProvider"/);
+    assert.match(pane, /preference="extensions\.mktero\.aiProtocol"/);
     assert.match(pane, /preference="extensions\.mktero\.aiApiBase"/);
     assert.match(pane, /preference="extensions\.mktero\.aiApiKey"/);
     assert.match(pane, /preference="extensions\.mktero\.aiModel"/);
@@ -62,7 +65,7 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(script, /createZoteroMarkdownCache/);
     assert.match(script, /createZoteroPDFTextIndexCache/);
     assert.match(script, /createZoteroTranslationCache/);
-    assert.match(script, /OpenAICompatibleChatClient/);
+    assert.match(script, /AISDKGateway/);
     assert.match(script, /createCombinedLocalCache/);
     assert.doesNotMatch(script, /setMkteroLanguagePreference/);
     assert.match(bootstrap, /new MinerUClient/);
@@ -179,13 +182,13 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
         (pane.match(
             /class="mktero-setting-row mktero-(?:field|reader-font)-row"/g
         ) || []).length,
-        10
+        11
     );
     assert.equal(
         (pane.match(
             /<html:div class="mktero-(?:field|reader-font)-control(?: [^"]+)?">/g
         ) || []).length,
-        10
+        11
     );
 });
 

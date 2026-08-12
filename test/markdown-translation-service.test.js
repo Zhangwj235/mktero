@@ -7,7 +7,8 @@ import {
 
 const SETTINGS = Object.freeze({
     enabled: true,
-    provider: 'openai-compatible',
+    provider: 'custom',
+    protocol: 'openai-chat-completions',
     apiBase: 'https://api.example.com/v1',
     apiKey: 'token',
     model: 'example-chat',
@@ -21,8 +22,8 @@ test('translates one Markdown block and stores the normalized result', async () 
     const puts = [];
     let completion;
     const service = new MarkdownTranslationService({
-        chatClient: {
-            async complete(request) {
+        aiGateway: {
+            async generateText(request) {
                 completion = request;
                 return {
                     text: '  翻译结果  ',
@@ -71,8 +72,8 @@ test('uses the configured expanded language name in the translation prompt', asy
     ]) {
         let completion;
         const service = new MarkdownTranslationService({
-            chatClient: {
-                async complete(request) {
+            aiGateway: {
+                async generateText(request) {
                     completion = request;
                     return { text: 'Translated' };
                 },
@@ -100,8 +101,8 @@ test('returns a matching cached translation without calling Chat', async () => {
         promptVersion: TRANSLATION_PROMPT_VERSION,
     };
     const service = new MarkdownTranslationService({
-        chatClient: {
-            complete: async () => { calls++; },
+        aiGateway: {
+            generateText: async () => { calls++; },
         },
         cache: {
             get: async () => cached,
@@ -126,8 +127,8 @@ test('returns a matching cached translation without calling Chat', async () => {
 test('tests a valid connection before AI translation is enabled', async () => {
     let request;
     const service = new MarkdownTranslationService({
-        chatClient: {
-            async complete(value) {
+        aiGateway: {
+            async generateText(value) {
                 request = value;
                 return { text: 'OK', model: 'example-chat' };
             },
@@ -149,8 +150,8 @@ test('tests a valid connection before AI translation is enabled', async () => {
 test('keeps a successful translation usable when cache operations fail', async () => {
     const cacheErrors = [];
     const service = new MarkdownTranslationService({
-        chatClient: {
-            complete: async () => ({
+        aiGateway: {
+            generateText: async () => ({
                 text: '译文',
                 model: 'example-chat',
             }),
@@ -178,7 +179,7 @@ test('keeps a successful translation usable when cache operations fail', async (
 test('does not call Chat when AI is disabled or the block is oversized', async () => {
     let calls = 0;
     const createService = settings => new MarkdownTranslationService({
-        chatClient: { complete: async () => { calls++; } },
+        aiGateway: { generateText: async () => { calls++; } },
         getSettings: () => settings,
         createCacheKey: async () => 'key',
     });
@@ -205,7 +206,7 @@ test('does not call Chat when AI is disabled or the block is oversized', async (
 test('rejects missing or oversized cache identifiers before calling Chat', async () => {
     let calls = 0;
     const service = new MarkdownTranslationService({
-        chatClient: { complete: async () => { calls++; } },
+        aiGateway: { generateText: async () => { calls++; } },
         getSettings: () => SETTINGS,
         createCacheKey: async () => 'key',
     });

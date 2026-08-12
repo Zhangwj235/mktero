@@ -19,14 +19,14 @@ const TARGET_LANGUAGE_NAMES = Object.freeze({
 
 export class MarkdownTranslationService {
     constructor({
-        chatClient,
+        aiGateway,
         cache = null,
         getSettings,
         createCacheKey = defaultCreateCacheKey,
         onCacheError = () => {},
     }) {
-        if (typeof chatClient?.complete !== 'function') {
-            throw new TypeError('A Chat client is required');
+        if (typeof aiGateway?.generateText !== 'function') {
+            throw new TypeError('An AI gateway is required');
         }
         if (typeof getSettings !== 'function') {
             throw new TypeError('An AI settings provider is required');
@@ -34,7 +34,7 @@ export class MarkdownTranslationService {
         if (typeof createCacheKey !== 'function') {
             throw new TypeError('A translation cache key factory is required');
         }
-        this.chatClient = chatClient;
+        this.aiGateway = aiGateway;
         this.cache = cache;
         this.getSettings = getSettings;
         this.createCacheKey = createCacheKey;
@@ -62,6 +62,7 @@ export class MarkdownTranslationService {
             blockID: normalizedBlockID,
             source,
             provider: settings.provider,
+            protocol: settings.protocol,
             apiBase: settings.apiBase,
             model: settings.model,
             targetLanguage: settings.targetLanguage,
@@ -82,7 +83,7 @@ export class MarkdownTranslationService {
                 this.onCacheError(error);
             }
         }
-        const result = await this.chatClient.complete({
+        const result = await this.aiGateway.generateText({
             settings,
             messages: translationMessages(source, settings.targetLanguage),
             signal,
@@ -120,7 +121,7 @@ export class MarkdownTranslationService {
             ...settings,
             enabled: true,
         });
-        return this.chatClient.complete({
+        return this.aiGateway.generateText({
             settings: connectionSettings,
             messages: [{
                 role: 'user',

@@ -58,6 +58,8 @@ await Promise.all([
         legalComments: 'none',
         define: {
             __MKTERO_MARKDOWN_STYLES__: JSON.stringify(markdownStyles),
+            process: 'undefined',
+            Buffer: 'undefined',
         },
     }),
     build({
@@ -71,6 +73,7 @@ await Promise.all([
         platform: 'browser',
         target: ['firefox115'],
         legalComments: 'none',
+        define: { process: 'undefined', Buffer: 'undefined' },
     }),
     build({
         entryPoints: [path.join(projectRoot, 'src/ui/preferences.js')],
@@ -80,6 +83,7 @@ await Promise.all([
         platform: 'browser',
         target: ['firefox115'],
         legalComments: 'none',
+        define: { process: 'undefined', Buffer: 'undefined' },
     }),
 ]);
 

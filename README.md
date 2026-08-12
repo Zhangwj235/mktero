@@ -62,8 +62,8 @@ Open `Settings -> Mktero` after installation.
 | Body text font | System serif | Choose System serif, Georgia, Cambria, or Times New Roman |
 | Body text size | 18 px | Adjust Markdown and snapshot text from 16 to 22 px while keeping a wide, stable reading column |
 | Reuse conversion results | On | Reuse results for the same PDF content and parser profile |
-| Enable AI translation | Off | Allow on-demand block translation through an OpenAI-compatible Chat Completions endpoint |
-| AI API base URL / API Key / model | OpenAI URL / empty / empty | Connect a hosted provider, or a loopback HTTP server for a local model |
+| Enable AI features | Off | Allow on-demand block translation through the configured model service |
+| AI base URL / API Key / provider / protocol / model | OpenAI Responses / empty model | Route AI calls through Vercel AI SDK Core to a hosted provider or loopback model server |
 | Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese for new translations |
 
 The Mktero settings pane uses an aligned two-column layout for labels and
@@ -131,15 +131,18 @@ explicit: entering translation mode alone does not send document content.
 Translations appear below the source block, can be retried, hidden, or canceled,
 and never change the Markdown or become part of a saved snapshot.
 
-The first version uses the non-streaming OpenAI-compatible Chat Completions
-contract at `<API base URL>/chat/completions`. A provider or local model is
-compatible only if it accepts that request shape and returns
-`choices[0].message.content`; model availability and names remain provider
-specific. Remote endpoints must use HTTPS. Loopback servers such as Ollama or
-LM Studio may use HTTP and may omit the API Key when authentication is disabled.
+All AI calls pass through Vercel AI SDK Core. Mktero includes adapters for
+OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud Model Studio,
+Moonshot/Kimi, and MiniMax, plus a custom service option. The selected protocol
+determines whether the adapter uses OpenAI Responses, OpenAI Chat Completions,
+Open Responses, Anthropic Messages, or Google Generative Language. Only valid
+provider/protocol combinations are selectable. Model availability and IDs
+remain provider-specific. Remote endpoints must use HTTPS. Loopback servers
+such as Ollama or LM Studio may use HTTP and may omit the API Key when
+authentication is disabled.
 
-Translations are cached locally by document, block content, provider, model,
-target language, and prompt version. Formula-bearing blocks, image blocks,
+Translations are cached locally by document, block content, provider, protocol,
+model, target language, and prompt version. Formula-bearing blocks, image blocks,
 tables, code, and raw HTML are excluded from this MVP. Closing the tab, leaving
 translation mode, reparsing, or shutting down Mktero cancels active translation
 requests.
@@ -164,7 +167,7 @@ library item cannot save a snapshot.
   cells, including removing spurious paragraphs or headings, while preserving
   the original MinerU Markdown and correction history.
 - Translates individual paragraphs and headings on demand through a configured
-  OpenAI-compatible provider while keeping the source Markdown read-only.
+  Vercel AI SDK provider while keeping the source Markdown read-only.
 - Uses paper-oriented typography with STIX/Noto serif fallbacks, and applies
   asynchronous Shiki syntax highlighting, language labels, and code copying to
   supported fenced code blocks.

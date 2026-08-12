@@ -17,9 +17,7 @@ import {
 } from './cache/markdown-annotation-store.js';
 import { createZoteroTranslationCache } from './cache/translation-cache.js';
 import { getAISettings } from './config/ai-preferences.js';
-import {
-    OpenAICompatibleChatClient,
-} from './ai/openai-compatible-chat-client.js';
+import { AISDKGateway } from './ai/ai-sdk-gateway.js';
 import {
     MarkdownTranslationService,
 } from './ai/markdown-translation-service.js';
@@ -196,7 +194,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
     });
     runtime.translationCache = translationCache;
     runtime.translationService = new MarkdownTranslationService({
-        chatClient: new OpenAICompatibleChatClient({
+        aiGateway: new AISDKGateway({
             createAbortController: createZoteroAbortController,
         }),
         cache: translationCache,

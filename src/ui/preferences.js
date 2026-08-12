@@ -3,10 +3,12 @@ import {
     createZoteroPDFTextIndexCache,
 } from '../cache/pdf-text-index-cache.js';
 import { createZoteroTranslationCache } from '../cache/translation-cache.js';
-import { getAISettings } from '../config/ai-preferences.js';
 import {
-    OpenAICompatibleChatClient,
-} from '../ai/openai-compatible-chat-client.js';
+    AI_PROTOCOL_PREF,
+    getAIProtocolsForProvider,
+    getAISettings,
+} from '../config/ai-preferences.js';
+import { AISDKGateway } from '../ai/ai-sdk-gateway.js';
 import {
     MarkdownTranslationService,
 } from '../ai/markdown-translation-service.js';
@@ -88,6 +90,8 @@ export function createPreferencesController({
     );
     const aiTestButton = document.getElementById('mktero-ai-test');
     const aiTestStatus = document.getElementById('mktero-ai-test-status');
+    const aiProviderInput = document.getElementById('mktero-ai-provider');
+    const aiProtocolInput = document.getElementById('mktero-ai-protocol');
     const t = (key, variables) => localization.t(key, variables);
     let initialized = false;
     let aiTestController = null;
@@ -126,6 +130,36 @@ export function createPreferencesController({
         if (!readerFontInput) return;
         readerFontInput.value = getMarkdownReaderFont(zotero);
         readerFontInput.addEventListener('change', updateReaderFont);
+    }
+
+    function updateAIProtocolOptions({ persist = true } = {}) {
+        if (!aiProviderInput || !aiProtocolInput) return;
+        const protocols = getAIProtocolsForProvider(aiProviderInput.value);
+        for (const option of aiProtocolInput.options) {
+            const available = protocols.includes(option.value);
+            option.hidden = !available;
+            option.disabled = !available;
+        }
+        if (!protocols.includes(aiProtocolInput.value)) {
+            aiProtocolInput.value = protocols[0] || '';
+            if (persist && aiProtocolInput.value) {
+                zotero?.Prefs?.set?.(
+                    AI_PROTOCOL_PREF,
+                    aiProtocolInput.value,
+                    true
+                );
+            }
+        }
+        aiProtocolInput.disabled = protocols.length < 2;
+    }
+
+    function initializeAIProvider() {
+        if (!aiProviderInput || !aiProtocolInput) return;
+        const settings = getAISettings(zotero);
+        aiProviderInput.value = settings.provider;
+        aiProtocolInput.value = settings.protocol;
+        updateAIProtocolOptions({ persist: false });
+        aiProviderInput.addEventListener('change', updateAIProtocolOptions);
     }
 
     async function refresh() {
@@ -198,6 +232,7 @@ export function createPreferencesController({
             clearButton.addEventListener('click', clear);
             aiTestButton?.addEventListener('click', testAI);
             localize();
+            initializeAIProvider();
             initializeReaderFont();
             initializeReaderFontSize();
             await refresh();
@@ -209,6 +244,10 @@ export function createPreferencesController({
             aiTestButton?.removeEventListener('click', testAI);
             aiTestController?.abort?.();
             aiTestController = null;
+            aiProviderInput?.removeEventListener(
+                'change',
+                updateAIProtocolOptions
+            );
             readerFontSizeInput?.removeEventListener(
                 'input',
                 updateReaderFontSize
@@ -226,6 +265,7 @@ export function readAISettingsFromControls(document, zotero) {
         enabled: document.getElementById('mktero-ai-enabled')?.checked
             ?? settings.enabled,
         provider: value('mktero-ai-provider') ?? settings.provider,
+        protocol: value('mktero-ai-protocol') ?? settings.protocol,
         apiBase: value('mktero-ai-api-base') ?? settings.apiBase,
         apiKey: value('mktero-ai-api-key') ?? settings.apiKey,
         model: value('mktero-ai-model') ?? settings.model,
@@ -347,11 +387,11 @@ globalThis.MkteroPreferences = {
                 pathUtils: PathUtils,
             }),
         ]);
-        const chatClient = new OpenAICompatibleChatClient({
+        const aiGateway = new AISDKGateway({
             createAbortController: createRuntimeAbortController,
         });
         const translationService = new MarkdownTranslationService({
-            chatClient,
+            aiGateway,
             getSettings: () => getAISettings(Zotero),
         });
         const controller = createPreferencesController({

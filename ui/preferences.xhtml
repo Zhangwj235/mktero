@@ -61,20 +61,6 @@
 
             <html:div class="mktero-setting-row mktero-field-row">
                 <html:div class="mktero-setting-copy">
-                    <html:label for="mktero-ai-provider"><html:strong data-i18n="preferences.ai.providerLabel"></html:strong></html:label>
-                    <html:small data-i18n="preferences.ai.providerHelp"></html:small>
-                </html:div>
-                <html:div class="mktero-field-control mktero-field-control-compact">
-                    <html:select id="mktero-ai-provider"
-                                 preference="extensions.mktero.aiProvider">
-                        <html:option value="openai-compatible"
-                                     data-i18n="preferences.ai.provider.openAICompatible"></html:option>
-                    </html:select>
-                </html:div>
-            </html:div>
-
-            <html:div class="mktero-setting-row mktero-field-row">
-                <html:div class="mktero-setting-copy">
                     <html:label for="mktero-ai-api-base"><html:strong data-i18n="preferences.ai.apiBaseLabel"></html:strong></html:label>
                     <html:small id="mktero-ai-api-base-help" data-i18n="preferences.ai.apiBaseHelp"></html:small>
                 </html:div>
@@ -104,6 +90,43 @@
                                 spellcheck="false" />
                     <html:small id="mktero-ai-api-key-storage"
                                 data-i18n="preferences.ai.apiKeyStorage"></html:small>
+                </html:div>
+            </html:div>
+
+            <html:div class="mktero-setting-row mktero-field-row">
+                <html:div class="mktero-setting-copy">
+                    <html:label for="mktero-ai-provider"><html:strong data-i18n="preferences.ai.providerLabel"></html:strong></html:label>
+                    <html:small data-i18n="preferences.ai.providerHelp"></html:small>
+                </html:div>
+                <html:div class="mktero-field-control mktero-field-control-compact">
+                    <html:select id="mktero-ai-provider"
+                                 preference="extensions.mktero.aiProvider">
+                        <html:option value="openai" data-i18n="preferences.ai.provider.openAI"></html:option>
+                        <html:option value="anthropic" data-i18n="preferences.ai.provider.anthropic"></html:option>
+                        <html:option value="google" data-i18n="preferences.ai.provider.google"></html:option>
+                        <html:option value="deepseek" data-i18n="preferences.ai.provider.deepSeek"></html:option>
+                        <html:option value="alibaba" data-i18n="preferences.ai.provider.alibaba"></html:option>
+                        <html:option value="moonshotai" data-i18n="preferences.ai.provider.moonshot"></html:option>
+                        <html:option value="minimax" data-i18n="preferences.ai.provider.miniMax"></html:option>
+                        <html:option value="custom" data-i18n="preferences.ai.provider.custom"></html:option>
+                    </html:select>
+                </html:div>
+            </html:div>
+
+            <html:div class="mktero-setting-row mktero-field-row">
+                <html:div class="mktero-setting-copy">
+                    <html:label for="mktero-ai-protocol"><html:strong data-i18n="preferences.ai.protocolLabel"></html:strong></html:label>
+                    <html:small data-i18n="preferences.ai.protocolHelp"></html:small>
+                </html:div>
+                <html:div class="mktero-field-control mktero-field-control-compact">
+                    <html:select id="mktero-ai-protocol"
+                                 preference="extensions.mktero.aiProtocol">
+                        <html:option value="openai-responses" data-i18n="preferences.ai.protocol.openAIResponses"></html:option>
+                        <html:option value="openai-chat-completions" data-i18n="preferences.ai.protocol.openAIChat"></html:option>
+                        <html:option value="open-responses" data-i18n="preferences.ai.protocol.openResponses"></html:option>
+                        <html:option value="anthropic-messages" data-i18n="preferences.ai.protocol.anthropic"></html:option>
+                        <html:option value="google-generative-ai" data-i18n="preferences.ai.protocol.google"></html:option>
+                    </html:select>
                 </html:div>
             </html:div>
 

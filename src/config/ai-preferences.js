@@ -1,5 +1,6 @@
 export const AI_ENABLED_PREF = 'extensions.mktero.aiEnabled';
 export const AI_PROVIDER_PREF = 'extensions.mktero.aiProvider';
+export const AI_PROTOCOL_PREF = 'extensions.mktero.aiProtocol';
 export const AI_API_BASE_PREF = 'extensions.mktero.aiApiBase';
 export const AI_API_KEY_PREF = 'extensions.mktero.aiApiKey';
 export const AI_MODEL_PREF = 'extensions.mktero.aiModel';
@@ -8,7 +9,22 @@ export const AI_REQUEST_TIMEOUT_PREF = 'extensions.mktero.aiRequestTimeoutMs';
 export const AI_MAX_OUTPUT_TOKENS_PREF = 'extensions.mktero.aiMaxOutputTokens';
 export const AI_CACHE_ENABLED_PREF = 'extensions.mktero.aiCacheEnabled';
 
+export const AI_PROVIDER_OPENAI = 'openai';
+export const AI_PROVIDER_ANTHROPIC = 'anthropic';
+export const AI_PROVIDER_GOOGLE = 'google';
+export const AI_PROVIDER_DEEPSEEK = 'deepseek';
+export const AI_PROVIDER_ALIBABA = 'alibaba';
+export const AI_PROVIDER_MOONSHOT = 'moonshotai';
+export const AI_PROVIDER_MINIMAX = 'minimax';
+export const AI_PROVIDER_CUSTOM = 'custom';
 export const AI_PROVIDER_OPENAI_COMPATIBLE = 'openai-compatible';
+
+export const AI_PROTOCOL_OPENAI_RESPONSES = 'openai-responses';
+export const AI_PROTOCOL_OPENAI_CHAT = 'openai-chat-completions';
+export const AI_PROTOCOL_OPEN_RESPONSES = 'open-responses';
+export const AI_PROTOCOL_ANTHROPIC = 'anthropic-messages';
+export const AI_PROTOCOL_GOOGLE = 'google-generative-ai';
+
 export const AI_DEFAULT_API_BASE = 'https://api.openai.com/v1';
 export const AI_DEFAULT_TARGET_LANGUAGE = 'zh-CN';
 export const AI_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -27,13 +43,37 @@ const AI_TARGET_LANGUAGES = new Set([
     'fr-FR',
     'pt-BR',
 ]);
+const AI_PROTOCOLS_BY_PROVIDER = Object.freeze({
+    [AI_PROVIDER_OPENAI]: Object.freeze([
+        AI_PROTOCOL_OPENAI_RESPONSES,
+        AI_PROTOCOL_OPENAI_CHAT,
+    ]),
+    [AI_PROVIDER_ANTHROPIC]: Object.freeze([AI_PROTOCOL_ANTHROPIC]),
+    [AI_PROVIDER_GOOGLE]: Object.freeze([AI_PROTOCOL_GOOGLE]),
+    [AI_PROVIDER_DEEPSEEK]: Object.freeze([AI_PROTOCOL_OPENAI_CHAT]),
+    [AI_PROVIDER_ALIBABA]: Object.freeze([AI_PROTOCOL_OPENAI_CHAT]),
+    [AI_PROVIDER_MOONSHOT]: Object.freeze([AI_PROTOCOL_OPENAI_CHAT]),
+    [AI_PROVIDER_MINIMAX]: Object.freeze([AI_PROTOCOL_ANTHROPIC]),
+    [AI_PROVIDER_CUSTOM]: Object.freeze([
+        AI_PROTOCOL_OPENAI_CHAT,
+        AI_PROTOCOL_OPENAI_RESPONSES,
+        AI_PROTOCOL_OPEN_RESPONSES,
+        AI_PROTOCOL_ANTHROPIC,
+        AI_PROTOCOL_GOOGLE,
+    ]),
+});
 
 export function getAISettings(zotero) {
     const get = key => zotero?.Prefs?.get?.(key, true);
     const apiBase = get(AI_API_BASE_PREF);
+    const rawProvider = String(get(AI_PROVIDER_PREF) || '').trim();
+    const provider = normalizeProvider(rawProvider);
     return {
         enabled: get(AI_ENABLED_PREF) === true,
-        provider: normalizeProvider(get(AI_PROVIDER_PREF)),
+        provider,
+        protocol: normalizeProtocol(get(AI_PROTOCOL_PREF), provider, {
+            legacyOpenAICompatible: rawProvider === AI_PROVIDER_OPENAI_COMPATIBLE,
+        }),
         apiBase: trimTrailingSlash(
             String(apiBase ?? AI_DEFAULT_API_BASE).trim()
         ),
@@ -62,8 +102,32 @@ export function validateAISettings(settings) {
     if (!settings?.enabled) {
         throw aiConfigurationError('AI features are disabled');
     }
-    if (settings.provider !== AI_PROVIDER_OPENAI_COMPATIBLE) {
+    const rawProvider = String(settings.provider || '').trim();
+    if (rawProvider
+        && rawProvider !== AI_PROVIDER_OPENAI_COMPATIBLE
+        && !Object.hasOwn(AI_PROTOCOLS_BY_PROVIDER, rawProvider)) {
         const error = new Error('The configured AI provider is not supported');
+        error.code = 'AI_PROVIDER_UNSUPPORTED';
+        throw error;
+    }
+    const provider = normalizeProvider(rawProvider);
+    const requestedProtocol = String(settings.protocol || '').trim();
+    if (rawProvider !== AI_PROVIDER_OPENAI_COMPATIBLE
+        && requestedProtocol
+        && !getAIProtocolsForProvider(provider).includes(requestedProtocol)) {
+        const error = new Error(
+            'The configured AI provider does not support this protocol'
+        );
+        error.code = 'AI_PROVIDER_UNSUPPORTED';
+        throw error;
+    }
+    const protocol = normalizeProtocol(settings.protocol, provider, {
+        legacyOpenAICompatible: rawProvider === AI_PROVIDER_OPENAI_COMPATIBLE,
+    });
+    if (!getAIProtocolsForProvider(provider).includes(protocol)) {
+        const error = new Error(
+            'The configured AI provider does not support this protocol'
+        );
         error.code = 'AI_PROVIDER_UNSUPPORTED';
         throw error;
     }
@@ -82,6 +146,8 @@ export function validateAISettings(settings) {
     }
     return {
         ...settings,
+        provider,
+        protocol,
         apiBase,
         apiKey,
         model,
@@ -99,6 +165,11 @@ export function validateAISettings(settings) {
             16_384
         ),
     };
+}
+
+export function getAIProtocolsForProvider(providerValue) {
+    const provider = normalizeProvider(providerValue);
+    return AI_PROTOCOLS_BY_PROVIDER[provider] || [];
 }
 
 export function normalizeAIBaseURL(value) {
@@ -134,7 +205,19 @@ export function normalizeTargetLanguage(value) {
 
 function normalizeProvider(value) {
     const provider = String(value || '').trim();
-    return provider || AI_PROVIDER_OPENAI_COMPATIBLE;
+    if (provider === AI_PROVIDER_OPENAI_COMPATIBLE) {
+        return AI_PROVIDER_CUSTOM;
+    }
+    return Object.hasOwn(AI_PROTOCOLS_BY_PROVIDER, provider)
+        ? provider
+        : AI_PROVIDER_CUSTOM;
+}
+
+function normalizeProtocol(value, provider, { legacyOpenAICompatible = false } = {}) {
+    if (legacyOpenAICompatible) return AI_PROTOCOL_OPENAI_CHAT;
+    const protocol = String(value || '').trim();
+    if (getAIProtocolsForProvider(provider).includes(protocol)) return protocol;
+    return getAIProtocolsForProvider(provider)[0] || AI_PROTOCOL_OPENAI_CHAT;
 }
 
 function normalizeInteger(value, fallback, minimum, maximum) {
