@@ -44,6 +44,32 @@ test('reads and normalizes the configured AI settings', () => {
     });
 });
 
+test('accepts the expanded AI translation language choices', () => {
+    for (const targetLanguage of ['es-ES', 'fr-FR', 'pt-BR']) {
+        assert.equal(
+            getAISettings({
+                Prefs: {
+                    get: key => key === AI_TARGET_LANGUAGE_PREF
+                        ? targetLanguage
+                        : undefined,
+                },
+            }).targetLanguage,
+            targetLanguage
+        );
+        assert.equal(
+            validateAISettings({
+                enabled: true,
+                provider: 'openai-compatible',
+                apiBase: 'https://api.example.com/v1',
+                apiKey: 'token',
+                model: 'model',
+                targetLanguage,
+            }).targetLanguage,
+            targetLanguage
+        );
+    }
+});
+
 test('allows HTTPS providers and local HTTP model servers', () => {
     assert.equal(
         normalizeAIBaseURL('https://api.example.com/v1/'),

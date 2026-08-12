@@ -64,7 +64,7 @@ Open `Settings -> Mktero` after installation.
 | Reuse conversion results | On | Reuse results for the same PDF content and parser profile |
 | Enable AI translation | Off | Allow on-demand block translation through an OpenAI-compatible Chat Completions endpoint |
 | AI API base URL / API Key / model | OpenAI URL / empty / empty | Connect a hosted provider, or a loopback HTTP server for a local model |
-| Translation language | Simplified Chinese | Choose the target language for new translations |
+| Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese for new translations |
 
 The Mktero settings pane uses an aligned two-column layout for labels and
 controls, keeps Zotero's native select affordance, and uses explicit

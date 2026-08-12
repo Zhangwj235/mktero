@@ -12,6 +12,9 @@ const TARGET_LANGUAGE_NAMES = Object.freeze({
     'en-US': 'English',
     'ja-JP': 'Japanese',
     'ko-KR': 'Korean',
+    'es-ES': 'Spanish',
+    'fr-FR': 'French',
+    'pt-BR': 'Brazilian Portuguese',
 });
 
 export class MarkdownTranslationService {

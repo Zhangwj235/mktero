@@ -48,6 +48,9 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(pane, /preference="extensions\.mktero\.aiRequestTimeoutMs"/);
     assert.match(pane, /preference="extensions\.mktero\.aiMaxOutputTokens"/);
     assert.match(pane, /preference="extensions\.mktero\.aiCacheEnabled"/);
+    assert.match(pane, /<html:option value="es-ES" data-i18n="preferences\.ai\.language\.esES"><\/html:option>/);
+    assert.match(pane, /<html:option value="fr-FR" data-i18n="preferences\.ai\.language\.frFR"><\/html:option>/);
+    assert.match(pane, /<html:option value="pt-BR" data-i18n="preferences\.ai\.language\.ptBR"><\/html:option>/);
     assert.match(pane, /id="mktero-ai-test"/);
     assert.match(pane, /id="mktero-reader-font-family"/);
     assert.match(pane, /id="mktero-reader-font-size-value"/);

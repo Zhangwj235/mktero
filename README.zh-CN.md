@@ -57,7 +57,7 @@ Mktero 是一个适用于 Zotero 7、8 和 9 的来源关联重排阅读器。�
 | Reuse conversion results | 开启 | 复用相同 PDF 内容和解析配置对应的结果 |
 | 启用 AI 翻译 | 关闭 | 通过兼容 OpenAI Chat Completions 的接口按需翻译内容块 |
 | AI API Base URL / API Key / 模型 | OpenAI 地址 / 空 / 空 | 连接托管 Provider，或运行在回环地址上的本地模型服务 |
-| 翻译语言 | 简体中文 | 设置之后发起翻译时使用的目标语言 |
+| 翻译语言 | 简体中文 | 可选择简体中文、繁体中文、英文、日文、韩文、西班牙语、法语或葡萄牙语（巴西）作为之后翻译的目标语言 |
 
 MinerU API Token 和 AI API Key 都会作为普通首选项未加密地保存在当前 Zotero
 配置文件中。开始翻译前，可使用“测试连接”验证当前 AI 地址、Key 和模型。

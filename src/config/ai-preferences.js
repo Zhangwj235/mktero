@@ -23,6 +23,9 @@ const AI_TARGET_LANGUAGES = new Set([
     'en-US',
     'ja-JP',
     'ko-KR',
+    'es-ES',
+    'fr-FR',
+    'pt-BR',
 ]);
 
 export function getAISettings(zotero) {

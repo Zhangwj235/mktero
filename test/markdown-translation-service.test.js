@@ -63,6 +63,34 @@ test('translates one Markdown block and stores the normalized result', async () 
     });
 });
 
+test('uses the configured expanded language name in the translation prompt', async () => {
+    for (const [targetLanguage, languageName] of [
+        ['es-ES', 'Spanish'],
+        ['fr-FR', 'French'],
+        ['pt-BR', 'Brazilian Portuguese'],
+    ]) {
+        let completion;
+        const service = new MarkdownTranslationService({
+            chatClient: {
+                async complete(request) {
+                    completion = request;
+                    return { text: 'Translated' };
+                },
+            },
+            getSettings: () => ({ ...SETTINGS, targetLanguage }),
+            createCacheKey: async () => `key:${targetLanguage}`,
+        });
+
+        await service.translate({
+            documentKey: 'pdf-hash',
+            blockID: 'paragraph-1',
+            markdown: 'Source paragraph.',
+        });
+
+        assert.match(completion.messages[0].content, new RegExp(languageName));
+    }
+});
+
 test('returns a matching cached translation without calling Chat', async () => {
     let calls = 0;
     const cached = {
