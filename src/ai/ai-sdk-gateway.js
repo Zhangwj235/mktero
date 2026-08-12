@@ -38,8 +38,9 @@ export class AISDKGateway {
     constructor({
         fetch = globalThis.fetch?.bind(globalThis),
         createAbortController = createRuntimeAbortController,
-        setTimer = globalThis.setTimeout?.bind(globalThis),
-        clearTimer = globalThis.clearTimeout?.bind(globalThis),
+        timerWindow = resolveTimerWindow(),
+        setTimer,
+        clearTimer,
         generate = generateText,
     } = {}) {
         if (typeof fetch !== 'function') {
@@ -53,8 +54,8 @@ export class AISDKGateway {
         }
         this.fetch = fetch;
         this.createAbortController = createAbortController;
-        this.setTimer = setTimer;
-        this.clearTimer = clearTimer;
+        this.setTimer = setTimer || bindTimer(timerWindow, 'setTimeout');
+        this.clearTimer = clearTimer || bindTimer(timerWindow, 'clearTimeout');
         this.generate = generate;
     }
 
@@ -128,6 +129,27 @@ export class AISDKGateway {
             signal?.removeEventListener('abort', relayAbort);
         }
     }
+}
+
+function resolveTimerWindow() {
+    if (typeof globalThis.window?.setTimeout === 'function') {
+        return globalThis.window;
+    }
+    try {
+        const zoteroWindow = globalThis.Zotero?.getMainWindow?.();
+        if (typeof zoteroWindow?.setTimeout === 'function') {
+            return zoteroWindow;
+        }
+    }
+    catch {
+        // The Zotero global may not be available during module tests or shutdown.
+    }
+    return globalThis;
+}
+
+function bindTimer(timerWindow, method) {
+    const timer = timerWindow?.[method];
+    return typeof timer === 'function' ? timer.bind(timerWindow) : undefined;
 }
 
 function reasoningProviderOptions(configuration) {

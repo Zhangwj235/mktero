@@ -196,6 +196,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
     runtime.translationService = new MarkdownTranslationService({
         aiGateway: new AISDKGateway({
             createAbortController: createZoteroAbortController,
+            timerWindow: Zotero.getMainWindow?.(),
         }),
         cache: translationCache,
         getSettings: () => getAISettings(Zotero),

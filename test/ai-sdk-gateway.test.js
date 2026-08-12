@@ -105,6 +105,45 @@ test('passes the configured reasoning level to AI SDK Core', async () => {
     assert.equal(request.reasoning, 'high');
 });
 
+test('binds request timeout functions to their runtime window', async () => {
+    const calls = [];
+    const timerWindow = {
+        setTimeout(callback, delay) {
+            assert.equal(this, timerWindow);
+            calls.push({ type: 'set', callback, delay });
+            return 7;
+        },
+        clearTimeout(timerID) {
+            assert.equal(this, timerWindow);
+            calls.push({ type: 'clear', timerID });
+        },
+    };
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        timerWindow,
+        generate: async () => ({ text: 'Completed' }),
+    });
+
+    await gateway.generateText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.deepEqual(calls.map(call => ({
+        type: call.type,
+        delay: call.delay,
+        timerID: call.timerID,
+    })), [{
+        type: 'set',
+        delay: SETTINGS.requestTimeoutMs,
+        timerID: undefined,
+    }, {
+        type: 'clear',
+        delay: undefined,
+        timerID: 7,
+    }]);
+});
+
 test('uses the OpenAI Chat Completions wire protocol through AI SDK Core', async () => {
     let request;
     const gateway = new AISDKGateway({
