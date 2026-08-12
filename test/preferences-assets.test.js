@@ -130,7 +130,7 @@ test('does not add a second native arrow to preference selects', async () => {
     assert.doesNotMatch(fieldRule, /appearance:\s*auto/);
 });
 
-test('keeps preference fields in an aligned responsive grid', async () => {
+test('keeps preference fields in an aligned responsive flex layout', async () => {
     const styles = await readFile(
         new URL('../ui/preferences.css', import.meta.url),
         'utf8'
@@ -142,15 +142,15 @@ test('keeps preference fields in an aligned responsive grid', async () => {
     );
     assert.match(
         styles,
-        /\.mktero-field-row,\s*\.mktero-reader-font-row\s*\{[\s\S]*?display:\s*grid/s
+        /\.mktero-field-row\s*\{[\s\S]*?align-items:\s*flex-start/s
     );
     assert.match(
         styles,
-        /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(320px,\s*500px\)/
+        /\.mktero-reader-font-row\s*\{[\s\S]*?align-items:\s*center/s
     );
     assert.match(
         styles,
-        /\.mktero-field-control\s*\{[\s\S]*?min-width:\s*0[\s\S]*?width:\s*100%/s
+        /\.mktero-field-control\s*\{[\s\S]*?flex:\s*0\s+1\s+500px[\s\S]*?width:\s*min\(52%,\s*500px\)/s
     );
     assert.match(
         styles,
@@ -158,7 +158,11 @@ test('keeps preference fields in an aligned responsive grid', async () => {
     );
     assert.match(
         styles,
-        /@media\s*\(max-width:\s*720px\)[\s\S]*?\.mktero-field-row,[\s\S]*?grid-template-columns:\s*1fr/s
+        /@media\s*\(max-width:\s*800px\)[\s\S]*?\.mktero-field-row,[\s\S]*?flex-direction:\s*column/s
+    );
+    assert.doesNotMatch(
+        styles,
+        /\.mktero-field-row,[\s\S]*?display:\s*grid/s
     );
 });
 
