@@ -117,6 +117,19 @@ test('keeps preference inputs visibly distinct from the settings card', async ()
     );
 });
 
+test('does not add a second native arrow to preference selects', async () => {
+    const styles = await readFile(
+        new URL('../ui/preferences.css', import.meta.url),
+        'utf8'
+    );
+    const fieldRule = styles.match(
+        /\.mktero-field-control input,\s*\.mktero-field-control select\s*\{([\s\S]*?)\}/
+    )?.[1] || '';
+
+    assert.ok(fieldRule);
+    assert.doesNotMatch(fieldRule, /appearance:\s*auto/);
+});
+
 test('presents every preference group as one cohesive settings card', async () => {
     const [pane, styles] = await Promise.all([
         readFile(new URL('../ui/preferences.xhtml', import.meta.url), 'utf8'),

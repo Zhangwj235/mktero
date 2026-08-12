@@ -95,13 +95,13 @@
     width: min(48%, 460px);
 }
 
+/* Zotero supplies the select dropmarker; forcing native appearance duplicates it on macOS. */
 .mktero-field-control input,
 .mktero-field-control select {
     box-sizing: border-box;
     width: 100%;
     min-height: 34px;
     padding: 5px 10px;
-    appearance: auto;
     border: 1px solid color-mix(in srgb, CanvasText 35%, Canvas);
     border-radius: 7px;
     background-color: color-mix(in srgb, Canvas 92%, CanvasText 8%);
