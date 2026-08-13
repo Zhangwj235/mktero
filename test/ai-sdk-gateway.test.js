@@ -195,6 +195,54 @@ test('calls AI SDK streamText and reports cumulative text deltas', async () => {
     });
 });
 
+test('finishes from the full stream without waiting for delayed metadata', async () => {
+    const never = new Promise(() => {});
+    let streamReturned = false;
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        stream: async () => ({
+            fullStream: {
+                async *[Symbol.asyncIterator]() {
+                    try {
+                        yield { type: 'text-delta', text: 'Complete' };
+                        yield {
+                            type: 'finish-step',
+                            finishReason: 'stop',
+                            usage: { totalTokens: 3 },
+                            response: { modelId: 'stream-model' },
+                        };
+                        yield {
+                            type: 'finish',
+                            finishReason: 'stop',
+                            totalUsage: { totalTokens: 3 },
+                        };
+                        await never;
+                    }
+                    finally {
+                        streamReturned = true;
+                    }
+                },
+            },
+            usage: never,
+            response: never,
+            finishReason: never,
+        }),
+    });
+
+    const result = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.deepEqual(result, {
+        text: 'Complete',
+        finishReason: 'stop',
+        model: 'stream-model',
+        usage: { inputTokens: null, outputTokens: null, totalTokens: 3 },
+    });
+    assert.equal(streamReturned, true);
+});
+
 test('propagates length finish reasons for complete-response validation', async () => {
     const gateway = new AISDKGateway({
         fetch: async () => assert.fail('provider fetch should be lazy'),
@@ -452,6 +500,79 @@ test('uses the OpenAI Chat Completions wire protocol through AI SDK Core', async
     }]);
     assert.equal(JSON.parse(request.init.body).reasoning_effort, 'high');
     assert.equal(result.text, 'Chat result');
+});
+
+test('finishes an OpenAI Chat stream when DONE does not close the connection', async () => {
+    const encoder = new TextEncoder();
+    let canceled = false;
+    let readIndex = 0;
+    const chunks = [{
+        id: 'chatcmpl-test',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'stream-model',
+        choices: [{
+            index: 0,
+            delta: { role: 'assistant', content: 'Complete' },
+            finish_reason: null,
+        }],
+    }, {
+        id: 'chatcmpl-test',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'stream-model',
+        choices: [{
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+        }],
+    }].map(data => encoder.encode(
+        `data: ${JSON.stringify(data)}\n\n`
+    ));
+    chunks.push(
+        encoder.encode('data: [DO'),
+        encoder.encode('NE]\n\n')
+    );
+    const gateway = new AISDKGateway({
+        fetch: async () => ({
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({
+                'Content-Type': 'text/event-stream; charset=utf-8',
+            }),
+            body: {
+                getReader() {
+                    return {
+                        async read() {
+                            if (readIndex < chunks.length) {
+                                return {
+                                    done: false,
+                                    value: chunks[readIndex++],
+                                };
+                            }
+                            throw new Error('provider connection remained open');
+                        },
+                        async cancel() {
+                            canceled = true;
+                        },
+                    };
+                },
+            },
+        }),
+    });
+
+    const result = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.deepEqual(result, {
+        text: 'Complete',
+        finishReason: 'stop',
+        model: 'stream-model',
+        usage: null,
+    });
+    assert.equal(canceled, true);
 });
 
 test('uses the OpenAI Responses wire protocol through AI SDK Core', async () => {

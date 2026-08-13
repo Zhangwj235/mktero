@@ -212,13 +212,42 @@ export class AISDKGateway {
                     streamError = error;
                 },
             });
-            if (!result?.textStream?.[Symbol.asyncIterator]) {
+            const fullStreamCandidate = result?.fullStream;
+            const fullStream = fullStreamCandidate?.[Symbol.asyncIterator]
+                ? fullStreamCandidate
+                : null;
+            const textStreamCandidate = fullStream ? null : result?.textStream;
+            const textStream = fullStream
+                || (textStreamCandidate?.[Symbol.asyncIterator]
+                    ? textStreamCandidate
+                    : null);
+            if (!textStream) {
                 throw invalidResponseError();
             }
             let accumulated = '';
             const responseBytes = createIncrementalByteCounter();
-            for await (const delta of result.textStream) {
-                const chunk = String(delta || '');
+            let streamUsage = null;
+            let streamResponse = null;
+            let streamFinishReason = null;
+            for await (const event of textStream) {
+                if (fullStream) {
+                    if (event?.type === 'error') {
+                        streamError = event.error;
+                        continue;
+                    }
+                    if (event?.type === 'finish-step'
+                        || event?.type === 'finish') {
+                        streamUsage = event.usage || event.totalUsage || streamUsage;
+                        streamResponse = event.response || streamResponse;
+                        streamFinishReason = event.finishReason
+                            || streamFinishReason;
+                        if (event.type === 'finish') break;
+                        continue;
+                    }
+                }
+                const chunk = fullStream
+                    ? String(event?.type === 'text-delta' ? event.text || '' : '')
+                    : String(event || '');
                 if (!chunk) continue;
                 accumulated += chunk;
                 if (responseBytes.add(chunk) > limits.response) {
@@ -240,11 +269,17 @@ export class AISDKGateway {
                 throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
             }
             throwIfAborted(signal);
-            const usage = result.usage ? await result.usage : null;
-            const response = result.response ? await result.response : null;
-            const finishReason = result.finishReason
-                ? await result.finishReason
-                : null;
+            const usage = fullStream
+                ? streamUsage
+                : result.usage ? await result.usage : null;
+            const response = fullStream
+                ? streamResponse
+                : result.response ? await result.response : null;
+            const finishReason = fullStream
+                ? streamFinishReason
+                : result.finishReason
+                    ? await result.finishReason
+                    : null;
             if (streamError) throw streamError;
             if (timedOut) {
                 throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
@@ -438,6 +473,9 @@ function createBoundedFetch(fetch, maxResponseBytes) {
         }
         if (!response?.body?.getReader) return response;
         const reader = response.body.getReader();
+        const sseDoneDetector = isEventStream(response)
+            ? createSSEDoneDetector()
+            : null;
         let totalBytes = 0;
         const stream = new ReadableStream({
             async pull(controller) {
@@ -456,6 +494,10 @@ function createBoundedFetch(fetch, maxResponseBytes) {
                         throw responseTooLargeError();
                     }
                     controller.enqueue(value);
+                    if (sseDoneDetector?.add(value)) {
+                        controller.close();
+                        reader.cancel?.().catch?.(() => {});
+                    }
                 }
                 catch (error) {
                     controller.error(error);
@@ -470,6 +512,51 @@ function createBoundedFetch(fetch, maxResponseBytes) {
             statusText: response.statusText,
             headers: response.headers,
         });
+    };
+}
+
+function isEventStream(response) {
+    return String(response?.headers?.get?.('Content-Type') || '')
+        .toLowerCase()
+        .startsWith('text/event-stream');
+}
+
+function createSSEDoneDetector() {
+    const decoder = new TextDecoder();
+    let line = '';
+    let lineTooLong = false;
+    let previousWasCarriageReturn = false;
+    const isDoneLine = () => !lineTooLong
+        && /^data:[ \t]*\[DONE\][ \t]*$/.test(line);
+    const resetLine = () => {
+        line = '';
+        lineTooLong = false;
+    };
+    return {
+        add(value) {
+            const chunk = decoder.decode(value, { stream: true });
+            for (const character of chunk) {
+                if (character === '\n' && previousWasCarriageReturn) {
+                    previousWasCarriageReturn = false;
+                    continue;
+                }
+                if (character === '\r' || character === '\n') {
+                    if (isDoneLine()) return true;
+                    resetLine();
+                    previousWasCarriageReturn = character === '\r';
+                    continue;
+                }
+                previousWasCarriageReturn = false;
+                if (lineTooLong) continue;
+                if (line.length >= 64) {
+                    lineTooLong = true;
+                    line = '';
+                    continue;
+                }
+                line += character;
+            }
+            return false;
+        },
     };
 }
 
