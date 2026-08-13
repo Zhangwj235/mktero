@@ -157,9 +157,10 @@ Connection tests always use a short non-streaming request.
 
 After translation, use the reading-mode selector to choose `Original`,
 `Translation`, or `Compare`. Original is the default whenever a document opens.
-Compare keeps every source block above its translated block. PDF annotations
-and source navigation remain attached to Original because translated text does
-not share the source Markdown's character offsets.
+Compare presents the source and translation as equal, independently scrollable
+reading panes with one source outline; narrow windows stack the panes vertically.
+PDF annotations and source navigation remain attached to Original because
+translated text does not share the source Markdown's character offsets.
 
 All AI calls pass through Vercel AI SDK Core. Mktero includes adapters for
 OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud Model Studio,

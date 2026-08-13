@@ -672,6 +672,47 @@ main {
     container: markdown-reader / inline-size;
 }
 
+.markdown-reading-layout {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    background: var(--reader-background);
+}
+
+.markdown-reading-pane {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 100%;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--reader-background);
+}
+
+.markdown-reading-layout.is-comparing .markdown-reading-pane {
+    flex-basis: 50%;
+}
+
+.markdown-reading-layout.is-comparing .markdown-reading-pane--original {
+    border-inline-end: 1px solid var(--border);
+}
+
+.markdown-comparison-pane-label {
+    display: flex;
+    min-height: 32px;
+    flex: 0 0 32px;
+    align-items: center;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--muted);
+    background: color-mix(in srgb, var(--surface-raised) 90%, var(--surface));
+    font: 600 11px/1 var(--ui-font);
+}
+
 .markdown-editor-host {
     position: relative;
     width: 100%;
@@ -904,24 +945,65 @@ main {
 }
 
 .markdown-translation-view {
-    width: auto;
-    min-width: 106px;
-    max-width: 144px;
-    min-height: 32px;
-    padding: 4px 28px 4px 9px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    background-color: var(--surface-raised);
-    font: 12.5px/1.2 var(--ui-font);
+    display: inline-flex;
+    min-width: 0;
+    height: 32px;
+    flex: 0 0 auto;
 }
 
-.markdown-translation-view:focus-visible {
+.markdown-translation-view-button {
+    min-width: 68px;
+    height: 32px;
+    padding: 0 9px;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--muted);
+    background: var(--surface-raised);
+    cursor: pointer;
+    font: 12px/1 var(--ui-font);
+    white-space: nowrap;
+}
+
+.markdown-translation-view-button + .markdown-translation-view-button {
+    margin-left: -1px;
+}
+
+.markdown-translation-view-button:first-child {
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.markdown-translation-view-button:last-child {
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.markdown-translation-view-button:hover:not(:disabled) {
+    position: relative;
+    z-index: 1;
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised));
+}
+
+.markdown-translation-view-button:focus-visible {
+    position: relative;
+    z-index: 2;
     outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
     outline-offset: 1px;
 }
 
-.markdown-translation-view:disabled { opacity: 0.55; }
+.markdown-translation-view-button[aria-pressed='true'] {
+    position: relative;
+    z-index: 1;
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+    font-weight: 600;
+}
+
+.markdown-translation-view-button:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
 
 .markdown-reader-action-menu {
     position: absolute;
@@ -1545,6 +1627,13 @@ main {
     -moz-user-select: text;
     user-select: text;
     caret-color: var(--accent);
+}
+
+.markdown-reading-layout.is-comparing
+    .markdown-editor-host > .cm-editor .cm-content {
+    width: calc(100% - 40px);
+    max-width: 46rem;
+    padding: 32px 0 64px;
 }
 
 .markdown-editor-host > .cm-editor .cm-content:focus { outline: none; }
@@ -2931,6 +3020,31 @@ main {
     }
 
     .markdown-reader-action-menu { right: 8px; }
+}
+
+@container markdown-reader (max-width: 920px) {
+    .markdown-reading-layout.is-comparing {
+        overflow-x: hidden;
+        overflow-y: auto;
+        flex-direction: column;
+    }
+
+    .markdown-reading-layout.is-comparing .markdown-reading-pane {
+        min-height: 420px;
+        flex: 0 0 100%;
+    }
+
+    .markdown-reading-layout.is-comparing .markdown-reading-pane--original {
+        border-inline-end: 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .markdown-reading-layout.is-comparing
+        .markdown-editor-host > .cm-editor .cm-content {
+        width: calc(100% - 32px);
+        max-width: var(--reader-width);
+        padding: 32px 0 56px;
+    }
 }
 
 @container markdown-reader (max-width: 390px) {

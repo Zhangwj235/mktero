@@ -221,7 +221,7 @@ test('toggles block correction mode and restores all saved corrections', async (
 
 test('translates the document and switches between three reading modes', async () => {
     const actions = [];
-    const renderedDocuments = [];
+    const editors = [];
     const model = createModel({
         status: 'ready',
         progress: 100,
@@ -234,15 +234,22 @@ test('translates the document and switches between three reading modes', async (
         onSetTranslationView: view => actions.push(view),
     });
     const { view, shadow } = createView(model, {}, {
-        editorFactory() {
-            return {
+        editorFactory(options) {
+            const editor = {
+                parent: options.parent,
+                renderedDocuments: [],
+                destroyed: false,
                 setDocument(document) {
-                    renderedDocuments.push(document);
+                    this.renderedDocuments.push(document);
                 },
                 setCorrectionState() {},
                 refreshRendering() {},
-                destroy() {},
+                destroy() {
+                    this.destroyed = true;
+                },
             };
+            editors.push(editor);
+            return editor;
         },
     });
 
@@ -250,6 +257,15 @@ test('translates the document and switches between three reading modes', async (
         const controls = shadow.querySelector('.markdown-translation-controls');
         const translate = shadow.querySelector('#mktero-translate-document');
         const selector = shadow.querySelector('#mktero-translation-view');
+        const originalMode = shadow.querySelector(
+            '[data-translation-view="original"]'
+        );
+        const translatedMode = shadow.querySelector(
+            '[data-translation-view="translated"]'
+        );
+        const compareMode = shadow.querySelector(
+            '[data-translation-view="compare"]'
+        );
         assert.equal(controls.hidden, false);
         assert.equal(translate.hidden, false);
         assert.equal(translate.textContent, '');
@@ -271,8 +287,14 @@ test('translates the document and switches between three reading modes', async (
             translate.querySelector('svg')?.getAttribute('data-lucide'),
             'languages'
         );
-        assert.equal(selector.value, 'original');
-        assert.equal(selector.disabled, true);
+        assert.equal(selector.localName, 'div');
+        assert.equal(selector.getAttribute('role'), 'group');
+        assert.equal(originalMode.getAttribute('aria-pressed'), 'true');
+        assert.equal(translatedMode.getAttribute('aria-pressed'), 'false');
+        assert.equal(compareMode.getAttribute('aria-pressed'), 'false');
+        assert.equal(originalMode.disabled, true);
+        assert.equal(translatedMode.disabled, true);
+        assert.equal(compareMode.disabled, true);
 
         translate.click();
         assert.deepEqual(actions, ['translate']);
@@ -314,42 +336,100 @@ test('translates the document and switches between three reading modes', async (
         assert.equal(translate.textContent, '');
         assert.equal(translate.getAttribute('aria-label'), 'Translated');
         assert.equal(translate.getAttribute('title'), 'Translated');
-        assert.equal(selector.disabled, false);
+        assert.equal(originalMode.disabled, false);
+        assert.equal(translatedMode.disabled, false);
+        assert.equal(compareMode.disabled, false);
 
-        selector.options[1].setAttribute('selected', 'selected');
-        selector.options[0].removeAttribute('selected');
-        selector.dispatchEvent(new selector.ownerDocument.defaultView.Event(
-            'change',
-            { bubbles: true }
-        ));
+        translatedMode.click();
         assert.deepEqual(actions, ['translate', 'cancel', 'translated']);
 
         view.render({ ...translatedModel, translationView: 'translated' });
-        assert.equal(renderedDocuments.at(-1).markdown, '# 论文\n\n翻译这一段。');
-        assert.deepEqual(renderedDocuments.at(-1).sourceMap, []);
-        assert.deepEqual(renderedDocuments.at(-1).annotationOverlay, {
+        assert.equal(originalMode.getAttribute('aria-pressed'), 'false');
+        assert.equal(translatedMode.getAttribute('aria-pressed'), 'true');
+        assert.equal(compareMode.getAttribute('aria-pressed'), 'false');
+        assert.equal(
+            shadow.querySelector('[data-comparison-pane="original"]')
+                .getAttribute('aria-label'),
+            'Translation'
+        );
+        assert.equal(
+            editors[0].renderedDocuments.at(-1).markdown,
+            '# 论文\n\n翻译这一段。'
+        );
+        assert.deepEqual(editors[0].renderedDocuments.at(-1).sourceMap, []);
+        assert.deepEqual(editors[0].renderedDocuments.at(-1).annotationOverlay, {
             matched: [],
             unmatched: [],
         });
 
+        compareMode.click();
+        assert.deepEqual(actions, [
+            'translate',
+            'cancel',
+            'translated',
+            'compare',
+        ]);
+        view.render({ ...translatedModel, translationView: 'compare' });
+        const compareLayout = shadow.querySelector(
+            '#mktero-comparison-reading'
+        );
+        const originalPane = shadow.querySelector(
+            '[data-comparison-pane="original"]'
+        );
+        const translatedPane = shadow.querySelector(
+            '[data-comparison-pane="translated"]'
+        );
+        assert.equal(compareLayout.hidden, false);
+        assert.equal(originalPane.getAttribute('aria-label'), 'Original');
+        assert.equal(translatedPane.getAttribute('aria-label'), 'Translation');
+        assert.equal(editors.length, 2);
+        assert.equal(
+            editors[0].renderedDocuments.at(-1).markdown,
+            '# Paper\n\nTranslate this paragraph.'
+        );
+        assert.equal(
+            editors[1].renderedDocuments.at(-1).markdown,
+            '# 论文\n\n翻译这一段。'
+        );
+        assert.deepEqual(
+            [...shadow.querySelectorAll('.markdown-outline-link')]
+                .map(link => link.textContent),
+            ['Paper']
+        );
+
         view.render({
             ...translatedModel,
             translationStatus: 'partial',
-            translationView: 'translated',
+            translationView: 'compare',
         });
         assert.equal(translate.disabled, false);
         assert.equal(
             translate.getAttribute('aria-label'),
             'Retry incomplete translation'
         );
-        assert.equal(selector.disabled, false);
-        assert.equal(renderedDocuments.at(-1).markdown, '# 论文\n\n翻译这一段。');
+        assert.equal(originalMode.disabled, false);
+        assert.equal(translatedMode.disabled, false);
+        assert.equal(compareMode.disabled, false);
+        assert.equal(
+            editors[1].renderedDocuments.at(-1).markdown,
+            '# 论文\n\n翻译这一段。'
+        );
+
+        originalMode.click();
+        view.render({ ...translatedModel, translationView: 'original' });
+        assert.equal(compareLayout.hidden, true);
+        assert.equal(
+            editors[0].renderedDocuments.at(-1).markdown,
+            '# Paper\n\nTranslate this paragraph.'
+        );
 
         view.render({ ...model, onTranslateDocument: undefined });
         assert.equal(controls.hidden, true);
     }
     finally {
         view.destroy();
+        assert.equal(editors.length, 2);
+        assert.equal(editors.every(editor => editor.destroyed), true);
     }
 });
 
@@ -864,6 +944,7 @@ test('keeps reading controls in a toolbar above the Markdown body', () => {
 
     try {
         const toolbar = shadow.querySelector('.markdown-reader-toolbar');
+        const readingLayout = shadow.querySelector('.markdown-reading-layout');
         const editor = shadow.querySelector('#mktero-editor');
         const menu = shadow.querySelector('#mktero-document-action-menu');
         const size = shadow.querySelector('.markdown-reader-font-size');
@@ -888,7 +969,8 @@ test('keeps reading controls in a toolbar above the Markdown body', () => {
             toolbar?.getAttribute('aria-label'),
             'Markdown reading toolbar'
         );
-        assert.equal(toolbar?.nextElementSibling, editor);
+        assert.equal(toolbar?.nextElementSibling, readingLayout);
+        assert.equal(readingLayout?.contains(editor), true);
         assert.equal(toolbar?.contains(size), true);
         assert.equal(toolbar?.contains(family), true);
         assert.equal(readerControls?.nextElementSibling, translationControls);
@@ -1332,7 +1414,7 @@ test('renders a saved HTML snapshot without exposing PDF actions or editing cont
     }));
 
     try {
-        assert.equal(shadow.querySelector('#mktero-editor').hidden, true);
+        assert.equal(shadow.querySelector('.markdown-reading-layout').hidden, true);
         assert.equal(shadow.querySelector('#mktero-snapshot').hidden, false);
         assert.match(
             shadow.querySelector('#mktero-snapshot').textContent,

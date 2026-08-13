@@ -438,6 +438,27 @@ test('keeps document translation as a compact icon button', () => {
     assert.match(translating, /animation:\s*mktero-spin 0\.85s linear infinite/);
 });
 
+test('styles comparison reading as equal document panes that stack when narrow', () => {
+    const layout = ruleBody('.markdown-reading-layout');
+    const panes = ruleBody(
+        '.markdown-reading-layout.is-comparing .markdown-reading-pane'
+    );
+    const divider = ruleBody(
+        '.markdown-reading-layout.is-comparing .markdown-reading-pane--original'
+    );
+    const label = ruleBody('.markdown-comparison-pane-label');
+
+    assert.match(layout, /display:\s*flex/);
+    assert.match(layout, /overflow:\s*hidden/);
+    assert.match(panes, /flex-basis:\s*50%/);
+    assert.match(divider, /border-inline-end:\s*1px solid var\(--border\)/);
+    assert.match(label, /font:\s*600 11px\/1 var\(--ui-font\)/);
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*920px\)[\s\S]*\.markdown-reading-layout\.is-comparing\s*\{[^}]*flex-direction:\s*column;/
+    );
+});
+
 test('styles citation popups and temporary reference highlights', () => {
     const citation = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-citation'
