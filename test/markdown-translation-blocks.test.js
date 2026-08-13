@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     assembleTranslatedMarkdown,
     collectMarkdownTranslationBlocks,
+    collectMarkdownTranslationSections,
     collectDocumentTranslations,
     createComparisonMarkdown,
     createMarkdownTranslationRequest,
@@ -47,6 +48,66 @@ test('collects translatable top-level Markdown blocks in document order', () => 
         translatable: true,
     }]);
     assert.equal(new Set(blocks.map(block => block.id)).size, blocks.length);
+});
+
+test('splits translation sections at top-level H1 headings only', () => {
+    const markdown = [
+        'Introductory paragraph.',
+        '',
+        '# First chapter',
+        '',
+        'First chapter paragraph.',
+        '',
+        '## Nested heading',
+        '',
+        'Nested paragraph.',
+        '',
+        '> # Quoted heading',
+        '>',
+        '> Quoted content.',
+        '',
+        '```md',
+        '# Fenced heading',
+        '```',
+        '',
+        '# Second chapter',
+        '',
+        'Second chapter paragraph.',
+    ].join('\n');
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const sections = collectMarkdownTranslationSections(markdown, blocks);
+
+    assert.deepEqual(sections.map(section => section.blocks.map(block => (
+        block.markdown
+    ))), [
+        ['Introductory paragraph.'],
+        [
+            '# First chapter',
+            'First chapter paragraph.',
+            '## Nested heading',
+            'Nested paragraph.',
+            '> # Quoted heading\n>\n> Quoted content.',
+            '```md\n# Fenced heading\n```',
+        ],
+        ['# Second chapter', 'Second chapter paragraph.'],
+    ]);
+    assert.deepEqual(
+        sections.map(section => section.translatableBlocks.length),
+        [1, 5, 2]
+    );
+    assert.equal(
+        sections[1].requestMarkdown,
+        createMarkdownTranslationRequest('', sections[1].blocks)
+    );
+});
+
+test('keeps a document without H1 headings in one translation section', () => {
+    const markdown = '## Details\n\nA paragraph.';
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const sections = collectMarkdownTranslationSections(markdown, blocks);
+
+    assert.equal(sections.length, 1);
+    assert.deepEqual(sections[0].blocks, blocks);
 });
 
 test('translates Setext headings while preserving their heading level', () => {

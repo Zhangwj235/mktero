@@ -1019,6 +1019,9 @@ function localizeTranslationError(error) {
     if (error?.code === 'AI_OUTPUT_TRUNCATED') {
         return runtimeTranslate('ai.outputTruncated');
     }
+    if (error?.code === 'AI_RESPONSE_TOO_LARGE') {
+        return runtimeTranslate('ai.responseTooLarge');
+    }
     return runtimeTranslate('ai.documentTranslationFailed');
 }
 

@@ -609,6 +609,174 @@ test('stops a complete document translation when canceled', async () => {
     assert.equal(calls, 1);
 });
 
+test('translates H1 sections with at most five concurrent requests and restores source order', async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const requests = [];
+    const gates = new Map();
+    const requestWaiters = [];
+    const notifyRequest = () => {
+        for (let index = requestWaiters.length - 1; index >= 0; index--) {
+            if (requests.length < requestWaiters[index].count) continue;
+            requestWaiters[index].resolve();
+            requestWaiters.splice(index, 1);
+        }
+    };
+    const waitForRequestCount = count => requests.length >= count
+        ? Promise.resolve()
+        : new Promise(resolve => requestWaiters.push({ count, resolve }));
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                active++;
+                maximumActive = Math.max(maximumActive, active);
+                const requestMarkdown = request.messages[1].content;
+                const title = requestMarkdown.match(/^(# .+)$/m)?.[1] || '';
+                const index = Number(title.match(/Section (\d+)/)?.[1] || 0);
+                requests.push({ index, requestMarkdown });
+                notifyRequest();
+                const gate = deferred();
+                gates.set(index, gate);
+                await gate.promise;
+                active--;
+                return {
+                    text: translateMarkedSection(requestMarkdown, `# 翻译 ${index}`),
+                    model: 'provider-model',
+                    usage: { totalTokens: 10 },
+                };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => null,
+    });
+    const source = Array.from({ length: 7 }, (_, index) => [
+        `# Section ${index}`,
+        '',
+        `Paragraph ${index}.`,
+    ].join('\n')).join('\n\n');
+
+    const result = service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: source,
+    });
+
+    await waitForRequestCount(5);
+    gates.get(4).resolve();
+    await waitForRequestCount(6);
+    gates.get(5).resolve();
+    await waitForRequestCount(7);
+    gates.get(6).resolve();
+    for (const index of [3, 2, 1, 0]) gates.get(index).resolve();
+
+    const completed = await result;
+
+    assert.equal(requests.length, 7);
+    assert.equal(maximumActive, 5);
+    assert.deepEqual(
+        [...completed.translatedMarkdown.matchAll(/^# 翻译 (\d+)$/gm)]
+            .map(match => Number(match[1])),
+        [0, 1, 2, 3, 4, 5, 6]
+    );
+    assert.equal(completed.usage.totalTokens, 70);
+});
+
+test('cancels sibling section requests after the first provider failure', async () => {
+    let calls = 0;
+    let resolveAllStarted;
+    const allStarted = new Promise(resolve => { resolveAllStarted = resolve; });
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                calls++;
+                const title = request.messages[1].content.match(/^(# .+)$/m)?.[1] || '';
+                const index = Number(title.match(/Section (\d+)/)?.[1] || 0);
+                if (calls === 5) resolveAllStarted();
+                await allStarted;
+                if (index === 0) {
+                    throw Object.assign(new Error('bad response'), {
+                        code: 'AI_INVALID_RESPONSE',
+                    });
+                }
+                await new Promise((resolve, reject) => {
+                    const abort = () => reject(Object.assign(new Error('aborted'), {
+                        name: 'AbortError',
+                    }));
+                    request.signal?.addEventListener('abort', abort, { once: true });
+                });
+                return {
+                    text: translateMarkedSection(
+                        request.messages[1].content,
+                        `# 翻译 ${index}`
+                    ),
+                };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => null,
+    });
+    const source = Array.from({ length: 6 }, (_, index) => (
+        `# Section ${index}\n\nParagraph ${index}.`
+    )).join('\n\n');
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: source,
+    }), error => error?.code === 'AI_INVALID_RESPONSE');
+    assert.equal(calls, 5);
+});
+
+function deferred() {
+    let resolve;
+    let reject;
+    const promise = new Promise((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+}
+
+test('aborts every active section request when the document signal is canceled', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    let aborted = 0;
+    let resolveStarted;
+    const started = new Promise(resolve => { resolveStarted = resolve; });
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                calls++;
+                if (calls === 5) resolveStarted();
+                await new Promise((resolve, reject) => {
+                    const abort = () => {
+                        aborted++;
+                        reject(Object.assign(new Error('aborted'), {
+                            name: 'AbortError',
+                        }));
+                    };
+                    request.signal.addEventListener('abort', abort, { once: true });
+                });
+                return { text: '' };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => null,
+    });
+    const source = Array.from({ length: 7 }, (_, index) => (
+        `# Section ${index}\n\nParagraph ${index}.`
+    )).join('\n\n');
+    const translation = service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: source,
+        signal: controller.signal,
+    });
+    await started;
+    controller.abort();
+
+    await assert.rejects(translation, error => error?.name === 'AbortError');
+    assert.equal(calls, 5);
+    assert.equal(aborted, 5);
+});
+
 function createBoundaryService({ output, onProviderCall = () => {} }) {
     return new MarkdownTranslationService({
         aiGateway: {
@@ -640,4 +808,11 @@ function translateSingleBlockRequest(requestMarkdown, translatedMarkdown) {
         pattern,
         (_, start, end) => `${start}${translatedMarkdown}${end}`
     );
+}
+
+function translateMarkedSection(requestMarkdown, translatedHeading) {
+    const index = translatedHeading.match(/(\d+)$/)?.[1] || 0;
+    return requestMarkdown
+        .replace(`# Section ${index}`, translatedHeading)
+        .replace(`Paragraph ${index}.`, `译文段落 ${index}。`);
 }

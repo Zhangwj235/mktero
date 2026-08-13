@@ -4,15 +4,18 @@ import {
 } from '../config/ai-preferences.js';
 import { sha256Hex } from '../core/sha256.js';
 import {
+    createRuntimeAbortController,
+} from '../platform/abort-controller.js';
+import {
     assembleTranslatedMarkdown,
     collectMarkdownTranslationBlocks,
+    collectMarkdownTranslationSections,
     collectDocumentTranslations,
     createComparisonMarkdown,
-    createMarkdownTranslationRequest,
     validateTranslatedBlock,
 } from '../markdown/markdown-translation-blocks.js';
 
-export const TRANSLATION_PROMPT_VERSION = 'mktero-translation-v4';
+export const TRANSLATION_PROMPT_VERSION = 'mktero-translation-v5';
 
 const MAX_DOCUMENT_TRANSLATION_BLOCKS = 2_000;
 const MAX_DOCUMENT_TRANSLATION_INPUT_BYTES = 4 * 1024 * 1024;
@@ -21,6 +24,7 @@ const MAX_DOCUMENT_REQUEST_BYTES = MAX_DOCUMENT_TRANSLATION_INPUT_BYTES
 const MAX_DOCUMENT_TRANSLATION_BYTES = 4 * 1024 * 1024;
 const MAX_DOCUMENT_PROVIDER_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_TRANSLATION_IDENTIFIER_LENGTH = 512;
+export const MAX_TRANSLATION_CONCURRENCY = 5;
 const TARGET_LANGUAGE_NAMES = Object.freeze({
     'zh-CN': 'Simplified Chinese',
     'zh-TW': 'Traditional Chinese',
@@ -38,6 +42,7 @@ export class MarkdownTranslationService {
         cache = null,
         getSettings,
         createCacheKey = defaultCreateCacheKey,
+        createAbortController = createRuntimeAbortController,
         onCacheError = () => {},
     }) {
         if (typeof aiGateway?.generateText !== 'function') {
@@ -49,10 +54,14 @@ export class MarkdownTranslationService {
         if (typeof createCacheKey !== 'function') {
             throw new TypeError('A translation cache key factory is required');
         }
+        if (typeof createAbortController !== 'function') {
+            throw new TypeError('An AbortController factory is required');
+        }
         this.aiGateway = aiGateway;
         this.cache = cache;
         this.getSettings = getSettings;
         this.createCacheKey = createCacheKey;
+        this.createAbortController = createAbortController;
         this.onCacheError = onCacheError;
     }
 
@@ -117,16 +126,16 @@ export class MarkdownTranslationService {
         }
         const blocks = collectMarkdownTranslationBlocks(source);
         const translatableBlocks = blocks.filter(block => block.translatable);
-        const requestMarkdown = createMarkdownTranslationRequest(source, blocks);
         validateDocumentTranslationInput(translatableBlocks);
-        const { result, translations } = await requestDocumentTranslation({
+        const sections = collectMarkdownTranslationSections(source, blocks);
+        const { translations, model, usage } =
+            await requestDocumentTranslationSections({
             aiGateway: this.aiGateway,
             settings,
-            requestMarkdown,
-            blocks,
-            translatableBlocks,
+            sections,
             signal,
             onProgress: reportProgress,
+            createAbortController: this.createAbortController,
         });
         const { translatedMarkdown, comparisonMarkdown } =
             buildDocumentTranslationViews(
@@ -138,7 +147,7 @@ export class MarkdownTranslationService {
             translatedMarkdown,
             comparisonMarkdown,
             blocks: translations,
-            model: String(result?.model || settings.model),
+            model: String(model || settings.model),
             targetLanguage: settings.targetLanguage,
             promptVersion: TRANSLATION_PROMPT_VERSION,
         };
@@ -166,9 +175,7 @@ export class MarkdownTranslationService {
             cacheHit: false,
             totalBlocks: translatableBlocks.length,
             completedBlocks: translatableBlocks.length,
-            usage: Number(result?.usage?.totalTokens)
-                ? { totalTokens: Number(result.usage.totalTokens) }
-                : null,
+            usage,
         };
     }
 
@@ -259,7 +266,7 @@ function translationMessages(source, targetLanguage) {
         role: 'system',
         content: [
             `Translate the user-provided academic Markdown into ${language}.`,
-            'Translate the complete document in one response and return only the complete translated Markdown, without explanations or enclosing code fences.',
+            'Translate this Markdown section completely in one response and return only the translated Markdown section, without explanations or enclosing code fences.',
             'Preserve citations, URLs, inline Markdown, LaTeX, numbers, units, and proper nouns accurately.',
             'Preserve the exact order and count of top-level Markdown blocks and their structural markers, including heading prefixes, list markers, blockquotes, and table shape.',
             'Copy every MKTEROPROTECTED<number>PLACEHOLDER token exactly once and unchanged.',
@@ -288,26 +295,105 @@ function buildDocumentTranslationViews(source, blocks, translations) {
     };
 }
 
-async function requestDocumentTranslation({
+async function requestDocumentTranslationSections({
     aiGateway,
     settings,
-    requestMarkdown,
-    blocks,
-    translatableBlocks,
+    sections,
+    signal,
+    onProgress,
+    createAbortController,
+}) {
+    const translatableSections = sections.filter(
+        section => section.translatableBlocks.length
+    );
+    const totalBlocks = translatableSections.reduce(
+        (total, section) => total + section.translatableBlocks.length,
+        0
+    );
+    if (!totalBlocks) {
+        return { translations: [], model: '', usage: null };
+    }
+    throwIfDocumentAborted(signal);
+    const controller = createAbortController();
+    if (!controller?.signal || typeof controller.abort !== 'function') {
+        throw new TypeError('An AbortController is required');
+    }
+    const relayAbort = () => controller.abort(signal?.reason);
+    signal?.addEventListener('abort', relayAbort, { once: true });
+    const sectionResults = new Array(translatableSections.length);
+    let nextIndex = 0;
+    let completedBlocks = 0;
+    let firstError = null;
+    const worker = async () => {
+        try {
+            while (!firstError) {
+                throwIfDocumentAborted(controller.signal);
+                const index = nextIndex++;
+                if (index >= translatableSections.length) return;
+                const section = translatableSections[index];
+                const result = await requestDocumentTranslationSection({
+                    aiGateway,
+                    settings,
+                    section,
+                    signal: controller.signal,
+                    onProgress,
+                });
+                sectionResults[index] = {
+                    result: result.result,
+                    translations: result.translations,
+                };
+                completedBlocks += section.translatableBlocks.length;
+                onProgress('validating', {
+                    completed: completedBlocks,
+                    total: totalBlocks,
+                });
+            }
+        }
+        catch (error) {
+            if (!firstError) {
+                firstError = error;
+                controller.abort(error);
+            }
+        }
+    };
+    try {
+        await Promise.allSettled(Array.from({
+            length: Math.min(MAX_TRANSLATION_CONCURRENCY, translatableSections.length),
+        }, () => worker()));
+    }
+    finally {
+        signal?.removeEventListener('abort', relayAbort);
+    }
+    if (firstError) throw firstError;
+    throwIfDocumentAborted(signal);
+    const translations = sectionResults.flatMap(
+        section => section?.translations || []
+    );
+    validateDocumentTranslationOutput(
+        sections.flatMap(section => section.translatableBlocks),
+        translations
+    );
+    return {
+        translations,
+        model: sectionResults.find(section => section?.result?.model)
+            ?.result?.model || '',
+        usage: sumTranslationUsage(sectionResults.map(section => section?.result?.usage)),
+    };
+}
+
+async function requestDocumentTranslationSection({
+    aiGateway,
+    settings,
+    section,
     signal,
     onProgress,
 }) {
-    if (!translatableBlocks.length) {
-        return { result: null, translations: [] };
-    }
     throwIfDocumentAborted(signal);
     onProgress('requesting');
+    const requestMarkdown = section.requestMarkdown;
     const request = {
         settings,
-        messages: translationMessages(
-            requestMarkdown,
-            settings.targetLanguage
-        ),
+        messages: translationMessages(requestMarkdown, settings.targetLanguage),
         signal,
         onStreamEvent: event => {
             if (event?.type === 'reasoning-start'
@@ -327,10 +413,9 @@ async function requestDocumentTranslation({
         ? await aiGateway.streamText(request)
         : await aiGateway.generateText(request);
     throwIfDocumentAborted(signal);
-    onProgress('validating');
     if (result?.finishReason === 'length') {
         throw aiError(
-            'The AI document translation reached its output token limit',
+            'The AI document section translation reached its output token limit',
             'AI_OUTPUT_TRUNCATED'
         );
     }
@@ -345,7 +430,7 @@ async function requestDocumentTranslation({
     try {
         translations = collectDocumentTranslations(
             requestMarkdown,
-            blocks,
+            section.blocks,
             translated
         );
     }
@@ -355,8 +440,27 @@ async function requestDocumentTranslation({
             'AI_INVALID_RESPONSE'
         );
     }
-    validateDocumentTranslationOutput(translatableBlocks, translations);
+    validateDocumentTranslationOutput(section.translatableBlocks, translations);
     return { result, translations };
+}
+
+function sumTranslationUsage(usages) {
+    const values = usages.filter(usage => usage && typeof usage === 'object');
+    if (!values.length) return null;
+    const totals = ['inputTokens', 'outputTokens', 'totalTokens'].map(field => {
+        const numbers = values
+            .map(usage => usage[field] === null || usage[field] === undefined
+                ? null
+                : Number(usage[field]))
+            .filter(Number.isSafeInteger);
+        return numbers.length ? numbers.reduce((sum, value) => sum + value, 0) : null;
+    });
+    if (totals.every(value => value === null)) return null;
+    return {
+        inputTokens: totals[0],
+        outputTokens: totals[1],
+        totalTokens: totals[2],
+    };
 }
 
 function createTranslationProgressReporter(onProgress) {

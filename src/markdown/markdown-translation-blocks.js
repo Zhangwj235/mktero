@@ -72,6 +72,35 @@ export function collectMarkdownTranslationBlocks(markdown) {
     return blocks;
 }
 
+export function collectMarkdownTranslationSections(markdown, blocks) {
+    const source = String(markdown || '');
+    if (!Array.isArray(blocks)) {
+        throw new TypeError('Markdown translation blocks are required');
+    }
+    const sections = [];
+    let sectionBlocks = [];
+    const appendSection = () => {
+        if (!sectionBlocks.length) return;
+        sections.push(sectionBlocks);
+        sectionBlocks = [];
+    };
+    for (const block of blocks) {
+        if (isTopLevelH1(block) && sectionBlocks.length) appendSection();
+        sectionBlocks.push(block);
+    }
+    appendSection();
+    return sections.map((sectionBlocks, index) => ({
+        index,
+        blocks: sectionBlocks,
+        translatableBlocks: sectionBlocks.filter(block => block.translatable),
+        requestMarkdown: createMarkdownTranslationRequest('', sectionBlocks),
+        source: source.slice(
+            sectionBlocks[0].from,
+            sectionBlocks.at(-1).to
+        ),
+    }));
+}
+
 export function createMarkdownTranslationRequest(markdown, blocks) {
     if (!blocks.length) return String(markdown || '');
     return blocks.map(block => [
@@ -499,6 +528,11 @@ function isStandaloneDisplayMath(markdown) {
 function translationBlockType(nodeName) {
     if (HEADING_PATTERN.test(nodeName)) return 'heading';
     return TRANSLATABLE_NODE_TYPES.get(nodeName) || 'structural';
+}
+
+function isTopLevelH1(block) {
+    return block?.nodeType === 'ATXHeading1'
+        || block?.nodeType === 'SetextHeading1';
 }
 
 function topLevelNodes(markdown) {
