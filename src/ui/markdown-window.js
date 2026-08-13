@@ -1108,7 +1108,7 @@ class MarkdownTabView {
                 size: 18,
             }
         );
-        translationLoadingIcon.hidden = true;
+        translationLoadingIcon.setAttribute('hidden', 'hidden');
         appendChildren(
             translateDocument,
             translationIdleIcon,
@@ -2261,8 +2261,14 @@ class MarkdownTabView {
             'is-translating',
             translating
         );
-        this.elements.translationIdleIcon.hidden = translating;
-        this.elements.translationLoadingIcon.hidden = !translating;
+        if (translating) {
+            this.elements.translationIdleIcon.setAttribute('hidden', 'hidden');
+            this.elements.translationLoadingIcon.removeAttribute('hidden');
+        }
+        else {
+            this.elements.translationIdleIcon.removeAttribute('hidden');
+            this.elements.translationLoadingIcon.setAttribute('hidden', 'hidden');
+        }
         this.elements.restoreCorrections.disabled = !restoreAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);

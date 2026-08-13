@@ -253,6 +253,18 @@ test('translates the document and switches between three reading modes', async (
         assert.equal(controls.hidden, false);
         assert.equal(translate.hidden, false);
         assert.equal(translate.textContent, '');
+        assert.equal(
+            translate.querySelector('.markdown-translation-idle-icon')
+                ?.hasAttribute('hidden'),
+            false
+        );
+        assert.equal(
+            translate.querySelector('.markdown-translation-loading-icon')
+                ?.hasAttribute('hidden'),
+            true
+        );
+        assert.equal(translate.classList.contains('is-translating'), false);
+        assert.equal(translate.getAttribute('aria-busy'), 'false');
         assert.equal(translate.getAttribute('aria-label'), 'Translate document');
         assert.equal(translate.getAttribute('title'), 'Translate document');
         assert.equal(
@@ -278,13 +290,14 @@ test('translates the document and switches between three reading modes', async (
         );
         assert.equal(translate.classList.contains('is-translating'), true);
         assert.equal(
-            translate.querySelector('.markdown-translation-idle-icon')?.hidden,
+            translate.querySelector('.markdown-translation-idle-icon')
+                ?.hasAttribute('hidden'),
             true
         );
         const loadingIcon = translate.querySelector(
             '.markdown-translation-loading-icon'
         );
-        assert.equal(loadingIcon?.hidden, false);
+        assert.equal(loadingIcon?.hasAttribute('hidden'), false);
         assert.equal(loadingIcon?.getAttribute('data-lucide'), 'loader-circle');
 
         translate.click();
