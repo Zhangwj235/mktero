@@ -424,11 +424,18 @@ test('styles secondary document actions as a toolbar popover', () => {
 
 test('keeps document translation as a compact icon button', () => {
     const action = ruleBody('.markdown-translation-action');
+    const translating = ruleBody(
+        [
+            '.markdown-translation-action.is-translating',
+            '    .markdown-translation-loading-icon',
+        ].join('\n')
+    );
     assert.match(action, /width:\s*32px/);
     assert.match(action, /min-width:\s*32px/);
     assert.match(action, /height:\s*32px/);
     assert.match(action, /min-height:\s*32px/);
     assert.match(action, /padding:\s*0/);
+    assert.match(translating, /animation:\s*mktero-spin 0\.85s linear infinite/);
 });
 
 test('styles citation popups and temporary reference highlights', () => {

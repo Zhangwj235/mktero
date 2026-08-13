@@ -141,6 +141,8 @@ validation. Translation is always an explicit action and never rewrites the
 source Markdown or becomes part of a saved snapshot. Streaming is enabled by
 default for provider transport; the reader updates when the complete document
 has passed validation instead of redrawing the article for every token.
+While translation is running, the toolbar action shows a loading spinner and
+remains available as `Cancel translation`; select it again to stop the request.
 Connection tests always use a short non-streaming request.
 
 After translation, use the reading-mode selector to choose `Original`,

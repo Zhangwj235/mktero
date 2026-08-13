@@ -868,6 +868,8 @@ class MarkdownTabView {
             correctionToggle: documentActions.correctionToggle,
             correctionToggleLabel: documentActions.correctionToggleLabel,
             translateDocument: documentActions.translateDocument,
+            translationIdleIcon: documentActions.translationIdleIcon,
+            translationLoadingIcon: documentActions.translationLoadingIcon,
             translationControls: documentActions.translationControls,
             translationSeparator: documentActions.translationSeparator,
             translationView: documentActions.translationView,
@@ -1088,14 +1090,30 @@ class MarkdownTabView {
             'aria-label': this.t('ai.translateDocument'),
             title: this.t('ai.translateDocument'),
         });
-        translateDocument.appendChild(createLucideIcon(
+        const translationIdleIcon = createLucideIcon(
             this.document,
             LUCIDE_ICONS.languages,
             {
-                className: 'markdown-reader-action-icon',
+                className: 'markdown-reader-action-icon '
+                    + 'markdown-translation-idle-icon',
                 size: 18,
             }
-        ));
+        );
+        const translationLoadingIcon = createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.loaderCircle,
+            {
+                className: 'markdown-reader-action-icon '
+                    + 'markdown-translation-loading-icon',
+                size: 18,
+            }
+        );
+        translationLoadingIcon.hidden = true;
+        appendChildren(
+            translateDocument,
+            translationIdleIcon,
+            translationLoadingIcon
+        );
         const translationViewLabel = this.createElement(
             'label',
             {
@@ -1209,6 +1227,8 @@ class MarkdownTabView {
             correctionToggle,
             correctionToggleLabel,
             translateDocument,
+            translationIdleIcon,
+            translationLoadingIcon,
             translationControls,
             translationSeparator,
             translationView,
@@ -2236,6 +2256,13 @@ class MarkdownTabView {
             'aria-busy',
             String(model.translationStatus === 'loading')
         );
+        const translating = model.translationStatus === 'loading';
+        this.elements.translateDocument.classList.toggle(
+            'is-translating',
+            translating
+        );
+        this.elements.translationIdleIcon.hidden = translating;
+        this.elements.translationLoadingIcon.hidden = !translating;
         this.elements.restoreCorrections.disabled = !restoreAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);

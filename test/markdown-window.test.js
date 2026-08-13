@@ -265,6 +265,31 @@ test('translates the document and switches between three reading modes', async (
         translate.click();
         assert.deepEqual(actions, ['translate']);
 
+        view.render({
+            ...model,
+            translationStatus: 'loading',
+            translationProgress: 37,
+        });
+        assert.equal(translate.disabled, false);
+        assert.equal(translate.getAttribute('aria-busy'), 'true');
+        assert.equal(
+            translate.getAttribute('aria-label'),
+            'Cancel translation (37%)'
+        );
+        assert.equal(translate.classList.contains('is-translating'), true);
+        assert.equal(
+            translate.querySelector('.markdown-translation-idle-icon')?.hidden,
+            true
+        );
+        const loadingIcon = translate.querySelector(
+            '.markdown-translation-loading-icon'
+        );
+        assert.equal(loadingIcon?.hidden, false);
+        assert.equal(loadingIcon?.getAttribute('data-lucide'), 'loader-circle');
+
+        translate.click();
+        assert.deepEqual(actions, ['translate', 'cancel']);
+
         const translatedModel = {
             ...model,
             translationStatus: 'ready',
@@ -283,7 +308,7 @@ test('translates the document and switches between three reading modes', async (
             'change',
             { bubbles: true }
         ));
-        assert.deepEqual(actions, ['translate', 'translated']);
+        assert.deepEqual(actions, ['translate', 'cancel', 'translated']);
 
         view.render({ ...translatedModel, translationView: 'translated' });
         assert.equal(renderedDocuments.at(-1).markdown, '# 论文\n\n翻译这一段。');

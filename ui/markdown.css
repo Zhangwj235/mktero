@@ -892,6 +892,11 @@ main {
     opacity: 0.55;
 }
 
+.markdown-translation-action.is-translating
+    .markdown-translation-loading-icon {
+    animation: mktero-spin 0.85s linear infinite;
+}
+
 .markdown-translation-view-label {
     color: var(--text);
     font: 550 12.5px/1.2 var(--ui-font);
@@ -1418,6 +1423,11 @@ main {
 @media (prefers-reduced-motion: reduce) {
     .markdown-reader-action-menu .markdown-reader-action {
         transition: none;
+    }
+
+    .markdown-translation-action.is-translating
+        .markdown-translation-loading-icon {
+        animation-duration: 2s;
     }
 
     .markdown-reader-action.is-reparsing .markdown-reader-action-icon,
