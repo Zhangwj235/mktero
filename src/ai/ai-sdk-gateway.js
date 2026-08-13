@@ -81,6 +81,7 @@ export class AISDKGateway {
         maxOutputTokens,
         maxInputBytes,
         maxResponseBytes,
+        acceptNonTextResponse = false,
     }) {
         const configuration = validateAISettings(settings);
         const limits = normalizeRequestByteLimits({
@@ -124,7 +125,8 @@ export class AISDKGateway {
                 abortSignal: controller.signal,
             });
             const text = String(result?.text || '');
-            if (!text.trim()) {
+            if (!text.trim()
+                && (!acceptNonTextResponse || !hasNonTextResponseData(result))) {
                 throw aiError(
                     'The AI provider returned an invalid response',
                     'AI_INVALID_RESPONSE'
@@ -657,6 +659,16 @@ function normalizeUsage(usage) {
         return null;
     }
     return { inputTokens, outputTokens, totalTokens };
+}
+
+function hasNonTextResponseData(result) {
+    if (String(result?.reasoningText || '').trim()) return true;
+    if (Array.isArray(result?.content) && result.content.length) return true;
+    if (normalizeFinishReason(result?.finishReason) !== null) return true;
+    if (normalizeUsage(result?.usage) !== null) return true;
+    return result?.response
+        && typeof result.response === 'object'
+        && Object.keys(result.response).length > 0;
 }
 
 function responseModel(result, fallback) {

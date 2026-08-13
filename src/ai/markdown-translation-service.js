@@ -239,6 +239,7 @@ export class MarkdownTranslationService {
                 content: 'hi',
             }],
             maxOutputTokens: 4,
+            acceptNonTextResponse: true,
             signal,
         });
     }

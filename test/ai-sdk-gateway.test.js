@@ -90,6 +90,55 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
     });
 });
 
+test('accepts a reasoning-only result only for connection probes', async () => {
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async () => ({
+            text: '',
+            reasoningText: 'The provider returned reasoning data.',
+            finishReason: 'length',
+            response: { modelId: 'reasoning-model' },
+            usage: { outputTokens: 4, totalTokens: 7 },
+        }),
+    });
+    const request = {
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'hi' }],
+    };
+
+    await assert.rejects(
+        gateway.generateText(request),
+        error => error?.code === 'AI_INVALID_RESPONSE'
+    );
+    const result = await gateway.generateText({
+        ...request,
+        acceptNonTextResponse: true,
+    });
+
+    assert.deepEqual(result, {
+        text: '',
+        finishReason: 'length',
+        model: 'reasoning-model',
+        usage: { inputTokens: null, outputTokens: 4, totalTokens: 7 },
+    });
+});
+
+test('rejects a connection probe when the provider returns no data', async () => {
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async () => ({ text: '' }),
+    });
+
+    await assert.rejects(
+        gateway.generateText({
+            settings: SETTINGS,
+            messages: [{ role: 'user', content: 'hi' }],
+            acceptNonTextResponse: true,
+        }),
+        error => error?.code === 'AI_INVALID_RESPONSE'
+    );
+});
+
 test('omits the output token limit when the provider should choose it', async () => {
     let request;
     const gateway = new AISDKGateway({

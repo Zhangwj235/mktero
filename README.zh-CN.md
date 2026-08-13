@@ -65,6 +65,7 @@ Mktero 是一个适用于 Zotero 7、8 和 9 的来源关联重排阅读器。�
 
 MinerU API Token 和 AI API Key 都会作为普通首选项未加密地保存在当前 Zotero
 配置文件中。开始翻译前，可使用“测试连接”验证当前 AI 地址、Key、模型厂商、协议和模型。
+该探测只要求 Provider 成功返回响应；只有 reasoning、没有可见正文的响应也会判定为成功。
 
 ### 打开和阅读 PDF
 

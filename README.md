@@ -78,7 +78,9 @@ dark themes.
 
 The MinerU API Token and AI API Key are stored unencrypted as normal
 preferences in the active Zotero profile. Use `Test connection` to validate
-the current AI endpoint, key, and model before translating.
+the current AI endpoint, key, and model before translating. This probe only
+requires a successful provider response; a reasoning-only response without
+visible text is sufficient.
 
 ### Open and read a PDF
 
