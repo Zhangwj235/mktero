@@ -438,28 +438,27 @@ test('keeps document translation as a compact icon button', () => {
     assert.match(translating, /animation:\s*mktero-spin 0\.85s linear infinite/);
 });
 
-test('styles comparison reading as equal vertically split document panes', () => {
+test('keeps block-level comparison in one full-size reading surface', () => {
     const layout = ruleBody('.markdown-reading-layout');
-    const comparisonLayout = ruleBody(
-        '.markdown-reading-layout.is-comparing'
+    const pane = ruleBody('.markdown-reading-pane');
+    const translation = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-translation-line'
     );
-    const panes = ruleBody(
-        '.markdown-reading-layout.is-comparing .markdown-reading-pane'
+    const boundary = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-bilingual-boundary'
     );
-    const divider = ruleBody(
-        '.markdown-reading-layout.is-comparing .markdown-reading-pane--original'
-    );
-    const label = ruleBody('.markdown-comparison-pane-label');
 
     assert.match(layout, /display:\s*flex/);
     assert.match(layout, /overflow:\s*hidden/);
-    assert.match(comparisonLayout, /flex-direction:\s*column/);
-    assert.match(panes, /flex:\s*1 1 50%/);
-    assert.match(panes, /min-height:\s*0/);
-    assert.match(divider, /border-bottom:\s*1px solid var\(--border\)/);
-    assert.doesNotMatch(divider, /border-inline-end/);
-    assert.match(label, /font:\s*600 11px\/1 var\(--ui-font\)/);
-    assert.doesNotMatch(MARKDOWN_STYLES, /max-width:\s*920px/);
+    assert.match(pane, /flex:\s*1 1 100%/);
+    assert.doesNotMatch(MARKDOWN_STYLES, /markdown-comparison-pane-label/);
+    assert.doesNotMatch(MARKDOWN_STYLES, /flex:\s*1 1 50%/);
+    assert.match(translation, /padding-inline:\s*18px 4px !important/);
+    assert.match(translation, /box-shadow:\s*inset 3px 0 0/);
+    assert.doesNotMatch(translation, /border-radius/);
+    assert.match(boundary, /height:\s*0/);
+    assert.match(boundary, /min-height:\s*0/);
+    assert.match(boundary, /overflow:\s*hidden/);
 });
 
 test('styles citation popups and temporary reference highlights', () => {

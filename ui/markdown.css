@@ -693,31 +693,6 @@ main {
     background: var(--reader-background);
 }
 
-.markdown-reading-layout.is-comparing .markdown-reading-pane {
-    min-height: 0;
-    flex: 1 1 50%;
-}
-
-.markdown-reading-layout.is-comparing {
-    flex-direction: column;
-}
-
-.markdown-reading-layout.is-comparing .markdown-reading-pane--original {
-    border-bottom: 1px solid var(--border);
-}
-
-.markdown-comparison-pane-label {
-    display: flex;
-    min-height: 32px;
-    flex: 0 0 32px;
-    align-items: center;
-    padding: 0 20px;
-    border-bottom: 1px solid var(--border-subtle);
-    color: var(--muted);
-    background: color-mix(in srgb, var(--surface-raised) 90%, var(--surface));
-    font: 600 11px/1 var(--ui-font);
-}
-
 .markdown-editor-host {
     position: relative;
     width: 100%;
@@ -1634,13 +1609,6 @@ main {
     caret-color: var(--accent);
 }
 
-.markdown-reading-layout.is-comparing
-    .markdown-editor-host > .cm-editor .cm-content {
-    width: calc(100% - 40px);
-    max-width: 46rem;
-    padding: 32px 0 64px;
-}
-
 .markdown-editor-host > .cm-editor .cm-content:focus { outline: none; }
 
 .markdown-editor-host > .cm-editor .cm-content::selection,
@@ -1667,6 +1635,19 @@ main {
     text-align-last: start;
     text-justify: inter-word;
     text-wrap: pretty;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-line {
+    padding-inline: 18px 4px !important;
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 78%, transparent);
+    color: color-mix(in srgb, var(--reader-text) 82%, var(--muted));
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-bilingual-boundary {
+    height: 0;
+    min-height: 0;
+    overflow: hidden;
+    line-height: 0;
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-heading {

@@ -15,7 +15,7 @@ figures, citations, and annotations in a reading-first Zotero tab. An optional
 correction mode lets you fix recognition errors without changing the immutable
 MinerU result, while optional AI translation can translate the full article in
 bounded concurrent Markdown batches and switch between original, translated, and
-split comparison reading.
+continuous block-level bilingual reading.
 
 ![Mktero converting, reading, and annotating an academic PDF in Zotero](./docs/assets/mktero-demo.gif)
 
@@ -156,10 +156,12 @@ incomplete result remains visible with its source-text fallbacks and can be retr
 Connection tests always use a short non-streaming request.
 
 After translation, use the reading-mode selector to choose `Original`,
-`Translation`, or `Compare`. Original is the default whenever a document opens.
-Compare presents the source above the translation as equal, independently
-scrollable reading panes with one source outline. Both remain visible even when
-Zotero's side panels reduce the available document width.
+`Translation`, or `Bilingual`. Original is the default whenever a document
+opens. Bilingual presents one continuous reading document: every source
+heading, paragraph, list, blockquote, or table is immediately followed by its
+translation. Translated blocks use a restrained left rule and indentation,
+while the outline contains only source headings. The single reading surface
+remains usable when Zotero's side panels reduce the available document width.
 PDF annotations and source navigation remain attached to Original because
 translated text does not share the source Markdown's character offsets.
 
@@ -173,13 +175,16 @@ remain provider-specific. Remote endpoints must use HTTPS. Loopback servers
 such as Ollama or LM Studio may use HTTP and may omit the API Key when
 authentication is disabled.
 
-The complete translated article and comparison block map are stored inside the
-corresponding PDF Markdown cache entry and keyed by source content, provider,
-protocol, model, reasoning effort, target language, and prompt version. Clearing,
-replacing, or evicting that Markdown cache entry removes its translation. Lists,
-blockquotes, and GFM tables are translated; images, code, standalone formulas,
-link definitions, and raw HTML are preserved. Closing the tab, reparsing,
-editing the Markdown, or shutting down Mktero cancels active translation requests.
+The translated blocks are stored inside the corresponding PDF Markdown cache
+entry and keyed by source content, provider, protocol, model, reasoning effort,
+target language, and prompt version. The translated and bilingual reading
+documents are rebuilt from those blocks in source order, so existing cached
+translations can adopt presentation updates without another AI request.
+Clearing, replacing, or evicting that Markdown cache entry removes its
+translation. Lists, blockquotes, and GFM tables are translated; images, code,
+standalone formulas, link definitions, and raw HTML are preserved. Closing the
+tab, reparsing, editing the Markdown, or shutting down Mktero cancels active
+translation requests.
 
 ### Save a portable Zotero snapshot
 
@@ -201,7 +206,7 @@ library item cannot save a snapshot.
   cells, including removing spurious paragraphs or headings, while preserving
   the original MinerU Markdown and correction history.
 - Translates full Markdown articles through a configured Vercel AI SDK provider
-  and offers original, translated, and vertically split comparison reading.
+  and offers original, translated, and continuous block-level bilingual reading.
 - Uses paper-oriented typography with STIX/Noto serif fallbacks, and applies
   asynchronous Shiki syntax highlighting, language labels, and code copying to
   supported fenced code blocks.
@@ -312,8 +317,8 @@ controlled by Zotero.
   notes, image/area annotations, or ink annotations.
 - Source navigation requires the stable MinerU `*_content_list.json` format.
   Older cache entries remain readable but may not have source links.
-- Navigation currently goes from Markdown to PDF. Reverse navigation and
-  synchronized comparison scrolling are not implemented.
+- Navigation currently goes from Markdown to PDF. Reverse navigation is not
+  implemented.
 - Markdown images resolve only supported GIF, JPEG, PNG, and WebP files from the
   current result archive; remote Markdown images are not loaded.
 - Links are restricted to `http`, `https`, `zotero`, and document fragments.

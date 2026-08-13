@@ -11,7 +11,7 @@ import {
     collectMarkdownTranslationBlocks,
     collectMarkdownTranslationBatchResponse,
     collectMarkdownTranslationSections,
-    createComparisonMarkdown,
+    createComparisonMarkdownView,
     createMarkdownTranslationBatches,
     validateTranslatedBlock,
 } from '../markdown/markdown-translation-blocks.js';
@@ -185,15 +185,14 @@ export class MarkdownTranslationService {
             retainedTranslations,
             requestedTranslations
         );
-        const { translatedMarkdown, comparisonMarkdown } =
+        const views =
             buildDocumentTranslationViews(
                 source,
                 blocks,
                 translations
             );
         const value = {
-            translatedMarkdown,
-            comparisonMarkdown,
+            ...views,
             blocks: translations,
             model: String(model || settings.model),
             targetLanguage: settings.targetLanguage,
@@ -252,14 +251,13 @@ export class MarkdownTranslationService {
             );
             if (!cached) return null;
             const blocks = collectMarkdownTranslationBlocks(source);
-            const { translatedMarkdown, comparisonMarkdown } =
+            const views =
                 buildDocumentTranslationViews(
                     source,
                     blocks,
                     cached.blocks
                 );
-            if (cached.translatedMarkdown !== translatedMarkdown
-                || cached.comparisonMarkdown !== comparisonMarkdown) {
+            if (cached.translatedMarkdown !== views.translatedMarkdown) {
                 throw new Error('The cached document translation is inconsistent');
             }
             const totalBlocks = blocks.filter(block => block.translatable).length;
@@ -269,6 +267,7 @@ export class MarkdownTranslationService {
             );
             return {
                 ...cached,
+                ...views,
                 partial: failedBlocks.length > 0,
                 failedBlocks,
                 translationKey,
@@ -342,17 +341,20 @@ function translationMessages(source, targetLanguage, previousFailure = '') {
 }
 
 function buildDocumentTranslationViews(source, blocks, translations) {
+    const comparison = createComparisonMarkdownView(
+        source,
+        blocks,
+        translations
+    );
     return {
         translatedMarkdown: assembleTranslatedMarkdown(
             source,
             blocks,
             translations
         ),
-        comparisonMarkdown: createComparisonMarkdown(
-            source,
-            blocks,
-            translations
-        ),
+        comparisonMarkdown: comparison.markdown,
+        comparisonSourceRanges: comparison.sourceRanges,
+        comparisonTranslationRanges: comparison.translationRanges,
     };
 }
 

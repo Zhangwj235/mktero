@@ -850,6 +850,8 @@ async function translateDocument(documentID) {
             translationStage: 'complete',
             translatedMarkdown: result.translatedMarkdown,
             comparisonMarkdown: result.comparisonMarkdown,
+            comparisonSourceRanges: result.comparisonSourceRanges,
+            comparisonTranslationRanges: result.comparisonTranslationRanges,
             translationError: result.partial
                 ? runtimeTranslate('ai.documentTranslationPartial', {
                     failed: result.failedBlocks.length,
@@ -1016,6 +1018,8 @@ async function attachCachedDocumentTranslation(result, signal) {
         translationView: 'original',
         translatedMarkdown: cached.translatedMarkdown,
         comparisonMarkdown: cached.comparisonMarkdown,
+        comparisonSourceRanges: cached.comparisonSourceRanges,
+        comparisonTranslationRanges: cached.comparisonTranslationRanges,
         translationError: partial
             ? runtimeTranslate('ai.documentTranslationPartial', {
                 failed: cached.failedBlocks.length,

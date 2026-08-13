@@ -141,14 +141,11 @@ class MarkdownTabView {
         this.readerFontSize = normalizeMarkdownReaderFontSize(readerFontSize);
         this.onReaderFontChange = onReaderFontChange;
         this.onReaderFontSizeChange = onReaderFontSizeChange;
-        this.editorFactory = editorFactory;
         this.renderedAssets = undefined;
         this.assetURLs = new Map();
         this.renderedMarkdown = undefined;
-        this.renderedTranslatedMarkdown = undefined;
         this.renderedRenderMode = null;
         this.fragmentIndex = new Map();
-        this.translatedFragmentIndex = new Map();
         this.renderedSnapshotHTML = undefined;
         this.renderedSnapshotAssets = undefined;
         this.snapshotURLs = new Map();
@@ -205,61 +202,46 @@ class MarkdownTabView {
         this.mount.appendChild(this.elements.view);
         this.setReaderFont(this.readerFont);
         this.setReaderFontSize(this.readerFontSize);
-        this.editor = this.createEditor({
-            parent: this.elements.editorHost,
-        });
-        this.translatedEditor = null;
-        this.syncOutline('');
-        this.syncNotes(createEmptyAnnotationOverlay(), 0);
-        this.bindActions();
-    }
-
-    createEditor({ parent, translated = false }) {
-        return this.editorFactory({
+        this.editor = editorFactory({
             document: this.document,
-            parent,
+            parent: this.elements.editorHost,
             initialMarkdown: '',
             resolveImageURL: source => this.resolveImageURL(source),
-            openLink: href => translated
-                ? this.openTranslatedLink(href)
-                : this.openLink(href),
-            createMarkdownAnnotation: translated ? null : annotation => (
+            openLink: href => this.openLink(href),
+            createMarkdownAnnotation: annotation => (
                 this.createMarkdownAnnotation(annotation)
             ),
-            changeAnnotationColor: translated ? null : (annotationID, color) => (
+            changeAnnotationColor: (annotationID, color) => (
                 this.changeAnnotationColor(annotationID, color)
             ),
-            updateAnnotationComment: translated ? null : (annotationID, comment) => (
+            updateAnnotationComment: (annotationID, comment) => (
                 this.updateAnnotationComment(annotationID, comment)
             ),
-            deleteAnnotation: translated ? null : annotationID => (
+            deleteAnnotation: annotationID => (
                 this.deleteAnnotation(annotationID)
             ),
-            copySourcedMarkdown: translated
-                ? null
-                : target => this.copySourcedMarkdown(target),
-            copyCode: typeof this.model?.onCopyCode === 'function'
+            copySourcedMarkdown: target => this.copySourcedMarkdown(target),
+            copyCode: typeof model?.onCopyCode === 'function'
                 ? code => this.copyCode(code)
                 : null,
-            openSourceLocation: translated
-                ? null
-                : location => this.openSourceLocation(location),
-            openAnnotationInPDF: translated ? null : annotationID => (
+            openSourceLocation: location => this.openSourceLocation(location),
+            openAnnotationInPDF: annotationID => (
                 this.openAnnotationInPDF(annotationID)
             ),
             onSourceNavigationError: error => this.zotero?.logError?.(error),
-            onViewportChange: translated
-                ? null
-                : offset => this.syncActiveNavigation(offset),
-            onCommitCorrection: translated ? null : correction => (
+            onViewportChange: offset => this.syncActiveNavigation(offset),
+            onCommitCorrection: correction => (
                 this.commitCorrection(correction)
             ),
-            onRestoreCorrection: translated ? null : blockID => (
+            onRestoreCorrection: blockID => (
                 this.restoreCorrection(blockID)
             ),
             onCorrectionError: error => this.reportCorrectionError(error),
             localization: this.localization,
         });
+        this.syncOutline('');
+        this.syncNotes(createEmptyAnnotationOverlay(), 0);
+        this.bindActions();
     }
 
     render(model = this.model) {
@@ -308,7 +290,7 @@ class MarkdownTabView {
                     sourceMap: [],
                 });
                 this.renderedMarkdown = '';
-                this.clearTranslatedEditor();
+                elements.readingLayout.classList.remove('is-comparing');
                 this.renderedRenderMode = 'markdown';
                 this.fragmentIndex = new Map();
                 this.syncOutline('');
@@ -327,7 +309,7 @@ class MarkdownTabView {
                 elements.readingLayout.hidden = true;
                 elements.snapshotHost.hidden = false;
                 this.renderedMarkdown = undefined;
-                this.clearTranslatedEditor();
+                elements.readingLayout.classList.remove('is-comparing');
                 this.renderedRenderMode = 'html';
                 this.fragmentIndex = new Map();
                 this.syncSnapshot();
@@ -348,13 +330,17 @@ class MarkdownTabView {
                 && model.translationView === 'compare';
             elements.primaryPane.setAttribute(
                 'aria-label',
-                this.t(translatedView
-                    ? 'ai.translationView.translated'
-                    : 'ai.translationView.original')
+                this.t(comparisonView
+                    ? 'ai.translationView.compare'
+                    : translatedView
+                        ? 'ai.translationView.translated'
+                        : 'ai.translationView.original')
             );
             const markdown = translatedView
                 ? model.translatedMarkdown || ''
-                : model.markdown || '';
+                : comparisonView
+                    ? model.comparisonMarkdown || ''
+                    : model.markdown || '';
             const documentChanged = this.renderedRenderMode !== 'markdown'
                 || this.renderedMarkdown !== markdown;
             const restoreAnchor = documentChanged
@@ -365,17 +351,23 @@ class MarkdownTabView {
                     this.activeNavigationOffset
                 )
                 : null;
-            const annotationOverlay = translatedView
+            const annotationOverlay = translatedView || comparisonView
                 ? createEmptyAnnotationOverlay()
                 : model.annotationOverlay || createEmptyAnnotationOverlay();
             const assetsChanged = this.syncAssetURLs();
-            this.syncComparisonReading(comparisonView, model.translatedMarkdown);
+            elements.readingLayout.classList.toggle(
+                'is-comparing',
+                comparisonView
+            );
             this.editor.setDocument({
                 markdown,
                 annotationOverlay,
-                sourceMap: translatedView
+                sourceMap: translatedView || comparisonView
                     ? []
                     : Array.isArray(model.sourceMap) ? model.sourceMap : [],
+                translationRanges: comparisonView
+                    ? model.comparisonTranslationRanges || []
+                    : [],
             });
             this.editor.setCorrectionState?.({
                 enabled: Boolean(model.correctionMode)
@@ -387,12 +379,12 @@ class MarkdownTabView {
             this.renderedMarkdown = markdown;
             this.renderedRenderMode = 'markdown';
             this.fragmentIndex = createMarkdownFragmentIndex(markdown);
-            this.syncOutline(markdown);
+            this.syncOutline(
+                comparisonView ? model.markdown || '' : markdown,
+                comparisonView ? model.comparisonSourceRanges : null
+            );
             this.syncNotes(annotationOverlay, markdown.length);
-            if (assetsChanged) {
-                this.editor.refreshRendering();
-                this.translatedEditor?.refreshRendering?.();
-            }
+            if (assetsChanged) this.editor.refreshRendering();
             if (restoreAnchor) {
                 this.restoreReadingPosition(
                     resolveMarkdownReadingPosition(markdown, restoreAnchor)
@@ -414,49 +406,9 @@ class MarkdownTabView {
         this.responsiveResizeObserver?.disconnect?.();
         this.responsiveResizeObserver = null;
         this.editor?.destroy();
-        this.translatedEditor?.destroy();
-        this.translatedEditor = null;
         this.revokeAssetURLs();
         this.revokeSnapshotURLs();
         this.root.remove?.();
-    }
-
-    syncComparisonReading(visible, translatedMarkdown = '') {
-        this.elements.readingLayout.classList.toggle('is-comparing', visible);
-        this.elements.primaryPaneLabel.hidden = !visible;
-        this.elements.translatedPane.hidden = !visible;
-        if (!visible) return;
-        if (!this.translatedEditor) {
-            this.translatedEditor = this.createEditor({
-                parent: this.elements.translatedEditorHost,
-                translated: true,
-            });
-        }
-        const markdown = String(translatedMarkdown || '');
-        if (this.renderedTranslatedMarkdown !== markdown) {
-            this.translatedEditor.setDocument({
-                markdown,
-                annotationOverlay: createEmptyAnnotationOverlay(),
-                sourceMap: [],
-            });
-            this.renderedTranslatedMarkdown = markdown;
-            this.translatedFragmentIndex = createMarkdownFragmentIndex(markdown);
-        }
-        this.translatedEditor.setCorrectionState?.({ enabled: false });
-    }
-
-    clearTranslatedEditor() {
-        this.elements.readingLayout.classList.remove('is-comparing');
-        this.elements.primaryPaneLabel.hidden = true;
-        this.elements.translatedPane.hidden = true;
-        this.translatedEditor?.setDocument({
-            markdown: '',
-            annotationOverlay: createEmptyAnnotationOverlay(),
-            sourceMap: [],
-        });
-        this.translatedEditor?.setCorrectionState?.({ enabled: false });
-        this.renderedTranslatedMarkdown = '';
-        this.translatedFragmentIndex = new Map();
     }
 
     openSourceLocation(location) {
@@ -777,43 +729,16 @@ class MarkdownTabView {
             id: 'mktero-editor',
             class: 'markdown-editor-host',
         });
-        const primaryPaneLabel = this.createElement(
-            'div',
-            { class: 'markdown-comparison-pane-label' },
-            this.t('ai.translationView.original')
-        );
-        primaryPaneLabel.hidden = true;
         const primaryPane = this.createElement('section', {
             class: 'markdown-reading-pane markdown-reading-pane--original',
             'data-comparison-pane': 'original',
             'aria-label': this.t('ai.translationView.original'),
         });
-        appendChildren(primaryPane, primaryPaneLabel, editorHost);
-        const translatedPaneLabel = this.createElement(
-            'div',
-            { class: 'markdown-comparison-pane-label' },
-            this.t('ai.translationView.translated')
-        );
-        const translatedEditorHost = this.createElement('div', {
-            id: 'mktero-translated-editor',
-            class: 'markdown-editor-host markdown-translated-editor-host',
-        });
-        const translatedPane = this.createElement('section', {
-            id: 'mktero-comparison-reading',
-            class: 'markdown-reading-pane markdown-reading-pane--translated',
-            'data-comparison-pane': 'translated',
-            'aria-label': this.t('ai.translationView.translated'),
-        });
-        appendChildren(
-            translatedPane,
-            translatedPaneLabel,
-            translatedEditorHost
-        );
-        translatedPane.hidden = true;
+        primaryPane.appendChild(editorHost);
         const readingLayout = this.createElement('div', {
             class: 'markdown-reading-layout',
         });
-        appendChildren(readingLayout, primaryPane, translatedPane);
+        readingLayout.appendChild(primaryPane);
         const snapshotHost = this.createElement('div', {
             id: 'mktero-snapshot',
             class: 'markdown-snapshot-host',
@@ -966,11 +891,7 @@ class MarkdownTabView {
             notesToggle: notesControls.toggle,
             readingLayout,
             primaryPane,
-            primaryPaneLabel,
             editorHost,
-            translatedPane,
-            translatedPaneLabel,
-            translatedEditorHost,
             snapshotHost,
             correctionBanner,
             correctionUndo,
@@ -2203,15 +2124,6 @@ class MarkdownTabView {
         for (const button of this.elements.translationViewButtons) {
             button.textContent = this.t(button.getAttribute('data-i18n'));
         }
-        const originalLabel = this.t('ai.translationView.original');
-        const translatedLabel = this.t('ai.translationView.translated');
-        this.elements.primaryPane.setAttribute('aria-label', originalLabel);
-        this.elements.primaryPaneLabel.textContent = originalLabel;
-        this.elements.translatedPane.setAttribute(
-            'aria-label',
-            translatedLabel
-        );
-        this.elements.translatedPaneLabel.textContent = translatedLabel;
         this.elements.correctionUndoMessage.textContent = this.t(
             'revision.deletedUndo'
         );
@@ -2760,7 +2672,7 @@ class MarkdownTabView {
         });
     }
 
-    syncOutline(markdown) {
+    syncOutline(markdown, sourceRanges = null) {
         const list = this.elements.outlineList;
         list.replaceChildren();
         const headings = extractMarkdownOutline(markdown);
@@ -2774,13 +2686,17 @@ class MarkdownTabView {
             return;
         }
         for (const heading of headings) {
+            const offset = mapSourceOffsetToComparison(
+                heading.offset,
+                sourceRanges
+            );
             const button = this.createElement(
                 'button',
                 {
                     class: 'markdown-outline-link',
                     type: 'button',
                     'data-level': String(heading.level),
-                    'data-offset': String(heading.offset),
+                    'data-offset': String(offset),
                     style: `--outline-indent: ${(heading.level - 1) * 12}px;`,
                     title: heading.text,
                 },
@@ -3033,29 +2949,6 @@ class MarkdownTabView {
         }
     }
 
-    openTranslatedLink(href) {
-        if (!href.startsWith('#')) {
-            this.openLink(href);
-            return;
-        }
-        const fragment = href.slice(1);
-        if (!fragment) return;
-        let id;
-        try {
-            id = decodeURIComponent(fragment);
-        }
-        catch {
-            id = fragment;
-        }
-        const normalizedID = id.toLowerCase();
-        const offset = this.translatedFragmentIndex.has(id)
-            ? this.translatedFragmentIndex.get(id)
-            : this.translatedFragmentIndex.get(normalizedID);
-        if (Number.isFinite(offset)) {
-            this.translatedEditor?.scrollToOffset?.(offset);
-        }
-    }
-
     scrollToFragment(fragment) {
         if (!fragment) return;
         let id;
@@ -3212,6 +3105,20 @@ function findActiveNavigationItem(elements, offset) {
         activeOffset = itemOffset;
     }
     return active;
+}
+
+function mapSourceOffsetToComparison(offset, sourceRanges) {
+    if (!Array.isArray(sourceRanges)) return offset;
+    const range = sourceRanges.find(candidate => (
+        Number.isSafeInteger(candidate?.sourceFrom)
+        && Number.isSafeInteger(candidate?.sourceTo)
+        && Number.isSafeInteger(candidate?.comparisonFrom)
+        && offset >= candidate.sourceFrom
+        && offset <= candidate.sourceTo
+    ));
+    return range
+        ? range.comparisonFrom + offset - range.sourceFrom
+        : offset;
 }
 
 function orderedAnnotationEntries(annotationOverlay) {

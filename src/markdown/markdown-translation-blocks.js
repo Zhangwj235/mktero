@@ -26,6 +26,8 @@ const PROTECTED_PLACEHOLDER_PATTERN = /MKTEROPROTECTED\d+PLACEHOLDER/g;
 const DOCUMENT_MARKER_PATTERN = /MKTEROBLOCK\d+(?:START|END)MARKER/g;
 const REFERENCE_HEADING_PATTERN = /^(?:references?|bibliography|works cited|literature cited|参考文献|参考资料|参考书目|引用文献)$/iu;
 const NUMERIC_CITATION_PATTERN = /\[(?:\d{1,4}[a-z]?(?:[ \t]*[-–—,，;；][ \t]*\d{1,4}[a-z]?)*)(?:[ \t]*,[ \t]*)?\]/giu;
+export const BILINGUAL_LIST_BOUNDARY =
+    '<!-- mktero-bilingual-list-boundary -->';
 export const MAX_TRANSLATION_BATCH_BLOCKS = 8;
 export const MAX_TRANSLATION_BATCH_SOURCE_TOKENS = 2_000;
 
@@ -309,24 +311,61 @@ export function assembleTranslatedMarkdown(markdown, blocks, translations) {
 }
 
 export function createComparisonMarkdown(markdown, blocks, translations) {
+    return createComparisonMarkdownView(markdown, blocks, translations).markdown;
+}
+
+export function createComparisonMarkdownView(markdown, blocks, translations) {
     const source = String(markdown || '');
     const translatedByID = validateTranslationSet(blocks, translations);
     const chunks = [];
+    const sourceRanges = [];
+    const translationRanges = [];
+    let comparisonOffset = 0;
     let cursor = 0;
     for (const block of blocks) {
-        chunks.push(source.slice(cursor, block.from));
-        chunks.push(block.markdown);
+        const gap = source.slice(cursor, block.from);
+        chunks.push(gap, block.markdown);
+        comparisonOffset += gap.length;
+        sourceRanges.push({
+            sourceFrom: block.from,
+            sourceTo: block.to,
+            comparisonFrom: comparisonOffset,
+        });
+        comparisonOffset += block.markdown.length;
         if (block.translatable) {
-            const translated = validateTranslatedBlock(
+            const restored = validateTranslatedBlock(
                 block,
                 translatedByID.get(block.id)
             );
-            chunks.push('\n\n', quoteMarkdown(translated));
+            if (restored.trim() === block.markdown.trim()) {
+                cursor = block.to;
+                continue;
+            }
+            const translated = removeRepeatedComparisonImages(
+                restored,
+                block
+            );
+            if (translated.trim()) {
+                const boundary = block.type === 'list'
+                    ? `\n${BILINGUAL_LIST_BOUNDARY}\n\n`
+                    : '\n\n';
+                chunks.push(boundary, translated);
+                comparisonOffset += boundary.length;
+                translationRanges.push({
+                    from: comparisonOffset,
+                    to: comparisonOffset + translated.length,
+                });
+                comparisonOffset += translated.length;
+            }
         }
         cursor = block.to;
     }
     chunks.push(source.slice(cursor));
-    return chunks.join('');
+    return {
+        markdown: chunks.join(''),
+        sourceRanges,
+        translationRanges,
+    };
 }
 
 export function validateTranslatedBlock(block, translatedMarkdown) {
@@ -693,11 +732,15 @@ function topLevelNodes(markdown) {
     return nodes;
 }
 
-function quoteMarkdown(markdown) {
-    return String(markdown || '')
-        .split('\n')
-        .map(line => line ? `> ${line}` : '>')
-        .join('\n');
+function removeRepeatedComparisonImages(markdown, block) {
+    let value = String(markdown || '');
+    for (const fragment of block.protectedFragments || []) {
+        if (!/^\s*(?:!\[[^\]]*\]\(|<img\b)/iu.test(fragment.markdown)) {
+            continue;
+        }
+        value = value.replace(fragment.markdown, '');
+    }
+    return value.trim();
 }
 
 function parseTranslationResponse(response) {

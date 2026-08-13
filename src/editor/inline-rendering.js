@@ -50,6 +50,9 @@ import {
     highlightCodeBlock,
     normalizeCodeBlockLanguage,
 } from '../markdown/code-highlighting.js';
+import {
+    BILINGUAL_LIST_BOUNDARY,
+} from '../markdown/markdown-translation-blocks.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const MAX_MATCH_CANDIDATES = 10_000;
@@ -58,6 +61,7 @@ export const setReferenceHighlight = StateEffect.define();
 export const setTableHighlight = StateEffect.define();
 export const setFigureHighlight = StateEffect.define();
 export const setAnnotationOverlay = StateEffect.define();
+export const setTranslationRanges = StateEffect.define();
 export const setInlineEditingRange = StateEffect.define();
 export const setCorrectionRenderingState = StateEffect.define();
 
@@ -528,6 +532,7 @@ export function createInlineRenderingExtension({
         highlightedTableID: null,
         highlightedFigureID: null,
         annotationOverlay: createEmptyAnnotationOverlay(),
+        translationRanges: [],
         annotationTargets: new Map(),
         editingRange: null,
         correctionManagementEnabled: false,
@@ -558,6 +563,7 @@ export function createInlineRenderingExtension({
             let tableHighlightChanged = false;
             let figureHighlightChanged = false;
             let annotationOverlayChanged = false;
+            let translationRangesChanged = false;
             let editingRangeChanged = false;
             let correctionStateChanged = false;
             if (shouldRefresh) context.renderVersion++;
@@ -584,6 +590,13 @@ export function createInlineRenderingExtension({
                     );
                     annotationOverlayChanged = true;
                 }
+                else if (effect.is(setTranslationRanges)) {
+                    context.translationRanges = normalizeTranslationRanges(
+                        effect.value,
+                        transaction.state.doc.length
+                    );
+                    translationRangesChanged = true;
+                }
                 else if (effect.is(setInlineEditingRange)) {
                     context.editingRange = effect.value;
                     editingRangeChanged = true;
@@ -606,6 +619,7 @@ export function createInlineRenderingExtension({
                 || tableHighlightChanged
                 || figureHighlightChanged
                 || annotationOverlayChanged
+                || translationRangesChanged
                 || editingRangeChanged
                 || correctionStateChanged
                 || shouldRefresh) {
@@ -851,8 +865,37 @@ function buildDecorations(state, context) {
         context,
         [...renderedGroups, ...renderedMathRanges]
     );
+    decorateTranslationRanges(state, decorations, context);
     decorateCorrections(state, decorations, context);
     return Decoration.set(decorations, true);
+}
+
+function decorateTranslationRanges(state, decorations, context) {
+    for (const range of context.translationRanges) {
+        const fromLine = state.doc.lineAt(range.from).number;
+        const toLine = state.doc.lineAt(Math.max(range.from, range.to - 1)).number;
+        for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber++) {
+            decorations.push(Decoration.line({
+                class: 'cm-mktero-translation-line',
+                attributes: lineNumber === fromLine
+                    ? { 'data-translation-start': 'true' }
+                    : {},
+            }).range(state.doc.line(lineNumber).from));
+        }
+    }
+}
+
+function normalizeTranslationRanges(ranges, documentLength) {
+    if (!Array.isArray(ranges)) return [];
+    return ranges.flatMap(range => (
+        Number.isSafeInteger(range?.from)
+        && Number.isSafeInteger(range?.to)
+        && range.from >= 0
+        && range.to > range.from
+        && range.to <= documentLength
+            ? [{ from: range.from, to: range.to }]
+            : []
+    ));
 }
 
 function decoratePDFAnnotations(state, decorations, context, renderedRanges) {
@@ -1610,6 +1653,20 @@ function activateCitationElement(citation, view, context) {
 }
 
 function decorateSyntaxNode(node, state, decorations, context) {
+    if (node.name === 'CommentBlock'
+        && state.sliceDoc(node.from, node.to).trim()
+            === BILINGUAL_LIST_BOUNDARY
+        && context.translationRanges.some(range => (
+            range.from >= node.to
+            && !state.sliceDoc(node.to, range.from).trim()
+        ))) {
+        decorations.push(Decoration.line({
+            class: 'cm-mktero-bilingual-boundary',
+        }).range(state.doc.lineAt(node.from).from));
+        decorations.push(Decoration.replace({}).range(node.from, node.to));
+        return false;
+    }
+
     if (isHeadingNode(node.name)) {
         const level = Number(node.name.at(-1));
         decorations.push(Decoration.line({

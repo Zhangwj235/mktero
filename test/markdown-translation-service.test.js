@@ -89,7 +89,7 @@ test('translates a complete Markdown document in one provider request', async ()
         result.translatedMarkdown,
         '# 论文\n\n译文段落。\n\n```js\ncode();\n```'
     );
-    assert.match(result.comparisonMarkdown, /# Paper\n\n> # 论文/);
+    assert.match(result.comparisonMarkdown, /# Paper\n\n# 论文/);
     assert.equal(result.totalBlocks, 2);
     assert.equal(result.completedBlocks, 2);
     assert.equal(result.cacheHit, false);
@@ -564,6 +564,13 @@ test('loads a complete document translation without calling the provider', async
 
     assert.deepEqual(result, {
         ...cached,
+        comparisonMarkdown: '# Paper\n\n# 论文',
+        comparisonSourceRanges: [{
+            sourceFrom: 0,
+            sourceTo: 7,
+            comparisonFrom: 0,
+        }],
+        comparisonTranslationRanges: [{ from: 9, to: 13 }],
         translationKey: 'c'.repeat(64),
         cacheHit: true,
         totalBlocks: 1,

@@ -545,14 +545,54 @@ test('creates block-level comparison Markdown with source above translation', ()
     assert.equal(createComparisonMarkdown(markdown, blocks, translations), [
         '# Paper',
         '',
-        '> # 论文',
+        '# 论文',
         '',
         'Original paragraph.',
         '',
-        '> 译文第一句。译文第二句。',
+        '译文第一句。译文第二句。',
         '',
         '![Figure](figure.png)',
     ].join('\n'));
+});
+
+test('keeps bilingual lists separate and does not repeat protected images', () => {
+    const markdown = [
+        '- First item',
+        '- Second item',
+        '',
+        '![Figure](figure.png)',
+        'Original caption.',
+    ].join('\n');
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const translations = [{
+        id: blocks[0].id,
+        markdown: '- 第一项\n- 第二项',
+    }, {
+        id: blocks[1].id,
+        markdown: blocks[1].requestMarkdown.replace(
+            'Original caption.',
+            '译文图注。'
+        ),
+    }];
+    const comparison = createComparisonMarkdown(markdown, blocks, translations);
+
+    assert.match(
+        comparison,
+        /- Second item\n<!-- mktero-bilingual-list-boundary -->\n\n- 第一项/
+    );
+    assert.equal(comparison.match(/!\[Figure\]\(figure\.png\)/g)?.length, 1);
+    assert.match(comparison, /Original caption\.\n\n译文图注。/);
+});
+
+test('does not repeat an image caption when translation falls back to source', () => {
+    const markdown = '![Figure](figure.png)\nOriginal caption.';
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const comparison = createComparisonMarkdown(markdown, blocks, [{
+        id: blocks[0].id,
+        markdown: blocks[0].requestMarkdown,
+    }]);
+
+    assert.equal(comparison, markdown);
 });
 
 test('rejects incomplete or mismatched translation sets', () => {
