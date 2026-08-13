@@ -438,8 +438,11 @@ test('keeps document translation as a compact icon button', () => {
     assert.match(translating, /animation:\s*mktero-spin 0\.85s linear infinite/);
 });
 
-test('styles comparison reading as equal document panes that stack when narrow', () => {
+test('styles comparison reading as equal vertically split document panes', () => {
     const layout = ruleBody('.markdown-reading-layout');
+    const comparisonLayout = ruleBody(
+        '.markdown-reading-layout.is-comparing'
+    );
     const panes = ruleBody(
         '.markdown-reading-layout.is-comparing .markdown-reading-pane'
     );
@@ -450,13 +453,13 @@ test('styles comparison reading as equal document panes that stack when narrow',
 
     assert.match(layout, /display:\s*flex/);
     assert.match(layout, /overflow:\s*hidden/);
-    assert.match(panes, /flex-basis:\s*50%/);
-    assert.match(divider, /border-inline-end:\s*1px solid var\(--border\)/);
+    assert.match(comparisonLayout, /flex-direction:\s*column/);
+    assert.match(panes, /flex:\s*1 1 50%/);
+    assert.match(panes, /min-height:\s*0/);
+    assert.match(divider, /border-bottom:\s*1px solid var\(--border\)/);
+    assert.doesNotMatch(divider, /border-inline-end/);
     assert.match(label, /font:\s*600 11px\/1 var\(--ui-font\)/);
-    assert.match(
-        MARKDOWN_STYLES,
-        /@container\s+markdown-reader\s*\(max-width:\s*920px\)[\s\S]*\.markdown-reading-layout\.is-comparing\s*\{[^}]*flex-direction:\s*column;/
-    );
+    assert.doesNotMatch(MARKDOWN_STYLES, /max-width:\s*920px/);
 });
 
 test('styles citation popups and temporary reference highlights', () => {

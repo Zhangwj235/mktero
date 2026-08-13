@@ -694,11 +694,16 @@ main {
 }
 
 .markdown-reading-layout.is-comparing .markdown-reading-pane {
-    flex-basis: 50%;
+    min-height: 0;
+    flex: 1 1 50%;
+}
+
+.markdown-reading-layout.is-comparing {
+    flex-direction: column;
 }
 
 .markdown-reading-layout.is-comparing .markdown-reading-pane--original {
-    border-inline-end: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
 }
 
 .markdown-comparison-pane-label {
@@ -3020,31 +3025,6 @@ main {
     }
 
     .markdown-reader-action-menu { right: 8px; }
-}
-
-@container markdown-reader (max-width: 920px) {
-    .markdown-reading-layout.is-comparing {
-        overflow-x: hidden;
-        overflow-y: auto;
-        flex-direction: column;
-    }
-
-    .markdown-reading-layout.is-comparing .markdown-reading-pane {
-        min-height: 420px;
-        flex: 0 0 100%;
-    }
-
-    .markdown-reading-layout.is-comparing .markdown-reading-pane--original {
-        border-inline-end: 0;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .markdown-reading-layout.is-comparing
-        .markdown-editor-host > .cm-editor .cm-content {
-        width: calc(100% - 32px);
-        max-width: var(--reader-width);
-        padding: 32px 0 56px;
-    }
 }
 
 @container markdown-reader (max-width: 390px) {
