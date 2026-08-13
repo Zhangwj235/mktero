@@ -281,12 +281,13 @@ test('translates the document and switches between three reading modes', async (
             ...model,
             translationStatus: 'loading',
             translationProgress: 37,
+            translationStage: 'reasoning',
         });
         assert.equal(translate.disabled, false);
         assert.equal(translate.getAttribute('aria-busy'), 'true');
         assert.equal(
             translate.getAttribute('aria-label'),
-            'Cancel translation (37%)'
+            'Cancel translation (model is reasoning…)'
         );
         assert.equal(translate.classList.contains('is-translating'), true);
         assert.equal(

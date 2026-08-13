@@ -94,6 +94,8 @@ export class MarkdownTranslationService {
             );
         }
         throwIfDocumentAborted(signal);
+        const reportProgress = createTranslationProgressReporter(onProgress);
+        reportProgress('preparing');
         const translationKey = await this.#safeCreateDocumentTranslationKey(
             normalizedDocumentKey,
             source,
@@ -106,7 +108,13 @@ export class MarkdownTranslationService {
                 source
             )
             : null;
-        if (cached) return cached;
+        if (cached) {
+            reportProgress('complete', {
+                completed: cached.completedBlocks,
+                total: cached.totalBlocks,
+            });
+            return cached;
+        }
         const blocks = collectMarkdownTranslationBlocks(source);
         const translatableBlocks = blocks.filter(block => block.translatable);
         const requestMarkdown = createMarkdownTranslationRequest(source, blocks);
@@ -118,13 +126,8 @@ export class MarkdownTranslationService {
             blocks,
             translatableBlocks,
             signal,
+            onProgress: reportProgress,
         });
-        if (translatableBlocks.length) {
-            onProgress?.({
-                completed: translatableBlocks.length,
-                total: translatableBlocks.length,
-            });
-        }
         const { translatedMarkdown, comparisonMarkdown } =
             buildDocumentTranslationViews(
                 source,
@@ -153,6 +156,10 @@ export class MarkdownTranslationService {
             }
         }
         throwIfDocumentAborted(signal);
+        reportProgress('complete', {
+            completed: translatableBlocks.length,
+            total: translatableBlocks.length,
+        });
         return {
             ...value,
             translationKey,
@@ -288,11 +295,13 @@ async function requestDocumentTranslation({
     blocks,
     translatableBlocks,
     signal,
+    onProgress,
 }) {
     if (!translatableBlocks.length) {
         return { result: null, translations: [] };
     }
     throwIfDocumentAborted(signal);
+    onProgress('requesting');
     const request = {
         settings,
         messages: translationMessages(
@@ -300,6 +309,16 @@ async function requestDocumentTranslation({
             settings.targetLanguage
         ),
         signal,
+        onStreamEvent: event => {
+            if (event?.type === 'reasoning-start'
+                || event?.type === 'reasoning-delta') {
+                onProgress('reasoning');
+            }
+            else if (event?.type === 'text-start'
+                || event?.type === 'text-delta') {
+                onProgress('translating');
+            }
+        },
         maxInputBytes: MAX_DOCUMENT_REQUEST_BYTES,
         maxResponseBytes: MAX_DOCUMENT_PROVIDER_RESPONSE_BYTES,
     };
@@ -308,6 +327,7 @@ async function requestDocumentTranslation({
         ? await aiGateway.streamText(request)
         : await aiGateway.generateText(request);
     throwIfDocumentAborted(signal);
+    onProgress('validating');
     if (result?.finishReason === 'length') {
         throw aiError(
             'The AI document translation reached its output token limit',
@@ -337,6 +357,15 @@ async function requestDocumentTranslation({
     }
     validateDocumentTranslationOutput(translatableBlocks, translations);
     return { result, translations };
+}
+
+function createTranslationProgressReporter(onProgress) {
+    let lastStage = '';
+    return (stage, changes = {}) => {
+        if (stage === lastStage && !Object.keys(changes).length) return;
+        lastStage = stage;
+        onProgress?.({ stage, ...changes });
+    };
 }
 
 function validateDocumentTranslationOutput(blocks, translations) {

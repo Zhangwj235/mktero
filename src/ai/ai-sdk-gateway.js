@@ -166,6 +166,7 @@ export class AISDKGateway {
         signal,
         maxOutputTokens,
         onTextDelta,
+        onStreamEvent,
         maxInputBytes,
         maxResponseBytes,
     }) {
@@ -231,11 +232,21 @@ export class AISDKGateway {
             let streamUsage = null;
             let streamResponse = null;
             let streamFinishReason = null;
+            let emittedTextStart = false;
             for await (const event of textStream) {
                 if (fullStream) {
                     if (event?.type === 'error') {
                         streamError = event.error;
+                        emitStreamEvent(onStreamEvent, 'error');
                         continue;
+                    }
+                    if (event?.type === 'reasoning-start'
+                        || event?.type === 'reasoning-delta'
+                        || event?.type === 'reasoning-end'
+                        || event?.type === 'text-start'
+                        || event?.type === 'text-end') {
+                        emitStreamEvent(onStreamEvent, event.type);
+                        if (event.type === 'text-start') emittedTextStart = true;
                     }
                     if (event?.type === 'finish-step'
                         || event?.type === 'finish') {
@@ -243,6 +254,7 @@ export class AISDKGateway {
                         streamResponse = event.response || streamResponse;
                         streamFinishReason = event.finishReason
                             || streamFinishReason;
+                        emitStreamEvent(onStreamEvent, event.type);
                         if (event.type === 'finish') break;
                         continue;
                     }
@@ -251,11 +263,16 @@ export class AISDKGateway {
                     ? String(event?.type === 'text-delta' ? event.text || '' : '')
                     : String(event || '');
                 if (!chunk) continue;
+                if (!emittedTextStart) {
+                    emittedTextStart = true;
+                    emitStreamEvent(onStreamEvent, 'text-start');
+                }
                 accumulated += chunk;
                 if (responseBytes.add(chunk) > limits.response) {
                     throw responseTooLargeError();
                 }
                 onTextDelta?.(chunk, accumulated);
+                emitStreamEvent(onStreamEvent, 'text-delta');
             }
             if (responseBytes.finish() > limits.response) {
                 throw responseTooLargeError();
@@ -714,6 +731,16 @@ function aiStatusError(message, code, status) {
 
 function byteLength(value) {
     return new TextEncoder().encode(String(value || '')).length;
+}
+
+function emitStreamEvent(listener, type) {
+    if (typeof listener !== 'function') return;
+    try {
+        listener({ type });
+    }
+    catch {
+        // Progress reporting must never interrupt a provider response.
+    }
 }
 
 function responseTooLargeError() {

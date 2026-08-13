@@ -93,7 +93,11 @@ test('translates a complete Markdown document in one provider request', async ()
     assert.equal(result.totalBlocks, 2);
     assert.equal(result.completedBlocks, 2);
     assert.equal(result.cacheHit, false);
-    assert.deepEqual(progress, [{ completed: 2, total: 2 }]);
+    assert.deepEqual(progress.at(-1), {
+        stage: 'complete',
+        completed: 2,
+        total: 2,
+    });
     assert.equal(cached.length, 1);
     assert.equal(cached[0][0], 'a'.repeat(64));
     assert.equal(cached[0][1], 'c'.repeat(64));
@@ -132,6 +136,44 @@ test('streams the complete document by default and uses the selected language', 
     assert.equal(requests.length, 1);
     assert.match(requests[0].messages[0].content, /French/);
     assert.equal(result.translatedMarkdown, '# Article traduit');
+});
+
+test('reports provider stages before validating the complete translation', async () => {
+    const progress = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async streamText(request) {
+                request.onStreamEvent({ type: 'reasoning-start' });
+                request.onStreamEvent({ type: 'reasoning-delta' });
+                request.onStreamEvent({ type: 'text-start' });
+                return {
+                    text: translateSingleBlockRequest(
+                        request.messages[1].content,
+                        '# Article traduit'
+                    ),
+                    model: 'stream-model',
+                };
+            },
+            generateText: assert.fail,
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: true }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+        onProgress: value => progress.push(value),
+    });
+
+    assert.deepEqual(progress.map(value => value.stage), [
+        'preparing',
+        'requesting',
+        'reasoning',
+        'translating',
+        'validating',
+        'complete',
+    ]);
 });
 
 test('isolates document translations by reasoning and source content', async () => {

@@ -141,10 +141,12 @@ raw HTML, URLs, and inline code are replaced with protected placeholders before
 the request and restored only after the complete response passes structural
 validation. Translation is always an explicit action and never rewrites the
 source Markdown or becomes part of a saved snapshot. Streaming is enabled by
-default for provider transport; the reader updates when the complete document
-has passed validation instead of redrawing the article for every token.
-While translation is running, the toolbar action shows a loading spinner and
-remains available as `Cancel translation`; select it again to stop the request.
+default for provider transport. While translation is running, the toolbar
+action shows a loading spinner and the current stage (connecting, model
+reasoning, receiving the translation, or validating the result); it remains
+available as `Cancel translation`, so select it again to stop the request. The
+reader switches to the translated document only after the complete response
+has passed structural validation.
 Connection tests always use a short non-streaming request.
 
 After translation, use the reading-mode selector to choose `Original`,

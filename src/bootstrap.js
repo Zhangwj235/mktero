@@ -815,6 +815,7 @@ async function translateDocument(documentID) {
         translationView: 'original',
         translationStatus: 'loading',
         translationProgress: 0,
+        translationStage: 'preparing',
         translationError: '',
     });
     try {
@@ -825,12 +826,15 @@ async function translateDocument(documentID) {
                 documentKey: String(presentation.model.cacheKey || ''),
                 markdown: presentation.model.markdown,
                 signal,
-                onProgress: ({ completed, total }) => {
+                onProgress: ({ completed, total, stage }) => {
                     if (runtime.presenter?.get(documentID) !== presentation) return;
                     runtime.presenter.update(presentation, {
-                        translationProgress: total
-                            ? Math.round(completed / total * 100)
-                            : 100,
+                        ...(stage ? { translationStage: stage } : {}),
+                        ...(total !== undefined ? {
+                            translationProgress: total
+                                ? Math.round(completed / total * 100)
+                                : 100,
+                        } : {}),
                     });
                 },
             })
@@ -839,6 +843,7 @@ async function translateDocument(documentID) {
         runtime.presenter.update(presentation, {
             translationStatus: 'ready',
             translationProgress: 100,
+            translationStage: 'complete',
             translatedMarkdown: result.translatedMarkdown,
             comparisonMarkdown: result.comparisonMarkdown,
             translationError: '',
@@ -850,6 +855,7 @@ async function translateDocument(documentID) {
             runtime.presenter.update(presentation, {
                 translationStatus: 'none',
                 translationProgress: 0,
+                translationStage: '',
                 translationView: 'original',
                 translationError: error?.name === 'AbortError'
                     ? ''

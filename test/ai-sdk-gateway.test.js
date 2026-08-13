@@ -330,6 +330,49 @@ test('propagates length finish reasons from streamed responses', async () => {
     assert.equal(result.finishReason, 'length');
 });
 
+test('reports reasoning and text stages without exposing streamed content', async () => {
+    const events = [];
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        stream: async () => ({
+            fullStream: {
+                async *[Symbol.asyncIterator]() {
+                    yield { type: 'reasoning-start' };
+                    yield { type: 'reasoning-delta', text: 'private reasoning' };
+                    yield { type: 'reasoning-end' };
+                    yield { type: 'text-start' };
+                    yield { type: 'text-delta', text: 'Translated' };
+                    yield { type: 'text-end' };
+                    yield {
+                        type: 'finish',
+                        finishReason: 'stop',
+                        usage: { totalTokens: 3 },
+                        response: { modelId: 'stream-model' },
+                    };
+                },
+            },
+        }),
+    });
+
+    const result = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+        onStreamEvent: event => events.push(event),
+    });
+
+    assert.equal(result.text, 'Translated');
+    assert.deepEqual(events, [
+        { type: 'reasoning-start' },
+        { type: 'reasoning-delta' },
+        { type: 'reasoning-end' },
+        { type: 'text-start' },
+        { type: 'text-delta' },
+        { type: 'text-end' },
+        { type: 'finish' },
+    ]);
+    assert.equal(events.some(event => Object.hasOwn(event, 'text')), false);
+});
+
 test('rejects a streaming response that reports an error after text ends', async () => {
     const providerError = new Error('late stream failure');
     const gateway = new AISDKGateway({

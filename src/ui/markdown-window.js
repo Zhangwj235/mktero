@@ -2052,7 +2052,9 @@ class MarkdownTabView {
                 : 'ai.translateDocument';
         const translationLabel = this.model.translationStatus === 'loading'
             ? this.t(translationLabelKey, {
-                progress: this.model.translationProgress || 0,
+                stage: this.t(
+                    `ai.translationStage.${this.model.translationStage || 'preparing'}`
+                ),
             })
             : this.t(translationLabelKey);
         this.elements.translateDocument.setAttribute(
