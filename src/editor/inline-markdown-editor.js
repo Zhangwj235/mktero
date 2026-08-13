@@ -25,6 +25,7 @@ import {
     setInlineEditingRange,
     setReferenceHighlight,
     setTableHighlight,
+    setTranslationRanges,
 } from './inline-rendering.js';
 import { createImagePreview } from './image-preview.js';
 import { createCitationPopup } from './citation-popup.js';
@@ -670,7 +671,12 @@ export function createInlineMarkdownEditor({
     );
     parent.addEventListener('mouseup', openSelectedMarkdownActions, true);
     let currentSourceMap = [];
-    const setDocument = ({ markdown, annotationOverlay, sourceMap }) => {
+    const setDocument = ({
+        markdown,
+        annotationOverlay,
+        sourceMap,
+        translationRanges,
+    }) => {
         activateDOMGlobals(ownerWindow);
         const value = String(markdown || '');
         activeTableCorrection?.cancel?.({
@@ -694,6 +700,7 @@ export function createInlineMarkdownEditor({
             setAnnotationOverlay.of(
                 annotationOverlay || createEmptyAnnotationOverlay()
             ),
+            setTranslationRanges.of(translationRanges || []),
             setInlineEditingRange.of(null),
             editingMode.reconfigure([
                 EditorView.editable.of(false),

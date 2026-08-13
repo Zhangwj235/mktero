@@ -24,8 +24,11 @@ const READY_RESULT_FIELDS = [
     'translationView',
     'translationStatus',
     'translationProgress',
+    'translationStage',
     'translatedMarkdown',
     'comparisonMarkdown',
+    'comparisonSourceRanges',
+    'comparisonTranslationRanges',
     'translationError',
 ];
 
@@ -149,8 +152,11 @@ export function createEmptyTranslationState() {
         translationView: 'original',
         translationStatus: 'none',
         translationProgress: 0,
+        translationStage: '',
         translatedMarkdown: '',
         comparisonMarkdown: '',
+        comparisonSourceRanges: [],
+        comparisonTranslationRanges: [],
         translationError: '',
     };
 }

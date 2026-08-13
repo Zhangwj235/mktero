@@ -55,6 +55,7 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
             request = value;
             return {
                 text: 'Completed',
+                finishReason: 'stop',
                 response: { modelId: 'provider-model' },
                 usage: {
                     inputTokens: 10,
@@ -79,6 +80,7 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
     assert.ok(request.abortSignal);
     assert.deepEqual(result, {
         text: 'Completed',
+        finishReason: 'stop',
         model: 'provider-model',
         usage: {
             inputTokens: 10,
@@ -86,6 +88,109 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
             totalTokens: 14,
         },
     });
+});
+
+test('accepts a reasoning-only result only for connection probes', async () => {
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async () => ({
+            text: '',
+            reasoningText: 'The provider returned reasoning data.',
+            finishReason: 'length',
+            response: { modelId: 'reasoning-model' },
+            usage: { outputTokens: 4, totalTokens: 7 },
+        }),
+    });
+    const request = {
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'hi' }],
+    };
+
+    await assert.rejects(
+        gateway.generateText(request),
+        error => error?.code === 'AI_INVALID_RESPONSE'
+    );
+    const result = await gateway.generateText({
+        ...request,
+        acceptNonTextResponse: true,
+    });
+
+    assert.deepEqual(result, {
+        text: '',
+        finishReason: 'length',
+        model: 'reasoning-model',
+        usage: { inputTokens: null, outputTokens: 4, totalTokens: 7 },
+    });
+});
+
+test('rejects a connection probe when the provider returns no data', async () => {
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async () => ({ text: '' }),
+    });
+
+    await assert.rejects(
+        gateway.generateText({
+            settings: SETTINGS,
+            messages: [{ role: 'user', content: 'hi' }],
+            acceptNonTextResponse: true,
+        }),
+        error => error?.code === 'AI_INVALID_RESPONSE'
+    );
+});
+
+test('omits the output token limit when the provider should choose it', async () => {
+    let request;
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async value => {
+            request = value;
+            return { text: 'Completed', finishReason: 'stop' };
+        },
+    });
+
+    await gateway.generateText({
+        settings: { ...SETTINGS, maxOutputTokens: 0 },
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(Object.hasOwn(request, 'maxOutputTokens'), false);
+});
+
+test('passes a full-document output token budget to AI SDK Core', async () => {
+    let request;
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async value => {
+            request = value;
+            return { text: 'Completed' };
+        },
+    });
+
+    await gateway.generateText({
+        settings: { ...SETTINGS, maxOutputTokens: 65_536 },
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(request.maxOutputTokens, 65_536);
+});
+
+test('accepts explicit full-document input and response byte budgets', async () => {
+    const input = 'x'.repeat(256 * 1024);
+    const output = 'y'.repeat(1024 * 1024 + 1);
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async () => ({ text: output }),
+    });
+
+    const result = await gateway.generateText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: input }],
+        maxInputBytes: 512 * 1024,
+        maxResponseBytes: 2 * 1024 * 1024,
+    });
+
+    assert.equal(result.text.length, output.length);
 });
 
 test('calls AI SDK streamText and reports cumulative text deltas', async () => {
@@ -109,6 +214,7 @@ test('calls AI SDK streamText and reports cumulative text deltas', async () => {
                     totalTokens: 5,
                 }),
                 response: Promise.resolve({ modelId: 'stream-model' }),
+                finishReason: Promise.resolve('stop'),
             };
         },
     });
@@ -128,6 +234,7 @@ test('calls AI SDK streamText and reports cumulative text deltas', async () => {
     ]);
     assert.deepEqual(result, {
         text: 'Partial',
+        finishReason: 'stop',
         model: 'stream-model',
         usage: {
             inputTokens: 3,
@@ -135,6 +242,135 @@ test('calls AI SDK streamText and reports cumulative text deltas', async () => {
             totalTokens: 5,
         },
     });
+});
+
+test('finishes from the full stream without waiting for delayed metadata', async () => {
+    const never = new Promise(() => {});
+    let streamReturned = false;
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        stream: async () => ({
+            fullStream: {
+                async *[Symbol.asyncIterator]() {
+                    try {
+                        yield { type: 'text-delta', text: 'Complete' };
+                        yield {
+                            type: 'finish-step',
+                            finishReason: 'stop',
+                            usage: { totalTokens: 3 },
+                            response: { modelId: 'stream-model' },
+                        };
+                        yield {
+                            type: 'finish',
+                            finishReason: 'stop',
+                            totalUsage: { totalTokens: 3 },
+                        };
+                        await never;
+                    }
+                    finally {
+                        streamReturned = true;
+                    }
+                },
+            },
+            usage: never,
+            response: never,
+            finishReason: never,
+        }),
+    });
+
+    const result = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.deepEqual(result, {
+        text: 'Complete',
+        finishReason: 'stop',
+        model: 'stream-model',
+        usage: { inputTokens: null, outputTokens: null, totalTokens: 3 },
+    });
+    assert.equal(streamReturned, true);
+});
+
+test('propagates length finish reasons for complete-response validation', async () => {
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async () => ({
+            text: 'Partial translation',
+            finishReason: 'length',
+        }),
+    });
+
+    const result = await gateway.generateText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(result.finishReason, 'length');
+});
+
+test('propagates length finish reasons from streamed responses', async () => {
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        stream: async () => ({
+            textStream: {
+                async *[Symbol.asyncIterator]() {
+                    yield 'Partial translation';
+                },
+            },
+            finishReason: Promise.resolve('length'),
+        }),
+    });
+
+    const result = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.equal(result.finishReason, 'length');
+});
+
+test('reports reasoning and text stages without exposing streamed content', async () => {
+    const events = [];
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        stream: async () => ({
+            fullStream: {
+                async *[Symbol.asyncIterator]() {
+                    yield { type: 'reasoning-start' };
+                    yield { type: 'reasoning-delta', text: 'private reasoning' };
+                    yield { type: 'reasoning-end' };
+                    yield { type: 'text-start' };
+                    yield { type: 'text-delta', text: 'Translated' };
+                    yield { type: 'text-end' };
+                    yield {
+                        type: 'finish',
+                        finishReason: 'stop',
+                        usage: { totalTokens: 3 },
+                        response: { modelId: 'stream-model' },
+                    };
+                },
+            },
+        }),
+    });
+
+    const result = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+        onStreamEvent: event => events.push(event),
+    });
+
+    assert.equal(result.text, 'Translated');
+    assert.deepEqual(events, [
+        { type: 'reasoning-start' },
+        { type: 'reasoning-delta' },
+        { type: 'reasoning-end' },
+        { type: 'text-start' },
+        { type: 'text-delta' },
+        { type: 'text-end' },
+        { type: 'finish' },
+    ]);
+    assert.equal(events.some(event => Object.hasOwn(event, 'text')), false);
 });
 
 test('rejects a streaming response that reports an error after text ends', async () => {
@@ -356,6 +592,79 @@ test('uses the OpenAI Chat Completions wire protocol through AI SDK Core', async
     }]);
     assert.equal(JSON.parse(request.init.body).reasoning_effort, 'high');
     assert.equal(result.text, 'Chat result');
+});
+
+test('finishes an OpenAI Chat stream when DONE does not close the connection', async () => {
+    const encoder = new TextEncoder();
+    let canceled = false;
+    let readIndex = 0;
+    const chunks = [{
+        id: 'chatcmpl-test',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'stream-model',
+        choices: [{
+            index: 0,
+            delta: { role: 'assistant', content: 'Complete' },
+            finish_reason: null,
+        }],
+    }, {
+        id: 'chatcmpl-test',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'stream-model',
+        choices: [{
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+        }],
+    }].map(data => encoder.encode(
+        `data: ${JSON.stringify(data)}\n\n`
+    ));
+    chunks.push(
+        encoder.encode('data: [DO'),
+        encoder.encode('NE]\n\n')
+    );
+    const gateway = new AISDKGateway({
+        fetch: async () => ({
+            status: 200,
+            statusText: 'OK',
+            headers: new Headers({
+                'Content-Type': 'text/event-stream; charset=utf-8',
+            }),
+            body: {
+                getReader() {
+                    return {
+                        async read() {
+                            if (readIndex < chunks.length) {
+                                return {
+                                    done: false,
+                                    value: chunks[readIndex++],
+                                };
+                            }
+                            throw new Error('provider connection remained open');
+                        },
+                        async cancel() {
+                            canceled = true;
+                        },
+                    };
+                },
+            },
+        }),
+    });
+
+    const result = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+
+    assert.deepEqual(result, {
+        text: 'Complete',
+        finishReason: 'stop',
+        model: 'stream-model',
+        usage: null,
+    });
+    assert.equal(canceled, true);
 });
 
 test('uses the OpenAI Responses wire protocol through AI SDK Core', async () => {

@@ -133,6 +133,87 @@ test('keeps Markdown as the source of truth in a read-only surface', () => {
     dom.window.close();
 });
 
+test('marks translated lines and clears the marks with the next document', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+    });
+    const markdown = 'Original paragraph.\n\n翻译段落。';
+    const translationFrom = markdown.indexOf('翻译');
+
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: translationFrom,
+            to: markdown.length,
+        }],
+    });
+
+    const translatedLine = document.querySelector(
+        '.cm-mktero-translation-line'
+    );
+    assert.equal(translatedLine?.textContent, '翻译段落。');
+    assert.equal(
+        translatedLine?.getAttribute('data-translation-start'),
+        'true'
+    );
+
+    editor.setMarkdown('Original only.');
+    assert.equal(
+        document.querySelector('.cm-mktero-translation-line'),
+        null
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('hides the internal boundary between bilingual lists', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+    });
+    const markdown = [
+        '- First item',
+        '<!-- mktero-bilingual-list-boundary -->',
+        '',
+        '- 第一项',
+    ].join('\n');
+    const translationFrom = markdown.lastIndexOf('- 第一项');
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: translationFrom,
+            to: markdown.length,
+        }],
+    });
+
+    const boundary = document.querySelector('.cm-mktero-bilingual-boundary');
+    assert.ok(boundary);
+    assert.equal(boundary.textContent, '');
+    assert.doesNotMatch(
+        document.querySelector('.cm-content').textContent,
+        /mktero-bilingual-list-boundary/
+    );
+
+    editor.setMarkdown('<!-- mktero-bilingual-list-boundary -->');
+    assert.match(
+        document.querySelector('.cm-content').textContent,
+        /mktero-bilingual-list-boundary/
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('opens a reliably mapped PDF source from the selection actions', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

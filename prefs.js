@@ -10,6 +10,6 @@ pref("extensions.mktero.aiApiKey", "");
 pref("extensions.mktero.aiModel", "");
 pref("extensions.mktero.aiReasoning", "provider-default");
 pref("extensions.mktero.aiTargetLanguage", "zh-CN");
-pref("extensions.mktero.aiRequestTimeoutMs", 30000);
-pref("extensions.mktero.aiMaxOutputTokens", 2048);
+pref("extensions.mktero.aiRequestTimeoutMs", 600000);
+pref("extensions.mktero.aiMaxOutputTokens", 0);
 pref("extensions.mktero.aiStreaming", true);

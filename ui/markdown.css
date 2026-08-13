@@ -672,6 +672,27 @@ main {
     container: markdown-reader / inline-size;
 }
 
+.markdown-reading-layout {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    background: var(--reader-background);
+}
+
+.markdown-reading-pane {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 100%;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--reader-background);
+}
+
 .markdown-editor-host {
     position: relative;
     width: 100%;
@@ -822,6 +843,8 @@ main {
 }
 
 .markdown-reader-toolbar {
+    --toolbar-control-gap: 10px;
+
     position: relative;
     z-index: 5;
     display: flex;
@@ -831,7 +854,7 @@ main {
     flex: 0 0 auto;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: var(--toolbar-control-gap);
     padding: 4px 12px;
     border-bottom: 1px solid var(--border-subtle);
     background: color-mix(in srgb, var(--surface-raised) 94%, var(--surface));
@@ -843,17 +866,21 @@ main {
     display: flex;
     min-width: 0;
     align-items: center;
-    gap: 10px;
+    gap: var(--toolbar-control-gap);
 }
 
 .markdown-translation-controls {
     display: flex;
     min-width: 0;
     align-items: center;
-    gap: 8px;
-    margin-inline-start: auto;
-    padding-inline-start: 10px;
-    border-inline-start: 1px solid var(--border-subtle);
+    gap: var(--toolbar-control-gap);
+}
+
+.markdown-translation-separator {
+    width: 1px;
+    height: 24px;
+    flex: 0 0 1px;
+    background: var(--border-subtle);
 }
 
 .markdown-translation-action {
@@ -886,6 +913,11 @@ main {
     opacity: 0.55;
 }
 
+.markdown-translation-action.is-translating
+    .markdown-translation-loading-icon {
+    animation: mktero-spin 0.85s linear infinite;
+}
+
 .markdown-translation-view-label {
     color: var(--text);
     font: 550 12.5px/1.2 var(--ui-font);
@@ -893,24 +925,65 @@ main {
 }
 
 .markdown-translation-view {
-    width: auto;
-    min-width: 106px;
-    max-width: 144px;
-    min-height: 32px;
-    padding: 4px 28px 4px 9px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    background-color: var(--surface-raised);
-    font: 12.5px/1.2 var(--ui-font);
+    display: inline-flex;
+    min-width: 0;
+    height: 32px;
+    flex: 0 0 auto;
 }
 
-.markdown-translation-view:focus-visible {
+.markdown-translation-view-button {
+    min-width: 68px;
+    height: 32px;
+    padding: 0 9px;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--muted);
+    background: var(--surface-raised);
+    cursor: pointer;
+    font: 12px/1 var(--ui-font);
+    white-space: nowrap;
+}
+
+.markdown-translation-view-button + .markdown-translation-view-button {
+    margin-left: -1px;
+}
+
+.markdown-translation-view-button:first-child {
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.markdown-translation-view-button:last-child {
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.markdown-translation-view-button:hover:not(:disabled) {
+    position: relative;
+    z-index: 1;
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised));
+}
+
+.markdown-translation-view-button:focus-visible {
+    position: relative;
+    z-index: 2;
     outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
     outline-offset: 1px;
 }
 
-.markdown-translation-view:disabled { opacity: 0.55; }
+.markdown-translation-view-button[aria-pressed='true'] {
+    position: relative;
+    z-index: 1;
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+    font-weight: 600;
+}
+
+.markdown-translation-view-button:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
 
 .markdown-reader-action-menu {
     position: absolute;
@@ -992,8 +1065,6 @@ main {
 
 .markdown-reader-font-family {
     flex: 0 1 auto;
-    padding-inline-start: 10px;
-    border-inline-start: 1px solid var(--border-subtle);
 }
 
 .markdown-reader-font-family > .markdown-reader-font-label {
@@ -1416,6 +1487,11 @@ main {
         transition: none;
     }
 
+    .markdown-translation-action.is-translating
+        .markdown-translation-loading-icon {
+        animation-duration: 2s;
+    }
+
     .markdown-reader-action.is-reparsing .markdown-reader-action-icon,
     .markdown-reader-action.is-saving .markdown-reader-action-icon {
         animation: none;
@@ -1559,6 +1635,19 @@ main {
     text-align-last: start;
     text-justify: inter-word;
     text-wrap: pretty;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-line {
+    padding-inline: 18px 4px !important;
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 78%, transparent);
+    color: color-mix(in srgb, var(--reader-text) 82%, var(--muted));
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-bilingual-boundary {
+    height: 0;
+    min-height: 0;
+    overflow: hidden;
+    line-height: 0;
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-heading {
@@ -2899,21 +2988,18 @@ main {
 
 @container markdown-reader (max-width: 620px) {
     .markdown-reader-toolbar {
+        --toolbar-control-gap: 8px;
+
         min-height: 44px;
-        gap: 8px;
         padding: 4px 8px;
     }
 
-    .markdown-reader-controls { gap: 8px; }
     .markdown-translation-controls {
         width: 100%;
-        margin-inline-start: 0;
         padding: 5px 0 1px;
-        border-inline-start: 0;
         border-top: 1px solid var(--border-subtle);
     }
     .markdown-reader-font-label { display: none; }
-    .markdown-reader-font-family { padding-inline-start: 8px; }
     .markdown-reader-font-picker {
         flex-basis: 132px;
         width: 132px;

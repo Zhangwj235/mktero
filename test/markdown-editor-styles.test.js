@@ -102,14 +102,38 @@ test('article layout outranks the CodeMirror adopted base theme', () => {
 
 test('keeps the reader toolbar above content without covering it', () => {
     const toolbar = ruleBody('.markdown-reader-toolbar');
+    const readerControls = ruleBody('.markdown-reader-controls');
+    const translationControls = ruleBody('.markdown-translation-controls');
+    const fontFamily = ruleBody('.markdown-reader-font-family');
+    const translationSeparator = ruleBody('.markdown-translation-separator');
     const editorHost = ruleBody('.markdown-editor-host');
 
+    assert.match(toolbar, /--toolbar-control-gap:\s*10px/);
     assert.match(toolbar, /position:\s*relative/);
     assert.match(toolbar, /flex:\s*0 0 auto/);
     assert.match(toolbar, /min-height:\s*44px/);
     assert.match(toolbar, /padding:\s*4px 12px/);
     assert.match(toolbar, /border-bottom:\s*1px solid var\(--border-subtle\)/);
     assert.doesNotMatch(toolbar, /position:\s*absolute/);
+    assert.match(
+        readerControls,
+        /gap:\s*var\(--toolbar-control-gap\)/
+    );
+    assert.match(
+        translationControls,
+        /gap:\s*var\(--toolbar-control-gap\)/
+    );
+    assert.doesNotMatch(translationControls, /margin-inline-start:\s*auto/);
+    assert.doesNotMatch(translationControls, /padding-inline-start/);
+    assert.doesNotMatch(translationControls, /border-inline-start/);
+    assert.doesNotMatch(fontFamily, /padding-inline-start/);
+    assert.doesNotMatch(fontFamily, /border-inline-start/);
+    assert.match(translationSeparator, /width:\s*1px/);
+    assert.match(translationSeparator, /height:\s*24px/);
+    assert.match(
+        translationSeparator,
+        /background:\s*var\(--border-subtle\)/
+    );
     assert.match(editorHost, /flex:\s*1 1 auto/);
     assert.match(editorHost, /overflow:\s*hidden/);
 });
@@ -400,11 +424,41 @@ test('styles secondary document actions as a toolbar popover', () => {
 
 test('keeps document translation as a compact icon button', () => {
     const action = ruleBody('.markdown-translation-action');
+    const translating = ruleBody(
+        [
+            '.markdown-translation-action.is-translating',
+            '    .markdown-translation-loading-icon',
+        ].join('\n')
+    );
     assert.match(action, /width:\s*32px/);
     assert.match(action, /min-width:\s*32px/);
     assert.match(action, /height:\s*32px/);
     assert.match(action, /min-height:\s*32px/);
     assert.match(action, /padding:\s*0/);
+    assert.match(translating, /animation:\s*mktero-spin 0\.85s linear infinite/);
+});
+
+test('keeps block-level comparison in one full-size reading surface', () => {
+    const layout = ruleBody('.markdown-reading-layout');
+    const pane = ruleBody('.markdown-reading-pane');
+    const translation = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-translation-line'
+    );
+    const boundary = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-bilingual-boundary'
+    );
+
+    assert.match(layout, /display:\s*flex/);
+    assert.match(layout, /overflow:\s*hidden/);
+    assert.match(pane, /flex:\s*1 1 100%/);
+    assert.doesNotMatch(MARKDOWN_STYLES, /markdown-comparison-pane-label/);
+    assert.doesNotMatch(MARKDOWN_STYLES, /flex:\s*1 1 50%/);
+    assert.match(translation, /padding-inline:\s*18px 4px !important/);
+    assert.match(translation, /box-shadow:\s*inset 3px 0 0/);
+    assert.doesNotMatch(translation, /border-radius/);
+    assert.match(boundary, /height:\s*0/);
+    assert.match(boundary, /min-height:\s*0/);
+    assert.match(boundary, /overflow:\s*hidden/);
 });
 
 test('styles citation popups and temporary reference highlights', () => {

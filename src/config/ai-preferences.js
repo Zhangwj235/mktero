@@ -29,8 +29,10 @@ export const AI_PROTOCOL_GOOGLE = 'google-generative-ai';
 export const AI_DEFAULT_API_BASE = 'https://api.openai.com/v1';
 export const AI_DEFAULT_TARGET_LANGUAGE = 'zh-CN';
 export const AI_DEFAULT_REASONING = 'provider-default';
-export const AI_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-export const AI_DEFAULT_MAX_OUTPUT_TOKENS = 2_048;
+export const AI_DEFAULT_REQUEST_TIMEOUT_MS = 600_000;
+export const AI_DEFAULT_MAX_OUTPUT_TOKENS = 0;
+export const AI_MAX_REQUEST_TIMEOUT_MS = 3_600_000;
+export const AI_MAX_OUTPUT_TOKENS = 262_144;
 
 const MAX_AI_API_BASE_LENGTH = 2_048;
 const MAX_AI_API_KEY_LENGTH = 16_384;
@@ -97,13 +99,13 @@ export function getAISettings(zotero) {
             get(AI_REQUEST_TIMEOUT_PREF),
             AI_DEFAULT_REQUEST_TIMEOUT_MS,
             1_000,
-            120_000
+            AI_MAX_REQUEST_TIMEOUT_MS
         ),
         maxOutputTokens: normalizeInteger(
             get(AI_MAX_OUTPUT_TOKENS_PREF),
             AI_DEFAULT_MAX_OUTPUT_TOKENS,
-            64,
-            16_384
+            0,
+            AI_MAX_OUTPUT_TOKENS
         ),
         streaming: get(AI_STREAMING_PREF) !== false,
     };
@@ -168,13 +170,13 @@ export function validateAISettings(settings) {
             settings.requestTimeoutMs,
             AI_DEFAULT_REQUEST_TIMEOUT_MS,
             1_000,
-            120_000
+            AI_MAX_REQUEST_TIMEOUT_MS
         ),
         maxOutputTokens: normalizeInteger(
             settings.maxOutputTokens,
             AI_DEFAULT_MAX_OUTPUT_TOKENS,
-            64,
-            16_384
+            0,
+            AI_MAX_OUTPUT_TOKENS
         ),
         streaming: settings.streaming !== false,
     };

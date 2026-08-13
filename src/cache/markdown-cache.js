@@ -719,13 +719,19 @@ function validateTranslationRecord(record, translationKey, maxBytes) {
 }
 
 function validateTranslationValue(value) {
+    const failedBlocks = value?.failedBlocks ?? [];
+    const partial = value?.partial ?? false;
     if (typeof value?.translatedMarkdown !== 'string'
         || typeof value.comparisonMarkdown !== 'string'
         || !Array.isArray(value.blocks)
         || value.blocks.length > 100_000
         || typeof value.model !== 'string'
         || typeof value.targetLanguage !== 'string'
-        || typeof value.promptVersion !== 'string') {
+        || typeof value.promptVersion !== 'string'
+        || (value.partial !== undefined && typeof value.partial !== 'boolean')
+        || partial !== Boolean(failedBlocks.length)
+        || !Array.isArray(failedBlocks)
+        || failedBlocks.length > value.blocks.length) {
         throw new Error('Invalid cached document translation');
     }
     for (const block of value.blocks) {
@@ -735,9 +741,21 @@ function validateTranslationValue(value) {
             throw new Error('Invalid cached Markdown block translation');
         }
     }
+    const blockIDs = new Set(value.blocks.map(block => block.id));
+    const failedIDs = new Set();
+    for (const failure of failedBlocks) {
+        if (typeof failure?.id !== 'string'
+            || !blockIDs.has(failure.id)
+            || failedIDs.has(failure.id)
+            || typeof failure.message !== 'string') {
+            throw new Error('Invalid cached Markdown block failure');
+        }
+        failedIDs.add(failure.id);
+    }
 }
 
 function translationValue(value) {
+    const failedBlocks = value.failedBlocks ?? [];
     return {
         translatedMarkdown: value.translatedMarkdown,
         comparisonMarkdown: value.comparisonMarkdown,
@@ -748,6 +766,11 @@ function translationValue(value) {
         model: value.model,
         targetLanguage: value.targetLanguage,
         promptVersion: value.promptVersion,
+        partial: Boolean(value.partial),
+        failedBlocks: failedBlocks.map(failure => ({
+            id: failure.id,
+            message: failure.message,
+        })),
     };
 }
 

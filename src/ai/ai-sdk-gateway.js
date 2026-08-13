@@ -19,6 +19,7 @@ import {
     AI_PROTOCOL_OPENAI_CHAT,
     AI_PROTOCOL_OPENAI_RESPONSES,
     AI_PROTOCOL_OPEN_RESPONSES,
+    AI_MAX_OUTPUT_TOKENS,
     AI_PROVIDER_ALIBABA,
     AI_PROVIDER_ANTHROPIC,
     AI_PROVIDER_CUSTOM,
@@ -34,8 +35,10 @@ import {
 } from '../platform/abort-controller.js';
 
 const MAX_AI_MESSAGES = 100;
-const MAX_AI_INPUT_BYTES = 256 * 1024;
-const MAX_AI_RESPONSE_BYTES = 1024 * 1024;
+const DEFAULT_MAX_AI_INPUT_BYTES = 256 * 1024;
+const DEFAULT_MAX_AI_RESPONSE_BYTES = 1024 * 1024;
+const MAX_AI_INPUT_BYTES = 4 * 1024 * 1024 + 256 * 1024;
+const MAX_AI_RESPONSE_BYTES = 8 * 1024 * 1024;
 const LOCAL_PROVIDER_API_KEY = 'mktero-local';
 
 export class AISDKGateway {
@@ -76,9 +79,16 @@ export class AISDKGateway {
         messages,
         signal,
         maxOutputTokens,
+        maxInputBytes,
+        maxResponseBytes,
+        acceptNonTextResponse = false,
     }) {
         const configuration = validateAISettings(settings);
-        const prompt = validateMessages(messages);
+        const limits = normalizeRequestByteLimits({
+            maxInputBytes,
+            maxResponseBytes,
+        });
+        const prompt = validateMessages(messages, limits.input);
         throwIfAborted(signal);
         const controller = this.createAbortController();
         let timedOut = false;
@@ -92,34 +102,42 @@ export class AISDKGateway {
             }, configuration.requestTimeoutMs)
             : null;
         try {
-            const boundedFetch = createBoundedFetch(this.fetch);
+            const boundedFetch = createBoundedFetch(
+                this.fetch,
+                limits.response
+            );
+            const outputTokens = normalizeOutputTokens(
+                maxOutputTokens,
+                configuration.maxOutputTokens
+            );
             const result = await this.generate({
                 model: createLanguageModel(configuration, boundedFetch),
                 messages: prompt.messages,
                 ...(prompt.instructions
                     ? { instructions: prompt.instructions }
                     : {}),
-                maxOutputTokens: normalizeOutputTokens(
-                    maxOutputTokens,
-                    configuration.maxOutputTokens
-                ),
+                ...(outputTokens === null
+                    ? {}
+                    : { maxOutputTokens: outputTokens }),
                 reasoning: configuration.reasoning,
                 ...reasoningProviderOptions(configuration),
                 maxRetries: 0,
                 abortSignal: controller.signal,
             });
             const text = String(result?.text || '');
-            if (!text.trim()) {
+            if (!text.trim()
+                && (!acceptNonTextResponse || !hasNonTextResponseData(result))) {
                 throw aiError(
                     'The AI provider returned an invalid response',
                     'AI_INVALID_RESPONSE'
                 );
             }
-            if (byteLength(text) > MAX_AI_RESPONSE_BYTES) {
+            if (byteLength(text) > limits.response) {
                 throw responseTooLargeError();
             }
             return {
                 text,
+                finishReason: normalizeFinishReason(result?.finishReason),
                 model: responseModel(result, configuration.model),
                 usage: normalizeUsage(result?.usage),
             };
@@ -148,9 +166,16 @@ export class AISDKGateway {
         signal,
         maxOutputTokens,
         onTextDelta,
+        onStreamEvent,
+        maxInputBytes,
+        maxResponseBytes,
     }) {
         const configuration = validateAISettings(settings);
-        const prompt = validateMessages(messages);
+        const limits = normalizeRequestByteLimits({
+            maxInputBytes,
+            maxResponseBytes,
+        });
+        const prompt = validateMessages(messages, limits.input);
         throwIfAborted(signal);
         const controller = this.createAbortController();
         let timedOut = false;
@@ -164,7 +189,14 @@ export class AISDKGateway {
             }, configuration.requestTimeoutMs)
             : null;
         try {
-            const boundedFetch = createBoundedFetch(this.fetch);
+            const boundedFetch = createBoundedFetch(
+                this.fetch,
+                limits.response
+            );
+            const outputTokens = normalizeOutputTokens(
+                maxOutputTokens,
+                configuration.maxOutputTokens
+            );
             let streamError = null;
             const result = await this.stream({
                 model: createLanguageModel(configuration, boundedFetch),
@@ -172,10 +204,9 @@ export class AISDKGateway {
                 ...(prompt.instructions
                     ? { instructions: prompt.instructions }
                     : {}),
-                maxOutputTokens: normalizeOutputTokens(
-                    maxOutputTokens,
-                    configuration.maxOutputTokens
-                ),
+                ...(outputTokens === null
+                    ? {}
+                    : { maxOutputTokens: outputTokens }),
                 reasoning: configuration.reasoning,
                 ...reasoningProviderOptions(configuration),
                 maxRetries: 0,
@@ -184,18 +215,67 @@ export class AISDKGateway {
                     streamError = error;
                 },
             });
-            if (!result?.textStream?.[Symbol.asyncIterator]) {
+            const fullStreamCandidate = result?.fullStream;
+            const fullStream = fullStreamCandidate?.[Symbol.asyncIterator]
+                ? fullStreamCandidate
+                : null;
+            const textStreamCandidate = fullStream ? null : result?.textStream;
+            const textStream = fullStream
+                || (textStreamCandidate?.[Symbol.asyncIterator]
+                    ? textStreamCandidate
+                    : null);
+            if (!textStream) {
                 throw invalidResponseError();
             }
             let accumulated = '';
-            for await (const delta of result.textStream) {
-                const chunk = String(delta || '');
+            const responseBytes = createIncrementalByteCounter();
+            let streamUsage = null;
+            let streamResponse = null;
+            let streamFinishReason = null;
+            let emittedTextStart = false;
+            for await (const event of textStream) {
+                if (fullStream) {
+                    if (event?.type === 'error') {
+                        streamError = event.error;
+                        emitStreamEvent(onStreamEvent, 'error');
+                        continue;
+                    }
+                    if (event?.type === 'reasoning-start'
+                        || event?.type === 'reasoning-delta'
+                        || event?.type === 'reasoning-end'
+                        || event?.type === 'text-start'
+                        || event?.type === 'text-end') {
+                        emitStreamEvent(onStreamEvent, event.type);
+                        if (event.type === 'text-start') emittedTextStart = true;
+                    }
+                    if (event?.type === 'finish-step'
+                        || event?.type === 'finish') {
+                        streamUsage = event.usage || event.totalUsage || streamUsage;
+                        streamResponse = event.response || streamResponse;
+                        streamFinishReason = event.finishReason
+                            || streamFinishReason;
+                        emitStreamEvent(onStreamEvent, event.type);
+                        if (event.type === 'finish') break;
+                        continue;
+                    }
+                }
+                const chunk = fullStream
+                    ? String(event?.type === 'text-delta' ? event.text || '' : '')
+                    : String(event || '');
                 if (!chunk) continue;
+                if (!emittedTextStart) {
+                    emittedTextStart = true;
+                    emitStreamEvent(onStreamEvent, 'text-start');
+                }
                 accumulated += chunk;
-                if (byteLength(accumulated) > MAX_AI_RESPONSE_BYTES) {
+                if (responseBytes.add(chunk) > limits.response) {
                     throw responseTooLargeError();
                 }
                 onTextDelta?.(chunk, accumulated);
+                emitStreamEvent(onStreamEvent, 'text-delta');
+            }
+            if (responseBytes.finish() > limits.response) {
+                throw responseTooLargeError();
             }
             if (timedOut) {
                 throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
@@ -208,8 +288,17 @@ export class AISDKGateway {
                 throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
             }
             throwIfAborted(signal);
-            const usage = result.usage ? await result.usage : null;
-            const response = result.response ? await result.response : null;
+            const usage = fullStream
+                ? streamUsage
+                : result.usage ? await result.usage : null;
+            const response = fullStream
+                ? streamResponse
+                : result.response ? await result.response : null;
+            const finishReason = fullStream
+                ? streamFinishReason
+                : result.finishReason
+                    ? await result.finishReason
+                    : null;
             if (streamError) throw streamError;
             if (timedOut) {
                 throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
@@ -217,6 +306,7 @@ export class AISDKGateway {
             throwIfAborted(signal);
             return {
                 text,
+                finishReason: normalizeFinishReason(finishReason),
                 model: responseModel({ response }, configuration.model),
                 usage: normalizeUsage(usage),
             };
@@ -358,7 +448,7 @@ function providerApiKey(configuration) {
         : undefined);
 }
 
-function validateMessages(messages) {
+function validateMessages(messages, maxInputBytes) {
     if (!Array.isArray(messages)
         || !messages.length
         || messages.length > MAX_AI_MESSAGES) {
@@ -372,7 +462,7 @@ function validateMessages(messages) {
         }
         return { role, content };
     });
-    if (byteLength(JSON.stringify(normalized)) > MAX_AI_INPUT_BYTES) {
+    if (byteLength(JSON.stringify(normalized)) > maxInputBytes) {
         throw aiError('The AI input is too large', 'AI_INPUT_TOO_LARGE');
     }
     const firstNonSystem = normalized.findIndex(message => (
@@ -391,17 +481,20 @@ function validateMessages(messages) {
     };
 }
 
-function createBoundedFetch(fetch) {
+function createBoundedFetch(fetch, maxResponseBytes) {
     return async (input, init) => {
         const response = await fetch(input, init);
         const declaredLength = Number(response?.headers?.get?.('Content-Length'));
         if (Number.isFinite(declaredLength)
-            && declaredLength > MAX_AI_RESPONSE_BYTES) {
+            && declaredLength > maxResponseBytes) {
             await response?.body?.cancel?.().catch?.(() => {});
             throw responseTooLargeError();
         }
         if (!response?.body?.getReader) return response;
         const reader = response.body.getReader();
+        const sseDoneDetector = isEventStream(response)
+            ? createSSEDoneDetector()
+            : null;
         let totalBytes = 0;
         const stream = new ReadableStream({
             async pull(controller) {
@@ -415,11 +508,15 @@ function createBoundedFetch(fetch) {
                         throw invalidResponseError();
                     }
                     totalBytes += value.byteLength;
-                    if (totalBytes > MAX_AI_RESPONSE_BYTES) {
+                    if (totalBytes > maxResponseBytes) {
                         await reader.cancel?.().catch?.(() => {});
                         throw responseTooLargeError();
                     }
                     controller.enqueue(value);
+                    if (sseDoneDetector?.add(value)) {
+                        controller.close();
+                        reader.cancel?.().catch?.(() => {});
+                    }
                 }
                 catch (error) {
                     controller.error(error);
@@ -434,6 +531,51 @@ function createBoundedFetch(fetch) {
             statusText: response.statusText,
             headers: response.headers,
         });
+    };
+}
+
+function isEventStream(response) {
+    return String(response?.headers?.get?.('Content-Type') || '')
+        .toLowerCase()
+        .startsWith('text/event-stream');
+}
+
+function createSSEDoneDetector() {
+    const decoder = new TextDecoder();
+    let line = '';
+    let lineTooLong = false;
+    let previousWasCarriageReturn = false;
+    const isDoneLine = () => !lineTooLong
+        && /^data:[ \t]*\[DONE\][ \t]*$/.test(line);
+    const resetLine = () => {
+        line = '';
+        lineTooLong = false;
+    };
+    return {
+        add(value) {
+            const chunk = decoder.decode(value, { stream: true });
+            for (const character of chunk) {
+                if (character === '\n' && previousWasCarriageReturn) {
+                    previousWasCarriageReturn = false;
+                    continue;
+                }
+                if (character === '\r' || character === '\n') {
+                    if (isDoneLine()) return true;
+                    resetLine();
+                    previousWasCarriageReturn = character === '\r';
+                    continue;
+                }
+                previousWasCarriageReturn = false;
+                if (lineTooLong) continue;
+                if (line.length >= 64) {
+                    lineTooLong = true;
+                    line = '';
+                    continue;
+                }
+                line += character;
+            }
+            return false;
+        },
     };
 }
 
@@ -463,9 +605,64 @@ function isLoopbackURL(value) {
 }
 
 function normalizeOutputTokens(value, fallback) {
+    const number = Number(value ?? fallback);
+    if (!Number.isFinite(number) || number <= 0) return null;
+    return Math.max(1, Math.min(AI_MAX_OUTPUT_TOKENS, Math.round(number)));
+}
+
+function normalizeFinishReason(value) {
+    const reason = String(value?.unified || value || '').trim().toLowerCase();
+    return [
+        'stop',
+        'length',
+        'content-filter',
+        'tool-calls',
+        'error',
+        'other',
+    ].includes(reason) ? reason : null;
+}
+
+function createIncrementalByteCounter() {
+    let total = 0;
+    let pendingHighSurrogate = '';
+    return {
+        add(value) {
+            let chunk = pendingHighSurrogate + String(value || '');
+            pendingHighSurrogate = '';
+            if (/[\uD800-\uDBFF]$/.test(chunk)) {
+                pendingHighSurrogate = chunk.at(-1);
+                chunk = chunk.slice(0, -1);
+            }
+            total += byteLength(chunk);
+            return total;
+        },
+        finish() {
+            total += byteLength(pendingHighSurrogate);
+            pendingHighSurrogate = '';
+            return total;
+        },
+    };
+}
+
+function normalizeByteLimit(value, fallback, maximum) {
     const number = Number(value);
     if (!Number.isFinite(number)) return fallback;
-    return Math.max(1, Math.min(16_384, Math.round(number)));
+    return Math.max(1, Math.min(maximum, Math.round(number)));
+}
+
+function normalizeRequestByteLimits({ maxInputBytes, maxResponseBytes }) {
+    return {
+        input: normalizeByteLimit(
+            maxInputBytes,
+            DEFAULT_MAX_AI_INPUT_BYTES,
+            MAX_AI_INPUT_BYTES
+        ),
+        response: normalizeByteLimit(
+            maxResponseBytes,
+            DEFAULT_MAX_AI_RESPONSE_BYTES,
+            MAX_AI_RESPONSE_BYTES
+        ),
+    };
 }
 
 function normalizeUsage(usage) {
@@ -479,6 +676,16 @@ function normalizeUsage(usage) {
         return null;
     }
     return { inputTokens, outputTokens, totalTokens };
+}
+
+function hasNonTextResponseData(result) {
+    if (String(result?.reasoningText || '').trim()) return true;
+    if (Array.isArray(result?.content) && result.content.length) return true;
+    if (normalizeFinishReason(result?.finishReason) !== null) return true;
+    if (normalizeUsage(result?.usage) !== null) return true;
+    return result?.response
+        && typeof result.response === 'object'
+        && Object.keys(result.response).length > 0;
 }
 
 function responseModel(result, fallback) {
@@ -524,6 +731,16 @@ function aiStatusError(message, code, status) {
 
 function byteLength(value) {
     return new TextEncoder().encode(String(value || '')).length;
+}
+
+function emitStreamEvent(listener, type) {
+    if (typeof listener !== 'function') return;
+    try {
+        listener({ type });
+    }
+    catch {
+        // Progress reporting must never interrupt a provider response.
+    }
 }
 
 function responseTooLargeError() {

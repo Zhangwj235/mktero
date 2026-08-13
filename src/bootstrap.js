@@ -780,7 +780,9 @@ function setTranslationView(documentID, view) {
     if (!presentation
         || presentation.model.status !== 'ready'
         || presentation.model.renderMode === 'html'
-        || presentation.model.translationStatus !== 'ready') {
+        || !['ready', 'partial'].includes(
+            presentation.model.translationStatus
+        )) {
         return false;
     }
     const normalized = ['original', 'translated', 'compare'].includes(view)
@@ -815,6 +817,7 @@ async function translateDocument(documentID) {
         translationView: 'original',
         translationStatus: 'loading',
         translationProgress: 0,
+        translationStage: 'preparing',
         translationError: '',
     });
     try {
@@ -825,23 +828,35 @@ async function translateDocument(documentID) {
                 documentKey: String(presentation.model.cacheKey || ''),
                 markdown: presentation.model.markdown,
                 signal,
-                onProgress: ({ completed, total }) => {
+                onProgress: ({ completed, total, stage }) => {
                     if (runtime.presenter?.get(documentID) !== presentation) return;
                     runtime.presenter.update(presentation, {
-                        translationProgress: total
-                            ? Math.round(completed / total * 100)
-                            : 100,
+                        ...(stage ? { translationStage: stage } : {}),
+                        ...(total !== undefined ? {
+                            translationProgress: total
+                                ? Math.round(completed / total * 100)
+                                : 100,
+                        } : {}),
                     });
                 },
             })
         );
         if (runtime.presenter?.get(documentID) !== presentation) return result;
         runtime.presenter.update(presentation, {
-            translationStatus: 'ready',
-            translationProgress: 100,
+            translationStatus: result.partial ? 'partial' : 'ready',
+            translationProgress: result.totalBlocks
+                ? Math.round(result.completedBlocks / result.totalBlocks * 100)
+                : 100,
+            translationStage: 'complete',
             translatedMarkdown: result.translatedMarkdown,
             comparisonMarkdown: result.comparisonMarkdown,
-            translationError: '',
+            comparisonSourceRanges: result.comparisonSourceRanges,
+            comparisonTranslationRanges: result.comparisonTranslationRanges,
+            translationError: result.partial
+                ? runtimeTranslate('ai.documentTranslationPartial', {
+                    failed: result.failedBlocks.length,
+                })
+                : '',
         });
         return result;
     }
@@ -850,6 +865,7 @@ async function translateDocument(documentID) {
             runtime.presenter.update(presentation, {
                 translationStatus: 'none',
                 translationProgress: 0,
+                translationStage: '',
                 translationView: 'original',
                 translationError: error?.name === 'AbortError'
                     ? ''
@@ -992,14 +1008,23 @@ async function attachCachedDocumentTranslation(result, signal) {
         });
     if (signal?.aborted) throw signal.reason || new Error('Aborted');
     if (!cached) return result;
+    const partial = Boolean(cached.partial);
     return {
         ...result,
-        translationStatus: 'ready',
-        translationProgress: 100,
+        translationStatus: partial ? 'partial' : 'ready',
+        translationProgress: cached.totalBlocks
+            ? Math.round(cached.completedBlocks / cached.totalBlocks * 100)
+            : 100,
         translationView: 'original',
         translatedMarkdown: cached.translatedMarkdown,
         comparisonMarkdown: cached.comparisonMarkdown,
-        translationError: '',
+        comparisonSourceRanges: cached.comparisonSourceRanges,
+        comparisonTranslationRanges: cached.comparisonTranslationRanges,
+        translationError: partial
+            ? runtimeTranslate('ai.documentTranslationPartial', {
+                failed: cached.failedBlocks.length,
+            })
+            : '',
     };
 }
 
@@ -1009,6 +1034,12 @@ function localizeTranslationError(error) {
     }
     if (error?.code === 'AI_REQUEST_TIMEOUT') {
         return runtimeTranslate('ai.requestTimedOut');
+    }
+    if (error?.code === 'AI_OUTPUT_TRUNCATED') {
+        return runtimeTranslate('ai.outputTruncated');
+    }
+    if (error?.code === 'AI_RESPONSE_TOO_LARGE') {
+        return runtimeTranslate('ai.responseTooLarge');
     }
     return runtimeTranslate('ai.documentTranslationFailed');
 }

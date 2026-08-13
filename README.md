@@ -13,8 +13,9 @@ Mktero is a source-linked reflow reader for Zotero 7, 8, and 9. It converts a
 local PDF with MinerU, then opens the resulting Markdown, formulas, tables,
 figures, citations, and annotations in a reading-first Zotero tab. An optional
 correction mode lets you fix recognition errors without changing the immutable
-MinerU result, while optional AI translation can translate the full article and
-switch between original, translated, and block-level comparison reading.
+MinerU result, while optional AI translation can translate the full article in
+bounded concurrent Markdown batches and switch between original, translated, and
+continuous block-level bilingual reading.
 
 ![Mktero converting, reading, and annotating an academic PDF in Zotero](./docs/assets/mktero-demo.gif)
 
@@ -25,8 +26,9 @@ and return to the original PDF whenever you need to verify the evidence.
 > Mktero is currently in beta. On a cache miss, it uploads the complete PDF to
 > MinerU for conversion. A MinerU API Token is required. See
 > [Privacy and data handling](#privacy-and-data-handling) before using Mktero
-> with sensitive documents. Full-document AI translation separately sends the
-> article's translatable Markdown blocks to the provider you configure.
+> with sensitive documents. AI translation separately sends protected Markdown
+> batches to the provider you configure, with up to five requests active at
+> once.
 
 ## Quick start
 
@@ -62,11 +64,13 @@ Open `Settings -> Mktero` after installation.
 | Body text font | System serif | Choose System serif, Georgia, Cambria, or Times New Roman |
 | Body text size | 18 px | Adjust Markdown and snapshot text from 16 to 22 px while keeping a wide, stable reading column |
 | Reuse conversion results | On | Reuse results for the same PDF content and parser profile |
-| Enable AI features | Off | Allow full-document translation through the configured model service |
-| Stream responses | On | Stream each block response; turn off to wait for each complete block |
+| Enable AI features | Off | Allow Markdown translation through the configured model service |
+| Stream responses | On | Stream each Markdown batch response; turn off to wait for each batch to finish |
 | AI base URL / API Key / provider / protocol / model | OpenAI Responses / empty model | Route AI calls through Vercel AI SDK Core to a hosted provider or loopback model server |
 | Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese for new translations |
 | Reasoning effort | Automatic | Let the provider choose, or request off, low, medium, high, or extra-high reasoning from supported models |
+| Request timeout | 600,000 ms | Allow up to one hour for each batch request |
+| Maximum output tokens | Automatic (0) | Let the provider choose by default, or allow up to 262,144 tokens when the selected model supports it |
 
 The Mktero settings pane uses an aligned two-column layout for labels and
 controls, keeps Zotero's native select affordance, and uses explicit
@@ -75,7 +79,9 @@ dark themes.
 
 The MinerU API Token and AI API Key are stored unencrypted as normal
 preferences in the active Zotero profile. Use `Test connection` to validate
-the current AI endpoint, key, and model before translating.
+the current AI endpoint, key, and model before translating. This probe only
+requires a successful provider response; a reasoning-only response without
+visible text is sufficient.
 
 ### Open and read a PDF
 
@@ -86,9 +92,11 @@ the current AI endpoint, key, and model before translating.
    progress. A valid cache entry skips the remote conversion.
 3. Use the outline, citation and figure previews, source links, and Zotero notes
    panel to navigate the document.
-4. Use the fixed toolbar above the Markdown body to change font and text size,
-   translate the article, or select a reading mode. The More menu contains
-   `Manage corrections`, `Reparse PDF`, and `Save snapshot`.
+4. Use the fixed toolbar above the Markdown body to change text size and font,
+   select a reading mode, or translate the article. These controls use compact,
+   even spacing, with the translation action separated from the reading mode.
+   The More menu contains `Manage corrections`, `Reparse PDF`, and
+   `Save snapshot`.
 
 Reparsing uploads the PDF again and may consume MinerU quota. The current
 Markdown remains readable until a replacement is ready. Mktero tabs are
@@ -127,20 +135,35 @@ reader actions.
 ### Translate a Markdown article with AI
 
 Configure and enable AI translation in `Settings -> Mktero`, then select
-`Translate document` in a Markdown tab's toolbar. Mktero translates supported
-top-level Markdown blocks in document order while preserving code, images,
-standalone formulas, link definitions, and raw HTML. Translation is always an
-explicit action and never rewrites the source Markdown or becomes part of a
-saved snapshot. The toolbar reports block progress and lets you cancel between
-blocks. Streaming is enabled by default for provider transport; the reader
-updates progress after each complete block instead of redrawing the article for
-every token. Connection tests always use a short non-streaming request.
+`Translate document` in a Markdown tab's toolbar. Mktero groups the protected
+Markdown document at top-level H1 headings, divides each group into batches of
+up to eight blocks and about 2,000 estimated source tokens, and keeps up to five
+batch requests active. Responses are matched by block ID and merged in source
+order. Missing or invalid blocks are retried individually up to two times.
+Blocks that still fail keep their source text and leave the translation in a
+retryable partial state. Reference sections are kept unchanged. Code, images, standalone formulas,
+link definitions, raw HTML, URLs,
+and inline code are replaced with protected placeholders before each request
+and restored only after the response passes structural validation. Translation
+is always an explicit action and never rewrites the source Markdown or becomes
+part of a saved snapshot. Streaming is enabled by default for provider
+transport. While translation is running, the toolbar
+action shows a loading spinner and the current stage (connecting, model
+reasoning, receiving the translation, or validating the result); it remains
+available as `Cancel translation`, so select it again to stop the request. The
+reader switches to the translated document after every batch is settled; an
+incomplete result remains visible with its source-text fallbacks and can be retried.
+Connection tests always use a short non-streaming request.
 
 After translation, use the reading-mode selector to choose `Original`,
-`Translation`, or `Compare`. Original is the default whenever a document opens.
-Compare keeps every source block above its translated block. PDF annotations
-and source navigation remain attached to Original because translated text does
-not share the source Markdown's character offsets.
+`Translation`, or `Bilingual`. Original is the default whenever a document
+opens. Bilingual presents one continuous reading document: every source
+heading, paragraph, list, blockquote, or table is immediately followed by its
+translation. Translated blocks use a restrained left rule and indentation,
+while the outline contains only source headings. The single reading surface
+remains usable when Zotero's side panels reduce the available document width.
+PDF annotations and source navigation remain attached to Original because
+translated text does not share the source Markdown's character offsets.
 
 All AI calls pass through Vercel AI SDK Core. Mktero includes adapters for
 OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud Model Studio,
@@ -152,13 +175,16 @@ remain provider-specific. Remote endpoints must use HTTPS. Loopback servers
 such as Ollama or LM Studio may use HTTP and may omit the API Key when
 authentication is disabled.
 
-The complete translated article and comparison block map are stored inside the
-corresponding PDF Markdown cache entry and keyed by source content, provider,
-protocol, model, reasoning effort, target language, and prompt version. Clearing,
-replacing, or evicting that Markdown cache entry removes its translation. Lists,
-blockquotes, and GFM tables are translated; images, code, standalone formulas,
-link definitions, and raw HTML are preserved. Closing the tab, reparsing,
-editing the Markdown, or shutting down Mktero cancels active translation requests.
+The translated blocks are stored inside the corresponding PDF Markdown cache
+entry and keyed by source content, provider, protocol, model, reasoning effort,
+target language, and prompt version. The translated and bilingual reading
+documents are rebuilt from those blocks in source order, so existing cached
+translations can adopt presentation updates without another AI request.
+Clearing, replacing, or evicting that Markdown cache entry removes its
+translation. Lists, blockquotes, and GFM tables are translated; images, code,
+standalone formulas, link definitions, and raw HTML are preserved. Closing the
+tab, reparsing, editing the Markdown, or shutting down Mktero cancels active
+translation requests.
 
 ### Save a portable Zotero snapshot
 
@@ -180,7 +206,7 @@ library item cannot save a snapshot.
   cells, including removing spurious paragraphs or headings, while preserving
   the original MinerU Markdown and correction history.
 - Translates full Markdown articles through a configured Vercel AI SDK provider
-  and offers original, translated, and block-level comparison reading.
+  and offers original, translated, and continuous block-level bilingual reading.
 - Uses paper-oriented typography with STIX/Noto serif fallbacks, and applies
   asynchronous Shiki syntax highlighting, language labels, and code copying to
   supported fenced code blocks.
@@ -243,7 +269,7 @@ navigation, not as guessed annotation rectangles.
 | Complete PDF on a cache miss | Uploaded to MinerU | Not by Mktero |
 | API Token | Active Zotero profile, unencrypted | No |
 | AI API Key | Active Zotero profile, unencrypted | No |
-| Translatable blocks from an article selected for full translation | Configured AI provider | Not by Mktero |
+| Protected translatable Markdown batches selected for full translation | Configured AI provider | Not by Mktero |
 | Cached Markdown, figures, source maps, and PDF text indexes | Active Zotero profile, unencrypted | No |
 | Cached AI translations | Active Zotero profile, unencrypted | No |
 | Pending MinerU task IDs and timestamps | Active Zotero profile, unencrypted | No |
@@ -254,8 +280,9 @@ navigation, not as guessed annotation rectangles.
 
 The local cache does not contain API Tokens, AI API Keys, or PDF annotation
 comments. PDF annotations and local PDF.js indexes are not sent to MinerU or
-the AI provider. Full-document translation sends supported Markdown blocks and
-translation instructions to the configured AI provider. Source-aware copy reads
+the AI provider. Translation sends protected Markdown batches and translation
+instructions to the configured AI provider, with at most five requests active at
+once. Source-aware copy reads
 local item metadata and writes only the generated result to the system clipboard.
 
 Correction data is kept outside the normal conversion cache under the active
@@ -290,8 +317,8 @@ controlled by Zotero.
   notes, image/area annotations, or ink annotations.
 - Source navigation requires the stable MinerU `*_content_list.json` format.
   Older cache entries remain readable but may not have source links.
-- Navigation currently goes from Markdown to PDF. Reverse navigation,
-  side-by-side reading, and synchronized scrolling are not implemented.
+- Navigation currently goes from Markdown to PDF. Reverse navigation is not
+  implemented.
 - Markdown images resolve only supported GIF, JPEG, PNG, and WebP files from the
   current result archive; remote Markdown images are not loaded.
 - Links are restricted to `http`, `https`, `zotero`, and document fragments.

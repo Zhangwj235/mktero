@@ -173,8 +173,18 @@ test('aborts live AI SDK requests across bootstrap translation lifecycles', {
     await waitFor(() => shadow.querySelector(
         '#mktero-translate-document'
     )?.getAttribute('aria-busy') === 'false');
-    assert.equal(shadow.querySelector('#mktero-translation-view').disabled, true);
-    assert.equal(shadow.querySelector('#mktero-translation-view').value, 'original');
+    const translationViewButtons = [...shadow.querySelectorAll(
+        '[data-translation-view]'
+    )];
+    assert.equal(
+        translationViewButtons.every(button => button.disabled),
+        true
+    );
+    assert.equal(
+        shadow.querySelector('[data-translation-view="original"]')
+            ?.getAttribute('aria-pressed'),
+        'true'
+    );
 
     startTranslation(shadow);
     const reparseSignal = await waitFor(() => chatSignals[2]);

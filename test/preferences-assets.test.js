@@ -28,8 +28,8 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(prefs, /pref\("extensions\.mktero\.aiProvider", "openai"\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiProtocol", "openai-responses"\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiApiKey", ""\)/);
-    assert.match(prefs, /pref\("extensions\.mktero\.aiRequestTimeoutMs", 30000\)/);
-    assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 2048\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiRequestTimeoutMs", 600000\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 0\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiReasoning", "provider-default"\)/);
     assert.doesNotMatch(prefs, /extensions\.mktero\.aiCacheEnabled/);
     assert.match(
@@ -51,6 +51,14 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(pane, /preference="extensions\.mktero\.aiModel"/);
     assert.match(pane, /preference="extensions\.mktero\.aiRequestTimeoutMs"/);
     assert.match(pane, /preference="extensions\.mktero\.aiMaxOutputTokens"/);
+    assert.match(
+        pane,
+        /id="mktero-ai-request-timeout"[\s\S]*?max="3600000"/
+    );
+    assert.match(
+        pane,
+        /id="mktero-ai-max-output-tokens"[\s\S]*?max="262144"/
+    );
     assert.match(pane, /preference="extensions\.mktero\.aiReasoning"/);
     assert.match(pane, /<html:option value="provider-default" data-i18n="preferences\.ai\.reasoning\.auto"><\/html:option>/);
     assert.match(pane, /<html:option value="xhigh" data-i18n="preferences\.ai\.reasoning\.xhigh"><\/html:option>/);
@@ -220,7 +228,7 @@ test('keeps choice and numeric AI controls compact without native spinners', asy
     );
     assert.match(
         styles,
-        /\.mktero-field-control-numeric\s*\{[\s\S]*?flex-basis:\s*220px[\s\S]*?width:\s*220px/s
+        /\.mktero-field-control-numeric\s*\{[\s\S]*?flex-basis:\s*240px[\s\S]*?width:\s*240px/s
     );
     assert.match(
         styles,
