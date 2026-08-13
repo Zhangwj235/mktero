@@ -332,6 +332,19 @@ test('translates the document and switches between three reading modes', async (
             unmatched: [],
         });
 
+        view.render({
+            ...translatedModel,
+            translationStatus: 'partial',
+            translationView: 'translated',
+        });
+        assert.equal(translate.disabled, false);
+        assert.equal(
+            translate.getAttribute('aria-label'),
+            'Retry incomplete translation'
+        );
+        assert.equal(selector.disabled, false);
+        assert.equal(renderedDocuments.at(-1).markdown, '# 论文\n\n翻译这一段。');
+
         view.render({ ...model, onTranslateDocument: undefined });
         assert.equal(controls.hidden, true);
     }

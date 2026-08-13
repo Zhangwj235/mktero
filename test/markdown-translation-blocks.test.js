@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import {
     assembleTranslatedMarkdown,
     collectMarkdownTranslationBlocks,
+    collectMarkdownTranslationBatchResponse,
     collectMarkdownTranslationSections,
     collectDocumentTranslations,
     createComparisonMarkdown,
+    createMarkdownTranslationBatches,
     createMarkdownTranslationRequest,
     validateTranslatedBlock,
 } from '../src/markdown/markdown-translation-blocks.js';
@@ -108,6 +110,127 @@ test('keeps a document without H1 headings in one translation section', () => {
 
     assert.equal(sections.length, 1);
     assert.deepEqual(sections[0].blocks, blocks);
+});
+
+test('creates bounded translation batches inside one H1 section', () => {
+    const markdown = [
+        '# Article',
+        '',
+        'First paragraph.',
+        '',
+        `Second ${'word '.repeat(20)}paragraph.`,
+    ].join('\n');
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const [section] = collectMarkdownTranslationSections(markdown, blocks);
+
+    const batches = createMarkdownTranslationBatches(section, {
+        maxBlocks: 8,
+        maxSourceTokens: 15,
+    });
+
+    assert.deepEqual(batches.map(batch => batch.blocks.map(block => (
+        block.markdown
+    ))), [
+        ['# Article', 'First paragraph.'],
+        [`Second ${'word '.repeat(20)}paragraph.`],
+    ]);
+});
+
+test('matches batch responses by block ID instead of response order', () => {
+    const blocks = collectMarkdownTranslationBlocks('# Paper\n\nParagraph.');
+    const response = JSON.stringify([...blocks].reverse().map(block => ({
+        id: block.id,
+        translatedMarkdown: block.type === 'heading' ? '# 论文' : '译文。',
+    })));
+
+    const result = collectMarkdownTranslationBatchResponse(blocks, response);
+
+    assert.deepEqual(result.failures, []);
+    assert.deepEqual(result.translations.map(value => value.id), [
+        blocks[0].id,
+        blocks[1].id,
+    ]);
+});
+
+test('rejects unknown block IDs in a translation batch response', () => {
+    const blocks = collectMarkdownTranslationBlocks('# Paper');
+
+    assert.throws(() => collectMarkdownTranslationBatchResponse(
+        blocks,
+        JSON.stringify([{
+            id: blocks[0].id,
+            translatedMarkdown: '# 论文',
+        }, {
+            id: 'unknown-block',
+            translatedMarkdown: 'Injected text',
+        }])
+    ), /unknown Markdown block ID/i);
+});
+
+test('protects numeric citation markers from translation', () => {
+    const [block] = collectMarkdownTranslationBlocks(
+        'Prior work [1, 3-5] supports this result.'
+    );
+
+    assert.doesNotMatch(block.requestMarkdown, /\[1, 3-5\]/);
+    assert.equal(block.protectedFragments[0].markdown, '[1, 3-5]');
+    assert.equal(validateTranslatedBlock(
+        block,
+        block.requestMarkdown.replace(
+            'Prior work',
+            '既有研究'
+        ).replace('supports this result', '支持这一结果')
+    ), '既有研究 [1, 3-5] 支持这一结果.');
+});
+
+test('keeps reference headings and entries out of translation batches', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Body paragraph.',
+        '',
+        '## References',
+        '',
+        '[1] Author. Article title.',
+    ].join('\n');
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const batches = collectMarkdownTranslationSections(markdown, blocks)
+        .flatMap(createMarkdownTranslationBatches);
+
+    assert.deepEqual(blocks.map(block => block.translatable), [
+        true,
+        true,
+        false,
+        false,
+    ]);
+    assert.doesNotMatch(batches[0].requestPayload, /References|Article title/);
+});
+
+test('resumes translation at a new H1 section after references', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Body paragraph.',
+        '',
+        '## References',
+        '',
+        '[1] Author. Article title.',
+        '',
+        '# Appendix',
+        '',
+        'Additional analysis.',
+    ].join('\n');
+
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+
+    assert.deepEqual(blocks.map(block => block.translatable), [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+    ]);
 });
 
 test('translates Setext headings while preserving their heading level', () => {

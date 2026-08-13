@@ -56,9 +56,11 @@ test('translates a complete Markdown document in one provider request', async ()
                 const requestMarkdown = request.messages[1].content;
                 requests.push(requestMarkdown);
                 return {
-                    text: requestMarkdown
-                        .replace('# Paper', '# 论文')
-                        .replace('Original paragraph.', '译文段落。'),
+                    text: translateBatchRequest(requestMarkdown, source => (
+                        source
+                            .replace('# Paper', '# 论文')
+                            .replace('Original paragraph.', '译文段落。')
+                    )),
                     model: 'provider-model',
                     usage: { totalTokens: 10 },
                 };
@@ -79,11 +81,9 @@ test('translates a complete Markdown document in one provider request', async ()
     });
 
     assert.equal(requests.length, 1);
-    assert.match(requests[0], /^MKTEROBLOCK\d+STARTMARKER/);
-    assert.match(requests[0], /# Paper/);
-    assert.match(requests[0], /Original paragraph\./);
-    assert.match(requests[0], /MKTEROPROTECTED\d+PLACEHOLDER/);
-    assert.match(requests[0], /MKTEROBLOCK\d+ENDMARKER$/);
+    assert.deepEqual(parseTranslationRequest(requests[0]).map(entry => (
+        entry.sourceMarkdown
+    )), ['# Paper', 'Original paragraph.']);
     assert.doesNotMatch(requests[0], /code\(\)/);
     assert.equal(
         result.translatedMarkdown,
@@ -340,13 +340,18 @@ for (const [name, output] of [
     ['raw HTML', '<script>alert(1)</script>'],
     ['a Markdown image', '![Injected](https://example.com/tracker.png)'],
 ]) {
-    test(`rejects ${name} returned by the AI provider`, async () => {
+    test(`keeps source text when the AI provider returns ${name}`, async () => {
         const service = createBoundaryService({ output });
 
-        await assert.rejects(() => service.translateDocument({
+        const result = await service.translateDocument({
             documentKey: 'a'.repeat(64),
             markdown: 'Translate this paragraph.',
-        }), error => error?.code === 'AI_INVALID_RESPONSE');
+        });
+
+        assert.equal(result.translatedMarkdown, 'Translate this paragraph.');
+        assert.equal(result.partial, true);
+        assert.equal(result.completedBlocks, 0);
+        assert.equal(result.failedBlocks.length, 1);
     });
 }
 
@@ -450,7 +455,8 @@ test('counts restored protected content toward the document output limit', async
         aiGateway: {
             async generateText(request) {
                 requestMarkdown = request.messages[1].content;
-                const placeholder = requestMarkdown.match(
+                const placeholder = parseTranslationRequest(requestMarkdown)[0]
+                    .sourceMarkdown.match(
                     /MKTEROPROTECTED\d+PLACEHOLDER/
                 )?.[0];
                 return {
@@ -476,6 +482,60 @@ test('counts restored protected content toward the document output limit', async
     assert.match(requestMarkdown, /MKTEROPROTECTED\d+PLACEHOLDER/);
 });
 
+test('cancels active batches when completed translations exceed 4 MB', async () => {
+    let calls = 0;
+    let aborted = 0;
+    const oversizedParagraph = `译文${'x'.repeat(1_100_000)}`;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                calls++;
+                const entries = parseTranslationRequest(
+                    request.messages[1].content
+                );
+                const heading = entries.find(entry => (
+                    entry.sourceMarkdown.startsWith('# ')
+                ));
+                if (heading?.sourceMarkdown === '# Section 4') {
+                    await new Promise((resolve, reject) => {
+                        request.signal.addEventListener('abort', () => {
+                            aborted++;
+                            reject(Object.assign(new Error('aborted'), {
+                                name: 'AbortError',
+                            }));
+                        }, { once: true });
+                    });
+                }
+                return {
+                    text: JSON.stringify(entries.map(entry => ({
+                        id: entry.id,
+                        translatedMarkdown: entry === heading
+                            ? entry.sourceMarkdown
+                            : oversizedParagraph,
+                    }))),
+                };
+            },
+        },
+        cache: {
+            getTranslation: async () => null,
+            putTranslation: assert.fail,
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+    const source = Array.from({ length: 5 }, (_, index) => (
+        `# Section ${index}\n\nParagraph ${index}.`
+    )).join('\n\n');
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: source,
+    }), error => error?.code === 'AI_RESPONSE_TOO_LARGE');
+
+    assert.equal(calls, 5);
+    assert.equal(aborted, 1);
+});
+
 test('loads a complete document translation without calling the provider', async () => {
     const cached = {
         translatedMarkdown: '# 论文',
@@ -484,6 +544,8 @@ test('loads a complete document translation without calling the provider', async
         model: 'cached-model',
         targetLanguage: 'zh-CN',
         promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
     };
     const service = new MarkdownTranslationService({
         aiGateway: { generateText: assert.fail },
@@ -509,8 +571,133 @@ test('loads a complete document translation without calling the provider', async
     });
 });
 
-test('does not cache a structurally incomplete document response', async () => {
+test('reports cached partial translations but retries them on explicit translation', async () => {
+    const blockID = 'translation-0-0-7-heading';
+    const cached = {
+        translatedMarkdown: '# Paper',
+        comparisonMarkdown: '# Paper\n\n> # Paper',
+        blocks: [{ id: blockID, markdown: '# Paper' }],
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: true,
+        failedBlocks: [{ id: blockID, message: 'Invalid response' }],
+    };
+    let providerCalls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                providerCalls++;
+                return {
+                    text: translateSingleBlockRequest(
+                        request.messages[1].content,
+                        '# 论文'
+                    ),
+                };
+            },
+        },
+        cache: {
+            getTranslation: async () => cached,
+            putTranslation: async () => {},
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    const restored = await service.getCachedDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+    const retried = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+
+    assert.equal(restored.partial, true);
+    assert.equal(restored.completedBlocks, 0);
+    assert.equal(retried.partial, false);
+    assert.equal(retried.translatedMarkdown, '# 论文');
+    assert.equal(providerCalls, 1);
+});
+
+test('retries only failed cached blocks and preserves successful translations', async () => {
+    const headingID = 'translation-0-0-7-heading';
+    const paragraphID = 'translation-1-9-19-paragraph';
+    const cached = {
+        translatedMarkdown: '# 论文\n\nParagraph.',
+        comparisonMarkdown: [
+            '# Paper',
+            '',
+            '> # 论文',
+            '',
+            'Paragraph.',
+            '',
+            '> Paragraph.',
+        ].join('\n'),
+        blocks: [{
+            id: headingID,
+            markdown: '# 论文',
+        }, {
+            id: paragraphID,
+            markdown: 'Paragraph.',
+        }],
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: true,
+        failedBlocks: [{ id: paragraphID, message: 'Invalid response' }],
+    };
+    const requests = [];
+    const writes = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                const entries = parseTranslationRequest(
+                    request.messages[1].content
+                );
+                requests.push(entries);
+                return {
+                    text: JSON.stringify([{
+                        id: entries[0].id,
+                        translatedMarkdown: '译文。',
+                    }]),
+                };
+            },
+        },
+        cache: {
+            getTranslation: async () => cached,
+            putTranslation: async (...args) => writes.push(args),
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper\n\nParagraph.',
+    });
+
+    assert.equal(requests.length, 1);
+    assert.deepEqual(requests[0], [{
+        id: paragraphID,
+        sourceMarkdown: 'Paragraph.',
+    }]);
+    assert.equal(result.translatedMarkdown, '# 论文\n\n译文。');
+    assert.deepEqual(result.blocks, [{
+        id: headingID,
+        markdown: '# 论文',
+    }, {
+        id: paragraphID,
+        markdown: '译文。',
+    }]);
+    assert.equal(result.partial, false);
+    assert.equal(result.completedBlocks, 2);
+    assert.equal(writes[0][2].partial, false);
+});
+
+test('keeps source blocks and caches a structurally incomplete partial response', async () => {
     let calls = 0;
+    const cached = [];
     const service = new MarkdownTranslationService({
         aiGateway: {
             async generateText() {
@@ -520,20 +707,28 @@ test('does not cache a structurally incomplete document response', async () => {
         },
         cache: {
             getTranslation: async () => null,
-            putTranslation: assert.fail,
+            putTranslation: async (...args) => cached.push(args),
         },
         getSettings: () => ({ ...SETTINGS, streaming: false }),
         createCacheKey: async () => 'c'.repeat(64),
     });
 
-    await assert.rejects(() => service.translateDocument({
+    const result = await service.translateDocument({
         documentKey: 'a'.repeat(64),
         markdown: '# Paper\n\nParagraph.',
-    }), error => error?.code === 'AI_INVALID_RESPONSE');
-    assert.equal(calls, 1);
+    });
+
+    assert.equal(result.translatedMarkdown, '# Paper\n\nParagraph.');
+    assert.equal(result.partial, true);
+    assert.equal(result.completedBlocks, 0);
+    assert.equal(result.failedBlocks.length, 2);
+    assert.equal(calls, 5);
+    assert.equal(cached.length, 1);
+    assert.equal(cached[0][2].partial, true);
+    assert.deepEqual(cached[0][2].failedBlocks, result.failedBlocks);
 });
 
-test('does not cache a document response truncated by the output limit', async () => {
+test('keeps source blocks when a document response reaches the output limit', async () => {
     const service = new MarkdownTranslationService({
         aiGateway: {
             async generateText() {
@@ -545,19 +740,23 @@ test('does not cache a document response truncated by the output limit', async (
         },
         cache: {
             getTranslation: async () => null,
-            putTranslation: assert.fail,
+            putTranslation: async () => {},
         },
         getSettings: () => ({ ...SETTINGS, streaming: false }),
         createCacheKey: async () => 'c'.repeat(64),
     });
 
-    await assert.rejects(() => service.translateDocument({
+    const result = await service.translateDocument({
         documentKey: 'a'.repeat(64),
         markdown: 'One paragraph.',
-    }), error => error?.code === 'AI_OUTPUT_TRUNCATED');
+    });
+
+    assert.equal(result.translatedMarkdown, 'One paragraph.');
+    assert.equal(result.partial, true);
+    assert.equal(result.completedBlocks, 0);
 });
 
-test('does not cache a streamed document truncated by the output limit', async () => {
+test('keeps source blocks when a streamed response reaches the output limit', async () => {
     const service = new MarkdownTranslationService({
         aiGateway: {
             generateText: assert.fail,
@@ -570,16 +769,20 @@ test('does not cache a streamed document truncated by the output limit', async (
         },
         cache: {
             getTranslation: async () => null,
-            putTranslation: assert.fail,
+            putTranslation: async () => {},
         },
         getSettings: () => ({ ...SETTINGS, streaming: true }),
         createCacheKey: async () => 'c'.repeat(64),
     });
 
-    await assert.rejects(() => service.translateDocument({
+    const result = await service.translateDocument({
         documentKey: 'a'.repeat(64),
         markdown: 'One paragraph.',
-    }), error => error?.code === 'AI_OUTPUT_TRUNCATED');
+    });
+
+    assert.equal(result.translatedMarkdown, 'One paragraph.');
+    assert.equal(result.partial, true);
+    assert.equal(result.completedBlocks, 0);
 });
 
 test('stops a complete document translation when canceled', async () => {
@@ -631,7 +834,9 @@ test('translates H1 sections with at most five concurrent requests and restores 
                 active++;
                 maximumActive = Math.max(maximumActive, active);
                 const requestMarkdown = request.messages[1].content;
-                const title = requestMarkdown.match(/^(# .+)$/m)?.[1] || '';
+                const title = parseTranslationRequest(requestMarkdown)
+                    .find(entry => entry.sourceMarkdown.startsWith('# '))
+                    ?.sourceMarkdown || '';
                 const index = Number(title.match(/Section (\d+)/)?.[1] || 0);
                 requests.push({ index, requestMarkdown });
                 notifyRequest();
@@ -680,50 +885,153 @@ test('translates H1 sections with at most five concurrent requests and restores 
     assert.equal(completed.usage.totalTokens, 70);
 });
 
-test('cancels sibling section requests after the first provider failure', async () => {
-    let calls = 0;
-    let resolveAllStarted;
-    const allStarted = new Promise(resolve => { resolveAllStarted = resolve; });
+test('splits a long H1 section into bounded batches and restores paragraph order', async () => {
+    const requests = [];
+    let active = 0;
+    let maximumActive = 0;
     const service = new MarkdownTranslationService({
         aiGateway: {
             async generateText(request) {
-                calls++;
-                const title = request.messages[1].content.match(/^(# .+)$/m)?.[1] || '';
-                const index = Number(title.match(/Section (\d+)/)?.[1] || 0);
-                if (calls === 5) resolveAllStarted();
-                await allStarted;
-                if (index === 0) {
-                    throw Object.assign(new Error('bad response'), {
-                        code: 'AI_INVALID_RESPONSE',
-                    });
-                }
-                await new Promise((resolve, reject) => {
-                    const abort = () => reject(Object.assign(new Error('aborted'), {
-                        name: 'AbortError',
-                    }));
-                    request.signal?.addEventListener('abort', abort, { once: true });
-                });
+                active++;
+                maximumActive = Math.max(maximumActive, active);
+                requests.push(request.messages[1].content);
+                await Promise.resolve();
+                active--;
                 return {
-                    text: translateMarkedSection(
+                    text: translateBatchRequest(
                         request.messages[1].content,
-                        `# 翻译 ${index}`
+                        sourceMarkdown => sourceMarkdown
+                            .replace('# One section', '# 一个章节')
+                            .replace(/Paragraph (\d+)\./g, '译文段落 $1。')
                     ),
+                    model: 'provider-model',
+                    usage: { totalTokens: 10 },
                 };
             },
         },
         getSettings: () => ({ ...SETTINGS, streaming: false }),
         createCacheKey: async () => null,
     });
-    const source = Array.from({ length: 6 }, (_, index) => (
-        `# Section ${index}\n\nParagraph ${index}.`
-    )).join('\n\n');
+    const source = [
+        '# One section',
+        ...Array.from({ length: 17 }, (_, index) => [
+            '',
+            `Paragraph ${index}.`,
+        ]).flat(),
+    ].join('\n');
 
-    await assert.rejects(() => service.translateDocument({
+    const result = await service.translateDocument({
         documentKey: 'a'.repeat(64),
         markdown: source,
-    }), error => error?.code === 'AI_INVALID_RESPONSE');
-    assert.equal(calls, 5);
+    });
+
+    assert.equal(requests.length, 3);
+    assert.ok(maximumActive <= 5);
+    assert.deepEqual(
+        requests.map(request => parseTranslationRequest(request).length),
+        [8, 8, 2]
+    );
+    assert.deepEqual(
+        [...result.translatedMarkdown.matchAll(/^译文段落 (\d+)。$/gm)]
+            .map(match => Number(match[1])),
+        Array.from({ length: 17 }, (_, index) => index)
+    );
+    assert.equal(result.usage.totalTokens, 30);
 });
+
+test('retries only a missing block from an otherwise valid batch', async () => {
+    const requests = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                const entries = parseTranslationRequest(
+                    request.messages[1].content
+                );
+                requests.push(entries);
+                if (requests.length === 1) {
+                    return {
+                        text: JSON.stringify([{
+                            id: entries[0].id,
+                            translatedMarkdown: '# 论文',
+                        }]),
+                    };
+                }
+                return {
+                    text: JSON.stringify([{
+                        id: entries[0].id,
+                        translatedMarkdown: '译文。',
+                    }]),
+                };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => null,
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper\n\nParagraph.',
+    });
+
+    assert.deepEqual(requests.map(entries => entries.length), [2, 1]);
+    assert.equal(requests[1][0].sourceMarkdown, 'Paragraph.');
+    assert.equal(result.translatedMarkdown, '# 论文\n\n译文。');
+});
+
+test('retries every block after the initial batch request fails', async () => {
+    let calls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText() {
+                calls++;
+                throw Object.assign(new Error('bad response'), {
+                    code: 'AI_INVALID_RESPONSE',
+                });
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => null,
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper\n\nParagraph.',
+    });
+
+    assert.equal(calls, 5);
+    assert.equal(result.partial, true);
+    assert.equal(result.completedBlocks, 0);
+    assert.equal(result.translatedMarkdown, '# Paper\n\nParagraph.');
+});
+
+for (const code of [
+    'AI_AUTH_ERROR',
+    'AI_RATE_LIMITED',
+    'AI_REQUEST_TIMEOUT',
+    'AI_NETWORK_ERROR',
+    'AI_HTTP_ERROR',
+    'AI_RESPONSE_TOO_LARGE',
+]) {
+    test(`does not retry a fatal ${code} provider error`, async () => {
+        let calls = 0;
+        const service = new MarkdownTranslationService({
+            aiGateway: {
+                async generateText() {
+                    calls++;
+                    throw Object.assign(new Error('provider failed'), { code });
+                },
+            },
+            getSettings: () => ({ ...SETTINGS, streaming: false }),
+            createCacheKey: async () => null,
+        });
+
+        await assert.rejects(() => service.translateDocument({
+            documentKey: 'a'.repeat(64),
+            markdown: '# Paper\n\nParagraph.',
+        }), error => error?.code === code);
+        assert.equal(calls, 1);
+    });
+}
 
 function deferred() {
     let resolve;
@@ -800,19 +1108,33 @@ function createBoundaryService({ output, onProviderCall = () => {} }) {
 }
 
 function translateSingleBlockRequest(requestMarkdown, translatedMarkdown) {
-    const pattern = /(MKTEROBLOCK\d+STARTMARKER\n\n)[\s\S]*?(\n\nMKTEROBLOCK\d+ENDMARKER)/;
-    if (!pattern.test(requestMarkdown)) {
-        throw new Error('A marked single-block request is required');
-    }
-    return requestMarkdown.replace(
-        pattern,
-        (_, start, end) => `${start}${translatedMarkdown}${end}`
-    );
+    const entries = parseTranslationRequest(requestMarkdown);
+    if (entries.length !== 1) throw new Error('A single-block request is required');
+    return JSON.stringify([{
+        id: entries[0].id,
+        translatedMarkdown,
+    }]);
 }
 
 function translateMarkedSection(requestMarkdown, translatedHeading) {
     const index = translatedHeading.match(/(\d+)$/)?.[1] || 0;
-    return requestMarkdown
-        .replace(`# Section ${index}`, translatedHeading)
-        .replace(`Paragraph ${index}.`, `译文段落 ${index}。`);
+    return JSON.stringify(parseTranslationRequest(requestMarkdown).map(entry => ({
+        id: entry.id,
+        translatedMarkdown: entry.sourceMarkdown
+            .replace(`# Section ${index}`, translatedHeading)
+            .replace(`Paragraph ${index}.`, `译文段落 ${index}。`),
+    })));
+}
+
+function translateBatchRequest(requestMarkdown, translate) {
+    return JSON.stringify(parseTranslationRequest(requestMarkdown).map(entry => ({
+        id: entry.id,
+        translatedMarkdown: translate(entry.sourceMarkdown),
+    })));
+}
+
+function parseTranslationRequest(request) {
+    const entries = JSON.parse(request);
+    if (!Array.isArray(entries)) throw new Error('A JSON translation batch is required');
+    return entries;
 }

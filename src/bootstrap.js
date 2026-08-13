@@ -780,7 +780,9 @@ function setTranslationView(documentID, view) {
     if (!presentation
         || presentation.model.status !== 'ready'
         || presentation.model.renderMode === 'html'
-        || presentation.model.translationStatus !== 'ready') {
+        || !['ready', 'partial'].includes(
+            presentation.model.translationStatus
+        )) {
         return false;
     }
     const normalized = ['original', 'translated', 'compare'].includes(view)
@@ -841,12 +843,18 @@ async function translateDocument(documentID) {
         );
         if (runtime.presenter?.get(documentID) !== presentation) return result;
         runtime.presenter.update(presentation, {
-            translationStatus: 'ready',
-            translationProgress: 100,
+            translationStatus: result.partial ? 'partial' : 'ready',
+            translationProgress: result.totalBlocks
+                ? Math.round(result.completedBlocks / result.totalBlocks * 100)
+                : 100,
             translationStage: 'complete',
             translatedMarkdown: result.translatedMarkdown,
             comparisonMarkdown: result.comparisonMarkdown,
-            translationError: '',
+            translationError: result.partial
+                ? runtimeTranslate('ai.documentTranslationPartial', {
+                    failed: result.failedBlocks.length,
+                })
+                : '',
         });
         return result;
     }
@@ -998,14 +1006,21 @@ async function attachCachedDocumentTranslation(result, signal) {
         });
     if (signal?.aborted) throw signal.reason || new Error('Aborted');
     if (!cached) return result;
+    const partial = Boolean(cached.partial);
     return {
         ...result,
-        translationStatus: 'ready',
-        translationProgress: 100,
+        translationStatus: partial ? 'partial' : 'ready',
+        translationProgress: cached.totalBlocks
+            ? Math.round(cached.completedBlocks / cached.totalBlocks * 100)
+            : 100,
         translationView: 'original',
         translatedMarkdown: cached.translatedMarkdown,
         comparisonMarkdown: cached.comparisonMarkdown,
-        translationError: '',
+        translationError: partial
+            ? runtimeTranslate('ai.documentTranslationPartial', {
+                failed: cached.failedBlocks.length,
+            })
+            : '',
     };
 }
 

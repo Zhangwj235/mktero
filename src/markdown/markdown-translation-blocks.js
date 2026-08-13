@@ -24,6 +24,10 @@ const PROTECTED_NODE_TYPES = new Set([
 ]);
 const PROTECTED_PLACEHOLDER_PATTERN = /MKTEROPROTECTED\d+PLACEHOLDER/g;
 const DOCUMENT_MARKER_PATTERN = /MKTEROBLOCK\d+(?:START|END)MARKER/g;
+const REFERENCE_HEADING_PATTERN = /^(?:references?|bibliography|works cited|literature cited|参考文献|参考资料|参考书目|引用文献)$/iu;
+const NUMERIC_CITATION_PATTERN = /\[(?:\d{1,4}[a-z]?(?:[ \t]*[-–—,，;；][ \t]*\d{1,4}[a-z]?)*)(?:[ \t]*,[ \t]*)?\]/giu;
+export const MAX_TRANSLATION_BATCH_BLOCKS = 8;
+export const MAX_TRANSLATION_BATCH_SOURCE_TOKENS = 2_000;
 
 export function collectMarkdownTranslationBlocks(markdown) {
     const source = String(markdown || '');
@@ -31,10 +35,18 @@ export function collectMarkdownTranslationBlocks(markdown) {
     const createPlaceholder = createProtectedPlaceholderFactory(source);
     const createDocumentMarkers = createDocumentMarkerFactory(source);
     let ordinal = 0;
+    let referenceSection = false;
     for (let node = MARKDOWN_PARSER.parse(source).topNode.firstChild;
         node;
         node = node.nextSibling) {
         const blockMarkdown = source.slice(node.from, node.to);
+        const referenceHeading = isReferenceHeading(node.name, blockMarkdown);
+        if (isTopLevelH1Node(node.name) && !referenceHeading) {
+            referenceSection = false;
+        }
+        if (referenceHeading) {
+            referenceSection = true;
+        }
         const type = translationBlockType(node.name);
         const protectedRanges = collectProtectedRanges(node, blockMarkdown);
         const protectedBlock = protectMarkdown(
@@ -42,12 +54,13 @@ export function collectMarkdownTranslationBlocks(markdown) {
             protectedRanges,
             createPlaceholder
         );
-        const translatable = isTranslatableBlock(
-            node,
-            blockMarkdown,
-            protectedBlock.markdown,
-            protectedBlock.fragments
-        );
+        const translatable = !referenceSection
+            && isTranslatableBlock(
+                node,
+                blockMarkdown,
+                protectedBlock.markdown,
+                protectedBlock.fragments
+            );
         const requestBlock = translatable
             ? protectedBlock
             : protectMarkdown(blockMarkdown, [{
@@ -99,6 +112,118 @@ export function collectMarkdownTranslationSections(markdown, blocks) {
             sectionBlocks.at(-1).to
         ),
     }));
+}
+
+export function createMarkdownTranslationBatches(section, {
+    maxBlocks = MAX_TRANSLATION_BATCH_BLOCKS,
+    maxSourceTokens = MAX_TRANSLATION_BATCH_SOURCE_TOKENS,
+} = {}) {
+    if (!Array.isArray(section?.blocks)) {
+        throw new TypeError('A Markdown translation section is required');
+    }
+    if (!Number.isSafeInteger(maxBlocks) || maxBlocks < 1) {
+        throw new RangeError('The Markdown translation batch block limit is invalid');
+    }
+    if (!Number.isSafeInteger(maxSourceTokens) || maxSourceTokens < 1) {
+        throw new RangeError('The Markdown translation batch token limit is invalid');
+    }
+    const batches = [];
+    let batchBlocks = [];
+    let translatableCount = 0;
+    let sourceTokens = 0;
+    const appendBatch = () => {
+        if (!batchBlocks.length || !translatableCount) {
+            batchBlocks = [];
+            translatableCount = 0;
+            sourceTokens = 0;
+            return;
+        }
+        batches.push({
+            blocks: batchBlocks,
+            translatableBlocks: batchBlocks.filter(block => block.translatable),
+            requestPayload: createMarkdownTranslationBatchPayload(batchBlocks),
+        });
+        batchBlocks = [];
+        translatableCount = 0;
+        sourceTokens = 0;
+    };
+    for (const block of section.blocks) {
+        const blockTokens = estimateMarkdownTokens(block.requestMarkdown);
+        const exceedsBlockLimit = block.translatable
+            && translatableCount >= maxBlocks;
+        const exceedsTokenLimit = batchBlocks.length
+            && sourceTokens + blockTokens > maxSourceTokens;
+        if (batchBlocks.length && (exceedsBlockLimit || exceedsTokenLimit)) {
+            appendBatch();
+        }
+        batchBlocks.push(block);
+        sourceTokens += blockTokens;
+        if (block.translatable) translatableCount++;
+    }
+    appendBatch();
+    return batches;
+}
+
+export function createMarkdownTranslationBatchPayload(blocks) {
+    if (!Array.isArray(blocks)) {
+        throw new TypeError('Markdown translation blocks are required');
+    }
+    return JSON.stringify(blocks.flatMap(block => block.translatable ? [{
+        id: block.id,
+        sourceMarkdown: block.requestMarkdown,
+    }] : []));
+}
+
+export function collectMarkdownTranslationBatchResponse(blocks, response) {
+    if (!Array.isArray(blocks)) {
+        throw new TypeError('Markdown translation blocks are required');
+    }
+    const expectedBlocks = blocks.filter(block => block.translatable);
+    const expectedIDs = new Set(expectedBlocks.map(block => block.id));
+    const parsed = parseTranslationResponse(response);
+    if (!Array.isArray(parsed)) {
+        throw new Error('The translated Markdown batch must be a JSON array');
+    }
+    const responsesByID = new Map();
+    for (const entry of parsed) {
+        const id = String(entry?.id || '');
+        if (!id) continue;
+        if (!expectedIDs.has(id)) {
+            throw new Error('The AI returned an unknown Markdown block ID');
+        }
+        const entries = responsesByID.get(id) || [];
+        entries.push(entry);
+        responsesByID.set(id, entries);
+    }
+    const translations = [];
+    const failures = [];
+    for (const block of expectedBlocks) {
+        const entries = responsesByID.get(block.id) || [];
+        if (entries.length !== 1
+            || typeof entries[0].translatedMarkdown !== 'string') {
+            failures.push({
+                id: block.id,
+                message: entries.length > 1
+                    ? 'The AI returned a duplicate Markdown block translation'
+                    : 'The AI omitted a Markdown block translation',
+            });
+            continue;
+        }
+        try {
+            validateTranslatedBlock(block, entries[0].translatedMarkdown);
+            translations.push({
+                id: block.id,
+                markdown: entries[0].translatedMarkdown,
+            });
+        }
+        catch (error) {
+            failures.push({
+                id: block.id,
+                message: error?.message || 'The translated Markdown block is invalid',
+            });
+        }
+    }
+    return { translations, failures };
 }
 
 export function createMarkdownTranslationRequest(markdown, blocks) {
@@ -318,6 +443,14 @@ function collectProtectedRanges(node, markdown) {
             to: match.index + match[0].length,
         });
     }
+    for (const match of markdown.matchAll(
+        new RegExp(NUMERIC_CITATION_PATTERN.source, 'giu')
+    )) {
+        ranges.push({
+            from: match.index,
+            to: match.index + match[0].length,
+        });
+    }
     return selectOuterRanges(ranges, markdown.length);
 }
 
@@ -531,8 +664,23 @@ function translationBlockType(nodeName) {
 }
 
 function isTopLevelH1(block) {
-    return block?.nodeType === 'ATXHeading1'
-        || block?.nodeType === 'SetextHeading1';
+    return isTopLevelH1Node(block?.nodeType);
+}
+
+function isTopLevelH1Node(nodeName) {
+    return nodeName === 'ATXHeading1' || nodeName === 'SetextHeading1';
+}
+
+function isReferenceHeading(nodeName, markdown) {
+    if (!HEADING_PATTERN.test(nodeName)) return false;
+    const label = String(markdown || '')
+        .replace(/^#{1,6}[ \t]+/, '')
+        .replace(/[ \t]+#*[ \t]*$/, '')
+        .replace(/\r?\n[=-]+[ \t]*$/, '')
+        .replace(/[*_`]/g, '')
+        .replace(/[：:][ \t]*$/, '')
+        .trim();
+    return REFERENCE_HEADING_PATTERN.test(label);
 }
 
 function topLevelNodes(markdown) {
@@ -550,4 +698,26 @@ function quoteMarkdown(markdown) {
         .split('\n')
         .map(line => line ? `> ${line}` : '>')
         .join('\n');
+}
+
+function parseTranslationResponse(response) {
+    const value = String(response || '').trim();
+    if (!value) throw new Error('The translated Markdown batch is empty');
+    const fenced = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i.exec(value);
+    try {
+        return JSON.parse(fenced ? fenced[1] : value);
+    }
+    catch {
+        throw new Error('The translated Markdown batch is not valid JSON');
+    }
+}
+
+function estimateMarkdownTokens(markdown) {
+    let ascii = 0;
+    let nonAscii = 0;
+    for (const character of String(markdown || '')) {
+        if (character.codePointAt(0) <= 0x7f) ascii++;
+        else nonAscii++;
+    }
+    return Math.ceil(ascii / 4) + nonAscii;
 }

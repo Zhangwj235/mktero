@@ -318,9 +318,13 @@ class MarkdownTabView {
             }
             elements.editorHost.hidden = false;
             elements.snapshotHost.hidden = true;
-            const translatedView = model.translationStatus === 'ready'
+            const translatedView = isAvailableTranslationStatus(
+                model.translationStatus
+            )
                 && model.translationView === 'translated';
-            const comparisonView = model.translationStatus === 'ready'
+            const comparisonView = isAvailableTranslationStatus(
+                model.translationStatus
+            )
                 && model.translationView === 'compare';
             const markdown = translatedView
                 ? model.translatedMarkdown || ''
@@ -2047,9 +2051,11 @@ class MarkdownTabView {
         this.elements.correctionToggleLabel.textContent = correctionLabel;
         const translationLabelKey = this.model.translationStatus === 'loading'
             ? 'ai.cancelDocumentTranslation'
-            : this.model.translationStatus === 'ready'
-                ? 'ai.translatedDocument'
-                : 'ai.translateDocument';
+            : this.model.translationStatus === 'partial'
+                ? 'ai.retryDocumentTranslation'
+                : isAvailableTranslationStatus(this.model.translationStatus)
+                    ? 'ai.translatedDocument'
+                    : 'ai.translateDocument';
         const translationLabel = this.model.translationStatus === 'loading'
             ? this.t(translationLabelKey, {
                 stage: this.t(
@@ -2240,10 +2246,12 @@ class MarkdownTabView {
             || (Boolean(this.documentActionBusy)
                 && model.translationStatus !== 'loading');
         this.elements.translationView.disabled = !translationAvailable
-            || model.translationStatus !== 'ready'
+            || !isAvailableTranslationStatus(model.translationStatus)
             || loadingView.visible
             || Boolean(this.documentActionBusy);
-        const translationView = model.translationStatus === 'ready'
+        const translationView = isAvailableTranslationStatus(
+            model.translationStatus
+        )
             ? model.translationView || 'original'
             : 'original';
         for (const option of this.elements.translationView.options) {
@@ -3162,6 +3170,10 @@ function transformAnnotationOverlay(annotationOverlay, transform) {
 
 function appendChildren(parent, ...children) {
     for (const child of children) parent.appendChild(child);
+}
+
+function isAvailableTranslationStatus(status) {
+    return status === 'ready' || status === 'partial';
 }
 
 function resolveZipPath(basePath, relativePath) {

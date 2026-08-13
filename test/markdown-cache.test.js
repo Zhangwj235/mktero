@@ -114,6 +114,8 @@ test('stores a document translation inside its Markdown cache entry', async t =>
         model: 'example-model',
         targetLanguage: 'zh-CN',
         promptVersion: 'translation-v1',
+        partial: false,
+        failedBlocks: [],
     };
     await cache.put(CACHE_KEY, { markdown: '# Paper' });
 
@@ -125,6 +127,68 @@ test('stores a document translation inside its Markdown cache entry', async t =>
     );
     assert.equal((await cache.getStats()).entries, 1);
     assert.ok((await cache.getStats()).sizeBytes > 7);
+});
+
+test('stores partial translation failures inside the Markdown cache entry', async t => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
+    t.after(() => rm(rootPath, { recursive: true, force: true }));
+    const options = {
+        rootPath,
+        ioUtils: createNodeIOUtils(),
+        pathUtils: { join: path.join, filename: path.basename },
+    };
+    const cache = new MarkdownCache(options);
+    const translationKey = 'd'.repeat(64);
+    const translation = {
+        translatedMarkdown: '# Paper',
+        comparisonMarkdown: '# Paper\n\n> # Paper',
+        blocks: [{ id: 'translation-0', markdown: '# Paper' }],
+        model: 'example-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: 'translation-v2',
+        partial: true,
+        failedBlocks: [{
+            id: 'translation-0',
+            message: 'The response was invalid',
+        }],
+    };
+    await cache.put(CACHE_KEY, { markdown: '# Paper' });
+
+    await cache.putTranslation(CACHE_KEY, translationKey, translation);
+
+    assert.deepEqual(
+        await new MarkdownCache(options).getTranslation(CACHE_KEY, translationKey),
+        translation
+    );
+});
+
+test('rejects a non-boolean partial translation cache marker', async t => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
+    t.after(() => rm(rootPath, { recursive: true, force: true }));
+    const cache = new MarkdownCache({
+        rootPath,
+        ioUtils: createNodeIOUtils(),
+        pathUtils: { join: path.join, filename: path.basename },
+    });
+    await cache.put(CACHE_KEY, { markdown: '# Paper' });
+
+    assert.throws(() => cache.putTranslation(
+        CACHE_KEY,
+        'd'.repeat(64),
+        {
+            translatedMarkdown: '# Paper',
+            comparisonMarkdown: '# Paper\n\n> # Paper',
+            blocks: [{ id: 'translation-0', markdown: '# Paper' }],
+            model: 'example-model',
+            targetLanguage: 'zh-CN',
+            promptVersion: 'translation-v2',
+            partial: 'false',
+            failedBlocks: [{
+                id: 'translation-0',
+                message: 'The response was invalid',
+            }],
+        }
+    ), /invalid cached document translation/i);
 });
 
 test('replacing or clearing Markdown removes its stored translation', async t => {
@@ -143,6 +207,8 @@ test('replacing or clearing Markdown removes its stored translation', async t =>
         model: 'example-model',
         targetLanguage: 'zh-CN',
         promptVersion: 'translation-v1',
+        partial: false,
+        failedBlocks: [],
     };
     await cache.put(CACHE_KEY, { markdown: '# Paper' });
     await cache.putTranslation(CACHE_KEY, translationKey, translation);
@@ -172,6 +238,8 @@ test('keeps cached Markdown when its stored translation is corrupted', async t =
         model: 'example-model',
         targetLanguage: 'zh-CN',
         promptVersion: 'translation-v1',
+        partial: false,
+        failedBlocks: [],
     });
     const entryPath = path.join(rootPath, 'entries', CACHE_KEY);
     const metadataPath = path.join(entryPath, 'entry.json');
