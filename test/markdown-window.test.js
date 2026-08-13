@@ -247,8 +247,10 @@ test('translates the document and switches between three reading modes', async (
     });
 
     try {
+        const controls = shadow.querySelector('.markdown-translation-controls');
         const translate = shadow.querySelector('#mktero-translate-document');
         const selector = shadow.querySelector('#mktero-translation-view');
+        assert.equal(controls.hidden, false);
         assert.equal(translate.hidden, false);
         assert.equal(translate.textContent, '');
         assert.equal(translate.getAttribute('aria-label'), 'Translate document');
@@ -290,6 +292,9 @@ test('translates the document and switches between three reading modes', async (
             matched: [],
             unmatched: [],
         });
+
+        view.render({ ...model, onTranslateDocument: undefined });
+        assert.equal(controls.hidden, true);
     }
     finally {
         view.destroy();
@@ -811,6 +816,20 @@ test('keeps reading controls in a toolbar above the Markdown body', () => {
         const menu = shadow.querySelector('#mktero-document-action-menu');
         const size = shadow.querySelector('.markdown-reader-font-size');
         const family = shadow.querySelector('.markdown-reader-font-family');
+        const readerControls = shadow.querySelector('.markdown-reader-controls');
+        const translationControls = shadow.querySelector(
+            '.markdown-translation-controls'
+        );
+        const translationSeparator = shadow.querySelector(
+            '.markdown-translation-separator'
+        );
+        const translationViewLabel = shadow.querySelector(
+            '.markdown-translation-view-label'
+        );
+        const translationView = shadow.querySelector(
+            '#mktero-translation-view'
+        );
+        const translate = shadow.querySelector('#mktero-translate-document');
 
         assert.equal(toolbar?.getAttribute('role'), 'toolbar');
         assert.equal(
@@ -820,6 +839,21 @@ test('keeps reading controls in a toolbar above the Markdown body', () => {
         assert.equal(toolbar?.nextElementSibling, editor);
         assert.equal(toolbar?.contains(size), true);
         assert.equal(toolbar?.contains(family), true);
+        assert.equal(readerControls?.nextElementSibling, translationControls);
+        assert.deepEqual(
+            [...translationControls.children],
+            [
+                translationViewLabel,
+                translationView,
+                translationSeparator,
+                translate,
+            ]
+        );
+        assert.equal(translationSeparator?.getAttribute('role'), 'separator');
+        assert.equal(
+            translationSeparator?.getAttribute('aria-orientation'),
+            'vertical'
+        );
         assert.equal(menu?.contains(size), false);
         assert.equal(menu?.contains(family), false);
         assert.equal(menu?.contains(shadow.querySelector('#mktero-reparse')), true);

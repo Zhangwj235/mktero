@@ -868,6 +868,8 @@ class MarkdownTabView {
             correctionToggle: documentActions.correctionToggle,
             correctionToggleLabel: documentActions.correctionToggleLabel,
             translateDocument: documentActions.translateDocument,
+            translationControls: documentActions.translationControls,
+            translationSeparator: documentActions.translationSeparator,
             translationView: documentActions.translationView,
             translationViewLabel: documentActions.translationViewLabel,
             restoreCorrections: documentActions.restoreCorrections,
@@ -1121,11 +1123,17 @@ class MarkdownTabView {
         const translationControls = this.createElement('div', {
             class: 'markdown-translation-controls',
         });
+        const translationSeparator = this.createElement('span', {
+            class: 'markdown-translation-separator',
+            role: 'separator',
+            'aria-orientation': 'vertical',
+        });
         appendChildren(
             translationControls,
-            translateDocument,
             translationViewLabel,
-            translationView
+            translationView,
+            translationSeparator,
+            translateDocument
         );
         const reparse = this.createElement('button', {
             id: 'mktero-reparse',
@@ -1201,6 +1209,8 @@ class MarkdownTabView {
             correctionToggle,
             correctionToggleLabel,
             translateDocument,
+            translationControls,
+            translationSeparator,
             translationView,
             translationViewLabel,
             restoreCorrections,
@@ -2188,9 +2198,7 @@ class MarkdownTabView {
         this.elements.reparse.hidden = !reparseAvailable;
         this.elements.saveSnapshot.hidden = !saveAvailable;
         this.elements.correctionToggle.hidden = !correctionAvailable;
-        this.elements.translateDocument.hidden = !translationAvailable;
-        this.elements.translationView.hidden = !translationAvailable;
-        this.elements.translationViewLabel.hidden = !translationAvailable;
+        this.elements.translationControls.hidden = !translationAvailable;
         this.elements.restoreCorrections.hidden = !restoreAvailable;
         this.elements.actionToggle.hidden = !documentActionsAvailable;
         this.elements.readerFontSize.hidden = !readerControlsAvailable;

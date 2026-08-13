@@ -89,9 +89,11 @@ the current AI endpoint, key, and model before translating.
    progress. A valid cache entry skips the remote conversion.
 3. Use the outline, citation and figure previews, source links, and Zotero notes
    panel to navigate the document.
-4. Use the fixed toolbar above the Markdown body to change font and text size,
-   translate the article, or select a reading mode. The More menu contains
-   `Manage corrections`, `Reparse PDF`, and `Save snapshot`.
+4. Use the fixed toolbar above the Markdown body to change text size and font,
+   select a reading mode, or translate the article. These controls use compact,
+   even spacing, with the translation action separated from the reading mode.
+   The More menu contains `Manage corrections`, `Reparse PDF`, and
+   `Save snapshot`.
 
 Reparsing uploads the PDF again and may consume MinerU quota. The current
 Markdown remains readable until a replacement is ready. Mktero tabs are

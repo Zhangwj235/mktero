@@ -822,6 +822,8 @@ main {
 }
 
 .markdown-reader-toolbar {
+    --toolbar-control-gap: 10px;
+
     position: relative;
     z-index: 5;
     display: flex;
@@ -831,7 +833,7 @@ main {
     flex: 0 0 auto;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: var(--toolbar-control-gap);
     padding: 4px 12px;
     border-bottom: 1px solid var(--border-subtle);
     background: color-mix(in srgb, var(--surface-raised) 94%, var(--surface));
@@ -843,17 +845,21 @@ main {
     display: flex;
     min-width: 0;
     align-items: center;
-    gap: 10px;
+    gap: var(--toolbar-control-gap);
 }
 
 .markdown-translation-controls {
     display: flex;
     min-width: 0;
     align-items: center;
-    gap: 8px;
-    margin-inline-start: auto;
-    padding-inline-start: 10px;
-    border-inline-start: 1px solid var(--border-subtle);
+    gap: var(--toolbar-control-gap);
+}
+
+.markdown-translation-separator {
+    width: 1px;
+    height: 24px;
+    flex: 0 0 1px;
+    background: var(--border-subtle);
 }
 
 .markdown-translation-action {
@@ -992,8 +998,6 @@ main {
 
 .markdown-reader-font-family {
     flex: 0 1 auto;
-    padding-inline-start: 10px;
-    border-inline-start: 1px solid var(--border-subtle);
 }
 
 .markdown-reader-font-family > .markdown-reader-font-label {
@@ -2899,21 +2903,18 @@ main {
 
 @container markdown-reader (max-width: 620px) {
     .markdown-reader-toolbar {
+        --toolbar-control-gap: 8px;
+
         min-height: 44px;
-        gap: 8px;
         padding: 4px 8px;
     }
 
-    .markdown-reader-controls { gap: 8px; }
     .markdown-translation-controls {
         width: 100%;
-        margin-inline-start: 0;
         padding: 5px 0 1px;
-        border-inline-start: 0;
         border-top: 1px solid var(--border-subtle);
     }
     .markdown-reader-font-label { display: none; }
-    .markdown-reader-font-family { padding-inline-start: 8px; }
     .markdown-reader-font-picker {
         flex-basis: 132px;
         width: 132px;

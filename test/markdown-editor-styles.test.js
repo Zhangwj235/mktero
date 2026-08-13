@@ -102,14 +102,38 @@ test('article layout outranks the CodeMirror adopted base theme', () => {
 
 test('keeps the reader toolbar above content without covering it', () => {
     const toolbar = ruleBody('.markdown-reader-toolbar');
+    const readerControls = ruleBody('.markdown-reader-controls');
+    const translationControls = ruleBody('.markdown-translation-controls');
+    const fontFamily = ruleBody('.markdown-reader-font-family');
+    const translationSeparator = ruleBody('.markdown-translation-separator');
     const editorHost = ruleBody('.markdown-editor-host');
 
+    assert.match(toolbar, /--toolbar-control-gap:\s*10px/);
     assert.match(toolbar, /position:\s*relative/);
     assert.match(toolbar, /flex:\s*0 0 auto/);
     assert.match(toolbar, /min-height:\s*44px/);
     assert.match(toolbar, /padding:\s*4px 12px/);
     assert.match(toolbar, /border-bottom:\s*1px solid var\(--border-subtle\)/);
     assert.doesNotMatch(toolbar, /position:\s*absolute/);
+    assert.match(
+        readerControls,
+        /gap:\s*var\(--toolbar-control-gap\)/
+    );
+    assert.match(
+        translationControls,
+        /gap:\s*var\(--toolbar-control-gap\)/
+    );
+    assert.doesNotMatch(translationControls, /margin-inline-start:\s*auto/);
+    assert.doesNotMatch(translationControls, /padding-inline-start/);
+    assert.doesNotMatch(translationControls, /border-inline-start/);
+    assert.doesNotMatch(fontFamily, /padding-inline-start/);
+    assert.doesNotMatch(fontFamily, /border-inline-start/);
+    assert.match(translationSeparator, /width:\s*1px/);
+    assert.match(translationSeparator, /height:\s*24px/);
+    assert.match(
+        translationSeparator,
+        /background:\s*var\(--border-subtle\)/
+    );
     assert.match(editorHost, /flex:\s*1 1 auto/);
     assert.match(editorHost, /overflow:\s*hidden/);
 });
