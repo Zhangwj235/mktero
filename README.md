@@ -68,7 +68,6 @@ Open `Settings -> Mktero` after installation.
 | Stream responses | On | Stream each Markdown batch response; turn off to wait for each batch to finish |
 | AI base URL / API Key / provider / protocol / model | OpenAI Responses / empty model | Route AI calls through Vercel AI SDK Core to a hosted provider or loopback model server |
 | Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese for new translations |
-| Reasoning effort | Automatic | Let the provider choose, or request off, low, medium, high, or extra-high reasoning from supported models |
 | Request timeout | 600,000 ms | Allow up to one hour for each batch request |
 | Maximum output tokens | Automatic (0) | Let the provider choose by default, or allow up to 262,144 tokens when the selected model supports it |
 
@@ -185,8 +184,8 @@ such as Ollama or LM Studio may use HTTP and may omit the API Key when
 authentication is disabled.
 
 The translated blocks are stored inside the corresponding PDF Markdown cache
-entry and keyed by source content, provider, protocol, model, reasoning effort,
-target language, and prompt version. The translated and bilingual reading
+entry and keyed by source content, provider, protocol, model, target language,
+and prompt version. The translated and bilingual reading
 documents are rebuilt from those blocks in source order, so existing cached
 translations can adopt presentation updates without another AI request.
 Clearing, replacing, or evicting that Markdown cache entry removes its
@@ -316,8 +315,8 @@ controlled by Zotero.
   corrections.
 - AI translation is an optional cached reading layer. It never starts
   automatically, modifies source Markdown, syncs through Zotero, or saves
-  translations into snapshots. Reasoning effort is applied only when the
-  configured provider and model support it; unsupported models may ignore it.
+  translations into snapshots. Requests use the configured model and provider's
+  default reasoning behavior; Mktero does not expose a reasoning-effort setting.
 - Only local PDF attachments are supported. Missing or undownloaded files
   cannot be converted.
 - Text annotations require extractable PDF text. A scanned PDF may convert via
