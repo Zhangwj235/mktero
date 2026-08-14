@@ -249,9 +249,6 @@ class MarkdownTabView {
                 this.restoreCorrection(blockID)
             ),
             onCorrectionError: error => this.reportCorrectionError(error),
-            retryTranslationBlock: blockID => (
-                this.retryTranslationBlock(blockID)
-            ),
             localization: this.localization,
         });
         this.syncOutline('');
@@ -1981,17 +1978,6 @@ class MarkdownTabView {
         this.zotero?.logError?.(error);
     }
 
-    retryTranslationBlock(blockID) {
-        if (this.model.translationStatus === 'loading'
-            || typeof this.model.onRetryDocumentTranslationBlock
-                !== 'function') {
-            return;
-        }
-        Promise.resolve(
-            this.model.onRetryDocumentTranslationBlock(blockID)
-        ).catch(error => this.reportTranslationError(error));
-    }
-
     commitCorrection(correction) {
         return this.runCorrectionOperation(
             () => this.model.onCommitCorrection(correction),
@@ -3606,10 +3592,7 @@ function createVisibleTranslationFailures(
 ) {
     if (!translatedView && !comparisonView) return [];
     const view = translatedView ? 'translated' : 'compare';
-    return translationFailureRangesForView(model, view).map(failure => ({
-        ...failure,
-        retryEnabled: model.translationStatus !== 'loading',
-    }));
+    return translationFailureRangesForView(model, view);
 }
 
 function createVisibleTranslationPairs(model, translatedView, comparisonView) {
@@ -3619,7 +3602,6 @@ function createVisibleTranslationPairs(model, translatedView, comparisonView) {
     const failedIDs = new Set(
         (model.translationFailedBlocks || []).map(failure => failure.id)
     );
-    const retryEnabled = model.translationStatus !== 'loading';
     return (model.translationBlockRanges || []).flatMap(range => {
         const failed = failedIDs.has(range?.id);
         if (!translatedView && !comparisonView && !failed) return [];
@@ -3658,8 +3640,6 @@ function createVisibleTranslationPairs(model, translatedView, comparisonView) {
             id: range.id,
             ...(validSource ? { sourceFrom, sourceTo } : {}),
             ...(validTranslation ? { translatedFrom, translatedTo } : {}),
-            retryEnabled: retryEnabled && !failed,
-            showRetry: validTranslation && !failed,
         }];
     });
 }

@@ -114,7 +114,6 @@ export function createInlineMarkdownEditor({
     onCommitCorrection,
     onRestoreCorrection,
     onCorrectionError,
-    retryTranslationBlock,
     localization = createLocalization(),
 }) {
     const t = localization.t.bind(localization);
@@ -280,7 +279,6 @@ export function createInlineMarkdownEditor({
                         onRestoreCorrection?.(blockID)
                     ),
                     onCorrectionError,
-                    retryTranslationBlock,
                     onCorrectionEditingChange(editing) {
                         const state = typeof editing === 'object'
                             ? editing

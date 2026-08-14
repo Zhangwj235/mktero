@@ -174,16 +174,14 @@ test('marks translated lines and clears the marks with the next document', () =>
     dom.window.close();
 });
 
-test('pairs bilingual source and translation blocks and retranslates one successful block', () => {
+test('pairs bilingual blocks without hover highlighting or per-block actions', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
     const { document } = dom.window;
-    const retried = [];
     const editor = createInlineMarkdownEditor({
         parent: document.querySelector('#editor'),
         initialMarkdown: '',
-        retryTranslationBlock: blockID => retried.push(blockID),
     });
     const markdown = 'Original paragraph.\n\n\u8bd1\u6587\u6bb5\u843d\u3002';
     const translatedFrom = markdown.indexOf('\u8bd1\u6587');
@@ -196,7 +194,6 @@ test('pairs bilingual source and translation blocks and retranslates one success
             sourceTo: 19,
             translatedFrom,
             translatedTo: markdown.length,
-            retryEnabled: true,
         }],
     });
 
@@ -211,35 +208,15 @@ test('pairs bilingual source and translation blocks and retranslates one success
         translated?.getAttribute('data-translation-block-id'),
         'translation-0'
     );
-    assert.equal(
-        translated.classList.contains('cm-mktero-translation-pair-with-retry'),
-        true
-    );
+    assert.equal(document.querySelector(
+        '.cm-mktero-translation-retry-button'
+    ), null);
 
     translated.dispatchEvent(new dom.window.MouseEvent('mouseover', {
         bubbles: true,
     }));
-    assert.equal(source.classList.contains('is-translation-pair-active'), true);
-    assert.equal(translated.classList.contains('is-translation-pair-active'), true);
-
-    translated.dispatchEvent(new dom.window.MouseEvent('mouseout', {
-        bubbles: true,
-        relatedTarget: document.body,
-    }));
     assert.equal(source.classList.contains('is-translation-pair-active'), false);
     assert.equal(translated.classList.contains('is-translation-pair-active'), false);
-
-    const retry = document.querySelector(
-        '.cm-mktero-translation-retry-button'
-    );
-    assert.equal(retry?.closest('.cm-line'), translated);
-    assert.equal(retry?.getAttribute('aria-label'), 'Retranslate this block');
-    assert.equal(
-        retry?.querySelector('svg')?.getAttribute('data-lucide'),
-        'refresh-cw'
-    );
-    retry.click();
-    assert.deepEqual(retried, ['translation-0']);
 
     editor.highlightTranslationBlock('translation-0');
     assert.equal(source.classList.contains('is-translation-pair-active'), true);
@@ -255,16 +232,14 @@ test('pairs bilingual source and translation blocks and retranslates one success
     dom.window.close();
 });
 
-test('marks failed translation fallbacks and retries one stable block', () => {
+test('marks failed translation fallbacks without a per-block action', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
     const { document } = dom.window;
-    const retried = [];
     const editor = createInlineMarkdownEditor({
         parent: document.querySelector('#editor'),
         initialMarkdown: '',
-        retryTranslationBlock: blockID => retried.push(blockID),
     });
 
     editor.setDocument({
@@ -291,8 +266,10 @@ test('marks failed translation fallbacks and retries one stable block', () => {
             ?.textContent,
         'Not translated; showing original'
     );
-    document.querySelector('.cm-mktero-translation-failure-retry').click();
-    assert.deepEqual(retried, ['translation-0-0-16-paragraph']);
+    assert.equal(
+        document.querySelector('.cm-mktero-translation-failure-retry'),
+        null
+    );
 
     editor.setMarkdown('Translated.');
     assert.equal(
@@ -403,11 +380,11 @@ test('rejects unsafe, duplicate, overlapping, and out-of-bounds pairs', () => {
     assert.deepEqual(
         [...document.querySelectorAll('[data-translation-block-id]')]
             .map(element => element.getAttribute('data-translation-block-id')),
-        ['translation-0', 'translation-0', 'translation-0']
+        ['translation-0', 'translation-0']
     );
     assert.equal(
         document.querySelectorAll('.cm-mktero-translation-retry-button').length,
-        1
+        0
     );
     assert.equal(document.querySelector('[onmouseover]'), null);
 

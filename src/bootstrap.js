@@ -437,10 +437,6 @@ async function openItemAsMarkdown(itemID, {
         onRestoreCorrection: blockID => restoreCorrection(itemID, blockID),
         onRestoreAllCorrections: () => restoreAllCorrections(itemID),
         onTranslateDocument: options => translateDocument(itemID, options),
-        onRetryDocumentTranslationBlock: blockID => translateDocument(
-            itemID,
-            { retryBlockIDs: [blockID] }
-        ),
         onCancelDocumentTranslation: () => cancelDocumentTranslation(itemID),
         onSetTranslationView: view => setTranslationView(itemID, view),
         onChangeAnnotationColor: (annotationID, color) => (

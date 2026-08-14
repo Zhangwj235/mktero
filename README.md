@@ -153,9 +153,9 @@ percentage; it remains available as `Cancel translation`, so select it again to
 stop the request. Existing original, translated, and bilingual views remain
 available while a retry runs in the background. The reader switches to the
 translated document after all requested batches settle. An incomplete result remains
-visible, marks every source-text fallback, and supports retrying one failed
-block or jumping between failures from the toolbar. The failure navigator shows
-the current position and total, for example `1/3`.
+visible, marks every source-text fallback, and supports retrying all incomplete
+translation from the toolbar or jumping between failures. The failure navigator
+shows the current position and total, for example `1/3`.
 Connection tests always use a short non-streaming request.
 
 After translation, use the reading-mode selector to choose `Original`,
@@ -170,10 +170,9 @@ result omits the redundant `N/N` count. The single reading surface remains
 usable when Zotero's side panels reduce the available document width. In
 Bilingual mode, PDF annotations, source navigation, sourced copy, and new
 Markdown annotations remain available on source blocks; translated blocks do
-not expose source-only actions. Hovering or focusing either half of a
-bilingual pair highlights both blocks. A refresh action on a successful
-translated block retranslates only that block, while `Retranslate document` in
-the More menu regenerates the complete translation with the current settings.
+not expose source-only actions. Bilingual blocks remain visually stable while
+reading and do not expose per-block translation actions. `Retranslate document`
+in the More menu regenerates the complete translation with the current settings.
 
 All AI calls pass through Vercel AI SDK Core. Mktero includes adapters for
 OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud Model Studio,

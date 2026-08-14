@@ -56,7 +56,6 @@ import {
 import {
     BILINGUAL_LIST_BOUNDARY,
 } from '../markdown/markdown-translation-blocks.js';
-import { createLucideIcon, LUCIDE_ICONS } from '../icons/lucide-icon.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const MAX_MATCH_CANDIDATES = 10_000;
@@ -189,17 +188,13 @@ class RenderedMarkdownWidget extends WidgetType {
 }
 
 class TranslationFailureWidget extends WidgetType {
-    constructor({ blockID, retryEnabled, retry, translate }) {
+    constructor(label) {
         super();
-        this.blockID = blockID;
-        this.retryEnabled = retryEnabled;
-        this.retry = retry;
-        this.translate = translate;
+        this.label = label;
     }
 
     eq(other) {
-        return this.blockID === other.blockID
-            && this.retryEnabled === other.retryEnabled;
+        return this.label === other.label;
     }
 
     toDOM(view) {
@@ -209,69 +204,9 @@ class TranslationFailureWidget extends WidgetType {
         container.setAttribute('role', 'status');
         const label = createHTMLNode(document, 'span');
         label.className = 'cm-mktero-translation-failure-label';
-        label.textContent = this.translate('ai.translationFailedBlock');
-        const retry = createHTMLNode(document, 'button');
-        retry.className = 'cm-mktero-translation-failure-retry';
-        retry.type = 'button';
-        retry.disabled = !this.retryEnabled;
-        retry.textContent = this.translate('ai.retryTranslationBlock');
-        retry.setAttribute(
-            'aria-label',
-            this.translate('ai.retryTranslationBlock')
-        );
-        retry.addEventListener('click', event => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (!retry.disabled) this.retry?.(this.blockID);
-        });
-        container.append(label, retry);
+        label.textContent = this.label;
+        container.appendChild(label);
         return container;
-    }
-
-    ignoreEvent(event) {
-        return event.type !== 'click';
-    }
-}
-
-class TranslationRetryWidget extends WidgetType {
-    constructor({ blockID, retryEnabled, retry, translate }) {
-        super();
-        this.blockID = blockID;
-        this.retryEnabled = retryEnabled;
-        this.retry = retry;
-        this.translate = translate;
-    }
-
-    eq(other) {
-        return this.blockID === other.blockID
-            && this.retryEnabled === other.retryEnabled;
-    }
-
-    toDOM(view) {
-        const document = view.dom.ownerDocument;
-        const button = createHTMLNode(document, 'button');
-        const label = this.translate('ai.retranslateTranslationBlock');
-        button.className = 'cm-mktero-translation-retry-button';
-        button.type = 'button';
-        button.disabled = !this.retryEnabled;
-        button.setAttribute('aria-label', label);
-        button.setAttribute('title', label);
-        button.setAttribute('data-translation-block-id', this.blockID);
-        button.appendChild(createLucideIcon(
-            document,
-            LUCIDE_ICONS.refreshCw,
-            { size: 15 }
-        ));
-        button.addEventListener('click', event => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (!button.disabled) this.retry?.(this.blockID);
-        });
-        return button;
-    }
-
-    ignoreEvent(event) {
-        return event.type !== 'click';
     }
 }
 
@@ -602,7 +537,6 @@ export function createInlineRenderingExtension({
     restoreCorrection,
     onCorrectionError,
     onCorrectionEditingChange,
-    retryTranslationBlock,
     translate = translateEnglish,
 }) {
     const context = {
@@ -631,7 +565,6 @@ export function createInlineRenderingExtension({
         translationFailures: [],
         translationPairs: [],
         highlightedTranslationBlockID: null,
-        retryTranslationBlock,
         annotationTargets: new Map(),
         editingRange: null,
         correctionManagementEnabled: false,
@@ -760,25 +693,11 @@ export function createInlineRenderingExtension({
         renderingField,
         Prec.highest(EditorView.domEventHandlers({
             mouseover(event, view) {
-                const pairID = translationPairIDFromEvent(event);
-                if (pairID) {
-                    view.dispatch({
-                        effects: setTranslationPairHighlight.of(pairID),
-                    });
-                }
                 if (selectionActionsLocked(context)) return false;
                 referenceInteraction(event, view, context)?.open();
                 return false;
             },
             mouseout(event, view) {
-                const pairID = translationPairIDFromEvent(event);
-                if (pairID && pairID !== translationPairIDFromNode(
-                    event.relatedTarget
-                )) {
-                    view.dispatch({
-                        effects: setTranslationPairHighlight.of(null),
-                    });
-                }
                 if (selectionActionsLocked(context)) return false;
                 const interaction = referenceInteraction(event, view, context);
                 if (!interaction
@@ -791,12 +710,6 @@ export function createInlineRenderingExtension({
                 return false;
             },
             focusin(event, view) {
-                const pairID = translationPairIDFromEvent(event);
-                if (pairID) {
-                    view.dispatch({
-                        effects: setTranslationPairHighlight.of(pairID),
-                    });
-                }
                 const interaction = referenceInteraction(event, view, context);
                 if (interaction?.openImmediately) {
                     interaction.openImmediately();
@@ -807,14 +720,6 @@ export function createInlineRenderingExtension({
                 return false;
             },
             focusout(event, view) {
-                const pairID = translationPairIDFromEvent(event);
-                if (pairID && pairID !== translationPairIDFromNode(
-                    event.relatedTarget
-                )) {
-                    view.dispatch({
-                        effects: setTranslationPairHighlight.of(null),
-                    });
-                }
                 if (selectionActionsLocked(context)) return false;
                 referenceInteraction(event, view, context)
                     ?.popup?.scheduleClose();
@@ -1045,17 +950,6 @@ function decorateTranslationPairs(state, decorations, context) {
             'translated',
             context.highlightedTranslationBlockID === pair.id
         );
-        if (!pair.translated) continue;
-        if (!pair.showRetry) continue;
-        decorations.push(Decoration.widget({
-            side: -1,
-            widget: new TranslationRetryWidget({
-                blockID: pair.id,
-                retryEnabled: pair.retryEnabled,
-                retry: context.retryTranslationBlock,
-                translate: context.translate,
-            }),
-        }).range(state.doc.lineAt(pair.translated.from).from));
     }
 }
 
@@ -1075,11 +969,6 @@ function decorateTranslationPairRange(
             class: [
                 'cm-mktero-translation-pair',
                 `cm-mktero-translation-pair-${side}`,
-                side === 'translated'
-                    && pair.showRetry
-                    && lineNumber === fromLine
-                    ? 'cm-mktero-translation-pair-with-retry'
-                    : '',
                 highlighted ? 'is-translation-pair-active' : '',
             ].filter(Boolean).join(' '),
             attributes: {
@@ -1105,12 +994,9 @@ function decorateTranslationFailures(state, decorations, context) {
         decorations.push(Decoration.widget({
             block: true,
             side: -1,
-            widget: new TranslationFailureWidget({
-                blockID: failure.id,
-                retryEnabled: failure.retryEnabled,
-                retry: context.retryTranslationBlock,
-                translate: context.translate,
-            }),
+            widget: new TranslationFailureWidget(
+                context.translate('ai.translationFailedBlock')
+            ),
         }).range(state.doc.lineAt(failure.from).from));
     }
 }
@@ -1173,7 +1059,6 @@ function normalizeTranslationFailures(failures, documentLength) {
             id,
             from: failure.from,
             to: failure.to,
-            retryEnabled: failure.retryEnabled !== false,
         }];
     });
 }
@@ -1211,8 +1096,6 @@ function normalizeTranslationPairs(pairs, documentLength) {
             id,
             source,
             translated,
-            retryEnabled: pair.retryEnabled !== false,
-            showRetry: pair.showRetry !== false,
         }];
     });
 }
@@ -1235,15 +1118,6 @@ function normalizeTranslationPairRange(from, to, documentLength) {
         && to <= documentLength
         ? { from, to }
         : null;
-}
-
-function translationPairIDFromEvent(event) {
-    return translationPairIDFromNode(event.target);
-}
-
-function translationPairIDFromNode(node) {
-    return String(node?.closest?.('[data-translation-block-id]')
-        ?.getAttribute('data-translation-block-id') || '');
 }
 
 function decoratePDFAnnotations(state, decorations, context, renderedRanges) {

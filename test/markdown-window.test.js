@@ -495,8 +495,6 @@ test('translates the document and switches between three reading modes', async (
                 sourceTo: range.comparisonSourceTo,
                 translatedFrom: range.comparisonTranslationFrom,
                 translatedTo: range.comparisonTranslationTo,
-                retryEnabled: true,
-                showRetry: true,
             }))
         );
         assert.deepEqual(
@@ -544,7 +542,6 @@ test('translates the document and switches between three reading modes', async (
                 id: 'translation-1-9-34-paragraph',
                 from: 15,
                 to: 40,
-                retryEnabled: true,
             }]
         );
         assert.deepEqual(
@@ -555,16 +552,12 @@ test('translates the document and switches between three reading modes', async (
                 sourceTo: 7,
                 translatedFrom: 9,
                 translatedTo: 13,
-                retryEnabled: true,
-                showRetry: true,
             }, {
                 id: 'translation-1-9-34-paragraph',
                 sourceFrom: 15,
                 sourceTo: 40,
                 translatedFrom: 42,
                 translatedTo: 48,
-                retryEnabled: false,
-                showRetry: false,
             }]
         );
 
@@ -722,7 +715,6 @@ test('navigates failed translation blocks with wraparound', () => {
             comparisonTranslationTo: 44,
         }],
         onTranslateDocument: () => {},
-        onRetryDocumentTranslationBlock: () => {},
         onSetTranslationView: () => {},
     });
     const { view, shadow } = createView(model, {}, {
@@ -769,8 +761,7 @@ test('navigates failed translation blocks with wraparound', () => {
     }
 });
 
-test('keeps a partial translation readable while retrying one block', () => {
-    const retried = [];
+test('keeps a partial translation readable while retrying the document', () => {
     const updates = [];
     let editorOptions;
     const block = {
@@ -801,7 +792,6 @@ test('keeps a partial translation readable while retrying one block', () => {
         comparisonMarkdown: 'Fallback.\n\nFallback.',
         onTranslateDocument: () => {},
         onCancelDocumentTranslation: () => {},
-        onRetryDocumentTranslationBlock: blockID => retried.push(blockID),
         onSetTranslationView: () => {},
     });
     const { view, shadow } = createView(partialModel, {}, {
@@ -819,8 +809,7 @@ test('keeps a partial translation readable while retrying one block', () => {
     });
 
     try {
-        editorOptions.retryTranslationBlock(block.id);
-        assert.deepEqual(retried, [block.id]);
+        assert.equal(editorOptions.retryTranslationBlock, undefined);
 
         view.render({
             ...partialModel,
@@ -842,7 +831,6 @@ test('keeps a partial translation readable while retrying one block', () => {
             id: block.id,
             from: 0,
             to: 9,
-            retryEnabled: false,
         }]);
         assert.equal(
             shadow.querySelector('#mktero-translation-view').hidden,
@@ -877,8 +865,6 @@ test('keeps a partial translation readable while retrying one block', () => {
             false
         );
 
-        editorOptions.retryTranslationBlock(block.id);
-        assert.deepEqual(retried, [block.id]);
     }
     finally {
         view.destroy();

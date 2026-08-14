@@ -477,7 +477,7 @@ test('keeps block-level comparison in one full-size reading surface', () => {
     assert.match(boundary, /overflow:\s*hidden/);
 });
 
-test('distinguishes translated headings and retryable source fallbacks', () => {
+test('distinguishes translated headings and source fallbacks', () => {
     const translatedHeading = ruleBody([
         '.markdown-editor-host > .cm-editor',
         '    .cm-mktero-translation-line.cm-mktero-heading',
@@ -490,22 +490,15 @@ test('distinguishes translated headings and retryable source fallbacks', () => {
         '.markdown-editor-host > .cm-editor',
         '    .cm-mktero-translation-failure-line',
     ].join('\n'));
-    const retry = ruleBody([
-        '.markdown-editor-host > .cm-editor',
-        '    .cm-mktero-translation-failure-retry',
-    ].join('\n'));
-
     assert.match(translatedHeading, /font-weight:\s*600/);
     assert.match(translatedHeading, /color:\s*var\(--reader-text\)/);
     assert.match(translatedHeading, /border-bottom:\s*0/);
     assert.match(failure, /display:\s*flex/);
     assert.match(failure, /color:\s*var\(--warning\)/);
     assert.match(failureLine, /background:\s*color-mix/);
-    assert.match(retry, /min-height:\s*28px/);
-    assert.match(retry, /cursor:\s*pointer/);
 });
 
-test('highlights paired bilingual blocks without adding a retry row', () => {
+test('keeps paired bilingual blocks free of per-block action styles', () => {
     const pair = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-translation-pair'
     );
@@ -513,22 +506,10 @@ test('highlights paired bilingual blocks without adding a retry row', () => {
         '.markdown-editor-host > .cm-editor',
         '    .cm-mktero-translation-pair.is-translation-pair-active',
     ].join('\n'));
-    const retry = ruleBody([
-        '.markdown-editor-host > .cm-editor',
-        '    .cm-mktero-translation-retry-button',
-    ].join('\n'));
-    const pairWithRetry = ruleBody([
-        '.markdown-editor-host > .cm-editor',
-        '    .cm-mktero-translation-pair-with-retry',
-    ].join('\n'));
-
     assert.match(pair, /position:\s*relative/);
     assert.match(active, /background:\s*color-mix/);
     assert.match(active, /box-shadow:/);
-    assert.match(retry, /position:\s*absolute/);
-    assert.match(retry, /width:\s*26px/);
-    assert.match(retry, /height:\s*26px/);
-    assert.match(pairWithRetry, /padding-inline-end:\s*38px/);
+    assert.doesNotMatch(MARKDOWN_STYLES, /cm-mktero-translation-retry/);
 });
 
 test('wraps translation controls at narrow reader widths', () => {
