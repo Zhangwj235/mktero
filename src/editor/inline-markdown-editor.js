@@ -26,6 +26,9 @@ import {
     setReferenceHighlight,
     setTableHighlight,
     setTranslationRanges,
+    setTranslationFailures,
+    setTranslationPairs,
+    setTranslationPairHighlight,
 } from './inline-rendering.js';
 import { createImagePreview } from './image-preview.js';
 import { createCitationPopup } from './citation-popup.js';
@@ -123,8 +126,11 @@ export function createInlineMarkdownEditor({
     const annotationPopup = createAnnotationPopup(parent, {
         localization,
         createMarkdownAnnotation: typeof createMarkdownAnnotation === 'function'
-            ? async annotation => {
-                const saved = await createMarkdownAnnotation(annotation);
+            ? async (annotation, selectionContext) => {
+                const saved = await createMarkdownAnnotation(
+                    annotation,
+                    selectionContext
+                );
                 ownerWindow.getSelection?.()?.removeAllRanges?.();
                 return saved;
             }
@@ -194,6 +200,7 @@ export function createInlineMarkdownEditor({
     let view;
     let correctionToolbar;
     let stalledViewportRepairFrame = null;
+    let translationHighlightTimer = null;
     const cancelStalledViewportRepair = () => {
         if (stalledViewportRepairFrame === null) return;
         ownerWindow.cancelAnimationFrame?.(stalledViewportRepairFrame);
@@ -600,6 +607,16 @@ export function createInlineMarkdownEditor({
         clampSelectionFocusToPointerLine(view, domSelection, event);
         const selection = selectedMarkdownAnnotation(view);
         if (!selection) return;
+        if (markdownSelectionSide(
+            domSelection,
+            currentSourceActionRanges
+        ) !== 'source' || !selectionSupportsSourceActions(
+            selection,
+            currentSourceActionRanges
+        )) {
+            annotationPopup.close();
+            return;
+        }
         const copyTarget = { kind: 'selection', ...selection };
         const evidence = createSourcedEvidence(
             view.state.doc.toString(),
@@ -616,6 +633,7 @@ export function createInlineMarkdownEditor({
                 event
             ),
             selection,
+            selectionContext: { side: 'source' },
             copyTarget,
             sourceLocation: selectionSourceLocation(
                 currentSourceMap,
@@ -671,13 +689,21 @@ export function createInlineMarkdownEditor({
     );
     parent.addEventListener('mouseup', openSelectedMarkdownActions, true);
     let currentSourceMap = [];
+    let currentSourceActionRanges = null;
     const setDocument = ({
         markdown,
         annotationOverlay,
         sourceMap,
+        sourceActionRanges,
         translationRanges,
+        translationFailures,
+        translationPairs,
     }) => {
         activateDOMGlobals(ownerWindow);
+        if (translationHighlightTimer !== null) {
+            ownerWindow.clearTimeout?.(translationHighlightTimer);
+            translationHighlightTimer = null;
+        }
         const value = String(markdown || '');
         activeTableCorrection?.cancel?.({
             focus: false,
@@ -695,12 +721,18 @@ export function createInlineMarkdownEditor({
         }
         annotationPopup.close();
         currentSourceMap = Array.isArray(sourceMap) ? sourceMap : [];
+        currentSourceActionRanges = Array.isArray(sourceActionRanges)
+            ? normalizeSourceActionRanges(sourceActionRanges, value.length)
+            : null;
         const effects = [
             ...referenceFeatureList.map(feature => feature.effect.of(null)),
             setAnnotationOverlay.of(
                 annotationOverlay || createEmptyAnnotationOverlay()
             ),
             setTranslationRanges.of(translationRanges || []),
+            setTranslationFailures.of(translationFailures || []),
+            setTranslationPairs.of(translationPairs || []),
+            setTranslationPairHighlight.of(null),
             setInlineEditingRange.of(null),
             editingMode.reconfigure([
                 EditorView.editable.of(false),
@@ -769,6 +801,22 @@ export function createInlineMarkdownEditor({
             const requestedDocument = view.state.doc;
             requestEditorScroll(view, position, requestedDocument);
         },
+        highlightTranslationBlock(blockID) {
+            activateDOMGlobals(ownerWindow);
+            if (translationHighlightTimer !== null) {
+                ownerWindow.clearTimeout?.(translationHighlightTimer);
+                translationHighlightTimer = null;
+            }
+            view.dispatch({
+                effects: setTranslationPairHighlight.of(String(blockID || '')),
+            });
+            if (typeof ownerWindow.setTimeout !== 'function') return;
+            translationHighlightTimer = ownerWindow.setTimeout(() => {
+                translationHighlightTimer = null;
+                if (destroyed) return;
+                view.dispatch({ effects: setTranslationPairHighlight.of(null) });
+            }, 3000);
+        },
         refreshRendering() {
             activateDOMGlobals(ownerWindow);
             view.dispatch({ effects: refreshInlineRendering.of(null) });
@@ -810,6 +858,10 @@ export function createInlineMarkdownEditor({
                     true
                 );
                 cancelStalledViewportRepair();
+                if (translationHighlightTimer !== null) {
+                    ownerWindow.clearTimeout?.(translationHighlightTimer);
+                    translationHighlightTimer = null;
+                }
                 correctionToolbar?.destroy();
                 annotationPopup.destroy();
                 imagePreview.destroy();
@@ -821,6 +873,54 @@ export function createInlineMarkdownEditor({
             }
         },
     };
+}
+
+function normalizeSourceActionRanges(ranges, documentLength) {
+    return ranges.flatMap(range => (
+        Number.isSafeInteger(range?.from)
+        && Number.isSafeInteger(range?.to)
+        && range.from >= 0
+        && range.to > range.from
+        && range.to <= documentLength
+            ? [{ from: range.from, to: range.to }]
+            : []
+    ));
+}
+
+function selectionSupportsSourceActions(selection, sourceActionRanges) {
+    if (sourceActionRanges === null) return true;
+    if (!Array.isArray(selection?.ranges) || !selection.ranges.length) {
+        return false;
+    }
+    return selection.ranges.every(range => (
+        Number.isSafeInteger(range?.from)
+        && Number.isSafeInteger(range?.to)
+        && sourceActionRanges.some(sourceRange => (
+            range.from >= sourceRange.from && range.to <= sourceRange.to
+        ))
+    ));
+}
+
+function markdownSelectionSide(selection, sourceActionRanges) {
+    if (sourceActionRanges === null) return 'source';
+    if (!selection || selection.rangeCount !== 1) return null;
+    const range = selection.getRangeAt(0);
+    const startSide = translationPairSide(range.startContainer);
+    const endSide = translationPairSide(range.endContainer);
+    return startSide === 'translated' || endSide === 'translated'
+        ? 'translated'
+        : 'source';
+}
+
+function translationPairSide(node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    if (element?.closest?.('.cm-mktero-translation-pair-source')) {
+        return 'source';
+    }
+    if (element?.closest?.('.cm-mktero-translation-pair-translated')) {
+        return 'translated';
+    }
+    return null;
 }
 
 function createBlockCorrectionToolbar({

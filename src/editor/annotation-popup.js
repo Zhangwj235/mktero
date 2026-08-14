@@ -89,7 +89,7 @@ export function createAnnotationPopup(parent, {
             focusContent: focusNoteInput,
         });
     };
-    const openDraftNote = ({ anchor, annotation }) => {
+    const openDraftNote = ({ anchor, annotation, selectionContext }) => {
         if (!annotation) return;
         close();
         openPopup({
@@ -102,7 +102,7 @@ export function createAnnotationPopup(parent, {
                         ? comment => createMarkdownAnnotation({
                             ...annotation,
                             comment,
-                        })
+                        }, selectionContext)
                         : undefined,
                     close,
                     reposition,
@@ -117,6 +117,7 @@ export function createAnnotationPopup(parent, {
         copyTarget,
         sourceLocation,
         canCopySource = false,
+        selectionContext,
     }) => {
         if (!selection) return;
         cancelScheduledOpen();
@@ -134,7 +135,13 @@ export function createAnnotationPopup(parent, {
             dismissOnMouseLeave: false,
             renderContent({ document, close, reposition }) {
                 return createMarkdownSelectionActions(document, annotation, t, {
-                    createMarkdownAnnotation,
+                    createMarkdownAnnotation:
+                        typeof createMarkdownAnnotation === 'function'
+                            ? draft => createMarkdownAnnotation(
+                                draft,
+                                selectionContext
+                            )
+                            : undefined,
                     copySourcedMarkdown: canCopySource
                         && typeof copySourcedMarkdown === 'function'
                         ? () => copySourcedMarkdown(copyTarget)
@@ -151,7 +158,11 @@ export function createAnnotationPopup(parent, {
                             }
                         }
                         : undefined,
-                    openNote: () => openDraftNote({ anchor, annotation }),
+                    openNote: () => openDraftNote({
+                        anchor,
+                        annotation,
+                        selectionContext,
+                    }),
                     close,
                     reposition,
                 });

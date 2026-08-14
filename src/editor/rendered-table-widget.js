@@ -7,6 +7,11 @@ import {
 } from './rendered-markdown-dom.js';
 import { isCorrectionInteractionTarget } from './correction-interactions.js';
 import { installRenderedAnnotations } from './pdf-annotations.js';
+import {
+    applyTranslationPresentation,
+    normalizeTranslationPresentation,
+    sameTranslationPresentation,
+} from './translation-presentation.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 
@@ -25,6 +30,7 @@ export class RenderedTableWidget extends WidgetType {
         correctionBlock = null,
         correctionManagementEnabled = false,
         corrected = false,
+        translationPresentation = {},
         commitCorrection,
         restoreCorrection,
         onCorrectionError,
@@ -46,6 +52,9 @@ export class RenderedTableWidget extends WidgetType {
         this.correctionBlock = correctionBlock;
         this.correctionManagementEnabled = correctionManagementEnabled;
         this.corrected = corrected;
+        this.translationPresentation = normalizeTranslationPresentation(
+            translationPresentation
+        );
         this.commitCorrection = commitCorrection;
         this.restoreCorrection = restoreCorrection;
         this.onCorrectionError = onCorrectionError;
@@ -67,7 +76,11 @@ export class RenderedTableWidget extends WidgetType {
             && this.correctionBlock?.id === other.correctionBlock?.id
             && this.correctionManagementEnabled
                 === other.correctionManagementEnabled
-            && this.corrected === other.corrected;
+            && this.corrected === other.corrected
+            && sameTranslationPresentation(
+                this.translationPresentation,
+                other.translationPresentation
+            );
     }
 
     toDOM(view) {
@@ -81,6 +94,7 @@ export class RenderedTableWidget extends WidgetType {
                 ? 'cm-mktero-corrected-block'
                 : '',
         ].filter(Boolean).join(' ');
+        applyTranslationPresentation(container, this.translationPresentation);
         container.dataset.markdownFrom = String(this.annotationSourceFrom);
         container.dataset.markdownTo = String(
             this.annotationSourceFrom + this.annotationSource.length

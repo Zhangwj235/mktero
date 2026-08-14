@@ -229,7 +229,9 @@ test('translates the document and switches between three reading modes', async (
         sourceKind: 'markdown',
         translationStatus: 'none',
         translationView: 'original',
-        onTranslateDocument: () => actions.push('translate'),
+        onTranslateDocument: options => actions.push(
+            options?.forceRetranslate ? 'retranslate-all' : 'translate'
+        ),
         onCancelDocumentTranslation: () => actions.push('cancel'),
         onSetTranslationView: view => actions.push(view),
     });
@@ -257,6 +259,16 @@ test('translates the document and switches between three reading modes', async (
         const controls = shadow.querySelector('.markdown-translation-controls');
         const translate = shadow.querySelector('#mktero-translate-document');
         const selector = shadow.querySelector('#mktero-translation-view');
+        const status = shadow.querySelector('.markdown-translation-status');
+        const failureNavigation = shadow.querySelector(
+            '.markdown-translation-failure-navigation'
+        );
+        const retranslateDocument = shadow.querySelector(
+            '#mktero-retranslate-document'
+        );
+        const failurePosition = shadow.querySelector(
+            '.markdown-translation-failure-position'
+        );
         const originalMode = shadow.querySelector(
             '[data-translation-view="original"]'
         );
@@ -268,7 +280,7 @@ test('translates the document and switches between three reading modes', async (
         );
         assert.equal(controls.hidden, false);
         assert.equal(translate.hidden, false);
-        assert.equal(translate.textContent, '');
+        assert.equal(translate.textContent, 'Translate document');
         assert.equal(
             translate.querySelector('.markdown-translation-idle-icon')
                 ?.hasAttribute('hidden'),
@@ -287,11 +299,18 @@ test('translates the document and switches between three reading modes', async (
             translate.querySelector('svg')?.getAttribute('data-lucide'),
             'languages'
         );
-        assert.equal(selector.localName, 'div');
-        assert.equal(selector.getAttribute('role'), 'group');
-        assert.equal(originalMode.getAttribute('aria-pressed'), 'true');
-        assert.equal(translatedMode.getAttribute('aria-pressed'), 'false');
-        assert.equal(compareMode.getAttribute('aria-pressed'), 'false');
+        assert.equal(selector.hidden, true);
+        assert.equal(status.hidden, true);
+        assert.equal(
+            shadow.querySelector('.markdown-translation-language'),
+            null
+        );
+        assert.equal(retranslateDocument.hidden, true);
+        assert.equal(selector.getAttribute('role'), 'radiogroup');
+        assert.equal(originalMode.getAttribute('role'), 'radio');
+        assert.equal(originalMode.getAttribute('aria-checked'), 'true');
+        assert.equal(translatedMode.getAttribute('aria-checked'), 'false');
+        assert.equal(compareMode.getAttribute('aria-checked'), 'false');
         assert.equal(originalMode.disabled, true);
         assert.equal(translatedMode.disabled, true);
         assert.equal(compareMode.disabled, true);
@@ -303,7 +322,10 @@ test('translates the document and switches between three reading modes', async (
             ...model,
             translationStatus: 'loading',
             translationProgress: 37,
+            translationCompletedBlocks: 42,
+            translationTotalBlocks: 113,
             translationStage: 'reasoning',
+            translationRequestedTargetLanguage: 'ja-JP',
         });
         assert.equal(translate.disabled, false);
         assert.equal(translate.getAttribute('aria-busy'), 'true');
@@ -311,7 +333,17 @@ test('translates the document and switches between three reading modes', async (
             translate.getAttribute('aria-label'),
             'Cancel translation (model is reasoning…)'
         );
+        assert.equal(
+            translate.querySelector('.markdown-translation-action-label')
+                ?.textContent,
+            'Cancel'
+        );
         assert.equal(translate.classList.contains('is-translating'), true);
+        assert.equal(
+            shadow.querySelector('.markdown-reader-toolbar')
+                ?.classList.contains('is-translating'),
+            true
+        );
         assert.equal(
             translate.querySelector('.markdown-translation-idle-icon')
                 ?.hasAttribute('hidden'),
@@ -322,6 +354,12 @@ test('translates the document and switches between three reading modes', async (
         );
         assert.equal(loadingIcon?.hasAttribute('hidden'), false);
         assert.equal(loadingIcon?.getAttribute('data-lucide'), 'loader-circle');
+        assert.equal(status.hidden, false);
+        assert.equal(
+            status.textContent,
+            'Japanese · 42/113 · 37%'
+        );
+        assert.equal(selector.hidden, true);
 
         translate.click();
         assert.deepEqual(actions, ['translate', 'cancel']);
@@ -329,6 +367,16 @@ test('translates the document and switches between three reading modes', async (
         const translatedModel = {
             ...model,
             translationStatus: 'ready',
+            translationCompletedBlocks: 2,
+            translationTotalBlocks: 2,
+            translationTargetLanguage: 'zh-CN',
+            translationBlocks: [{
+                id: 'translation-0-0-7-heading',
+                markdown: '# 论文',
+            }, {
+                id: 'translation-1-9-34-paragraph',
+                markdown: '翻译这一段。',
+            }],
             translatedMarkdown: '# 论文\n\n翻译这一段。',
             comparisonMarkdown: [
                 '# Paper',
@@ -352,26 +400,99 @@ test('translates the document and switches between three reading modes', async (
                 from: 42,
                 to: 48,
             }],
+            translationBlockRanges: [{
+                id: 'translation-0-0-7-heading',
+                type: 'heading',
+                sourceFrom: 0,
+                sourceTo: 7,
+                translatedFrom: 0,
+                translatedTo: 4,
+                comparisonSourceFrom: 0,
+                comparisonSourceTo: 7,
+                comparisonTranslationFrom: 9,
+                comparisonTranslationTo: 13,
+            }, {
+                id: 'translation-1-9-34-paragraph',
+                type: 'paragraph',
+                sourceFrom: 9,
+                sourceTo: 34,
+                translatedFrom: 6,
+                translatedTo: 12,
+                comparisonSourceFrom: 15,
+                comparisonSourceTo: 40,
+                comparisonTranslationFrom: 42,
+                comparisonTranslationTo: 48,
+            }],
         };
         view.render(translatedModel);
-        assert.equal(translate.textContent, '');
+        assert.equal(
+            shadow.querySelector('.markdown-reader-toolbar')
+                ?.classList.contains('is-translating'),
+            false
+        );
+        assert.equal(translate.hidden, true);
         assert.equal(translate.getAttribute('aria-label'), 'Translated');
         assert.equal(translate.getAttribute('title'), 'Translated');
+        assert.equal(selector.hidden, false);
+        assert.equal(status.hidden, true);
+        assert.equal(status.textContent, '');
+        assert.equal(translatedMode.textContent, 'Simplified Chinese');
+        assert.equal(
+            translatedMode.getAttribute('aria-label'),
+            'Translation: Simplified Chinese'
+        );
+        assert.equal(
+            translatedMode.getAttribute('title'),
+            'Translation: Simplified Chinese'
+        );
+        assert.equal(retranslateDocument.hidden, false);
         assert.equal(originalMode.disabled, false);
         assert.equal(translatedMode.disabled, false);
         assert.equal(compareMode.disabled, false);
+
+        view.render({
+            ...translatedModel,
+            translationView: 'translated',
+            translationConfiguredTargetLanguage: 'ja-JP',
+        });
+        assert.equal(translate.hidden, true);
+        assert.equal(translate.getAttribute('aria-label'), 'Translate document');
+        assert.equal(selector.hidden, false);
+        assert.equal(translatedMode.textContent, 'Simplified Chinese');
+        assert.equal(
+            editors[0].renderedDocuments.at(-1).markdown,
+            '# \u8bba\u6587\n\n\u7ffb\u8bd1\u8fd9\u4e00\u6bb5\u3002'
+        );
+
+        view.render({
+            ...translatedModel,
+            translationTargetLanguage: 'pt-BR',
+        });
+        assert.equal(translatedMode.textContent, 'Portuguese (Brazil)');
+        assert.equal(
+            translatedMode.getAttribute('title'),
+            'Translation: Portuguese (Brazil)'
+        );
 
         translatedMode.click();
         assert.deepEqual(actions, ['translate', 'cancel', 'translated']);
 
         view.render({ ...translatedModel, translationView: 'translated' });
-        assert.equal(originalMode.getAttribute('aria-pressed'), 'false');
-        assert.equal(translatedMode.getAttribute('aria-pressed'), 'true');
-        assert.equal(compareMode.getAttribute('aria-pressed'), 'false');
+        assert.equal(originalMode.getAttribute('aria-checked'), 'false');
+        assert.equal(translatedMode.getAttribute('aria-checked'), 'true');
+        assert.equal(compareMode.getAttribute('aria-checked'), 'false');
+        assert.equal(originalMode.getAttribute('tabindex'), '-1');
+        assert.equal(translatedMode.getAttribute('tabindex'), '0');
+        assert.equal(compareMode.getAttribute('tabindex'), '-1');
         assert.equal(
             shadow.querySelector('[data-comparison-pane="original"]')
                 .getAttribute('aria-label'),
             'Translation'
+        );
+        assert.equal(
+            shadow.querySelector('[data-comparison-pane="original"]')
+                .getAttribute('lang'),
+            'zh-CN'
         );
         assert.equal(
             editors[0].renderedDocuments.at(-1).markdown,
@@ -397,16 +518,33 @@ test('translates the document and switches between three reading modes', async (
         );
         assert.equal(readingLayout.classList.contains('is-comparing'), true);
         assert.equal(originalPane.getAttribute('aria-label'), 'Bilingual');
+        assert.equal(originalPane.hasAttribute('lang'), false);
         assert.equal(editors.length, 1);
         assert.equal(
             editors[0].renderedDocuments.at(-1).markdown,
             translatedModel.comparisonMarkdown
         );
         assert.deepEqual(
-            editors[0].renderedDocuments.at(-1).translationRanges,
-            translatedModel.comparisonTranslationRanges
+            editors[0].renderedDocuments.at(-1).sourceMap,
+            []
         );
-        assert.deepEqual(editors[0].renderedDocuments.at(-1).sourceMap, []);
+        assert.deepEqual(
+            editors[0].renderedDocuments.at(-1).translationRanges,
+            translatedModel.comparisonTranslationRanges.map(range => ({
+                ...range,
+                language: 'zh-CN',
+            }))
+        );
+        assert.deepEqual(
+            editors[0].renderedDocuments.at(-1).translationPairs,
+            translatedModel.translationBlockRanges.map(range => ({
+                id: range.id,
+                sourceFrom: range.comparisonSourceFrom,
+                sourceTo: range.comparisonSourceTo,
+                translatedFrom: range.comparisonTranslationFrom,
+                translatedTo: range.comparisonTranslationTo,
+            }))
+        );
         assert.deepEqual(
             [...shadow.querySelectorAll('.markdown-outline-link')]
                 .map(link => link.textContent),
@@ -417,7 +555,12 @@ test('translates the document and switches between three reading modes', async (
             ...translatedModel,
             translationStatus: 'partial',
             translationView: 'compare',
+            translationCompletedBlocks: 1,
+            translationFailedBlocks: [{
+                id: 'translation-1-9-34-paragraph',
+            }],
         });
+        assert.equal(translate.hidden, false);
         assert.equal(translate.disabled, false);
         assert.equal(
             translate.getAttribute('aria-label'),
@@ -426,10 +569,55 @@ test('translates the document and switches between three reading modes', async (
         assert.equal(originalMode.disabled, false);
         assert.equal(translatedMode.disabled, false);
         assert.equal(compareMode.disabled, false);
+        assert.equal(status.textContent, '1 untranslated');
+        assert.equal(failureNavigation.hidden, false);
+        assert.equal(failurePosition.textContent, '1/1');
+        assert.equal(
+            failurePosition.getAttribute('aria-label'),
+            'Untranslated block 1 of 1'
+        );
+        assert.equal(
+            failureNavigation.querySelectorAll('button').length,
+            2
+        );
         assert.equal(
             editors[0].renderedDocuments.at(-1).markdown,
             translatedModel.comparisonMarkdown
         );
+        assert.deepEqual(
+            editors[0].renderedDocuments.at(-1).translationFailures,
+            [{
+                id: 'translation-1-9-34-paragraph',
+                from: 15,
+                to: 40,
+            }]
+        );
+        assert.deepEqual(
+            editors[0].renderedDocuments.at(-1).translationPairs,
+            [{
+                id: 'translation-0-0-7-heading',
+                sourceFrom: 0,
+                sourceTo: 7,
+                translatedFrom: 9,
+                translatedTo: 13,
+            }, {
+                id: 'translation-1-9-34-paragraph',
+                sourceFrom: 15,
+                sourceTo: 40,
+                translatedFrom: 42,
+                translatedTo: 48,
+            }]
+        );
+
+        shadow.querySelector('#mktero-document-actions').click();
+        retranslateDocument.click();
+        assert.deepEqual(actions, [
+            'translate',
+            'cancel',
+            'translated',
+            'compare',
+            'retranslate-all',
+        ]);
 
         originalMode.click();
         view.render({ ...translatedModel, translationView: 'original' });
@@ -450,6 +638,452 @@ test('translates the document and switches between three reading modes', async (
         view.destroy();
         assert.equal(editors.length, 1);
         assert.equal(editors.every(editor => editor.destroyed), true);
+    }
+});
+
+test('chooses translated, incomplete, and new languages from the translated tab', () => {
+    const selectedLanguages = [];
+    const canceledTranslations = [];
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        translationStatus: 'ready',
+        translationView: 'original',
+        translationTargetLanguage: 'zh-CN',
+        translationCachedLanguages: [
+            'zh-CN',
+            'ja-JP',
+            'unsupported',
+            'ja-JP',
+        ],
+        translationPartialLanguages: ['fr-FR', 'unsupported'],
+        translationBlocks: [{
+            id: 'translation-0-0-7-heading',
+            markdown: '# \u8bba\u6587',
+        }],
+        translatedMarkdown: '# \u8bba\u6587',
+        comparisonMarkdown: '# Paper\n\n# \u8bba\u6587',
+        onTranslateDocument: () => {},
+        onCancelDocumentTranslation: () => {
+            canceledTranslations.push('cancel');
+        },
+        onSetTranslationView: () => {},
+        onSelectTranslationLanguage: language => {
+            selectedLanguages.push(language);
+        },
+    });
+    const first = createView(model);
+    const second = createView(model);
+    const trigger = first.shadow.querySelector(
+        '[data-translation-view="translated"]'
+    );
+    const menu = first.shadow.querySelector(
+        '#mktero-translation-language-options'
+    );
+    const options = () => [...menu.querySelectorAll(
+        '[data-translation-language]'
+    )];
+
+    try {
+        let focused = '';
+        trigger.focus = () => { focused = 'trigger'; };
+        for (const option of options()) {
+            const language = option.getAttribute('data-translation-language');
+            option.focus = () => { focused = language; };
+        }
+        assert.equal(trigger.getAttribute('aria-haspopup'), 'menu');
+        assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+        assert.equal(
+            trigger.querySelector('[data-lucide="chevron-down"]')?.hidden,
+            false
+        );
+        assert.equal(menu.hidden, true);
+
+        trigger.click();
+        assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+        assert.equal(menu.hidden, false);
+        assert.deepEqual([...menu.querySelectorAll(
+            '.markdown-translation-language-group-label'
+        )].map(label => label.textContent), ['Translated', 'Translate to']);
+        assert.deepEqual(options().map(option => ({
+            language: option.getAttribute('data-translation-language'),
+            label: option.textContent.trim(),
+            status: option.getAttribute('data-translation-status'),
+            selected: option.getAttribute('aria-checked'),
+        })), [{
+            language: 'zh-CN',
+            label: 'Simplified Chinese',
+            status: 'complete',
+            selected: 'true',
+        }, {
+            language: 'ja-JP',
+            label: 'Japanese',
+            status: 'complete',
+            selected: 'false',
+        }, {
+            language: 'zh-TW',
+            label: 'Traditional Chinese',
+            status: 'missing',
+            selected: 'false',
+        }, {
+            language: 'ko-KR',
+            label: 'Korean',
+            status: 'missing',
+            selected: 'false',
+        }, {
+            language: 'es-ES',
+            label: 'Spanish',
+            status: 'missing',
+            selected: 'false',
+        }, {
+            language: 'fr-FR',
+            label: 'French',
+            status: 'partial',
+            selected: 'false',
+        }, {
+            language: 'pt-BR',
+            label: 'Portuguese (Brazil)',
+            status: 'missing',
+            selected: 'false',
+        }]);
+        assert.equal(
+            second.shadow.querySelector('#mktero-translation-language-options')
+                .hidden,
+            true
+        );
+
+        options()[1].click();
+        assert.deepEqual(selectedLanguages, ['ja-JP']);
+        assert.equal(menu.hidden, true);
+        assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+
+        dispatchKeyboardEvent(trigger, 'ArrowDown');
+        assert.equal(menu.hidden, false);
+        assert.equal(focused, 'zh-CN');
+        dispatchKeyboardEvent(options()[0], 'ArrowDown');
+        assert.equal(focused, 'ja-JP');
+        dispatchKeyboardEvent(options()[1], 'Escape');
+        assert.equal(menu.hidden, true);
+        assert.equal(focused, 'trigger');
+
+        trigger.click();
+        const outside = first.document.createElement('div');
+        first.document.body.appendChild(outside);
+        outside.dispatchEvent(new first.document.defaultView.Event('mousedown', {
+            bubbles: true,
+        }));
+        assert.equal(menu.hidden, true);
+
+        first.view.render({
+            ...model,
+            translationStatus: 'loading',
+            translationRequestedTargetLanguage: 'ko-KR',
+            translationCachedLanguages: [],
+        });
+        assert.equal(
+            first.shadow.querySelector('#mktero-translate-document').hidden,
+            true
+        );
+        assert.equal(trigger.getAttribute('aria-haspopup'), 'menu');
+        trigger.click();
+        assert.equal(menu.hidden, false);
+        assert.equal(
+            options()[0].getAttribute('data-translation-status'),
+            'complete'
+        );
+        assert.equal(options().every(option => option.disabled), true);
+        const cancel = menu.querySelector(
+            '#mktero-cancel-translation-language'
+        );
+        assert.equal(cancel.hidden, false);
+        cancel.click();
+        assert.deepEqual(canceledTranslations, ['cancel']);
+        assert.equal(menu.hidden, true);
+    }
+    finally {
+        first.view.destroy();
+        second.view.destroy();
+    }
+});
+
+test('cycles translated reading modes with arrow keys and roving focus', () => {
+    const modes = [];
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Original.',
+        sourceKind: 'markdown',
+        translationStatus: 'ready',
+        translationView: 'original',
+        translationBlocks: [{ id: 'translation-0' }],
+        translatedMarkdown: 'Translation.',
+        comparisonMarkdown: 'Original.\n\nTranslation.',
+        translationBlockRanges: [{
+            id: 'translation-0',
+            sourceFrom: 0,
+            sourceTo: 9,
+            translatedFrom: 0,
+            translatedTo: 12,
+            comparisonSourceFrom: 0,
+            comparisonSourceTo: 9,
+            comparisonTranslationFrom: 11,
+            comparisonTranslationTo: 23,
+        }],
+        onTranslateDocument: () => {},
+        onSetTranslationView: mode => modes.push(mode),
+    });
+    const { view, shadow } = createView(model);
+    const original = shadow.querySelector(
+        '[data-translation-view="original"]'
+    );
+    const translated = shadow.querySelector(
+        '[data-translation-view="translated"]'
+    );
+    const compare = shadow.querySelector(
+        '[data-translation-view="compare"]'
+    );
+    let focused = null;
+    for (const button of [original, translated, compare]) {
+        button.focus = () => { focused = button; };
+    }
+
+    try {
+        dispatchKeyboardEvent(original, 'ArrowRight');
+        assert.deepEqual(modes, ['translated']);
+        assert.equal(focused, translated);
+
+        view.render({ ...model, translationView: 'translated' });
+        assert.equal(original.getAttribute('tabindex'), '-1');
+        assert.equal(translated.getAttribute('tabindex'), '0');
+        dispatchKeyboardEvent(translated, 'ArrowDown');
+        assert.deepEqual(modes, ['translated', 'compare']);
+        assert.equal(focused, compare);
+
+        view.render({ ...model, translationView: 'compare' });
+        dispatchKeyboardEvent(compare, 'ArrowRight');
+        assert.deepEqual(modes, ['translated', 'compare', 'original']);
+        assert.equal(focused, original);
+
+        dispatchKeyboardEvent(compare, 'ArrowLeft');
+        assert.deepEqual(modes, [
+            'translated',
+            'compare',
+            'original',
+            'translated',
+        ]);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('navigates failed translation blocks with wraparound', () => {
+    const scrolledOffsets = [];
+    const highlightedBlocks = [];
+    let editorOptions;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'First.\n\nSecond.\n\nThird.',
+        sourceKind: 'markdown',
+        translationStatus: 'partial',
+        translationView: 'compare',
+        translationCompletedBlocks: 1,
+        translationTotalBlocks: 3,
+        translationTargetLanguage: 'zh-CN',
+        translationBlocks: [{ id: 'first' }, { id: 'second' }, { id: 'third' }],
+        translationFailedBlocks: [{ id: 'first' }, { id: 'third' }],
+        translatedMarkdown: 'First.\n\n第二。\n\nThird.',
+        comparisonMarkdown: 'First.\n\nFirst.\n\nSecond.\n\n第二。\n\nThird.\n\nThird.',
+        comparisonTranslationRanges: [{ from: 23, to: 26 }],
+        translationBlockRanges: [{
+            id: 'first',
+            sourceFrom: 0,
+            sourceTo: 6,
+            translatedFrom: 0,
+            translatedTo: 6,
+            comparisonSourceFrom: 0,
+            comparisonSourceTo: 6,
+            comparisonTranslationFrom: 8,
+            comparisonTranslationTo: 14,
+        }, {
+            id: 'second',
+            sourceFrom: 8,
+            sourceTo: 15,
+            translatedFrom: 8,
+            translatedTo: 11,
+            comparisonSourceFrom: 16,
+            comparisonSourceTo: 23,
+            comparisonTranslationFrom: 25,
+            comparisonTranslationTo: 28,
+        }, {
+            id: 'third',
+            sourceFrom: 17,
+            sourceTo: 23,
+            translatedFrom: 13,
+            translatedTo: 19,
+            comparisonSourceFrom: 30,
+            comparisonSourceTo: 36,
+            comparisonTranslationFrom: 38,
+            comparisonTranslationTo: 44,
+        }],
+        onTranslateDocument: () => {},
+        onSetTranslationView: () => {},
+    });
+    const { view, shadow } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            const editor = createTestInlineEditor(options);
+            editor.scrollToOffset = offset => scrolledOffsets.push(offset);
+            editor.highlightTranslationBlock = blockID => (
+                highlightedBlocks.push(blockID)
+            );
+            return editor;
+        },
+    });
+    const previous = shadow.querySelector(
+        '[aria-label="Previous untranslated block"]'
+    );
+    const next = shadow.querySelector(
+        '[aria-label="Next untranslated block"]'
+    );
+    const position = shadow.querySelector(
+        '.markdown-translation-failure-position'
+    );
+
+    try {
+        assert.equal(position.textContent, '1/2');
+        next.click();
+        assert.equal(position.textContent, '2/2');
+        next.click();
+        assert.equal(position.textContent, '1/2');
+        previous.click();
+        assert.equal(position.textContent, '2/2');
+        previous.click();
+        assert.equal(position.textContent, '1/2');
+        assert.deepEqual(scrolledOffsets, [30, 0, 30, 0]);
+        assert.deepEqual(highlightedBlocks, ['third', 'first', 'third', 'first']);
+
+        editorOptions.onViewportChange(20);
+        next.click();
+        previous.click();
+        assert.deepEqual(scrolledOffsets.slice(-2), [30, 0]);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('keeps a partial translation readable while retrying the document', () => {
+    const updates = [];
+    let editorOptions;
+    const block = {
+        id: 'translation-0',
+        sourceFrom: 0,
+        sourceTo: 9,
+        translatedFrom: 0,
+        translatedTo: 9,
+        comparisonSourceFrom: 0,
+        comparisonSourceTo: 9,
+        comparisonTranslationFrom: 11,
+        comparisonTranslationTo: 20,
+    };
+    const partialModel = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Fallback.',
+        sourceKind: 'markdown',
+        translationStatus: 'partial',
+        translationView: 'translated',
+        translationCompletedBlocks: 0,
+        translationTotalBlocks: 1,
+        translationTargetLanguage: 'zh-CN',
+        translationBlocks: [{ id: block.id }],
+        translationFailedBlocks: [{ id: block.id }],
+        translationBlockRanges: [block],
+        translatedMarkdown: 'Fallback.',
+        comparisonMarkdown: 'Fallback.\n\nFallback.',
+        onTranslateDocument: () => {},
+        onCancelDocumentTranslation: () => {},
+        onSetTranslationView: () => {},
+    });
+    const { view, shadow } = createView(partialModel, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument(document) {
+                    updates.push(document);
+                },
+                setCorrectionState() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    try {
+        assert.equal(editorOptions.retryTranslationBlock, undefined);
+
+        view.render({
+            ...partialModel,
+            translationStatus: 'loading',
+            translationProgress: 0,
+            translationStage: 'requesting',
+            translationRequestedTargetLanguage: 'ja-JP',
+        });
+        assert.equal(updates.at(-1).markdown, 'Fallback.');
+        assert.equal(
+            shadow.querySelector('[data-translation-view="translated"]')
+                .textContent,
+            'Simplified Chinese'
+        );
+        assert.equal(
+            shadow.querySelector('.markdown-translation-status').textContent,
+            'Japanese · 0/1 · 0%'
+        );
+        assert.deepEqual(updates.at(-1).translationFailures, [{
+            id: block.id,
+            from: 0,
+            to: 9,
+        }]);
+        assert.equal(
+            shadow.querySelector('#mktero-translation-view').hidden,
+            false
+        );
+        assert.equal(
+            shadow.querySelector('[data-translation-view="translated"]')
+                .disabled,
+            false
+        );
+        assert.equal(
+            shadow.querySelector('.markdown-translation-status').textContent,
+            'Japanese · 0/1 · 0%'
+        );
+        view.render({
+            ...partialModel,
+            translationStatus: 'loading',
+            translationProgress: 0,
+            translationCompletedBlocks: 0,
+            translationTotalBlocks: 0,
+            translationStage: 'preparing',
+            translationRequestedTargetLanguage: 'ja-JP',
+        });
+        assert.equal(
+            shadow.querySelector('.markdown-translation-status').textContent,
+            'Japanese · 0/0 · 0%'
+        );
+        assert.equal(
+            shadow.querySelector(
+                '[aria-label="Previous untranslated block"]'
+            ).disabled,
+            false
+        );
+
+    }
+    finally {
+        view.destroy();
     }
 });
 
@@ -548,8 +1182,11 @@ test('updates Markdown and PDF annotations as one editor document', () => {
         markdown: 'Important result.',
         annotationOverlay,
         sourceMap,
-        translationRanges: [],
-    }]);
+            sourceActionRanges: null,
+            translationRanges: [],
+            translationFailures: [],
+            translationPairs: [],
+        }]);
     view.destroy();
 });
 
@@ -630,6 +1267,149 @@ test('forwards sourced Markdown copy targets to the current tab model', async ()
     await editorOptions.copySourcedMarkdown(target);
 
     assert.deepEqual(copied, [target]);
+    view.destroy();
+});
+
+test('keeps source annotations and evidence actions on bilingual source blocks', async () => {
+    const updates = [];
+    const copied = [];
+    const created = [];
+    let editorOptions;
+    const sourceMap = [{
+        type: 'text',
+        markdownFrom: 9,
+        markdownTo: 28,
+        locations: [{ pageIndex: 2, bbox: [100, 200, 900, 300] }],
+    }];
+    const annotationOverlay = {
+        matched: [{
+            id: 'HIGH0001',
+            type: 'highlight',
+            text: 'Original',
+            color: '#ffd400',
+            ranges: [{ from: 9, to: 17 }],
+        }],
+        unmatched: [],
+    };
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper\n\nOriginal paragraph.',
+        sourceMap,
+        annotationOverlay,
+        translationStatus: 'ready',
+        translationView: 'compare',
+        translatedMarkdown: '# \u8bba\u6587\n\n\u8bd1\u6587\u6bb5\u843d\u3002',
+        comparisonMarkdown: [
+            '# Paper',
+            '',
+            '# \u8bba\u6587',
+            '',
+            'Original paragraph.',
+            '',
+            '\u8bd1\u6587\u6bb5\u843d\u3002',
+        ].join('\n'),
+        comparisonTranslationRanges: [{ from: 9, to: 13 }, {
+            from: 36,
+            to: 41,
+        }],
+        translationBlockRanges: [{
+            id: 'translation-0-0-7-heading',
+            sourceFrom: 0,
+            sourceTo: 7,
+            translatedFrom: 0,
+            translatedTo: 4,
+            comparisonSourceFrom: 0,
+            comparisonSourceTo: 7,
+            comparisonTranslationFrom: 9,
+            comparisonTranslationTo: 13,
+        }, {
+            id: 'translation-1-9-28-paragraph',
+            sourceFrom: 9,
+            sourceTo: 28,
+            translatedFrom: 6,
+            translatedTo: 11,
+            comparisonSourceFrom: 15,
+            comparisonSourceTo: 34,
+            comparisonTranslationFrom: 36,
+            comparisonTranslationTo: 41,
+        }],
+        onCopySourcedMarkdown: target => copied.push(target),
+        onCreateMarkdownAnnotation: annotation => {
+            created.push(annotation);
+            return {
+                ...annotation,
+                id: 'mktero-local-bilingual',
+                source: 'markdown',
+                type: 'highlight',
+            };
+        },
+    });
+    const { view } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument(document) {
+                    updates.push(document);
+                },
+                setCorrectionState() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    assert.deepEqual(updates.at(-1).annotationOverlay.matched[0].ranges, [{
+        from: 15,
+        to: 23,
+    }]);
+    assert.deepEqual(updates.at(-1).sourceMap, [{
+        ...sourceMap[0],
+        markdownFrom: 15,
+        markdownTo: 34,
+    }]);
+
+    await editorOptions.copySourcedMarkdown({
+        kind: 'selection',
+        text: 'Original',
+        ranges: [{ from: 15, to: 23 }],
+    });
+    assert.deepEqual(copied, [{
+        kind: 'selection',
+        text: 'Original',
+        ranges: [{ from: 9, to: 17 }],
+    }]);
+
+    await editorOptions.createMarkdownAnnotation({
+        text: 'Original',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 15, to: 23 }],
+    }, { side: 'source' });
+    assert.deepEqual(created[0].ranges, [{ from: 9, to: 17 }]);
+    await assert.rejects(
+        editorOptions.createMarkdownAnnotation({
+            text: 'Original',
+            color: '#ffd400',
+            ranges: [{ from: 15, to: 23 }],
+        }, { side: 'translated' }),
+        /require original text/
+    );
+    await assert.rejects(
+        editorOptions.createMarkdownAnnotation({
+            text: 'Original',
+            color: '#ffd400',
+            ranges: [{ from: 15, to: 23 }],
+        }),
+        /require original text/
+    );
+    assert.equal(created.length, 1);
+
+    assert.throws(() => editorOptions.copySourcedMarkdown({
+        kind: 'selection',
+        text: '\u8bd1\u6587',
+        ranges: [{ from: 36, to: 38 }],
+    }), /source/i);
     view.destroy();
 });
 
@@ -983,6 +1763,15 @@ test('keeps reading controls in a toolbar above the Markdown body', () => {
         const translationView = shadow.querySelector(
             '#mktero-translation-view'
         );
+        const translationStatus = shadow.querySelector(
+            '.markdown-translation-status'
+        );
+        const translationContext = shadow.querySelector(
+            '.markdown-translation-context'
+        );
+        const failureNavigation = shadow.querySelector(
+            '.markdown-translation-failure-navigation'
+        );
         const translate = shadow.querySelector('#mktero-translate-document');
 
         assert.equal(toolbar?.getAttribute('role'), 'toolbar');
@@ -994,15 +1783,33 @@ test('keeps reading controls in a toolbar above the Markdown body', () => {
         assert.equal(readingLayout?.contains(editor), true);
         assert.equal(toolbar?.contains(size), true);
         assert.equal(toolbar?.contains(family), true);
+        assert.equal(
+            toolbar?.querySelector('.markdown-reader-font-label'),
+            null
+        );
+        assert.deepEqual(
+            [...size.children],
+            [shadow.querySelector('.markdown-reader-font-controls')]
+        );
+        assert.deepEqual(
+            [...family.children],
+            [shadow.querySelector('.markdown-reader-font-picker')]
+        );
         assert.equal(readerControls?.nextElementSibling, translationControls);
         assert.deepEqual(
             [...translationControls.children],
             [
                 translationViewLabel,
                 translationView,
+                translationContext,
+                failureNavigation,
                 translationSeparator,
                 translate,
             ]
+        );
+        assert.deepEqual(
+            [...translationContext.children],
+            [translationStatus]
         );
         assert.equal(translationSeparator?.getAttribute('role'), 'separator');
         assert.equal(
@@ -1158,6 +1965,189 @@ test('selects a font from the top toolbar without opening document actions', () 
     }
     finally {
         view.destroy();
+    }
+});
+
+test('offers fonts for the current language only in translated mode', () => {
+    const persistedFonts = [];
+    const translatedModel = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        translationStatus: 'ready',
+        translationView: 'original',
+        translationTargetLanguage: 'zh-CN',
+        translatedMarkdown: '# \u8bba\u6587',
+        comparisonMarkdown: '# Paper\n\n# \u8bba\u6587',
+        onTranslateDocument: () => {},
+        onSetTranslationView: () => {},
+    });
+    const { view, shadow } = createView(translatedModel, {}, {
+        readerFont: 'georgia',
+        onReaderFontChange: font => persistedFonts.push(font),
+    });
+    const trigger = shadow.querySelector('#mktero-reader-font-family');
+    const listbox = shadow.querySelector('#mktero-reader-font-options');
+    const optionValues = () => [...listbox.querySelectorAll('[role="option"]')]
+        .map(option => option.getAttribute('data-reader-font'));
+
+    try {
+        assert.deepEqual(optionValues(), [
+            'system-serif',
+            'georgia',
+            'cambria',
+            'times-new-roman',
+        ]);
+        assert.equal(trigger.textContent.trim(), 'Georgia');
+
+        view.render({ ...translatedModel, translationView: 'translated' });
+        assert.deepEqual(optionValues(), [
+            'noto-serif-sc',
+            'source-han-serif-sc',
+            'songti-sc',
+            'simsun',
+        ]);
+        assert.equal(trigger.textContent.trim(), 'Noto Serif SC');
+        assert.equal(
+            shadow.host.style.getPropertyValue('--reader-selected-translation-font'),
+            'var(--reader-translation-font-zh-cn)'
+        );
+
+        const sourceHan = listbox.querySelector(
+            '[data-reader-font="source-han-serif-sc"]'
+        );
+        sourceHan.click();
+        assert.deepEqual(persistedFonts, []);
+        assert.equal(trigger.textContent.trim(), 'Source Han Serif SC');
+        assert.equal(sourceHan.getAttribute('aria-selected'), 'true');
+        assert.match(
+            shadow.host.style.getPropertyValue('--reader-selected-translation-font'),
+            /^"Source Han Serif SC"/
+        );
+
+        view.render({ ...translatedModel, translationView: 'compare' });
+        assert.deepEqual(optionValues(), [
+            'system-serif',
+            'georgia',
+            'cambria',
+            'times-new-roman',
+        ]);
+        assert.equal(trigger.textContent.trim(), 'Georgia');
+
+        view.render({ ...translatedModel, translationView: 'translated' });
+        assert.equal(trigger.textContent.trim(), 'Source Han Serif SC');
+
+        trigger.click();
+        let focusedElement = listbox.querySelector(
+            '[data-reader-font="source-han-serif-sc"]'
+        );
+        let triggerFocuses = 0;
+        Object.defineProperty(shadow, 'activeElement', {
+            configurable: true,
+            get: () => focusedElement,
+        });
+        trigger.focus = () => {
+            triggerFocuses++;
+            focusedElement = trigger;
+        };
+        view.render({
+            ...translatedModel,
+            translationView: 'translated',
+            translationTargetLanguage: 'ja-JP',
+        });
+        assert.equal(triggerFocuses, 1);
+        assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+
+        const languageOptions = [
+            ['zh-TW', [
+                'noto-serif-tc',
+                'source-han-serif-tc',
+                'songti-tc',
+                'pmingliu',
+            ], 'Noto Serif TC'],
+            ['ja-JP', [
+                'noto-serif-jp',
+                'source-han-serif-jp',
+                'yu-mincho',
+                'hiragino-mincho',
+            ], 'Noto Serif JP'],
+            ['ko-KR', [
+                'noto-serif-kr',
+                'source-han-serif-k',
+                'apple-myungjo',
+                'batang',
+            ], 'Noto Serif KR'],
+            ...['es-ES', 'fr-FR', 'pt-BR'].map(language => ([
+                language,
+                ['stix-two-text', 'georgia', 'cambria', 'times-new-roman'],
+                'STIX Two Text',
+            ])),
+        ];
+        for (const [language, expectedOptions, expectedLabel]
+            of languageOptions) {
+            view.render({
+                ...translatedModel,
+                translationView: 'translated',
+                translationTargetLanguage: language,
+            });
+            assert.deepEqual(optionValues(), expectedOptions, language);
+            assert.equal(trigger.textContent.trim(), expectedLabel, language);
+        }
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('isolates translated font choices across Zotero windows', () => {
+    const translatedModel = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        translationStatus: 'ready',
+        translationView: 'translated',
+        translationTargetLanguage: 'zh-CN',
+        translatedMarkdown: '# \u8bba\u6587',
+        comparisonMarkdown: '# Paper\n\n# \u8bba\u6587',
+        onTranslateDocument: () => {},
+        onSetTranslationView: () => {},
+    });
+    const first = createView(translatedModel);
+    const second = createView(translatedModel);
+
+    try {
+        first.shadow.querySelector(
+            '[data-reader-font="source-han-serif-sc"]'
+        ).click();
+
+        assert.equal(
+            first.shadow.querySelector('#mktero-reader-font-family')
+                .textContent.trim(),
+            'Source Han Serif SC'
+        );
+        assert.equal(
+            second.shadow.querySelector('#mktero-reader-font-family')
+                .textContent.trim(),
+            'Noto Serif SC'
+        );
+        assert.match(
+            first.shadow.host.style.getPropertyValue(
+                '--reader-selected-translation-font'
+            ),
+            /^"Source Han Serif SC"/
+        );
+        assert.equal(
+            second.shadow.host.style.getPropertyValue(
+                '--reader-selected-translation-font'
+            ),
+            'var(--reader-translation-font-zh-cn)'
+        );
+    }
+    finally {
+        first.view.destroy();
+        second.view.destroy();
     }
 });
 
@@ -1729,6 +2719,45 @@ test('creates and edits persistent local Markdown annotations', async () => {
         annotationID: 'mktero-local-1',
     });
     assert.deepEqual(model.annotationOverlay.matched, []);
+    view.destroy();
+});
+
+test('rejects Markdown annotations created from the translation view', async () => {
+    const created = [];
+    let editorOptions;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Original text.',
+        translationStatus: 'ready',
+        translationView: 'translated',
+        translatedMarkdown: '译文。',
+        translationTargetLanguage: 'zh-CN',
+        async onCreateMarkdownAnnotation(annotation) {
+            created.push(annotation);
+            return annotation;
+        },
+    });
+    const { view } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    await assert.rejects(
+        editorOptions.createMarkdownAnnotation({
+            text: '译文',
+            color: '#ffd400',
+            ranges: [{ from: 0, to: 2 }],
+        }),
+        /require original text/
+    );
+    assert.deepEqual(created, []);
     view.destroy();
 });
 
@@ -2448,6 +3477,72 @@ test('restores the current Markdown position after a reparse replaces the docume
         },
     });
     assert.deepEqual(scrolledOffsets, [replacementMarkdown.indexOf('New methods.')]);
+    view.destroy();
+});
+
+test('uses the previous block ranges when a retry changes translation lengths', () => {
+    const scrolledOffsets = [];
+    let editorOptions;
+    const oldRanges = [{
+        id: 'first',
+        sourceFrom: 0,
+        sourceTo: 5,
+        translatedFrom: 0,
+        translatedTo: 5,
+        comparisonSourceFrom: 0,
+        comparisonSourceTo: 5,
+        comparisonTranslationFrom: 7,
+        comparisonTranslationTo: 12,
+    }, {
+        id: 'second',
+        sourceFrom: 7,
+        sourceTo: 17,
+        translatedFrom: 7,
+        translatedTo: 17,
+        comparisonSourceFrom: 14,
+        comparisonSourceTo: 24,
+        comparisonTranslationFrom: 26,
+        comparisonTranslationTo: 36,
+    }];
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: `${'S'.repeat(5)}\n\n${'T'.repeat(10)}`,
+        sourceKind: 'markdown',
+        translationStatus: 'partial',
+        translationView: 'translated',
+        translationBlocks: [{ id: 'first' }, { id: 'second' }],
+        translationFailedBlocks: [{ id: 'first' }],
+        translatedMarkdown: `${'A'.repeat(5)}\n\n${'B'.repeat(10)}`,
+        comparisonMarkdown: '',
+        translationBlockRanges: oldRanges,
+    });
+    const { view } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            const editor = createTestInlineEditor(options);
+            editor.scrollToOffset = offset => scrolledOffsets.push(offset);
+            return editor;
+        },
+    });
+
+    editorOptions.onViewportChange(10);
+    view.render({
+        ...model,
+        translationStatus: 'ready',
+        translationFailedBlocks: [],
+        translatedMarkdown: `${'C'.repeat(30)}\n\n${'D'.repeat(20)}`,
+        translationBlockRanges: [{
+            ...oldRanges[0],
+            translatedTo: 30,
+        }, {
+            ...oldRanges[1],
+            translatedFrom: 32,
+            translatedTo: 52,
+        }],
+    });
+
+    assert.deepEqual(scrolledOffsets, [38]);
     view.destroy();
 });
 

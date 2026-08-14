@@ -4,7 +4,6 @@ export const AI_PROTOCOL_PREF = 'extensions.mktero.aiProtocol';
 export const AI_API_BASE_PREF = 'extensions.mktero.aiApiBase';
 export const AI_API_KEY_PREF = 'extensions.mktero.aiApiKey';
 export const AI_MODEL_PREF = 'extensions.mktero.aiModel';
-export const AI_REASONING_PREF = 'extensions.mktero.aiReasoning';
 export const AI_TARGET_LANGUAGE_PREF = 'extensions.mktero.aiTargetLanguage';
 export const AI_REQUEST_TIMEOUT_PREF = 'extensions.mktero.aiRequestTimeoutMs';
 export const AI_MAX_OUTPUT_TOKENS_PREF = 'extensions.mktero.aiMaxOutputTokens';
@@ -28,7 +27,8 @@ export const AI_PROTOCOL_GOOGLE = 'google-generative-ai';
 
 export const AI_DEFAULT_API_BASE = 'https://api.openai.com/v1';
 export const AI_DEFAULT_TARGET_LANGUAGE = 'zh-CN';
-export const AI_DEFAULT_REASONING = 'provider-default';
+export const AI_DEFAULT_REASONING = 'none';
+export const AI_PROVIDER_DEFAULT_REASONING = 'provider-default';
 export const AI_DEFAULT_REQUEST_TIMEOUT_MS = 600_000;
 export const AI_DEFAULT_MAX_OUTPUT_TOKENS = 0;
 export const AI_MAX_REQUEST_TIMEOUT_MS = 3_600_000;
@@ -39,22 +39,22 @@ const MAX_AI_API_KEY_LENGTH = 16_384;
 const MAX_AI_MODEL_LENGTH = 512;
 const AI_REASONING_LEVELS = new Set([
     AI_DEFAULT_REASONING,
-    'none',
+    AI_PROVIDER_DEFAULT_REASONING,
     'low',
     'medium',
     'high',
     'xhigh',
 ]);
-const AI_TARGET_LANGUAGES = new Set([
+export const AI_TARGET_LANGUAGES = Object.freeze([
     'zh-CN',
     'zh-TW',
-    'en-US',
     'ja-JP',
     'ko-KR',
     'es-ES',
     'fr-FR',
     'pt-BR',
 ]);
+const AI_TARGET_LANGUAGE_SET = new Set(AI_TARGET_LANGUAGES);
 const AI_PROTOCOLS_BY_PROVIDER = Object.freeze({
     [AI_PROVIDER_OPENAI]: Object.freeze([
         AI_PROTOCOL_OPENAI_RESPONSES,
@@ -91,7 +91,7 @@ export function getAISettings(zotero) {
         ),
         apiKey: String(get(AI_API_KEY_PREF) || '').trim(),
         model: String(get(AI_MODEL_PREF) || '').trim(),
-        reasoning: normalizeReasoning(get(AI_REASONING_PREF)),
+        reasoning: AI_DEFAULT_REASONING,
         targetLanguage: normalizeTargetLanguage(
             get(AI_TARGET_LANGUAGE_PREF)
         ),
@@ -109,6 +109,19 @@ export function getAISettings(zotero) {
         ),
         streaming: get(AI_STREAMING_PREF) !== false,
     };
+}
+
+export function observeAITargetLanguage(zotero, onChange) {
+    if (typeof zotero?.Prefs?.registerObserver !== 'function'
+        || typeof onChange !== 'function') {
+        return () => {};
+    }
+    const observer = zotero.Prefs.registerObserver(
+        AI_TARGET_LANGUAGE_PREF,
+        value => onChange(normalizeTargetLanguage(value)),
+        true
+    );
+    return () => zotero.Prefs.unregisterObserver?.(observer);
 }
 
 export function validateAISettings(settings) {
@@ -213,9 +226,13 @@ export function normalizeAIBaseURL(value) {
 
 export function normalizeTargetLanguage(value) {
     const language = String(value || '').trim();
-    return AI_TARGET_LANGUAGES.has(language)
+    return isSupportedAITargetLanguage(language)
         ? language
         : AI_DEFAULT_TARGET_LANGUAGE;
+}
+
+export function isSupportedAITargetLanguage(value) {
+    return AI_TARGET_LANGUAGE_SET.has(String(value || '').trim());
 }
 
 export function normalizeReasoning(value) {

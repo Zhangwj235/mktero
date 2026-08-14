@@ -4,6 +4,9 @@ import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import {
     createEmptyAnnotationOverlay,
 } from '../core/markdown-annotation-overlay.js';
+import {
+    isSupportedAITargetLanguage,
+} from '../config/ai-preferences.js';
 import { findMinerUAlgorithmGroups } from '../markdown/markdown-algorithms.js';
 import {
     findDisplayMathMatches,
@@ -27,6 +30,11 @@ import {
     createTableCaption,
     RenderedTableWidget,
 } from './rendered-table-widget.js';
+import {
+    applyTranslationPresentation,
+    normalizeTranslationPresentation,
+    sameTranslationPresentation,
+} from './translation-presentation.js';
 import {
     appendRenderedMarkdown,
     installRenderedCitations,
@@ -62,6 +70,9 @@ export const setTableHighlight = StateEffect.define();
 export const setFigureHighlight = StateEffect.define();
 export const setAnnotationOverlay = StateEffect.define();
 export const setTranslationRanges = StateEffect.define();
+export const setTranslationFailures = StateEffect.define();
+export const setTranslationPairs = StateEffect.define();
+export const setTranslationPairHighlight = StateEffect.define();
 export const setInlineEditingRange = StateEffect.define();
 export const setCorrectionRenderingState = StateEffect.define();
 
@@ -80,6 +91,7 @@ class RenderedMarkdownWidget extends WidgetType {
         annotations = [],
         extraClassName = '',
         tableCaption = null,
+        translationPresentation = {},
         translate = translateEnglish,
     }) {
         super();
@@ -98,6 +110,9 @@ class RenderedMarkdownWidget extends WidgetType {
         this.annotationKey = JSON.stringify(annotations);
         this.extraClassName = extraClassName;
         this.tableCaption = tableCaption;
+        this.translationPresentation = normalizeTranslationPresentation(
+            translationPresentation
+        );
         this.translate = translate;
     }
 
@@ -110,7 +125,11 @@ class RenderedMarkdownWidget extends WidgetType {
             && this.citationKey === other.citationKey
             && this.annotationKey === other.annotationKey
             && this.extraClassName === other.extraClassName
-            && this.tableCaption?.text === other.tableCaption?.text;
+            && this.tableCaption?.text === other.tableCaption?.text
+            && sameTranslationPresentation(
+                this.translationPresentation,
+                other.translationPresentation
+            );
     }
 
     toDOM(view) {
@@ -122,6 +141,7 @@ class RenderedMarkdownWidget extends WidgetType {
             `cm-mktero-${this.display}`,
             this.extraClassName,
         ].filter(Boolean).join(' ');
+        applyTranslationPresentation(container, this.translationPresentation);
         container.dataset.markdownFrom = String(this.from);
         container.dataset.markdownTo = String(this.from + this.source.length);
         appendRenderedMarkdown(
@@ -178,6 +198,29 @@ class RenderedMarkdownWidget extends WidgetType {
         return !event.target?.closest?.(
             '.cm-mktero-citation, .cm-mktero-pdf-annotation'
         );
+    }
+}
+
+class TranslationFailureWidget extends WidgetType {
+    constructor(label) {
+        super();
+        this.label = label;
+    }
+
+    eq(other) {
+        return this.label === other.label;
+    }
+
+    toDOM(view) {
+        const document = view.dom.ownerDocument;
+        const container = createHTMLNode(document, 'div');
+        container.className = 'cm-mktero-translation-failure';
+        container.setAttribute('role', 'status');
+        const label = createHTMLNode(document, 'span');
+        label.className = 'cm-mktero-translation-failure-label';
+        label.textContent = this.label;
+        container.appendChild(label);
+        return container;
     }
 }
 
@@ -533,6 +576,9 @@ export function createInlineRenderingExtension({
         highlightedFigureID: null,
         annotationOverlay: createEmptyAnnotationOverlay(),
         translationRanges: [],
+        translationFailures: [],
+        translationPairs: [],
+        highlightedTranslationBlockID: null,
         annotationTargets: new Map(),
         editingRange: null,
         correctionManagementEnabled: false,
@@ -564,6 +610,9 @@ export function createInlineRenderingExtension({
             let figureHighlightChanged = false;
             let annotationOverlayChanged = false;
             let translationRangesChanged = false;
+            let translationFailuresChanged = false;
+            let translationPairsChanged = false;
+            let translationPairHighlightChanged = false;
             let editingRangeChanged = false;
             let correctionStateChanged = false;
             if (shouldRefresh) context.renderVersion++;
@@ -597,6 +646,28 @@ export function createInlineRenderingExtension({
                     );
                     translationRangesChanged = true;
                 }
+                else if (effect.is(setTranslationFailures)) {
+                    context.translationFailures = normalizeTranslationFailures(
+                        effect.value,
+                        transaction.state.doc.length
+                    );
+                    translationFailuresChanged = true;
+                }
+                else if (effect.is(setTranslationPairs)) {
+                    context.translationPairs = normalizeTranslationPairs(
+                        effect.value,
+                        transaction.state.doc.length
+                    );
+                    translationPairsChanged = true;
+                }
+                else if (effect.is(setTranslationPairHighlight)) {
+                    const id = String(effect.value || '');
+                    context.highlightedTranslationBlockID =
+                        context.translationPairs.some(pair => pair.id === id)
+                            ? id
+                            : null;
+                    translationPairHighlightChanged = true;
+                }
                 else if (effect.is(setInlineEditingRange)) {
                     context.editingRange = effect.value;
                     editingRangeChanged = true;
@@ -620,6 +691,9 @@ export function createInlineRenderingExtension({
                 || figureHighlightChanged
                 || annotationOverlayChanged
                 || translationRangesChanged
+                || translationFailuresChanged
+                || translationPairsChanged
+                || translationPairHighlightChanged
                 || editingRangeChanged
                 || correctionStateChanged
                 || shouldRefresh) {
@@ -866,8 +940,79 @@ function buildDecorations(state, context) {
         [...renderedGroups, ...renderedMathRanges]
     );
     decorateTranslationRanges(state, decorations, context);
+    decorateTranslationPairs(state, decorations, context);
+    decorateTranslationFailures(state, decorations, context);
     decorateCorrections(state, decorations, context);
     return Decoration.set(decorations, true);
+}
+
+function decorateTranslationPairs(state, decorations, context) {
+    for (const pair of context.translationPairs) {
+        decorateTranslationPairRange(
+            state,
+            decorations,
+            pair.source,
+            pair,
+            'source',
+            context.highlightedTranslationBlockID === pair.id
+        );
+        decorateTranslationPairRange(
+            state,
+            decorations,
+            pair.translated,
+            pair,
+            'translated',
+            context.highlightedTranslationBlockID === pair.id
+        );
+    }
+}
+
+function decorateTranslationPairRange(
+    state,
+    decorations,
+    range,
+    pair,
+    side,
+    highlighted
+) {
+    if (!range) return;
+    const fromLine = state.doc.lineAt(range.from).number;
+    const toLine = state.doc.lineAt(Math.max(range.from, range.to - 1)).number;
+    for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber++) {
+        decorations.push(Decoration.line({
+            class: [
+                'cm-mktero-translation-pair',
+                `cm-mktero-translation-pair-${side}`,
+                highlighted ? 'is-translation-pair-active' : '',
+            ].filter(Boolean).join(' '),
+            attributes: {
+                'data-translation-block-id': pair.id,
+            },
+        }).range(state.doc.line(lineNumber).from));
+    }
+}
+
+function decorateTranslationFailures(state, decorations, context) {
+    for (const failure of context.translationFailures) {
+        const fromLine = state.doc.lineAt(failure.from).number;
+        const toLine = state.doc.lineAt(Math.max(
+            failure.from,
+            failure.to - 1
+        )).number;
+        for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber++) {
+            decorations.push(Decoration.line({
+                class: 'cm-mktero-translation-failure-line',
+                attributes: { lang: '' },
+            }).range(state.doc.line(lineNumber).from));
+        }
+        decorations.push(Decoration.widget({
+            block: true,
+            side: -1,
+            widget: new TranslationFailureWidget(
+                context.translate('ai.translationFailedBlock')
+            ),
+        }).range(state.doc.lineAt(failure.from).from));
+    }
 }
 
 function decorateTranslationRanges(state, decorations, context) {
@@ -877,9 +1022,12 @@ function decorateTranslationRanges(state, decorations, context) {
         for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber++) {
             decorations.push(Decoration.line({
                 class: 'cm-mktero-translation-line',
-                attributes: lineNumber === fromLine
-                    ? { 'data-translation-start': 'true' }
-                    : {},
+                attributes: {
+                    ...(lineNumber === fromLine
+                        ? { 'data-translation-start': 'true' }
+                        : {}),
+                    ...(range.language ? { lang: range.language } : {}),
+                },
             }).range(state.doc.line(lineNumber).from));
         }
     }
@@ -893,9 +1041,97 @@ function normalizeTranslationRanges(ranges, documentLength) {
         && range.from >= 0
         && range.to > range.from
         && range.to <= documentLength
-            ? [{ from: range.from, to: range.to }]
+            ? [{
+                from: range.from,
+                to: range.to,
+                language: normalizeTranslationLanguage(range.language),
+            }]
             : []
     ));
+}
+
+function normalizeTranslationLanguage(language) {
+    const value = String(language || '').trim();
+    return isSupportedAITargetLanguage(value) ? value : '';
+}
+
+function normalizeTranslationFailures(failures, documentLength) {
+    if (!Array.isArray(failures)) return [];
+    const seen = new Set();
+    return failures.flatMap(failure => {
+        const id = String(failure?.id || '');
+        if (!id || seen.has(id)
+            || !Number.isSafeInteger(failure?.from)
+            || !Number.isSafeInteger(failure?.to)
+            || failure.from < 0
+            || failure.to <= failure.from
+            || failure.to > documentLength) {
+            return [];
+        }
+        seen.add(id);
+        return [{
+            id,
+            from: failure.from,
+            to: failure.to,
+        }];
+    });
+}
+
+function normalizeTranslationPairs(pairs, documentLength) {
+    if (!Array.isArray(pairs)) return [];
+    const seen = new Set();
+    const acceptedRanges = [];
+    return pairs.flatMap(pair => {
+        const id = String(pair?.id || '');
+        const source = normalizeTranslationPairRange(
+            pair?.sourceFrom,
+            pair?.sourceTo,
+            documentLength
+        );
+        const translated = normalizeTranslationPairRange(
+            pair?.translatedFrom,
+            pair?.translatedTo,
+            documentLength
+        );
+        if (!isStableTranslationBlockID(id)
+            || seen.has(id)
+            || !source && !translated
+            || source && overlapsTranslationPairRange(source, acceptedRanges)
+            || translated && overlapsTranslationPairRange(
+                translated,
+                [...acceptedRanges, source].filter(Boolean)
+            )) {
+            return [];
+        }
+        seen.add(id);
+        if (source) acceptedRanges.push(source);
+        if (translated) acceptedRanges.push(translated);
+        return [{
+            id,
+            source,
+            translated,
+        }];
+    });
+}
+
+function isStableTranslationBlockID(id) {
+    return /^[A-Za-z0-9._:-]{1,256}$/.test(id);
+}
+
+function overlapsTranslationPairRange(range, accepted) {
+    return accepted.some(candidate => (
+        range.from < candidate.to && range.to > candidate.from
+    ));
+}
+
+function normalizeTranslationPairRange(from, to, documentLength) {
+    return Number.isSafeInteger(from)
+        && Number.isSafeInteger(to)
+        && from >= 0
+        && to > from
+        && to <= documentLength
+        ? { from, to }
+        : null;
 }
 
 function decoratePDFAnnotations(state, decorations, context, renderedRanges) {
@@ -1948,6 +2184,11 @@ function dollarWrappedNumericCitationContent(source) {
 
 function renderedRange(node, state, display, context) {
     const source = node.table?.source || state.sliceDoc(node.from, node.to);
+    const translationPresentation = translationPresentationForRange(
+        context,
+        node.from,
+        node.to
+    );
     const tableIsHighlighted = node.tableTarget?.id
         && node.tableTarget.id === context.highlightedTableID;
     const figureIsHighlighted = context.figureReferences.targetsByFrom
@@ -1983,6 +2224,7 @@ function renderedRange(node, state, display, context) {
                 restoreCorrection: context.restoreCorrection,
                 onCorrectionError: context.onCorrectionError,
                 onCorrectionEditingChange: context.onCorrectionEditingChange,
+                translationPresentation,
                 ...context,
             }),
             block: true,
@@ -2019,10 +2261,27 @@ function renderedRange(node, state, display, context) {
             tableCaption: node.table?.kind === 'html'
                 ? node.caption
                 : null,
+            translationPresentation,
             ...context,
         }),
         block: true,
     }).range(node.from, node.to);
+}
+
+function translationPresentationForRange(context, from, to) {
+    const translationFailure = context.translationFailures.some(range => (
+        from >= range.from && to <= range.to
+    ));
+    if (translationFailure) {
+        return { language: '', sourceFallback: true };
+    }
+    const translation = context.translationRanges.find(range => (
+        from >= range.from && to <= range.to
+    ));
+    return {
+        language: translation?.language || '',
+        sourceFallback: false,
+    };
 }
 
 function decorateCorrections(state, decorations, context) {

@@ -10,12 +10,14 @@ import {
     AI_PROTOCOL_OPENAI_RESPONSES,
     AI_PROTOCOL_PREF,
     AI_PROVIDER_PREF,
-    AI_REASONING_PREF,
     AI_REQUEST_TIMEOUT_PREF,
     AI_STREAMING_PREF,
+    AI_TARGET_LANGUAGES,
     AI_TARGET_LANGUAGE_PREF,
     getAISettings,
+    isSupportedAITargetLanguage,
     normalizeAIBaseURL,
+    observeAITargetLanguage,
     validateAISettings,
 } from '../src/config/ai-preferences.js';
 
@@ -27,7 +29,6 @@ test('reads and normalizes the configured AI settings', () => {
         [AI_API_BASE_PREF, ' https://example.com/v1/ '],
         [AI_API_KEY_PREF, ' secret-token '],
         [AI_MODEL_PREF, ' example-chat '],
-        [AI_REASONING_PREF, 'high'],
         [AI_TARGET_LANGUAGE_PREF, 'zh-CN'],
         [AI_REQUEST_TIMEOUT_PREF, 45_000],
         [AI_MAX_OUTPUT_TOKENS_PREF, 3_000],
@@ -44,7 +45,7 @@ test('reads and normalizes the configured AI settings', () => {
         apiBase: 'https://example.com/v1',
         apiKey: 'secret-token',
         model: 'example-chat',
-        reasoning: 'high',
+        reasoning: 'none',
         targetLanguage: 'zh-CN',
         requestTimeoutMs: 45_000,
         maxOutputTokens: 3_000,
@@ -86,26 +87,44 @@ test('allows full-document timeout and output token budgets', () => {
     assert.equal(settings.maxOutputTokens, 262_144);
 });
 
-test('uses provider-default reasoning unless a supported level is configured', () => {
-    for (const [stored, expected] of [
-        [undefined, 'provider-default'],
-        ['none', 'none'],
-        ['low', 'low'],
-        ['medium', 'medium'],
-        ['high', 'high'],
-        ['xhigh', 'xhigh'],
-        ['unsupported', 'provider-default'],
-    ]) {
-        const settings = getAISettings({
-            Prefs: {
-                get: key => key === AI_REASONING_PREF ? stored : undefined,
+test('disables reasoning without reading the legacy preference', () => {
+    const reads = [];
+    const settings = getAISettings({
+        Prefs: {
+            get(key) {
+                reads.push(key);
+                return key === 'extensions.mktero.aiReasoning'
+                    ? 'high'
+                    : undefined;
             },
-        });
-        assert.equal(settings.reasoning, expected);
-    }
+        },
+    });
+
+    assert.equal(settings.reasoning, 'none');
+    assert.equal(reads.includes('extensions.mktero.aiReasoning'), false);
 });
 
-test('accepts the expanded AI translation language choices', () => {
+test('supports non-English targets and normalizes legacy English to Chinese', () => {
+    assert.deepEqual(AI_TARGET_LANGUAGES, [
+        'zh-CN',
+        'zh-TW',
+        'ja-JP',
+        'ko-KR',
+        'es-ES',
+        'fr-FR',
+        'pt-BR',
+    ]);
+    assert.equal(isSupportedAITargetLanguage('en-US'), false);
+    assert.equal(
+        getAISettings({
+            Prefs: {
+                get: key => key === AI_TARGET_LANGUAGE_PREF
+                    ? 'en-US'
+                    : undefined,
+            },
+        }).targetLanguage,
+        'zh-CN'
+    );
     for (const targetLanguage of ['es-ES', 'fr-FR', 'pt-BR']) {
         assert.equal(
             getAISettings({
@@ -130,6 +149,42 @@ test('accepts the expanded AI translation language choices', () => {
             targetLanguage
         );
     }
+});
+
+test('observes normalized AI target-language changes and unregisters', () => {
+    const changes = [];
+    const unregistered = [];
+    let observer;
+    const dispose = observeAITargetLanguage({
+        Prefs: {
+            registerObserver(key, callback, global) {
+                assert.equal(key, AI_TARGET_LANGUAGE_PREF);
+                assert.equal(global, true);
+                observer = callback;
+                return 'target-language-observer';
+            },
+            unregisterObserver(value) {
+                unregistered.push(value);
+            },
+        },
+    }, language => changes.push(language));
+
+    observer('ja-JP');
+    observer('unsupported');
+    dispose();
+
+    assert.deepEqual(changes, ['ja-JP', 'zh-CN']);
+    assert.deepEqual(unregistered, ['target-language-observer']);
+});
+
+test('shares one supported target-language set with translation rendering', () => {
+    assert.equal(isSupportedAITargetLanguage('zh-TW'), true);
+    assert.equal(isSupportedAITargetLanguage(' pt-BR '), true);
+    assert.equal(isSupportedAITargetLanguage('de-DE'), false);
+    assert.equal(
+        isSupportedAITargetLanguage('en-US" onclick="alert(1)'),
+        false
+    );
 });
 
 test('allows HTTPS providers and local HTTP model servers', () => {

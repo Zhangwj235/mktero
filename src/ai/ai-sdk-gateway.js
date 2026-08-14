@@ -14,15 +14,16 @@ import { createOpenResponses } from '@ai-sdk/open-responses';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import {
+    AI_MAX_OUTPUT_TOKENS,
     AI_PROTOCOL_ANTHROPIC,
     AI_PROTOCOL_GOOGLE,
     AI_PROTOCOL_OPENAI_CHAT,
     AI_PROTOCOL_OPENAI_RESPONSES,
     AI_PROTOCOL_OPEN_RESPONSES,
-    AI_MAX_OUTPUT_TOKENS,
     AI_PROVIDER_ALIBABA,
     AI_PROVIDER_ANTHROPIC,
     AI_PROVIDER_CUSTOM,
+    AI_PROVIDER_DEFAULT_REASONING,
     AI_PROVIDER_DEEPSEEK,
     AI_PROVIDER_GOOGLE,
     AI_PROVIDER_MINIMAX,
@@ -39,6 +40,7 @@ const DEFAULT_MAX_AI_INPUT_BYTES = 256 * 1024;
 const DEFAULT_MAX_AI_RESPONSE_BYTES = 1024 * 1024;
 const MAX_AI_INPUT_BYTES = 4 * 1024 * 1024 + 256 * 1024;
 const MAX_AI_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_REASONING_FALLBACKS = 64;
 const LOCAL_PROVIDER_API_KEY = 'mktero-local';
 
 export class AISDKGateway {
@@ -72,6 +74,7 @@ export class AISDKGateway {
             || bindRuntimeMethod(runtimeWindow, 'clearTimeout');
         this.generate = generate;
         this.stream = stream;
+        this.reasoningFallbacks = new Set();
     }
 
     async generateText({
@@ -83,7 +86,10 @@ export class AISDKGateway {
         maxResponseBytes,
         acceptNonTextResponse = false,
     }) {
-        const configuration = validateAISettings(settings);
+        const configuration = applyRememberedReasoningFallback(
+            validateAISettings(settings),
+            this.reasoningFallbacks
+        );
         const limits = normalizeRequestByteLimits({
             maxInputBytes,
             maxResponseBytes,
@@ -110,19 +116,22 @@ export class AISDKGateway {
                 maxOutputTokens,
                 configuration.maxOutputTokens
             );
-            const result = await this.generate({
-                model: createLanguageModel(configuration, boundedFetch),
-                messages: prompt.messages,
-                ...(prompt.instructions
-                    ? { instructions: prompt.instructions }
-                    : {}),
-                ...(outputTokens === null
-                    ? {}
-                    : { maxOutputTokens: outputTokens }),
-                reasoning: configuration.reasoning,
-                ...reasoningProviderOptions(configuration),
-                maxRetries: 0,
-                abortSignal: controller.signal,
+            const result = await requestWithReasoningFallback({
+                configuration,
+                canFallback: () => !timedOut && !signal?.aborted,
+                onFallback: () => rememberReasoningFallback(
+                    this.reasoningFallbacks,
+                    configuration
+                ),
+                request: attemptConfiguration => this.generate(
+                    createAIRequestOptions({
+                        configuration: attemptConfiguration,
+                        boundedFetch,
+                        prompt,
+                        outputTokens,
+                        signal: controller.signal,
+                    })
+                ),
             });
             const text = String(result?.text || '');
             if (!text.trim()
@@ -170,7 +179,10 @@ export class AISDKGateway {
         maxInputBytes,
         maxResponseBytes,
     }) {
-        const configuration = validateAISettings(settings);
+        const configuration = applyRememberedReasoningFallback(
+            validateAISettings(settings),
+            this.reasoningFallbacks
+        );
         const limits = normalizeRequestByteLimits({
             maxInputBytes,
             maxResponseBytes,
@@ -197,119 +209,52 @@ export class AISDKGateway {
                 maxOutputTokens,
                 configuration.maxOutputTokens
             );
-            let streamError = null;
-            const result = await this.stream({
-                model: createLanguageModel(configuration, boundedFetch),
-                messages: prompt.messages,
-                ...(prompt.instructions
-                    ? { instructions: prompt.instructions }
-                    : {}),
-                ...(outputTokens === null
-                    ? {}
-                    : { maxOutputTokens: outputTokens }),
-                reasoning: configuration.reasoning,
-                ...reasoningProviderOptions(configuration),
-                maxRetries: 0,
-                abortSignal: controller.signal,
-                onError: ({ error }) => {
-                    streamError = error;
+            let emittedText = false;
+            return await requestWithReasoningFallback({
+                configuration,
+                canFallback: () => !emittedText
+                    && !timedOut
+                    && !signal?.aborted,
+                onFallback: () => rememberReasoningFallback(
+                    this.reasoningFallbacks,
+                    configuration
+                ),
+                request: async attemptConfiguration => {
+                    let streamError = null;
+                    const result = await this.stream({
+                        ...createAIRequestOptions({
+                            configuration: attemptConfiguration,
+                            boundedFetch,
+                            prompt,
+                            outputTokens,
+                            signal: controller.signal,
+                        }),
+                        onError: ({ error }) => {
+                            streamError = error;
+                        },
+                    });
+                    return consumeAIStreamResult({
+                        result,
+                        getStreamError: () => streamError,
+                        maxResponseBytes: limits.response,
+                        fallbackModel: attemptConfiguration.model,
+                        onStreamEvent,
+                        onTextDelta: (chunk, accumulated) => {
+                            emittedText = true;
+                            onTextDelta?.(chunk, accumulated);
+                        },
+                        ensureActive: () => {
+                            if (timedOut) {
+                                throw aiError(
+                                    'The AI request timed out',
+                                    'AI_REQUEST_TIMEOUT'
+                                );
+                            }
+                            throwIfAborted(signal);
+                        },
+                    });
                 },
             });
-            const fullStreamCandidate = result?.fullStream;
-            const fullStream = fullStreamCandidate?.[Symbol.asyncIterator]
-                ? fullStreamCandidate
-                : null;
-            const textStreamCandidate = fullStream ? null : result?.textStream;
-            const textStream = fullStream
-                || (textStreamCandidate?.[Symbol.asyncIterator]
-                    ? textStreamCandidate
-                    : null);
-            if (!textStream) {
-                throw invalidResponseError();
-            }
-            let accumulated = '';
-            const responseBytes = createIncrementalByteCounter();
-            let streamUsage = null;
-            let streamResponse = null;
-            let streamFinishReason = null;
-            let emittedTextStart = false;
-            for await (const event of textStream) {
-                if (fullStream) {
-                    if (event?.type === 'error') {
-                        streamError = event.error;
-                        emitStreamEvent(onStreamEvent, 'error');
-                        continue;
-                    }
-                    if (event?.type === 'reasoning-start'
-                        || event?.type === 'reasoning-delta'
-                        || event?.type === 'reasoning-end'
-                        || event?.type === 'text-start'
-                        || event?.type === 'text-end') {
-                        emitStreamEvent(onStreamEvent, event.type);
-                        if (event.type === 'text-start') emittedTextStart = true;
-                    }
-                    if (event?.type === 'finish-step'
-                        || event?.type === 'finish') {
-                        streamUsage = event.usage || event.totalUsage || streamUsage;
-                        streamResponse = event.response || streamResponse;
-                        streamFinishReason = event.finishReason
-                            || streamFinishReason;
-                        emitStreamEvent(onStreamEvent, event.type);
-                        if (event.type === 'finish') break;
-                        continue;
-                    }
-                }
-                const chunk = fullStream
-                    ? String(event?.type === 'text-delta' ? event.text || '' : '')
-                    : String(event || '');
-                if (!chunk) continue;
-                if (!emittedTextStart) {
-                    emittedTextStart = true;
-                    emitStreamEvent(onStreamEvent, 'text-start');
-                }
-                accumulated += chunk;
-                if (responseBytes.add(chunk) > limits.response) {
-                    throw responseTooLargeError();
-                }
-                onTextDelta?.(chunk, accumulated);
-                emitStreamEvent(onStreamEvent, 'text-delta');
-            }
-            if (responseBytes.finish() > limits.response) {
-                throw responseTooLargeError();
-            }
-            if (timedOut) {
-                throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
-            }
-            throwIfAborted(signal);
-            if (streamError) throw streamError;
-            const text = accumulated.trim();
-            if (!text) throw invalidResponseError();
-            if (timedOut) {
-                throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
-            }
-            throwIfAborted(signal);
-            const usage = fullStream
-                ? streamUsage
-                : result.usage ? await result.usage : null;
-            const response = fullStream
-                ? streamResponse
-                : result.response ? await result.response : null;
-            const finishReason = fullStream
-                ? streamFinishReason
-                : result.finishReason
-                    ? await result.finishReason
-                    : null;
-            if (streamError) throw streamError;
-            if (timedOut) {
-                throw aiError('The AI request timed out', 'AI_REQUEST_TIMEOUT');
-            }
-            throwIfAborted(signal);
-            return {
-                text,
-                finishReason: normalizeFinishReason(finishReason),
-                model: responseModel({ response }, configuration.model),
-                usage: normalizeUsage(usage),
-            };
         }
         catch (error) {
             if (timedOut) {
@@ -328,6 +273,231 @@ export class AISDKGateway {
             signal?.removeEventListener('abort', relayAbort);
         }
     }
+}
+
+async function requestWithReasoningFallback({
+    configuration,
+    request,
+    canFallback = () => true,
+    onFallback,
+}) {
+    try {
+        return await request(configuration);
+    }
+    catch (error) {
+        if (!canFallback()
+            || !isUnsupportedReasoningControl(error, configuration.reasoning)) {
+            throw error;
+        }
+        onFallback?.();
+        return request({
+            ...configuration,
+            reasoning: AI_PROVIDER_DEFAULT_REASONING,
+        });
+    }
+}
+
+function applyRememberedReasoningFallback(configuration, fallbacks) {
+    if (configuration.reasoning !== 'none'
+        || !fallbacks.has(reasoningFallbackKey(configuration))) {
+        return configuration;
+    }
+    return {
+        ...configuration,
+        reasoning: AI_PROVIDER_DEFAULT_REASONING,
+    };
+}
+
+function rememberReasoningFallback(fallbacks, configuration) {
+    const key = reasoningFallbackKey(configuration);
+    if (!fallbacks.has(key) && fallbacks.size >= MAX_REASONING_FALLBACKS) {
+        fallbacks.delete(fallbacks.values().next().value);
+    }
+    fallbacks.add(key);
+}
+
+function reasoningFallbackKey(configuration) {
+    return JSON.stringify([
+        configuration.provider,
+        configuration.protocol,
+        configuration.apiBase,
+        configuration.model,
+    ]);
+}
+
+function createAIRequestOptions({
+    configuration,
+    boundedFetch,
+    prompt,
+    outputTokens,
+    signal,
+}) {
+    return {
+        model: createLanguageModel(configuration, boundedFetch),
+        messages: prompt.messages,
+        ...(prompt.instructions
+            ? { instructions: prompt.instructions }
+            : {}),
+        ...(outputTokens === null
+            ? {}
+            : { maxOutputTokens: outputTokens }),
+        ...reasoningRequestPolicy(configuration),
+        maxRetries: 0,
+        abortSignal: signal,
+    };
+}
+
+async function consumeAIStreamResult({
+    result,
+    getStreamError,
+    maxResponseBytes,
+    fallbackModel,
+    onStreamEvent,
+    onTextDelta,
+    ensureActive,
+}) {
+    const { fullStream, stream } = resolveAIResultStream(result);
+    const consumed = await consumeAIStreamEvents({
+        stream,
+        fullStream,
+        maxResponseBytes,
+        onStreamEvent,
+        onTextDelta,
+    });
+    ensureActive();
+    const streamError = consumed.error || getStreamError();
+    if (streamError) throw streamError;
+    if (!consumed.text) throw invalidResponseError();
+
+    const metadata = fullStream
+        ? consumed
+        : await resolveTextStreamMetadata(result);
+    const metadataError = getStreamError();
+    if (metadataError) throw metadataError;
+    ensureActive();
+    return {
+        text: consumed.text,
+        finishReason: normalizeFinishReason(metadata.finishReason),
+        model: responseModel({ response: metadata.response }, fallbackModel),
+        usage: normalizeUsage(metadata.usage),
+    };
+}
+
+function resolveAIResultStream(result) {
+    const fullStreamCandidate = result?.fullStream;
+    const fullStream = fullStreamCandidate?.[Symbol.asyncIterator]
+        ? fullStreamCandidate
+        : null;
+    const textStreamCandidate = fullStream ? null : result?.textStream;
+    const stream = fullStream
+        || (textStreamCandidate?.[Symbol.asyncIterator]
+            ? textStreamCandidate
+            : null);
+    if (!stream) throw invalidResponseError();
+    return { fullStream, stream };
+}
+
+async function consumeAIStreamEvents({
+    stream,
+    fullStream,
+    maxResponseBytes,
+    onStreamEvent,
+    onTextDelta,
+}) {
+    const state = {
+        accumulated: '',
+        emittedTextStart: false,
+        error: null,
+        usage: null,
+        response: null,
+        finishReason: null,
+    };
+    const responseBytes = createIncrementalByteCounter();
+    for await (const event of stream) {
+        if (fullStream) {
+            const action = consumeAIStreamMetadataEvent(
+                event,
+                state,
+                onStreamEvent
+            );
+            if (action === 'finish') break;
+            if (action === 'consumed') continue;
+        }
+        const chunk = fullStream
+            ? String(event?.type === 'text-delta' ? event.text || '' : '')
+            : String(event || '');
+        if (!chunk) continue;
+        if (!state.emittedTextStart) {
+            state.emittedTextStart = true;
+            emitStreamEvent(onStreamEvent, 'text-start');
+        }
+        state.accumulated += chunk;
+        if (responseBytes.add(chunk) > maxResponseBytes) {
+            throw responseTooLargeError();
+        }
+        onTextDelta?.(chunk, state.accumulated);
+        emitStreamEvent(onStreamEvent, 'text-delta');
+    }
+    if (responseBytes.finish() > maxResponseBytes) {
+        throw responseTooLargeError();
+    }
+    return {
+        ...state,
+        text: state.accumulated.trim(),
+    };
+}
+
+function consumeAIStreamMetadataEvent(event, state, onStreamEvent) {
+    if (event?.type === 'error') {
+        state.error = event.error;
+        emitStreamEvent(onStreamEvent, 'error');
+        return 'consumed';
+    }
+    if (event?.type === 'finish-step' || event?.type === 'finish') {
+        state.usage = event.usage || event.totalUsage || state.usage;
+        state.response = event.response || state.response;
+        state.finishReason = event.finishReason || state.finishReason;
+        emitStreamEvent(onStreamEvent, event.type);
+        return event.type === 'finish' ? 'finish' : 'consumed';
+    }
+    if (event?.type === 'reasoning-start'
+        || event?.type === 'reasoning-delta'
+        || event?.type === 'reasoning-end'
+        || event?.type === 'text-start'
+        || event?.type === 'text-end') {
+        emitStreamEvent(onStreamEvent, event.type);
+        if (event.type === 'text-start') state.emittedTextStart = true;
+        return 'consumed';
+    }
+    return 'text';
+}
+
+async function resolveTextStreamMetadata(result) {
+    return {
+        usage: result.usage ? await result.usage : null,
+        response: result.response ? await result.response : null,
+        finishReason: result.finishReason ? await result.finishReason : null,
+    };
+}
+
+function isUnsupportedReasoningControl(error, reasoning) {
+    if (reasoning !== 'none') return false;
+    if (APICallError.isInstance(error)) {
+        const status = Number(error.statusCode) || 0;
+        if (status !== 400 && status !== 422) return false;
+    }
+    else if (error?.name !== 'AI_UnsupportedFunctionalityError') {
+        return false;
+    }
+    const details = [error?.message, error?.responseBody]
+        .filter(value => typeof value === 'string')
+        .join('\n')
+        .slice(0, 32 * 1024);
+    const mentionsReasoning = /reasoning(?:[_ -]?effort)?|thinking|enable[_ -]?thinking/i
+        .test(details);
+    const rejectsControl = /cannot|can't|does not support|invalid|must be enabled|not allowed|requires?|required|unsupported|unknown|unrecognized/i
+        .test(details);
+    return mentionsReasoning && rejectsControl;
 }
 
 function resolveRuntimeWindow() {
@@ -353,22 +523,35 @@ function bindRuntimeMethod(runtimeWindow, method) {
         : undefined;
 }
 
-function reasoningProviderOptions(configuration) {
-    if (configuration.provider !== AI_PROVIDER_MINIMAX
-        || configuration.reasoning === 'provider-default') {
-        return {};
-    }
-    return {
-        providerOptions: {
-            minimax: {
-                thinking: {
-                    type: configuration.reasoning === 'none'
-                        ? 'disabled'
-                        : 'adaptive',
+function reasoningRequestPolicy(configuration) {
+    const reasoning = configuration.reasoning;
+    if (reasoning === AI_PROVIDER_DEFAULT_REASONING) return { reasoning };
+    if (configuration.provider === AI_PROVIDER_MOONSHOT
+        && reasoning === 'none') {
+        return {
+            reasoning: AI_PROVIDER_DEFAULT_REASONING,
+            providerOptions: {
+                moonshotai: {
+                    thinking: { type: 'disabled' },
                 },
             },
-        },
-    };
+        };
+    }
+    if (configuration.provider === AI_PROVIDER_MINIMAX) {
+        return {
+            reasoning,
+            providerOptions: {
+                minimax: {
+                    thinking: {
+                        type: reasoning === 'none'
+                            ? 'disabled'
+                            : 'adaptive',
+                    },
+                },
+            },
+        };
+    }
+    return { reasoning };
 }
 
 export function createLanguageModel(configuration, fetch) {

@@ -7,8 +7,12 @@ import {
     collectMarkdownTranslationSections,
     collectDocumentTranslations,
     createComparisonMarkdown,
+    createDocumentTranslationViews,
     createMarkdownTranslationBatches,
     createMarkdownTranslationRequest,
+    createTranslationReadingPositionAnchor,
+    mapSourceRangeToComparison,
+    resolveTranslationReadingPosition,
     validateTranslatedBlock,
 } from '../src/markdown/markdown-translation-blocks.js';
 
@@ -553,6 +557,114 @@ test('creates block-level comparison Markdown with source above translation', ()
         '',
         '![Figure](figure.png)',
     ].join('\n'));
+});
+
+test('maps stable block IDs across original, translated, and bilingual views', () => {
+    const markdown = '# Paper\n\nOriginal paragraph.';
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const translations = [{
+        id: blocks[0].id,
+        markdown: '# \u8bba\u6587',
+    }, {
+        id: blocks[1].id,
+        markdown: '\u8bd1\u6587\u6bb5\u843d\u3002',
+    }];
+
+    const views = createDocumentTranslationViews(
+        markdown,
+        blocks,
+        translations
+    );
+
+    assert.equal(views.translatedMarkdown, '# \u8bba\u6587\n\n\u8bd1\u6587\u6bb5\u843d\u3002');
+    assert.equal(views.comparisonMarkdown, [
+        '# Paper',
+        '',
+        '# \u8bba\u6587',
+        '',
+        'Original paragraph.',
+        '',
+        '\u8bd1\u6587\u6bb5\u843d\u3002',
+    ].join('\n'));
+    assert.deepEqual(views.blockRanges, [{
+        id: blocks[0].id,
+        type: 'heading',
+        sourceFrom: 0,
+        sourceTo: 7,
+        translatedFrom: 0,
+        translatedTo: 4,
+        comparisonSourceFrom: 0,
+        comparisonSourceTo: 7,
+        comparisonTranslationFrom: 9,
+        comparisonTranslationTo: 13,
+    }, {
+        id: blocks[1].id,
+        type: 'paragraph',
+        sourceFrom: 9,
+        sourceTo: 28,
+        translatedFrom: 6,
+        translatedTo: 11,
+        comparisonSourceFrom: 15,
+        comparisonSourceTo: 34,
+        comparisonTranslationFrom: 36,
+        comparisonTranslationTo: 41,
+    }]);
+});
+
+test('maps original content ranges onto the source side of bilingual blocks', () => {
+    const markdown = '# Paper\n\nOriginal paragraph.';
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const views = createDocumentTranslationViews(markdown, blocks, [{
+        id: blocks[0].id,
+        markdown: '# \u8bba\u6587',
+    }, {
+        id: blocks[1].id,
+        markdown: '\u8bd1\u6587\u6bb5\u843d\u3002',
+    }]);
+
+    assert.deepEqual(mapSourceRangeToComparison(
+        { from: 12, to: 20 },
+        views.blockRanges
+    ), { from: 18, to: 26 });
+    assert.equal(mapSourceRangeToComparison(
+        { from: 6, to: 12 },
+        views.blockRanges
+    ), null);
+});
+
+test('keeps reading position in the same stable block across reading modes', () => {
+    const markdown = '# Paper\n\nOriginal paragraph.';
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const views = createDocumentTranslationViews(markdown, blocks, [{
+        id: blocks[0].id,
+        markdown: '# \u8bba\u6587',
+    }, {
+        id: blocks[1].id,
+        markdown: '\u8fd9\u662f\u4e00\u6bb5\u957f\u5ea6\u4e0d\u540c\u7684\u8bd1\u6587\u3002',
+    }]);
+    const anchor = createTranslationReadingPositionAnchor(
+        18,
+        'original',
+        views.blockRanges
+    );
+
+    assert.equal(anchor.blockID, blocks[1].id);
+    assert.equal(
+        resolveTranslationReadingPosition(
+            anchor,
+            'translated',
+            views.blockRanges
+        ),
+        12
+    );
+    assert.equal(
+        resolveTranslationReadingPosition(
+            { ...anchor, side: 'translation' },
+            'compare',
+            views.blockRanges
+        ),
+        42
+    );
 });
 
 test('keeps bilingual lists separate and does not repeat protected images', () => {

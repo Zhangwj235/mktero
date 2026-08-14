@@ -307,7 +307,7 @@ function extractMarkedDocumentBlocks(blocks, translated) {
 }
 
 export function assembleTranslatedMarkdown(markdown, blocks, translations) {
-    return replaceTranslatedBlocks(markdown, blocks, translations);
+    return createTranslatedMarkdownView(markdown, blocks, translations).markdown;
 }
 
 export function createComparisonMarkdown(markdown, blocks, translations) {
@@ -320,6 +320,7 @@ export function createComparisonMarkdownView(markdown, blocks, translations) {
     const chunks = [];
     const sourceRanges = [];
     const translationRanges = [];
+    const blockRanges = [];
     let comparisonOffset = 0;
     let cursor = 0;
     for (const block of blocks) {
@@ -331,6 +332,13 @@ export function createComparisonMarkdownView(markdown, blocks, translations) {
             sourceTo: block.to,
             comparisonFrom: comparisonOffset,
         });
+        const blockRange = {
+            id: block.id,
+            comparisonSourceFrom: comparisonOffset,
+            comparisonSourceTo: comparisonOffset + block.markdown.length,
+            comparisonTranslationFrom: null,
+            comparisonTranslationTo: null,
+        };
         comparisonOffset += block.markdown.length;
         if (block.translatable) {
             const restored = validateTranslatedBlock(
@@ -338,6 +346,7 @@ export function createComparisonMarkdownView(markdown, blocks, translations) {
                 translatedByID.get(block.id)
             );
             if (restored.trim() === block.markdown.trim()) {
+                blockRanges.push(blockRange);
                 cursor = block.to;
                 continue;
             }
@@ -355,9 +364,13 @@ export function createComparisonMarkdownView(markdown, blocks, translations) {
                     from: comparisonOffset,
                     to: comparisonOffset + translated.length,
                 });
+                blockRange.comparisonTranslationFrom = comparisonOffset;
+                blockRange.comparisonTranslationTo = comparisonOffset
+                    + translated.length;
                 comparisonOffset += translated.length;
             }
         }
+        blockRanges.push(blockRange);
         cursor = block.to;
     }
     chunks.push(source.slice(cursor));
@@ -365,7 +378,106 @@ export function createComparisonMarkdownView(markdown, blocks, translations) {
         markdown: chunks.join(''),
         sourceRanges,
         translationRanges,
+        blockRanges,
     };
+}
+
+export function createDocumentTranslationViews(markdown, blocks, translations) {
+    const translated = createTranslatedMarkdownView(
+        markdown,
+        blocks,
+        translations
+    );
+    const comparison = createComparisonMarkdownView(
+        markdown,
+        blocks,
+        translations
+    );
+    const comparisonByID = new Map(
+        comparison.blockRanges.map(range => [range.id, range])
+    );
+    return {
+        translatedMarkdown: translated.markdown,
+        comparisonMarkdown: comparison.markdown,
+        comparisonSourceRanges: comparison.sourceRanges,
+        comparisonTranslationRanges: comparison.translationRanges,
+        blockRanges: translated.blockRanges.map(range => ({
+            ...range,
+            ...comparisonByID.get(range.id),
+        })),
+    };
+}
+
+export function mapSourceRangeToComparison(range, blockRanges) {
+    const sourceRange = normalizeDocumentRange(range);
+    if (!sourceRange || !Array.isArray(blockRanges)) return null;
+    const block = blockRanges.find(candidate => (
+        sourceRange.from >= candidate.sourceFrom
+        && sourceRange.to <= candidate.sourceTo
+    ));
+    if (!block) return null;
+    return {
+        from: block.comparisonSourceFrom
+            + sourceRange.from - block.sourceFrom,
+        to: block.comparisonSourceFrom
+            + sourceRange.to - block.sourceFrom,
+    };
+}
+
+export function mapComparisonRangeToSource(range, blockRanges) {
+    const comparisonRange = normalizeDocumentRange(range);
+    if (!comparisonRange || !Array.isArray(blockRanges)) return null;
+    const block = blockRanges.find(candidate => (
+        comparisonRange.from >= candidate.comparisonSourceFrom
+        && comparisonRange.to <= candidate.comparisonSourceTo
+    ));
+    if (!block) return null;
+    return {
+        from: block.sourceFrom
+            + comparisonRange.from - block.comparisonSourceFrom,
+        to: block.sourceFrom
+            + comparisonRange.to - block.comparisonSourceFrom,
+    };
+}
+
+export function createTranslationReadingPositionAnchor(
+    offset,
+    view,
+    blockRanges
+) {
+    const position = Number(offset);
+    if (!Number.isFinite(position) || !Array.isArray(blockRanges)) return null;
+    const normalized = Math.max(0, Math.trunc(position));
+    for (const block of blockRanges) {
+        const candidates = readingRangesForView(block, view);
+        for (const candidate of candidates) {
+            if (normalized < candidate.from || normalized > candidate.to) continue;
+            const length = Math.max(1, candidate.to - candidate.from);
+            return {
+                blockID: block.id,
+                side: candidate.side,
+                progress: Math.max(0, Math.min(
+                    1,
+                    (normalized - candidate.from) / length
+                )),
+            };
+        }
+    }
+    return null;
+}
+
+export function resolveTranslationReadingPosition(anchor, view, blockRanges) {
+    if (!anchor?.blockID || !Array.isArray(blockRanges)) return null;
+    const block = blockRanges.find(candidate => candidate.id === anchor.blockID);
+    if (!block) return null;
+    const candidates = readingRangesForView(block, view);
+    if (!candidates.length) return null;
+    const candidate = view === 'compare'
+        ? candidates.find(range => range.side === anchor.side) || candidates[0]
+        : candidates[0];
+    const length = Math.max(0, candidate.to - candidate.from);
+    const progress = Math.max(0, Math.min(1, Number(anchor.progress) || 0));
+    return candidate.from + Math.round(length * progress);
 }
 
 export function validateTranslatedBlock(block, translatedMarkdown) {
@@ -395,20 +507,36 @@ export function validateTranslatedBlock(block, translatedMarkdown) {
     return restoreProtectedFragments(block, translated);
 }
 
-function replaceTranslatedBlocks(markdown, blocks, translations) {
+function createTranslatedMarkdownView(markdown, blocks, translations) {
     const source = String(markdown || '');
     const translatedByID = validateTranslationSet(blocks, translations);
     const chunks = [];
+    const blockRanges = [];
+    let translatedOffset = 0;
     let cursor = 0;
     for (const block of blocks) {
-        chunks.push(source.slice(cursor, block.from));
-        chunks.push(block.translatable
+        const gap = source.slice(cursor, block.from);
+        const translated = block.translatable
             ? validateTranslatedBlock(block, translatedByID.get(block.id))
-            : block.markdown);
+            : block.markdown;
+        chunks.push(gap, translated);
+        translatedOffset += gap.length;
+        blockRanges.push({
+            id: block.id,
+            type: block.type,
+            sourceFrom: block.from,
+            sourceTo: block.to,
+            translatedFrom: translatedOffset,
+            translatedTo: translatedOffset + translated.length,
+        });
+        translatedOffset += translated.length;
         cursor = block.to;
     }
     chunks.push(source.slice(cursor));
-    return chunks.join('');
+    return {
+        markdown: chunks.join(''),
+        blockRanges,
+    };
 }
 
 function validateTranslationSet(blocks, translations) {
@@ -429,6 +557,50 @@ function validateTranslationSet(blocks, translations) {
         }
     }
     return translatedByID;
+}
+
+function normalizeDocumentRange(range) {
+    if (!Number.isSafeInteger(range?.from)
+        || !Number.isSafeInteger(range?.to)
+        || range.from < 0
+        || range.to <= range.from) {
+        return null;
+    }
+    return { from: range.from, to: range.to };
+}
+
+function readingRangesForView(block, view) {
+    if (view === 'translated') {
+        return validReadingRange(
+            block.translatedFrom,
+            block.translatedTo,
+            'translation'
+        );
+    }
+    if (view === 'compare') {
+        return [
+            ...validReadingRange(
+                block.comparisonSourceFrom,
+                block.comparisonSourceTo,
+                'source'
+            ),
+            ...validReadingRange(
+                block.comparisonTranslationFrom,
+                block.comparisonTranslationTo,
+                'translation'
+            ),
+        ];
+    }
+    return validReadingRange(block.sourceFrom, block.sourceTo, 'source');
+}
+
+function validReadingRange(from, to, side) {
+    return Number.isSafeInteger(from)
+        && Number.isSafeInteger(to)
+        && from >= 0
+        && to >= from
+        ? [{ from, to, side }]
+        : [];
 }
 
 function isTranslatableBlock(

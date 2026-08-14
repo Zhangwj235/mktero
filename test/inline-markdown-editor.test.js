@@ -150,6 +150,7 @@ test('marks translated lines and clears the marks with the next document', () =>
         translationRanges: [{
             from: translationFrom,
             to: markdown.length,
+            language: 'zh-CN',
         }],
     });
 
@@ -161,11 +162,400 @@ test('marks translated lines and clears the marks with the next document', () =>
         translatedLine?.getAttribute('data-translation-start'),
         'true'
     );
+    assert.equal(translatedLine?.getAttribute('lang'), 'zh-CN');
 
     editor.setMarkdown('Original only.');
     assert.equal(
         document.querySelector('.cm-mktero-translation-line'),
         null
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('marks translated block widgets with their content language', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: source => source === 'images/figure.png'
+            ? 'blob:translated-figure'
+            : null,
+    });
+    const markdown = [
+        'Original paragraph.',
+        '',
+        'Table 1 Results',
+        '',
+        '| Metric | Value |',
+        '| --- | ---: |',
+        '| Score | 42 |',
+        '',
+        '![图 1](images/figure.png)',
+    ].join('\n');
+    const translationFrom = markdown.indexOf('Table 1');
+
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: translationFrom,
+            to: markdown.length,
+            language: 'zh-CN',
+        }],
+    });
+
+    const table = document.querySelector('.cm-mktero-table');
+    assert.equal(table?.getAttribute('lang'), 'zh-CN');
+    assert.equal(
+        table?.classList.contains('cm-mktero-translation-block'),
+        true
+    );
+    assert.equal(table?.closest('.cm-mktero-translation-line'), null);
+    assert.equal(
+        document.querySelector('.cm-mktero-image')?.getAttribute('lang'),
+        'zh-CN'
+    );
+
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: translationFrom,
+            to: markdown.length,
+            language: 'ja-JP',
+        }],
+    });
+    assert.equal(
+        document.querySelector('.cm-mktero-table')?.getAttribute('lang'),
+        'ja-JP'
+    );
+
+    editor.setDocument({
+        markdown,
+        translationFailures: [{
+            id: 'translation-table-failure',
+            from: translationFrom,
+            to: markdown.length,
+        }],
+    });
+    const failureTable = document.querySelector('.cm-mktero-table');
+    assert.equal(failureTable?.hasAttribute('lang'), false);
+    assert.equal(
+        failureTable?.classList.contains(
+            'cm-mktero-translation-failure-block'
+        ),
+        true
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-image')?.classList.contains(
+            'cm-mktero-translation-failure-block'
+        ),
+        true
+    );
+
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: markdown.indexOf('Metric'),
+            to: markdown.length,
+            language: 'zh-CN',
+        }],
+        translationFailures: [{
+            id: 'partial-table-failure',
+            from: markdown.indexOf('Score'),
+            to: markdown.length,
+        }],
+    });
+    const partialTable = document.querySelector('.cm-mktero-table');
+    assert.equal(partialTable?.hasAttribute('lang'), false);
+    assert.equal(
+        partialTable?.classList.contains('cm-mktero-translation-block'),
+        false
+    );
+    assert.equal(
+        partialTable?.classList.contains(
+            'cm-mktero-translation-failure-block'
+        ),
+        false
+    );
+
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: translationFrom,
+            to: markdown.length,
+            language: 'zh-CN" onclick="alert(1)',
+        }],
+    });
+    const unsafeTable = document.querySelector('.cm-mktero-table');
+    assert.equal(unsafeTable?.hasAttribute('lang'), false);
+    assert.equal(unsafeTable?.hasAttribute('onclick'), false);
+    assert.equal(
+        unsafeTable?.classList.contains('cm-mktero-translation-block'),
+        false
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('pairs bilingual blocks without hover highlighting or per-block actions', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+    });
+    const markdown = 'Original paragraph.\n\n\u8bd1\u6587\u6bb5\u843d\u3002';
+    const translatedFrom = markdown.indexOf('\u8bd1\u6587');
+
+    editor.setDocument({
+        markdown,
+        translationPairs: [{
+            id: 'translation-0',
+            sourceFrom: 0,
+            sourceTo: 19,
+            translatedFrom,
+            translatedTo: markdown.length,
+        }],
+    });
+
+    const source = document.querySelector(
+        '.cm-mktero-translation-pair-source'
+    );
+    const translated = document.querySelector(
+        '.cm-mktero-translation-pair-translated'
+    );
+    assert.equal(source?.getAttribute('data-translation-block-id'), 'translation-0');
+    assert.equal(
+        translated?.getAttribute('data-translation-block-id'),
+        'translation-0'
+    );
+    assert.equal(document.querySelector(
+        '.cm-mktero-translation-retry-button'
+    ), null);
+
+    translated.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.equal(source.classList.contains('is-translation-pair-active'), false);
+    assert.equal(translated.classList.contains('is-translation-pair-active'), false);
+
+    editor.highlightTranslationBlock('translation-0');
+    assert.equal(source.classList.contains('is-translation-pair-active'), true);
+    assert.equal(translated.classList.contains('is-translation-pair-active'), true);
+
+    editor.setMarkdown('Original only.');
+    assert.equal(
+        document.querySelector('.cm-mktero-translation-retry-button'),
+        null
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('marks failed translation fallbacks without a per-block action', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+    });
+
+    editor.setDocument({
+        markdown: 'Source fallback.',
+        translationFailures: [{
+            id: 'translation-0-0-16-paragraph',
+            from: 0,
+            to: 16,
+        }],
+    });
+
+    assert.equal(
+        document.querySelector('.cm-mktero-translation-failure-line')
+            ?.textContent,
+        'Source fallback.'
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-translation-failure-line')
+            ?.getAttribute('lang'),
+        ''
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-translation-failure-label')
+            ?.textContent,
+        'Not translated; showing original'
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-translation-failure-retry'),
+        null
+    );
+
+    editor.setMarkdown('Translated.');
+    assert.equal(
+        document.querySelector('.cm-mktero-translation-failure'),
+        null
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('rejects malformed translation failure and language decorations', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+    });
+    const markdown = 'Source fallback.';
+
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: 0,
+            to: markdown.length,
+            language: 'en-US" onclick="alert(1)',
+        }],
+        translationFailures: [{
+            id: 'invalid-negative',
+            from: -1,
+            to: 4,
+        }, {
+            id: 'invalid-reversed',
+            from: 5,
+            to: 2,
+        }, {
+            id: 'invalid-overflow',
+            from: 0,
+            to: markdown.length + 1,
+        }],
+    });
+
+    assert.equal(
+        document.querySelector('.cm-mktero-translation-failure'),
+        null
+    );
+    const translatedLine = document.querySelector(
+        '.cm-mktero-translation-line'
+    );
+    assert.equal(translatedLine?.hasAttribute('lang'), false);
+    assert.equal(translatedLine?.hasAttribute('onclick'), false);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('rejects unsafe, duplicate, overlapping, and out-of-bounds pairs', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+    });
+    const markdown = 'Source.\n\nTranslation.\n\nOther.';
+    const translatedFrom = markdown.indexOf('Translation');
+
+    editor.setDocument({
+        markdown,
+        translationPairs: [{
+            id: 'translation-0',
+            sourceFrom: 0,
+            sourceTo: 7,
+            translatedFrom,
+            translatedTo: translatedFrom + 12,
+        }, {
+            id: 'translation-0',
+            sourceFrom: markdown.indexOf('Other'),
+            sourceTo: markdown.length,
+        }, {
+            id: 'translation-overlap',
+            sourceFrom: 2,
+            sourceTo: 7,
+        }, {
+            id: 'translation-cross-side-overlap',
+            sourceFrom: translatedFrom + 2,
+            sourceTo: translatedFrom + 8,
+        }, {
+            id: 'translation-self-overlap',
+            sourceFrom: markdown.indexOf('Other'),
+            sourceTo: markdown.length,
+            translatedFrom: markdown.indexOf('Other') + 1,
+            translatedTo: markdown.length,
+        }, {
+            id: 'translation-overflow',
+            sourceFrom: markdown.length,
+            sourceTo: markdown.length + 8,
+        }, {
+            id: 'translation-1" onmouseover="alert(1)',
+            sourceFrom: markdown.indexOf('Other'),
+            sourceTo: markdown.length,
+        }],
+    });
+
+    assert.deepEqual(
+        [...document.querySelectorAll('[data-translation-block-id]')]
+            .map(element => element.getAttribute('data-translation-block-id')),
+        ['translation-0', 'translation-0']
+    );
+    assert.equal(
+        document.querySelectorAll('.cm-mktero-translation-retry-button').length,
+        0
+    );
+    assert.equal(document.querySelector('[onmouseover]'), null);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('renders only the first valid failure for a duplicate stable block ID', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+    });
+    const markdown = 'First fallback.\n\nSecond fallback.';
+
+    editor.setDocument({
+        markdown,
+        translationFailures: [{
+            id: 'duplicate-block',
+            from: 0,
+            to: 15,
+        }, {
+            id: 'duplicate-block',
+            from: 17,
+            to: markdown.length,
+        }],
+    });
+
+    assert.equal(
+        document.querySelectorAll('.cm-mktero-translation-failure').length,
+        1
+    );
+    assert.equal(
+        document.querySelectorAll('.cm-mktero-translation-failure-line').length,
+        1
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-translation-failure-line')
+            ?.textContent,
+        'First fallback.'
     );
 
     editor.destroy();
@@ -4832,6 +5222,82 @@ test('shows Markdown annotation actions after selecting ordinary text', () => {
     assert.ok(actions);
     assert.ok(actions.querySelector('[data-action="add-note"]'));
     assert.match(document.getSelection().toString(), /Select this Markdown text/);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('allows annotations only from original bilingual selections', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'AI original.\n\nAI translated.';
+    const created = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        createMarkdownAnnotation: async (annotation, selectionContext) => {
+            created.push({ annotation, selectionContext });
+            return annotation;
+        },
+    });
+    editor.setDocument({
+        markdown,
+        sourceActionRanges: [{ from: 0, to: 12 }, {
+            from: -1,
+            to: Number.MAX_SAFE_INTEGER,
+        }],
+        translationPairs: [{
+            id: 'translation-0',
+            sourceFrom: null,
+            sourceTo: null,
+            translatedFrom: 14,
+            translatedTo: markdown.length,
+        }],
+    });
+    const original = textNodeContaining(
+        document.querySelector('.cm-content'),
+        'AI original.'
+    );
+    const translated = textNodeContaining(
+        document.querySelector('.cm-content'),
+        'AI translated.'
+    );
+    const selection = document.getSelection();
+    const select = (start, startOffset, end, endOffset) => {
+        const range = document.createRange();
+        range.setStart(start, startOffset);
+        range.setEnd(end, endOffset);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        end.parentElement.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+            bubbles: true,
+            button: 0,
+        }));
+    };
+
+    select(translated, 0, translated, 2);
+    assert.equal(
+        document.querySelector('.mktero-markdown-selection-actions'),
+        null
+    );
+
+    select(original, 0, translated, translated.textContent.length);
+    assert.equal(
+        document.querySelector('.mktero-markdown-selection-actions'),
+        null
+    );
+
+    select(original, 0, original, 2);
+    const actions = document.querySelector('.mktero-markdown-selection-actions');
+    assert.ok(actions);
+    actions.querySelector('[data-color="#ffd400"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(created.length, 1);
+    assert.equal(created[0].annotation.text, 'AI');
+    assert.deepEqual(created[0].selectionContext, { side: 'source' });
 
     editor.destroy();
     dom.window.close();

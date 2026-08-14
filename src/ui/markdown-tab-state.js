@@ -24,7 +24,19 @@ const READY_RESULT_FIELDS = [
     'translationView',
     'translationStatus',
     'translationProgress',
+    'translationCompletedBlocks',
+    'translationTotalBlocks',
     'translationStage',
+    'translationTargetLanguage',
+    'translationConfiguredTargetLanguage',
+    'translationRequestedTargetLanguage',
+    'translationCachedLanguages',
+    'translationPartialLanguages',
+    'translationKey',
+    'translationSettingsIdentity',
+    'translationBlocks',
+    'translationFailedBlocks',
+    'translationBlockRanges',
     'translatedMarkdown',
     'comparisonMarkdown',
     'comparisonSourceRanges',
@@ -91,6 +103,48 @@ export function createConversionProgressChanges(progress, state = {}) {
     };
 }
 
+export function createTranslationLoadingChanges({
+    model,
+    previousTranslation,
+    targetLanguage,
+    retryBlockIDs = null,
+    forceRetranslate = false,
+}) {
+    const continuingTarget = previousTranslation?.targetLanguage
+        === targetLanguage;
+    if (!previousTranslation || !continuingTarget) {
+        return {
+            translationProgress: 0,
+            translationCompletedBlocks: 0,
+            translationTotalBlocks: 0,
+        };
+    }
+    const requestedIDs = new Set(
+        Array.isArray(retryBlockIDs) ? retryBlockIDs.map(String) : []
+    );
+    const previousFailureIDs = new Set(
+        (previousTranslation.failedBlocks || []).map(failure => failure.id)
+    );
+    const retranslatedSuccessfulBlocks = [...requestedIDs].filter(
+        id => !previousFailureIDs.has(id)
+    ).length;
+    const total = Math.max(0, Number(model.translationTotalBlocks) || 0);
+    const completed = forceRetranslate
+        ? 0
+        : Math.max(
+            0,
+            (Number(model.translationCompletedBlocks) || 0)
+                - retranslatedSuccessfulBlocks
+        );
+    return {
+        translationProgress: total
+            ? Math.round(Math.min(completed, total) / total * 100)
+            : 0,
+        translationCompletedBlocks: Math.min(completed, total),
+        translationTotalBlocks: total,
+    };
+}
+
 export function createConversionReadyChanges(result) {
     return {
         assets: [],
@@ -152,7 +206,19 @@ export function createEmptyTranslationState() {
         translationView: 'original',
         translationStatus: 'none',
         translationProgress: 0,
+        translationCompletedBlocks: 0,
+        translationTotalBlocks: 0,
         translationStage: '',
+        translationTargetLanguage: '',
+        translationConfiguredTargetLanguage: '',
+        translationRequestedTargetLanguage: '',
+        translationCachedLanguages: [],
+        translationPartialLanguages: [],
+        translationKey: null,
+        translationSettingsIdentity: '',
+        translationBlocks: [],
+        translationFailedBlocks: [],
+        translationBlockRanges: [],
         translatedMarkdown: '',
         comparisonMarkdown: '',
         comparisonSourceRanges: [],

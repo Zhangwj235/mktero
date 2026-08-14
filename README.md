@@ -67,8 +67,7 @@ Open `Settings -> Mktero` after installation.
 | Enable AI features | Off | Allow Markdown translation through the configured model service |
 | Stream responses | On | Stream each Markdown batch response; turn off to wait for each batch to finish |
 | AI base URL / API Key / provider / protocol / model | OpenAI Responses / empty model | Route AI calls through Vercel AI SDK Core to a hosted provider or loopback model server |
-| Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese for new translations |
-| Reasoning effort | Automatic | Let the provider choose, or request off, low, medium, high, or extra-high reasoning from supported models |
+| Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, Japanese, Korean, Spanish, French, or Brazilian Portuguese; English is excluded because source papers are assumed to be English |
 | Request timeout | 600,000 ms | Allow up to one hour for each batch request |
 | Maximum output tokens | Automatic (0) | Let the provider choose by default, or allow up to 262,144 tokens when the selected model supports it |
 
@@ -93,10 +92,22 @@ visible text is sufficient.
 3. Use the outline, citation and figure previews, source links, and Zotero notes
    panel to navigate the document.
 4. Use the fixed toolbar above the Markdown body to change text size and font,
-   select a reading mode, or translate the article. These controls use compact,
-   even spacing, with the translation action separated from the reading mode.
-   The More menu contains `Manage corrections`, `Reparse PDF`, and
-   `Save snapshot`.
+   select a reading mode, or translate the article. Self-describing size and
+   font controls omit redundant visible labels, while retaining accessible
+   names. The toolbar uses compact, even spacing, with in-flight progress
+   condensed onto the main toolbar row at normal reader widths and the
+   translation action separated from reading mode. Once a translation is
+   available, its reading-mode tab displays the target language directly
+   instead of repeating that language in a separate label. Select that tab to
+   open a language menu: complete translations switch immediately, while
+   incomplete or untranslated languages continue or start translation when
+   selected. Simplified Chinese,
+   Traditional Chinese, Japanese, and Korean translated text automatically use
+   language-aware academic serif fallbacks. In Translation mode, the font
+   picker changes to academic fonts for the translation language; Original and
+   Bilingual modes keep the source-font picker.
+   The More menu contains `Manage corrections`, `Retranslate document`,
+   `Reparse PDF`, and `Save snapshot` when those actions are available.
 
 Reparsing uploads the PDF again and may consume MinerU quota. The current
 Markdown remains readable until a replacement is ready. Mktero tabs are
@@ -148,22 +159,34 @@ and restored only after the response passes structural validation. Translation
 is always an explicit action and never rewrites the source Markdown or becomes
 part of a saved snapshot. Streaming is enabled by default for provider
 transport. While translation is running, the toolbar
-action shows a loading spinner and the current stage (connecting, model
-reasoning, receiving the translation, or validating the result); it remains
-available as `Cancel translation`, so select it again to stop the request. The
-reader switches to the translated document after every batch is settled; an
-incomplete result remains visible with its source-text fallbacks and can be retried.
+action shows a loading spinner, target language, translated block count, and
+percentage. Before any complete translation exists, the action remains
+available as `Cancel translation`; after one exists, cancellation moves into
+the translation-language menu so the current document remains readable.
+Existing original, translated, and bilingual views remain
+available while a retry runs in the background. The reader switches to the
+translated document after all requested batches settle. An incomplete result remains
+visible, marks every source-text fallback, and supports retrying all incomplete
+translation from the toolbar or jumping between failures. The failure navigator
+shows the current position and total, for example `1/3`.
 Connection tests always use a short non-streaming request.
 
 After translation, use the reading-mode selector to choose `Original`,
 `Translation`, or `Bilingual`. Original is the default whenever a document
 opens. Bilingual presents one continuous reading document: every source
 heading, paragraph, list, blockquote, or table is immediately followed by its
-translation. Translated blocks use a restrained left rule and indentation,
-while the outline contains only source headings. The single reading surface
-remains usable when Zotero's side panels reduce the available document width.
-PDF annotations and source navigation remain attached to Original because
-translated text does not share the source Markdown's character offsets.
+translation. Translated blocks use a restrained left rule, indentation, and
+lower heading emphasis, while the outline contains only source headings. The
+toolbar always shows the translation language, adds progress while work is in
+flight, and shows only the untranslated count for a partial result. A complete
+result omits the redundant `N/N` count. The single reading surface remains
+usable when Zotero's side panels reduce the available document width. In
+Bilingual mode, PDF annotations, source navigation, sourced copy, and new
+Markdown annotations remain available on source blocks; translated blocks do
+not expose source-only actions. Bilingual blocks remain visually stable while
+reading and do not expose per-block translation actions. `Retranslate document`
+in the More menu regenerates the visible language with the current provider and
+model settings.
 
 All AI calls pass through Vercel AI SDK Core. Mktero includes adapters for
 OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud Model Studio,
@@ -176,12 +199,22 @@ such as Ollama or LM Studio may use HTTP and may omit the API Key when
 authentication is disabled.
 
 The translated blocks are stored inside the corresponding PDF Markdown cache
-entry and keyed by source content, provider, protocol, model, reasoning effort,
-target language, and prompt version. The translated and bilingual reading
-documents are rebuilt from those blocks in source order, so existing cached
-translations can adopt presentation updates without another AI request.
-Clearing, replacing, or evicting that Markdown cache entry removes its
-translation. Lists, blockquotes, and GFM tables are translated; images, code,
+entry and keyed by source content, provider, protocol, model, target language,
+and prompt version. Each target language keeps an independent result. The
+language configured in Settings is only the default for the first translation
+of a document; changing it never replaces, cancels, or starts translation in an
+open Markdown tab. Once any complete translation exists, the primary
+translation action stays hidden. The translated reading-mode tab opens a menu
+containing every supported language for the current document and model
+configuration. Choosing a complete language switches the cached translation
+without another request. Choosing an incomplete or untranslated language
+continues or starts that language's translation without changing the default
+in Settings. Partial caches resume their missing blocks instead of being
+treated as complete. The translated and bilingual reading documents are
+rebuilt from the cached blocks in source order, so presentation updates do not
+require another AI request. Clearing, replacing, or evicting that Markdown
+cache entry removes all of its translations. Lists, blockquotes, and GFM tables
+are translated; images, code,
 standalone formulas, link definitions, and raw HTML are preserved. Closing the
 tab, reparsing, editing the Markdown, or shutting down Mktero cancels active
 translation requests.
@@ -307,8 +340,10 @@ controlled by Zotero.
   corrections.
 - AI translation is an optional cached reading layer. It never starts
   automatically, modifies source Markdown, syncs through Zotero, or saves
-  translations into snapshots. Reasoning effort is applied only when the
-  configured provider and model support it; unsupported models may ignore it.
+  translations into snapshots. Mktero requests non-reasoning generation to keep
+  translation responsive. If the selected model or Provider explicitly rejects
+  disabling reasoning, Mktero retries once with that Provider's default behavior.
+  Mktero does not expose a reasoning-effort setting.
 - Only local PDF attachments are supported. Missing or undownloaded files
   cannot be converted.
 - Text annotations require extractable PDF text. A scanned PDF may convert via

@@ -30,8 +30,12 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(prefs, /pref\("extensions\.mktero\.aiApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiRequestTimeoutMs", 600000\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 0\)/);
-    assert.match(prefs, /pref\("extensions\.mktero\.aiReasoning", "provider-default"\)/);
+    assert.doesNotMatch(prefs, /extensions\.mktero\.aiReasoning/);
     assert.doesNotMatch(prefs, /extensions\.mktero\.aiCacheEnabled/);
+    assert.doesNotMatch(
+        pane,
+        /<html:option value="en-US"[^>]*preferences\.ai\.language\.enUS/
+    );
     assert.match(
         prefs,
         /pref\("extensions\.mktero\.readerFont", "system-serif"\)/
@@ -59,9 +63,8 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
         pane,
         /id="mktero-ai-max-output-tokens"[\s\S]*?max="262144"/
     );
-    assert.match(pane, /preference="extensions\.mktero\.aiReasoning"/);
-    assert.match(pane, /<html:option value="provider-default" data-i18n="preferences\.ai\.reasoning\.auto"><\/html:option>/);
-    assert.match(pane, /<html:option value="xhigh" data-i18n="preferences\.ai\.reasoning\.xhigh"><\/html:option>/);
+    assert.doesNotMatch(pane, /extensions\.mktero\.aiReasoning/);
+    assert.doesNotMatch(pane, /mktero-ai-reasoning/);
     assert.doesNotMatch(pane, /extensions\.mktero\.aiCacheEnabled/);
     assert.match(pane, /<html:option value="es-ES" data-i18n="preferences\.ai\.language\.esES"><\/html:option>/);
     assert.match(pane, /<html:option value="fr-FR" data-i18n="preferences\.ai\.language\.frFR"><\/html:option>/);
@@ -196,13 +199,13 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
         (pane.match(
             /class="mktero-setting-row mktero-(?:field|reader-font)-row"/g
         ) || []).length,
-        12
+        11
     );
     assert.equal(
         (pane.match(
             /<html:div class="mktero-(?:field|reader-font)-control(?: [^"]+)?">/g
         ) || []).length,
-        12
+        11
     );
 });
 

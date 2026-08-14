@@ -102,6 +102,9 @@ test('article layout outranks the CodeMirror adopted base theme', () => {
 
 test('keeps the reader toolbar above content without covering it', () => {
     const toolbar = ruleBody('.markdown-reader-toolbar');
+    const translatingToolbar = ruleBody(
+        '.markdown-reader-toolbar.is-translating'
+    );
     const readerControls = ruleBody('.markdown-reader-controls');
     const translationControls = ruleBody('.markdown-translation-controls');
     const fontFamily = ruleBody('.markdown-reader-font-family');
@@ -111,6 +114,8 @@ test('keeps the reader toolbar above content without covering it', () => {
     assert.match(toolbar, /--toolbar-control-gap:\s*10px/);
     assert.match(toolbar, /position:\s*relative/);
     assert.match(toolbar, /flex:\s*0 0 auto/);
+    assert.match(toolbar, /flex-wrap:\s*wrap/);
+    assert.match(translatingToolbar, /flex-wrap:\s*nowrap/);
     assert.match(toolbar, /min-height:\s*44px/);
     assert.match(toolbar, /padding:\s*4px 12px/);
     assert.match(toolbar, /border-bottom:\s*1px solid var\(--border-subtle\)/);
@@ -174,6 +179,7 @@ test('styles the reader font picker as part of the top toolbar', () => {
     const options = ruleBody('.markdown-reader-font-options');
     const option = ruleBody('.markdown-reader-font-option');
 
+    assert.doesNotMatch(MARKDOWN_STYLES, /\.markdown-reader-font-label/);
     assert.match(picker, /width:\s*148px/);
     assert.match(picker, /position:\s*relative/);
     assert.match(trigger, /display:\s*flex/);
@@ -246,7 +252,7 @@ test('styles academic figure captions as distinct labels', () => {
     assert.doesNotMatch(caption, /border-left/);
     assert.doesNotMatch(caption, /border-radius/);
     assert.doesNotMatch(caption, /background\s*:/);
-    assert.match(caption, /font-family:\s*var\(--reader-font\)/);
+    assert.match(caption, /font-family:\s*inherit/);
     assert.match(caption, /font-size:\s*var\(--reader-caption-font-size\)/);
     assert.match(caption, /letter-spacing:\s*0/);
     assert.match(caption, /text-align:\s*center/);
@@ -422,19 +428,39 @@ test('styles secondary document actions as a toolbar popover', () => {
     assert.match(reparsing, /animation:\s*mktero-spin 0\.85s linear infinite/);
 });
 
-test('keeps document translation as a compact icon button', () => {
+test('keeps document translation status legible without crowding the toolbar', () => {
     const action = ruleBody('.markdown-translation-action');
+    const controls = ruleBody('.markdown-translation-controls');
+    const status = ruleBody('.markdown-translation-status');
+    const failureNavigation = ruleBody(
+        '.markdown-translation-failure-navigation'
+    );
+    const failureNavigationButton = ruleBody(
+        '.markdown-translation-failure-navigation-button'
+    );
     const translating = ruleBody(
         [
             '.markdown-translation-action.is-translating',
             '    .markdown-translation-loading-icon',
         ].join('\n')
     );
-    assert.match(action, /width:\s*32px/);
-    assert.match(action, /min-width:\s*32px/);
+    assert.match(action, /width:\s*auto/);
     assert.match(action, /height:\s*32px/);
     assert.match(action, /min-height:\s*32px/);
-    assert.match(action, /padding:\s*0/);
+    assert.match(action, /padding:\s*0 10px/);
+    assert.match(action, /gap:\s*7px/);
+    assert.match(controls, /flex:\s*1 1 auto/);
+    assert.match(controls, /max-width:\s*100%/);
+    assert.match(status, /font-variant-numeric:\s*tabular-nums/);
+    assert.match(status, /text-overflow:\s*ellipsis/);
+    assert.match(status, /white-space:\s*nowrap/);
+    assert.doesNotMatch(
+        MARKDOWN_STYLES,
+        /\.markdown-translation-language\s*\{/
+    );
+    assert.match(failureNavigation, /display:\s*inline-flex/);
+    assert.match(failureNavigationButton, /width:\s*28px/);
+    assert.match(failureNavigationButton, /height:\s*28px/);
     assert.match(translating, /animation:\s*mktero-spin 0\.85s linear infinite/);
 });
 
@@ -455,10 +481,194 @@ test('keeps block-level comparison in one full-size reading surface', () => {
     assert.doesNotMatch(MARKDOWN_STYLES, /flex:\s*1 1 50%/);
     assert.match(translation, /padding-inline:\s*18px 4px !important/);
     assert.match(translation, /box-shadow:\s*inset 3px 0 0/);
+    assert.match(translation, /color:\s*var\(--reader-text\)/);
+    assert.match(translation, /background:\s*color-mix/);
     assert.doesNotMatch(translation, /border-radius/);
     assert.match(boundary, /height:\s*0/);
     assert.match(boundary, /min-height:\s*0/);
     assert.match(boundary, /overflow:\s*hidden/);
+});
+
+test('uses language-aware academic serif fonts only for translated text', () => {
+    const host = ruleBody(':host');
+    const editor = lastRuleBody('.markdown-editor-host > .cm-editor');
+    const translatedLine = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-line[lang],',
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-block[lang]',
+    ].join('\n'));
+    const sourceFallback = ruleBody([
+        '.markdown-reading-pane[lang]',
+        '    .markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-failure-line,',
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-failure-block',
+    ].join('\n'));
+    const languageFonts = [
+        ['zh-CN', 'zh-cn', 'Noto Serif SC'],
+        ['zh-TW', 'zh-tw', 'Noto Serif TC'],
+        ['ja-JP', 'ja', 'Noto Serif JP'],
+        ['ko-KR', 'ko', 'Noto Serif KR'],
+    ];
+
+    for (const [language, variableSuffix, preferredFont] of languageFonts) {
+        assert.match(
+            host,
+            new RegExp(
+                `--reader-translation-font-${variableSuffix}:[^;]*${preferredFont}`
+            )
+        );
+        const languageRule = ruleBody([
+            `.markdown-reading-pane[lang='${language}'],`,
+            '.markdown-editor-host > .cm-editor',
+            `    .cm-mktero-translation-line[lang='${language}'],`,
+            '.markdown-editor-host > .cm-editor',
+            `    .cm-mktero-translation-block[lang='${language}']`,
+        ].join('\n'));
+        assert.match(
+            languageRule,
+            new RegExp(
+                `--reader-content-font:\\s*var\\(--reader-selected-translation-font,\\s*var\\(--reader-translation-font-${variableSuffix}\\)\\)`
+            )
+        );
+    }
+    assert.match(
+        editor,
+        /font-family:\s*var\(--reader-content-font, var\(--reader-font\)\)/
+    );
+    assert.match(
+        translatedLine,
+        /font-family:\s*var\(--reader-content-font, var\(--reader-font\)\)/
+    );
+    assert.match(
+        sourceFallback,
+        /--reader-content-font:\s*var\(--reader-font\)/
+    );
+    assert.match(sourceFallback, /font-family:\s*var\(--reader-font\)/);
+    assert.doesNotMatch(
+        MARKDOWN_STYLES,
+        /cm-mktero-translation-pair-source[^}]*font-family/
+    );
+
+    const figureCaption = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure figcaption'
+    );
+    const table = ruleBody([
+        '.markdown-editor-host > .cm-editor .cm-mktero-table table,',
+        '.markdown-editor-host > .cm-editor .cm-mktero-html-block table',
+    ].join('\n'));
+    const tableCaption = ruleBody([
+        '.markdown-editor-host > .cm-editor .cm-mktero-table table caption,',
+        '.markdown-editor-host > .cm-editor .cm-mktero-html-block table caption',
+    ].join('\n'));
+    assert.match(figureCaption, /font-family:\s*inherit/);
+    assert.match(table, /font-family:\s*inherit/);
+    assert.match(tableCaption, /font-family:\s*inherit/);
+});
+
+test('distinguishes translated headings and source fallbacks', () => {
+    const translatedHeading = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-line.cm-mktero-heading',
+    ].join('\n'));
+    const failure = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-failure',
+    ].join('\n'));
+    const failureLine = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-failure-line',
+    ].join('\n'));
+    assert.match(translatedHeading, /font-weight:\s*600/);
+    assert.match(translatedHeading, /color:\s*var\(--reader-text\)/);
+    assert.match(translatedHeading, /border-bottom:\s*0/);
+    assert.match(failure, /display:\s*flex/);
+    assert.match(failure, /color:\s*var\(--warning\)/);
+    assert.match(failureLine, /background:\s*color-mix/);
+});
+
+test('keeps paired bilingual blocks free of per-block action styles', () => {
+    const pair = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-translation-pair'
+    );
+    const active = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-pair.is-translation-pair-active',
+    ].join('\n'));
+    assert.match(pair, /position:\s*relative/);
+    assert.match(active, /background:\s*color-mix/);
+    assert.match(active, /box-shadow:/);
+    assert.doesNotMatch(MARKDOWN_STYLES, /cm-mktero-translation-retry/);
+});
+
+test('wraps translation controls at narrow reader widths', () => {
+    const viewButton = ruleBody('.markdown-translation-view-button');
+
+    assert.match(viewButton, /overflow:\s*hidden/);
+    assert.match(viewButton, /text-overflow:\s*ellipsis/);
+    assert.match(viewButton, /white-space:\s*nowrap/);
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*620px\)[\s\S]*\.markdown-reader-toolbar\.is-translating\s*\{[^}]*flex-wrap:\s*wrap/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*620px\)[\s\S]*\.markdown-translation-controls\s*\{[^}]*flex:\s*1 0 100%[^}]*flex-wrap:\s*wrap/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-view\s*\{[^}]*width:\s*100%/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-view-button\s*\{[^}]*min-width:\s*0/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-controls\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-context\s*\{[^}]*grid-column:\s*1/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-failure-navigation\s*\{[^}]*grid-column:\s*2/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-action\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/
+    );
+});
+
+test('anchors the cached translation language menu below the mode selector', () => {
+    const view = ruleBody('.markdown-translation-view');
+    const menu = ruleBody('.markdown-translation-language-options');
+    const group = ruleBody('.markdown-translation-language-group');
+    const option = ruleBody('.markdown-translation-language-option');
+    const disabledOption = ruleBody(
+        '.markdown-translation-language-option:disabled'
+    );
+    const cancel = ruleBody('.markdown-translation-language-cancel');
+    const lastButton = ruleBody(
+        '.markdown-translation-view-button:last-of-type'
+    );
+
+    assert.match(view, /position:\s*relative/);
+    assert.match(menu, /position:\s*absolute/);
+    assert.match(menu, /top:\s*calc\(100% \+ 6px\)/);
+    assert.match(menu, /left:\s*50%/);
+    assert.match(menu, /transform:\s*translateX\(-50%\)/);
+    assert.match(group, /display:\s*grid/);
+    assert.match(option, /grid-template-columns:\s*14px minmax\(0, 1fr\)/);
+    assert.match(disabledOption, /opacity:\s*0\.55/);
+    assert.match(cancel, /border-top:\s*1px solid var\(--border-subtle\)/);
+    assert.match(
+        MARKDOWN_STYLES,
+        /data-translation-status='translating'[\s\S]*animation:\s*mktero-spin/
+    );
+    assert.match(lastButton, /border-radius:/);
 });
 
 test('styles citation popups and temporary reference highlights', () => {

@@ -6,6 +6,7 @@ import {
     createConversionLoadingChanges,
     createConversionProgressChanges,
     createConversionReadyChanges,
+    createTranslationLoadingChanges,
     snapshotReadyResult,
 } from '../src/ui/markdown-tab-state.js';
 
@@ -81,6 +82,60 @@ test('tracks whether loading progress belongs to a resumed task', () => {
     });
 });
 
+test('starts translation work from the completed blocks that remain visible', () => {
+    const model = {
+        translationProgress: 67,
+        translationCompletedBlocks: 2,
+        translationTotalBlocks: 3,
+        translationTargetLanguage: 'zh-CN',
+        translationFailedBlocks: [{ id: 'failed' }],
+    };
+    const previous = {
+        targetLanguage: 'zh-CN',
+        failedBlocks: [{ id: 'failed' }],
+    };
+
+    assert.deepEqual(createTranslationLoadingChanges({
+        model,
+        previousTranslation: previous,
+        targetLanguage: 'zh-CN',
+        retryBlockIDs: ['failed'],
+    }), {
+        translationProgress: 67,
+        translationCompletedBlocks: 2,
+        translationTotalBlocks: 3,
+    });
+    assert.deepEqual(createTranslationLoadingChanges({
+        model,
+        previousTranslation: previous,
+        targetLanguage: 'zh-CN',
+        retryBlockIDs: ['successful'],
+    }), {
+        translationProgress: 33,
+        translationCompletedBlocks: 1,
+        translationTotalBlocks: 3,
+    });
+    assert.deepEqual(createTranslationLoadingChanges({
+        model,
+        previousTranslation: previous,
+        targetLanguage: 'zh-CN',
+        forceRetranslate: true,
+    }), {
+        translationProgress: 0,
+        translationCompletedBlocks: 0,
+        translationTotalBlocks: 3,
+    });
+    assert.deepEqual(createTranslationLoadingChanges({
+        model,
+        previousTranslation: previous,
+        targetLanguage: 'ja-JP',
+    }), {
+        translationProgress: 0,
+        translationCompletedBlocks: 0,
+        translationTotalBlocks: 0,
+    });
+});
+
 test('restores the previous result with a warning when reparse fails', () => {
     const snapshot = snapshotReadyResult({
         title: 'Paper',
@@ -129,7 +184,19 @@ test('uses the normal empty and error states without a previous result', () => {
         translationView: 'original',
         translationStatus: 'none',
         translationProgress: 0,
+        translationCompletedBlocks: 0,
+        translationTotalBlocks: 0,
         translationStage: '',
+        translationTargetLanguage: '',
+        translationConfiguredTargetLanguage: '',
+        translationRequestedTargetLanguage: '',
+        translationCachedLanguages: [],
+        translationPartialLanguages: [],
+        translationKey: null,
+        translationSettingsIdentity: '',
+        translationBlocks: [],
+        translationFailedBlocks: [],
+        translationBlockRanges: [],
         translatedMarkdown: '',
         comparisonMarkdown: '',
         comparisonSourceRanges: [],
@@ -170,7 +237,19 @@ test('clears figures when a successful reparse has no assets', () => {
         translationView: 'original',
         translationStatus: 'none',
         translationProgress: 0,
+        translationCompletedBlocks: 0,
+        translationTotalBlocks: 0,
         translationStage: '',
+        translationTargetLanguage: '',
+        translationConfiguredTargetLanguage: '',
+        translationRequestedTargetLanguage: '',
+        translationCachedLanguages: [],
+        translationPartialLanguages: [],
+        translationKey: null,
+        translationSettingsIdentity: '',
+        translationBlocks: [],
+        translationFailedBlocks: [],
+        translationBlockRanges: [],
         translatedMarkdown: '',
         comparisonMarkdown: '',
         comparisonSourceRanges: [],

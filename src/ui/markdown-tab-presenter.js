@@ -67,6 +67,7 @@ export class MarkdownTabPresenter {
         onTranslateDocument,
         onCancelDocumentTranslation,
         onSetTranslationView,
+        onSelectTranslationLanguage,
         onChangeAnnotationColor,
         onUpdateAnnotationComment,
         onDeleteAnnotation,
@@ -129,6 +130,10 @@ export class MarkdownTabPresenter {
             if (onSetTranslationView !== undefined) {
                 existing.model.onSetTranslationView = onSetTranslationView;
             }
+            if (onSelectTranslationLanguage !== undefined) {
+                existing.model.onSelectTranslationLanguage
+                    = onSelectTranslationLanguage;
+            }
             if (onChangeAnnotationColor) {
                 existing.model.onChangeAnnotationColor = onChangeAnnotationColor;
             }
@@ -185,6 +190,7 @@ export class MarkdownTabPresenter {
                 onTranslateDocument,
                 onCancelDocumentTranslation,
                 onSetTranslationView,
+                onSelectTranslationLanguage,
                 onChangeAnnotationColor,
                 onUpdateAnnotationComment,
                 onDeleteAnnotation,
