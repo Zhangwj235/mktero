@@ -7,6 +7,9 @@ import {
 import {
     createEmptyAnnotationOverlay,
 } from '../core/markdown-annotation-overlay.js';
+import {
+    markdownAnnotationRangeMatchesSource,
+} from '../core/markdown-local-annotations.js';
 import { resolvePDFPageIndexHint } from '../core/markdown-source-map.js';
 import {
     isSupportedAITargetLanguage,
@@ -220,8 +223,8 @@ class MarkdownTabView {
             initialMarkdown: '',
             resolveImageURL: source => this.resolveImageURL(source),
             openLink: href => this.openLink(href),
-            createMarkdownAnnotation: annotation => (
-                this.createMarkdownAnnotation(annotation)
+            createMarkdownAnnotation: (annotation, selectionContext) => (
+                this.createMarkdownAnnotation(annotation, selectionContext)
             ),
             changeAnnotationColor: (annotationID, color) => (
                 this.changeAnnotationColor(annotationID, color)
@@ -593,9 +596,16 @@ class MarkdownTabView {
         this.removeVisibleAnnotation(annotationID);
     }
 
-    async createMarkdownAnnotation(annotation) {
+    async createMarkdownAnnotation(annotation, selectionContext) {
         if (typeof this.model.onCreateMarkdownAnnotation !== 'function') {
             throw new Error('Markdown annotation creation is unavailable');
+        }
+        if (this.model.translationView === 'translated') {
+            throw new Error('Markdown annotations require original text');
+        }
+        if (this.model.translationView === 'compare'
+            && selectionContext?.side !== 'source') {
+            throw new Error('Markdown annotations require original text');
         }
         const sourceAnnotation = this.model.translationView === 'compare'
             ? mapComparisonAnnotationToSource(
@@ -603,7 +613,13 @@ class MarkdownTabView {
                 this.model.translationBlockRanges
             )
             : annotation;
-        if (!sourceAnnotation) {
+        if (!sourceAnnotation
+            || !String(sourceAnnotation.text || '').trim()
+            || !markdownAnnotationRangeMatchesSource(
+                this.model.markdown,
+                sourceAnnotation.ranges?.[0],
+                sourceAnnotation.text
+            )) {
             throw new Error('Markdown annotations require original text');
         }
         const pdfPageIndexHint = resolvePDFPageIndexHint(

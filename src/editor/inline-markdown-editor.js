@@ -126,8 +126,11 @@ export function createInlineMarkdownEditor({
     const annotationPopup = createAnnotationPopup(parent, {
         localization,
         createMarkdownAnnotation: typeof createMarkdownAnnotation === 'function'
-            ? async annotation => {
-                const saved = await createMarkdownAnnotation(annotation);
+            ? async (annotation, selectionContext) => {
+                const saved = await createMarkdownAnnotation(
+                    annotation,
+                    selectionContext
+                );
                 ownerWindow.getSelection?.()?.removeAllRanges?.();
                 return saved;
             }
@@ -604,7 +607,10 @@ export function createInlineMarkdownEditor({
         clampSelectionFocusToPointerLine(view, domSelection, event);
         const selection = selectedMarkdownAnnotation(view);
         if (!selection) return;
-        if (!selectionSupportsSourceActions(
+        if (markdownSelectionSide(
+            domSelection,
+            currentSourceActionRanges
+        ) !== 'source' || !selectionSupportsSourceActions(
             selection,
             currentSourceActionRanges
         )) {
@@ -627,6 +633,7 @@ export function createInlineMarkdownEditor({
                 event
             ),
             selection,
+            selectionContext: { side: 'source' },
             copyTarget,
             sourceLocation: selectionSourceLocation(
                 currentSourceMap,
@@ -892,6 +899,28 @@ function selectionSupportsSourceActions(selection, sourceActionRanges) {
             range.from >= sourceRange.from && range.to <= sourceRange.to
         ))
     ));
+}
+
+function markdownSelectionSide(selection, sourceActionRanges) {
+    if (sourceActionRanges === null) return 'source';
+    if (!selection || selection.rangeCount !== 1) return null;
+    const range = selection.getRangeAt(0);
+    const startSide = translationPairSide(range.startContainer);
+    const endSide = translationPairSide(range.endContainer);
+    return startSide === 'translated' || endSide === 'translated'
+        ? 'translated'
+        : 'source';
+}
+
+function translationPairSide(node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    if (element?.closest?.('.cm-mktero-translation-pair-source')) {
+        return 'source';
+    }
+    if (element?.closest?.('.cm-mktero-translation-pair-translated')) {
+        return 'translated';
+    }
+    return null;
 }
 
 function createBlockCorrectionToolbar({

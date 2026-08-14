@@ -5099,31 +5099,42 @@ test('shows Markdown annotation actions after selecting ordinary text', () => {
     dom.window.close();
 });
 
-test('hides source actions for translated and mixed bilingual selections', () => {
+test('allows annotations only from original bilingual selections', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
     const { document } = dom.window;
-    const markdown = 'Original.\n\nTranslated.';
+    const markdown = 'AI original.\n\nAI translated.';
+    const created = [];
     const editor = createInlineMarkdownEditor({
         parent: document.querySelector('#editor'),
         initialMarkdown: '',
-        createMarkdownAnnotation: async annotation => annotation,
+        createMarkdownAnnotation: async (annotation, selectionContext) => {
+            created.push({ annotation, selectionContext });
+            return annotation;
+        },
     });
     editor.setDocument({
         markdown,
-        sourceActionRanges: [{ from: 0, to: 9 }, {
+        sourceActionRanges: [{ from: 0, to: 12 }, {
             from: -1,
             to: Number.MAX_SAFE_INTEGER,
+        }],
+        translationPairs: [{
+            id: 'translation-0',
+            sourceFrom: null,
+            sourceTo: null,
+            translatedFrom: 14,
+            translatedTo: markdown.length,
         }],
     });
     const original = textNodeContaining(
         document.querySelector('.cm-content'),
-        'Original.'
+        'AI original.'
     );
     const translated = textNodeContaining(
         document.querySelector('.cm-content'),
-        'Translated.'
+        'AI translated.'
     );
     const selection = document.getSelection();
     const select = (start, startOffset, end, endOffset) => {
@@ -5138,7 +5149,7 @@ test('hides source actions for translated and mixed bilingual selections', () =>
         }));
     };
 
-    select(translated, 0, translated, translated.textContent.length);
+    select(translated, 0, translated, 2);
     assert.equal(
         document.querySelector('.mktero-markdown-selection-actions'),
         null
@@ -5150,8 +5161,15 @@ test('hides source actions for translated and mixed bilingual selections', () =>
         null
     );
 
-    select(original, 0, original, original.textContent.length);
-    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+    select(original, 0, original, 2);
+    const actions = document.querySelector('.mktero-markdown-selection-actions');
+    assert.ok(actions);
+    actions.querySelector('[data-color="#ffd400"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(created.length, 1);
+    assert.equal(created[0].annotation.text, 'AI');
+    assert.deepEqual(created[0].selectionContext, { side: 'source' });
 
     editor.destroy();
     dom.window.close();

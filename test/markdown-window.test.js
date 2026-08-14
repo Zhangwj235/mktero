@@ -1057,6 +1057,7 @@ test('forwards sourced Markdown copy targets to the current tab model', async ()
 test('keeps source annotations and evidence actions on bilingual source blocks', async () => {
     const updates = [];
     const copied = [];
+    const created = [];
     let editorOptions;
     const sourceMap = [{
         type: 'text',
@@ -1118,6 +1119,15 @@ test('keeps source annotations and evidence actions on bilingual source blocks',
             comparisonTranslationTo: 41,
         }],
         onCopySourcedMarkdown: target => copied.push(target),
+        onCreateMarkdownAnnotation: annotation => {
+            created.push(annotation);
+            return {
+                ...annotation,
+                id: 'mktero-local-bilingual',
+                source: 'markdown',
+                type: 'highlight',
+            };
+        },
     });
     const { view } = createView(model, {}, {
         editorFactory(options) {
@@ -1153,6 +1163,31 @@ test('keeps source annotations and evidence actions on bilingual source blocks',
         text: 'Original',
         ranges: [{ from: 9, to: 17 }],
     }]);
+
+    await editorOptions.createMarkdownAnnotation({
+        text: 'Original',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 15, to: 23 }],
+    }, { side: 'source' });
+    assert.deepEqual(created[0].ranges, [{ from: 9, to: 17 }]);
+    await assert.rejects(
+        editorOptions.createMarkdownAnnotation({
+            text: 'Original',
+            color: '#ffd400',
+            ranges: [{ from: 15, to: 23 }],
+        }, { side: 'translated' }),
+        /require original text/
+    );
+    await assert.rejects(
+        editorOptions.createMarkdownAnnotation({
+            text: 'Original',
+            color: '#ffd400',
+            ranges: [{ from: 15, to: 23 }],
+        }),
+        /require original text/
+    );
+    assert.equal(created.length, 1);
 
     assert.throws(() => editorOptions.copySourcedMarkdown({
         kind: 'selection',
@@ -2276,6 +2311,45 @@ test('creates and edits persistent local Markdown annotations', async () => {
         annotationID: 'mktero-local-1',
     });
     assert.deepEqual(model.annotationOverlay.matched, []);
+    view.destroy();
+});
+
+test('rejects Markdown annotations created from the translation view', async () => {
+    const created = [];
+    let editorOptions;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Original text.',
+        translationStatus: 'ready',
+        translationView: 'translated',
+        translatedMarkdown: '译文。',
+        translationTargetLanguage: 'zh-CN',
+        async onCreateMarkdownAnnotation(annotation) {
+            created.push(annotation);
+            return annotation;
+        },
+    });
+    const { view } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    await assert.rejects(
+        editorOptions.createMarkdownAnnotation({
+            text: '译文',
+            color: '#ffd400',
+            ranges: [{ from: 0, to: 2 }],
+        }),
+        /require original text/
+    );
+    assert.deepEqual(created, []);
     view.destroy();
 });
 

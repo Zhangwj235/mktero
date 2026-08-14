@@ -381,7 +381,11 @@ function resolveAnnotations(markdown, annotations) {
     let normalizedIndex = null;
     for (const annotation of annotations) {
         const savedRange = annotation.ranges[0];
-        if (sourceRangeMatches(markdown, savedRange, annotation.text)) {
+        if (markdownAnnotationRangeMatchesSource(
+            markdown,
+            savedRange,
+            annotation.text
+        )) {
             matched.push(resolvedAnnotation(annotation, savedRange));
             continue;
         }
@@ -437,10 +441,11 @@ function resolveAnnotations(markdown, annotations) {
     return { matched, unmatched };
 }
 
-function sourceRangeMatches(markdown, range, text) {
-    if (!validRange(range, markdown.length)) return false;
+export function markdownAnnotationRangeMatchesSource(markdown, range, text) {
+    const source = String(markdown || '');
+    if (!validRange(range, source.length)) return false;
     const visible = createVisibleMarkdownTextIndex(
-        markdown.slice(range.from, range.to)
+        source.slice(range.from, range.to)
     ).text;
     return normalizeVisibleText(visible) === normalizeVisibleText(text);
 }
