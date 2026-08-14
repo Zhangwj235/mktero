@@ -95,8 +95,8 @@ visible text is sufficient.
 4. Use the fixed toolbar above the Markdown body to change text size and font,
    select a reading mode, or translate the article. These controls use compact,
    even spacing, with the translation action separated from the reading mode.
-   The More menu contains `Manage corrections`, `Reparse PDF`, and
-   `Save snapshot`.
+   The More menu contains `Manage corrections`, `Retranslate document`,
+   `Reparse PDF`, and `Save snapshot` when those actions are available.
 
 Reparsing uploads the PDF again and may consume MinerU quota. The current
 Markdown remains readable until a replacement is ready. Mktero tabs are
@@ -148,22 +148,32 @@ and restored only after the response passes structural validation. Translation
 is always an explicit action and never rewrites the source Markdown or becomes
 part of a saved snapshot. Streaming is enabled by default for provider
 transport. While translation is running, the toolbar
-action shows a loading spinner and the current stage (connecting, model
-reasoning, receiving the translation, or validating the result); it remains
-available as `Cancel translation`, so select it again to stop the request. The
-reader switches to the translated document after every batch is settled; an
-incomplete result remains visible with its source-text fallbacks and can be retried.
+action shows a loading spinner, target language, translated block count, and
+percentage; it remains available as `Cancel translation`, so select it again to
+stop the request. Existing original, translated, and bilingual views remain
+available while a retry runs in the background. The reader switches to the
+translated document after all requested batches settle. An incomplete result remains
+visible, marks every source-text fallback, and supports retrying one failed
+block or jumping between failures from the toolbar. The failure navigator shows
+the current position and total, for example `1/3`.
 Connection tests always use a short non-streaming request.
 
 After translation, use the reading-mode selector to choose `Original`,
 `Translation`, or `Bilingual`. Original is the default whenever a document
 opens. Bilingual presents one continuous reading document: every source
 heading, paragraph, list, blockquote, or table is immediately followed by its
-translation. Translated blocks use a restrained left rule and indentation,
-while the outline contains only source headings. The single reading surface
-remains usable when Zotero's side panels reduce the available document width.
-PDF annotations and source navigation remain attached to Original because
-translated text does not share the source Markdown's character offsets.
+translation. Translated blocks use a restrained left rule, indentation, and
+lower heading emphasis, while the outline contains only source headings. The
+toolbar always shows the translation language, adds progress while work is in
+flight, and shows only the untranslated count for a partial result. A complete
+result omits the redundant `N/N` count. The single reading surface remains
+usable when Zotero's side panels reduce the available document width. In
+Bilingual mode, PDF annotations, source navigation, sourced copy, and new
+Markdown annotations remain available on source blocks; translated blocks do
+not expose source-only actions. Hovering or focusing either half of a
+bilingual pair highlights both blocks. A refresh action on a successful
+translated block retranslates only that block, while `Retranslate document` in
+the More menu regenerates the complete translation with the current settings.
 
 All AI calls pass through Vercel AI SDK Core. Mktero includes adapters for
 OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud Model Studio,

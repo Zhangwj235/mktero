@@ -116,6 +116,7 @@ import {
     createConversionProgressChanges,
     createConversionReadyChanges,
     createEmptyTranslationState,
+    createTranslationLoadingChanges,
     snapshotReadyResult,
 } from './ui/markdown-tab-state.js';
 
@@ -435,7 +436,11 @@ async function openItemAsMarkdown(itemID, {
         onCommitCorrection: correction => commitCorrection(itemID, correction),
         onRestoreCorrection: blockID => restoreCorrection(itemID, blockID),
         onRestoreAllCorrections: () => restoreAllCorrections(itemID),
-        onTranslateDocument: () => translateDocument(itemID),
+        onTranslateDocument: options => translateDocument(itemID, options),
+        onRetryDocumentTranslationBlock: blockID => translateDocument(
+            itemID,
+            { retryBlockIDs: [blockID] }
+        ),
         onCancelDocumentTranslation: () => cancelDocumentTranslation(itemID),
         onSetTranslationView: view => setTranslationView(itemID, view),
         onChangeAnnotationColor: (annotationID, color) => (
@@ -777,12 +782,17 @@ function setCorrectionMode(itemID, enabled) {
 
 function setTranslationView(documentID, view) {
     const presentation = runtime.presenter?.get(documentID);
+    const translationAvailable = ['ready', 'partial'].includes(
+        presentation?.model.translationStatus
+    ) || (
+        presentation?.model.translationStatus === 'loading'
+        && Array.isArray(presentation.model.translationBlocks)
+        && presentation.model.translationBlocks.length > 0
+    );
     if (!presentation
         || presentation.model.status !== 'ready'
         || presentation.model.renderMode === 'html'
-        || !['ready', 'partial'].includes(
-            presentation.model.translationStatus
-        )) {
+        || !translationAvailable) {
         return false;
     }
     const normalized = ['original', 'translated', 'compare'].includes(view)
@@ -795,7 +805,10 @@ function setTranslationView(documentID, view) {
     return true;
 }
 
-async function translateDocument(documentID) {
+async function translateDocument(documentID, {
+    retryBlockIDs = null,
+    forceRetranslate = false,
+} = {}) {
     const presentation = runtime.presenter?.get(documentID);
     const service = runtime.translationService;
     if (!presentation
@@ -812,12 +825,26 @@ async function translateDocument(documentID) {
         error.code = 'AI_CONFIGURATION_ERROR';
         throw error;
     }
+    const previousTranslation = currentTranslationResult(
+        presentation.model
+    );
+    const targetLanguage = getAISettings(Zotero).targetLanguage;
+    const loadingTranslation = createTranslationLoadingChanges({
+        model: presentation.model,
+        previousTranslation,
+        targetLanguage,
+        retryBlockIDs,
+        forceRetranslate,
+    });
     runtime.presenter.update(presentation, {
         correctionMode: false,
-        translationView: 'original',
+        ...(previousTranslation ? {} : { translationView: 'original' }),
         translationStatus: 'loading',
-        translationProgress: 0,
+        ...loadingTranslation,
         translationStage: 'preparing',
+        translationTargetLanguage: previousTranslation?.targetLanguage
+            || '',
+        translationRequestedTargetLanguage: targetLanguage,
         translationError: '',
     });
     try {
@@ -828,6 +855,9 @@ async function translateDocument(documentID) {
                 documentKey: String(presentation.model.cacheKey || ''),
                 markdown: presentation.model.markdown,
                 signal,
+                retryBlockIDs,
+                existingTranslation: previousTranslation,
+                forceRetranslate,
                 onProgress: ({ completed, total, stage }) => {
                     if (runtime.presenter?.get(documentID) !== presentation) return;
                     runtime.presenter.update(presentation, {
@@ -836,6 +866,8 @@ async function translateDocument(documentID) {
                             translationProgress: total
                                 ? Math.round(completed / total * 100)
                                 : 100,
+                            translationCompletedBlocks: completed,
+                            translationTotalBlocks: total,
                         } : {}),
                     });
                 },
@@ -848,6 +880,15 @@ async function translateDocument(documentID) {
                 ? Math.round(result.completedBlocks / result.totalBlocks * 100)
                 : 100,
             translationStage: 'complete',
+            translationCompletedBlocks: result.completedBlocks,
+            translationTotalBlocks: result.totalBlocks,
+            translationTargetLanguage: result.targetLanguage,
+            translationRequestedTargetLanguage: '',
+            translationKey: result.translationKey,
+            translationSettingsIdentity: result.settingsIdentity,
+            translationBlocks: result.blocks,
+            translationFailedBlocks: result.failedBlocks,
+            translationBlockRanges: result.blockRanges,
             translatedMarkdown: result.translatedMarkdown,
             comparisonMarkdown: result.comparisonMarkdown,
             comparisonSourceRanges: result.comparisonSourceRanges,
@@ -862,15 +903,33 @@ async function translateDocument(documentID) {
     }
     catch (error) {
         if (runtime.presenter?.get(documentID) === presentation) {
-            runtime.presenter.update(presentation, {
-                translationStatus: 'none',
-                translationProgress: 0,
-                translationStage: '',
-                translationView: 'original',
-                translationError: error?.name === 'AbortError'
-                    ? ''
-                    : localizeTranslationError(error),
-            });
+            runtime.presenter.update(
+                presentation,
+                previousTranslation
+                    ? restoreTranslationResult(previousTranslation, {
+                        error: error?.name === 'AbortError'
+                            ? previousTranslation.error
+                            : localizeTranslationError(error),
+                    })
+                    : {
+                        translationStatus: 'none',
+                        translationProgress: 0,
+                        translationCompletedBlocks: 0,
+                        translationTotalBlocks: 0,
+                        translationStage: '',
+                        translationView: 'original',
+                        translationTargetLanguage: '',
+                        translationRequestedTargetLanguage: '',
+                        translationKey: null,
+                        translationSettingsIdentity: '',
+                        translationBlocks: [],
+                        translationFailedBlocks: [],
+                        translationBlockRanges: [],
+                        translationError: error?.name === 'AbortError'
+                            ? ''
+                            : localizeTranslationError(error),
+                    }
+            );
         }
         if (error?.name !== 'AbortError') Zotero.logError?.(error);
         throw error;
@@ -1020,11 +1079,71 @@ async function attachCachedDocumentTranslation(result, signal) {
         comparisonMarkdown: cached.comparisonMarkdown,
         comparisonSourceRanges: cached.comparisonSourceRanges,
         comparisonTranslationRanges: cached.comparisonTranslationRanges,
+        translationCompletedBlocks: cached.completedBlocks,
+        translationTotalBlocks: cached.totalBlocks,
+        translationTargetLanguage: cached.targetLanguage,
+        translationRequestedTargetLanguage: '',
+        translationKey: cached.translationKey,
+        translationSettingsIdentity: cached.settingsIdentity || '',
+        translationBlocks: cached.blocks,
+        translationFailedBlocks: cached.failedBlocks,
+        translationBlockRanges: cached.blockRanges,
         translationError: partial
             ? runtimeTranslate('ai.documentTranslationPartial', {
                 failed: cached.failedBlocks.length,
             })
             : '',
+    };
+}
+
+function currentTranslationResult(model) {
+    if (!['ready', 'partial'].includes(model?.translationStatus)
+        || !Array.isArray(model.translationBlocks)
+        || !model.translationBlocks.length) {
+        return null;
+    }
+    return {
+        status: model.translationStatus,
+        view: model.translationView,
+        progress: model.translationProgress,
+        completedBlocks: model.translationCompletedBlocks,
+        totalBlocks: model.translationTotalBlocks,
+        targetLanguage: model.translationTargetLanguage,
+        translationKey: model.translationKey,
+        documentKey: String(model.cacheKey || ''),
+        sourceMarkdown: String(model.markdown || ''),
+        settingsIdentity: model.translationSettingsIdentity,
+        blocks: model.translationBlocks,
+        failedBlocks: model.translationFailedBlocks,
+        blockRanges: model.translationBlockRanges,
+        translatedMarkdown: model.translatedMarkdown,
+        comparisonMarkdown: model.comparisonMarkdown,
+        comparisonSourceRanges: model.comparisonSourceRanges,
+        comparisonTranslationRanges: model.comparisonTranslationRanges,
+        error: model.translationError,
+    };
+}
+
+function restoreTranslationResult(result, { error = result.error } = {}) {
+    return {
+        translationStatus: result.status,
+        translationView: result.view,
+        translationProgress: result.progress,
+        translationCompletedBlocks: result.completedBlocks,
+        translationTotalBlocks: result.totalBlocks,
+        translationStage: 'complete',
+        translationTargetLanguage: result.targetLanguage,
+        translationRequestedTargetLanguage: '',
+        translationKey: result.translationKey,
+        translationSettingsIdentity: result.settingsIdentity || '',
+        translationBlocks: result.blocks,
+        translationFailedBlocks: result.failedBlocks,
+        translationBlockRanges: result.blockRanges,
+        translatedMarkdown: result.translatedMarkdown,
+        comparisonMarkdown: result.comparisonMarkdown,
+        comparisonSourceRanges: result.comparisonSourceRanges,
+        comparisonTranslationRanges: result.comparisonTranslationRanges,
+        translationError: error,
     };
 }
 

@@ -422,19 +422,33 @@ test('styles secondary document actions as a toolbar popover', () => {
     assert.match(reparsing, /animation:\s*mktero-spin 0\.85s linear infinite/);
 });
 
-test('keeps document translation as a compact icon button', () => {
+test('keeps document translation status legible without crowding the toolbar', () => {
     const action = ruleBody('.markdown-translation-action');
+    const status = ruleBody('.markdown-translation-status');
+    const language = ruleBody('.markdown-translation-language');
+    const failureNavigation = ruleBody(
+        '.markdown-translation-failure-navigation'
+    );
+    const failureNavigationButton = ruleBody(
+        '.markdown-translation-failure-navigation-button'
+    );
     const translating = ruleBody(
         [
             '.markdown-translation-action.is-translating',
             '    .markdown-translation-loading-icon',
         ].join('\n')
     );
-    assert.match(action, /width:\s*32px/);
-    assert.match(action, /min-width:\s*32px/);
+    assert.match(action, /width:\s*auto/);
     assert.match(action, /height:\s*32px/);
     assert.match(action, /min-height:\s*32px/);
-    assert.match(action, /padding:\s*0/);
+    assert.match(action, /padding:\s*0 10px/);
+    assert.match(action, /gap:\s*7px/);
+    assert.match(status, /font-variant-numeric:\s*tabular-nums/);
+    assert.match(status, /overflow-wrap:\s*anywhere/);
+    assert.match(language, /border:\s*1px solid var\(--border\)/);
+    assert.match(failureNavigation, /display:\s*inline-flex/);
+    assert.match(failureNavigationButton, /width:\s*28px/);
+    assert.match(failureNavigationButton, /height:\s*28px/);
     assert.match(translating, /animation:\s*mktero-spin 0\.85s linear infinite/);
 });
 
@@ -455,10 +469,97 @@ test('keeps block-level comparison in one full-size reading surface', () => {
     assert.doesNotMatch(MARKDOWN_STYLES, /flex:\s*1 1 50%/);
     assert.match(translation, /padding-inline:\s*18px 4px !important/);
     assert.match(translation, /box-shadow:\s*inset 3px 0 0/);
+    assert.match(translation, /color:\s*var\(--reader-text\)/);
+    assert.match(translation, /background:\s*color-mix/);
     assert.doesNotMatch(translation, /border-radius/);
     assert.match(boundary, /height:\s*0/);
     assert.match(boundary, /min-height:\s*0/);
     assert.match(boundary, /overflow:\s*hidden/);
+});
+
+test('distinguishes translated headings and retryable source fallbacks', () => {
+    const translatedHeading = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-line.cm-mktero-heading',
+    ].join('\n'));
+    const failure = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-failure',
+    ].join('\n'));
+    const failureLine = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-failure-line',
+    ].join('\n'));
+    const retry = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-failure-retry',
+    ].join('\n'));
+
+    assert.match(translatedHeading, /font-weight:\s*600/);
+    assert.match(translatedHeading, /color:\s*var\(--reader-text\)/);
+    assert.match(translatedHeading, /border-bottom:\s*0/);
+    assert.match(failure, /display:\s*flex/);
+    assert.match(failure, /color:\s*var\(--warning\)/);
+    assert.match(failureLine, /background:\s*color-mix/);
+    assert.match(retry, /min-height:\s*28px/);
+    assert.match(retry, /cursor:\s*pointer/);
+});
+
+test('highlights paired bilingual blocks without adding a retry row', () => {
+    const pair = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-translation-pair'
+    );
+    const active = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-pair.is-translation-pair-active',
+    ].join('\n'));
+    const retry = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-retry-button',
+    ].join('\n'));
+    const pairWithRetry = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-pair-with-retry',
+    ].join('\n'));
+
+    assert.match(pair, /position:\s*relative/);
+    assert.match(active, /background:\s*color-mix/);
+    assert.match(active, /box-shadow:/);
+    assert.match(retry, /position:\s*absolute/);
+    assert.match(retry, /width:\s*26px/);
+    assert.match(retry, /height:\s*26px/);
+    assert.match(pairWithRetry, /padding-inline-end:\s*38px/);
+});
+
+test('wraps translation controls at narrow reader widths', () => {
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*620px\)[\s\S]*\.markdown-translation-controls\s*\{[^}]*flex-wrap:\s*wrap/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-view\s*\{[^}]*width:\s*100%/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-view-button\s*\{[^}]*min-width:\s*0/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-controls\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-context\s*\{[^}]*grid-column:\s*1/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-failure-navigation\s*\{[^}]*grid-column:\s*2/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-action\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/
+    );
 });
 
 test('styles citation popups and temporary reference highlights', () => {

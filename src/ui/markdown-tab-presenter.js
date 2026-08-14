@@ -65,6 +65,7 @@ export class MarkdownTabPresenter {
         onRestoreCorrection,
         onRestoreAllCorrections,
         onTranslateDocument,
+        onRetryDocumentTranslationBlock,
         onCancelDocumentTranslation,
         onSetTranslationView,
         onChangeAnnotationColor,
@@ -121,6 +122,10 @@ export class MarkdownTabPresenter {
             }
             if (onTranslateDocument !== undefined) {
                 existing.model.onTranslateDocument = onTranslateDocument;
+            }
+            if (onRetryDocumentTranslationBlock !== undefined) {
+                existing.model.onRetryDocumentTranslationBlock
+                    = onRetryDocumentTranslationBlock;
             }
             if (onCancelDocumentTranslation !== undefined) {
                 existing.model.onCancelDocumentTranslation
@@ -183,6 +188,7 @@ export class MarkdownTabPresenter {
                 onRestoreCorrection,
                 onRestoreAllCorrections,
                 onTranslateDocument,
+                onRetryDocumentTranslationBlock,
                 onCancelDocumentTranslation,
                 onSetTranslationView,
                 onChangeAnnotationColor,

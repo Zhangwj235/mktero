@@ -426,17 +426,23 @@ test('exposes and refreshes document translation actions on the tab model', asyn
     const calls = [];
     const presenter = createPresenter(mainWindow, harness);
     const first = presenter.open(42, {
-        onTranslateDocument: () => calls.push(['translate-first']),
+        onTranslateDocument: options => calls.push([
+            'translate-first',
+            options,
+        ]),
         onCancelDocumentTranslation: () => calls.push(['cancel-first']),
         onSetTranslationView: view => calls.push(['view-first', view]),
     });
     const second = presenter.open(42, {
-        onTranslateDocument: () => calls.push(['translate-second']),
+        onTranslateDocument: options => calls.push([
+            'translate-second',
+            options,
+        ]),
         onCancelDocumentTranslation: () => calls.push(['cancel-second']),
         onSetTranslationView: view => calls.push(['view-second', view]),
     });
 
-    second.model.onTranslateDocument();
+    second.model.onTranslateDocument({ forceRetranslate: true });
     second.model.onCancelDocumentTranslation();
     second.model.onSetTranslationView('compare');
 
@@ -444,7 +450,7 @@ test('exposes and refreshes document translation actions on the tab model', asyn
     assert.equal(second.model.translationView, 'original');
     assert.equal(second.model.translationStatus, 'none');
     assert.deepEqual(calls, [
-        ['translate-second'],
+        ['translate-second', { forceRetranslate: true }],
         ['cancel-second'],
         ['view-second', 'compare'],
     ]);

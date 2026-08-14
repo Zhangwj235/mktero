@@ -9,6 +9,9 @@ import {
 } from '../core/markdown-annotation-overlay.js';
 import { resolvePDFPageIndexHint } from '../core/markdown-source-map.js';
 import {
+    isSupportedAITargetLanguage,
+} from '../config/ai-preferences.js';
+import {
     getMarkdownReaderFontFamily,
     MARKDOWN_READER_FONT_DEFAULT,
     MARKDOWN_READER_FONT_OPTIONS,
@@ -30,6 +33,12 @@ import {
     extractMarkdownOutline,
     resolveMarkdownReadingPosition,
 } from '../markdown/markdown-outline.js';
+import {
+    createTranslationReadingPositionAnchor,
+    mapComparisonRangeToSource,
+    mapSourceRangeToComparison,
+    resolveTranslationReadingPosition,
+} from '../markdown/markdown-translation-blocks.js';
 import {
     createLucideIcon,
     LUCIDE_ICONS,
@@ -145,6 +154,8 @@ class MarkdownTabView {
         this.assetURLs = new Map();
         this.renderedMarkdown = undefined;
         this.renderedRenderMode = null;
+        this.renderedTranslationView = 'original';
+        this.renderedTranslationBlockRanges = [];
         this.fragmentIndex = new Map();
         this.renderedSnapshotHTML = undefined;
         this.renderedSnapshotAssets = undefined;
@@ -159,6 +170,7 @@ class MarkdownTabView {
         this.documentActionsOpen = false;
         this.readerFontOptionsOpen = false;
         this.activeNavigationOffset = 0;
+        this.activeTranslationFailureID = null;
         this.listeners = [];
         this.sidePanels = Object.fromEntries(
             Object.entries(SIDE_PANEL_CONFIG).map(([name, config]) => [
@@ -237,6 +249,9 @@ class MarkdownTabView {
                 this.restoreCorrection(blockID)
             ),
             onCorrectionError: error => this.reportCorrectionError(error),
+            retryTranslationBlock: blockID => (
+                this.retryTranslationBlock(blockID)
+            ),
             localization: this.localization,
         });
         this.syncOutline('');
@@ -266,9 +281,14 @@ class MarkdownTabView {
         elements.errorMessage.textContent = model.error || '';
         this.syncWarningToast([
             ...(model.warnings || []),
-            ...(model.translationError ? [model.translationError] : []),
+            ...(model.translationError && model.translationStatus !== 'partial'
+                ? [model.translationError]
+                : []),
         ], {
-            persistent: Boolean(model.warningAction || model.translationError),
+            persistent: Boolean(
+                model.warningAction
+                || model.translationError && model.translationStatus !== 'partial'
+            ),
         });
         this.syncContentVisibility(showContent);
         this.syncDocumentActions(model, loadingView);
@@ -292,6 +312,7 @@ class MarkdownTabView {
                 this.renderedMarkdown = '';
                 elements.readingLayout.classList.remove('is-comparing');
                 this.renderedRenderMode = 'markdown';
+                this.renderedTranslationBlockRanges = [];
                 this.fragmentIndex = new Map();
                 this.syncOutline('');
                 this.syncNotes(createEmptyAnnotationOverlay(), 0);
@@ -311,6 +332,7 @@ class MarkdownTabView {
                 this.renderedMarkdown = undefined;
                 elements.readingLayout.classList.remove('is-comparing');
                 this.renderedRenderMode = 'html';
+                this.renderedTranslationBlockRanges = [];
                 this.fragmentIndex = new Map();
                 this.syncSnapshot();
                 this.syncOutline('');
@@ -320,13 +342,9 @@ class MarkdownTabView {
             }
             elements.readingLayout.hidden = false;
             elements.snapshotHost.hidden = true;
-            const translatedView = isAvailableTranslationStatus(
-                model.translationStatus
-            )
+            const translatedView = hasAvailableTranslation(model)
                 && model.translationView === 'translated';
-            const comparisonView = isAvailableTranslationStatus(
-                model.translationStatus
-            )
+            const comparisonView = hasAvailableTranslation(model)
                 && model.translationView === 'compare';
             elements.primaryPane.setAttribute(
                 'aria-label',
@@ -336,6 +354,15 @@ class MarkdownTabView {
                         ? 'ai.translationView.translated'
                         : 'ai.translationView.original')
             );
+            const translationLanguage = normalizedTranslationLanguage(
+                model.translationTargetLanguage
+            );
+            if (translatedView && translationLanguage) {
+                elements.primaryPane.setAttribute('lang', translationLanguage);
+            }
+            else {
+                elements.primaryPane.removeAttribute('lang');
+            }
             const markdown = translatedView
                 ? model.translatedMarkdown || ''
                 : comparisonView
@@ -343,7 +370,19 @@ class MarkdownTabView {
                     : model.markdown || '';
             const documentChanged = this.renderedRenderMode !== 'markdown'
                 || this.renderedMarkdown !== markdown;
-            const restoreAnchor = documentChanged
+            const previousTranslationView = this.renderedTranslationView;
+            const previousTranslationBlockRanges =
+                this.renderedTranslationBlockRanges;
+            const translationAnchor = documentChanged
+                && this.renderedMarkdown !== undefined
+                && this.activeNavigationOffset > 0
+                ? createTranslationReadingPositionAnchor(
+                    this.activeNavigationOffset,
+                    previousTranslationView,
+                    previousTranslationBlockRanges
+                )
+                : null;
+            const restoreAnchor = !translationAnchor && documentChanged
                 && this.renderedMarkdown !== undefined
                 && this.activeNavigationOffset > 0
                 ? createMarkdownReadingPositionAnchor(
@@ -351,9 +390,22 @@ class MarkdownTabView {
                     this.activeNavigationOffset
                 )
                 : null;
-            const annotationOverlay = translatedView || comparisonView
+            const annotationOverlay = translatedView
                 ? createEmptyAnnotationOverlay()
-                : model.annotationOverlay || createEmptyAnnotationOverlay();
+                : comparisonView
+                    ? mapAnnotationOverlayToComparison(
+                        model.annotationOverlay,
+                        model.translationBlockRanges
+                    )
+                    : model.annotationOverlay || createEmptyAnnotationOverlay();
+            const sourceMap = translatedView
+                ? []
+                : comparisonView
+                    ? mapSourceMapToComparison(
+                        model.sourceMap,
+                        model.translationBlockRanges
+                    )
+                    : Array.isArray(model.sourceMap) ? model.sourceMap : [];
             const assetsChanged = this.syncAssetURLs();
             elements.readingLayout.classList.toggle(
                 'is-comparing',
@@ -362,12 +414,42 @@ class MarkdownTabView {
             this.editor.setDocument({
                 markdown,
                 annotationOverlay,
-                sourceMap: translatedView || comparisonView
+                sourceMap,
+                sourceActionRanges: translatedView
                     ? []
-                    : Array.isArray(model.sourceMap) ? model.sourceMap : [],
+                    : comparisonView
+                        ? (model.translationBlockRanges || []).flatMap(
+                            range => Number.isSafeInteger(
+                                range?.comparisonSourceFrom
+                            ) && Number.isSafeInteger(
+                                range?.comparisonSourceTo
+                            ) && range.comparisonSourceTo
+                                > range.comparisonSourceFrom
+                                ? [{
+                                    from: range.comparisonSourceFrom,
+                                    to: range.comparisonSourceTo,
+                                }]
+                                : []
+                        )
+                        : null,
                 translationRanges: comparisonView
-                    ? model.comparisonTranslationRanges || []
+                    ? (model.comparisonTranslationRanges || []).map(range => ({
+                        ...range,
+                        ...(translationLanguage
+                            ? { language: translationLanguage }
+                            : {}),
+                    }))
                     : [],
+                translationFailures: createVisibleTranslationFailures(
+                    model,
+                    translatedView,
+                    comparisonView
+                ),
+                translationPairs: createVisibleTranslationPairs(
+                    model,
+                    translatedView,
+                    comparisonView
+                ),
             });
             this.editor.setCorrectionState?.({
                 enabled: Boolean(model.correctionMode)
@@ -378,6 +460,13 @@ class MarkdownTabView {
             });
             this.renderedMarkdown = markdown;
             this.renderedRenderMode = 'markdown';
+            this.renderedTranslationView = translationViewName(
+                translatedView,
+                comparisonView
+            );
+            this.renderedTranslationBlockRanges = Array.isArray(
+                model.translationBlockRanges
+            ) ? model.translationBlockRanges.map(range => ({ ...range })) : [];
             this.fragmentIndex = createMarkdownFragmentIndex(markdown);
             this.syncOutline(
                 comparisonView ? model.markdown || '' : markdown,
@@ -385,7 +474,15 @@ class MarkdownTabView {
             );
             this.syncNotes(annotationOverlay, markdown.length);
             if (assetsChanged) this.editor.refreshRendering();
-            if (restoreAnchor) {
+            if (translationAnchor) {
+                const position = resolveTranslationReadingPosition(
+                    translationAnchor,
+                    this.renderedTranslationView,
+                    model.translationBlockRanges
+                );
+                if (position !== null) this.restoreReadingPosition(position);
+            }
+            else if (restoreAnchor) {
                 this.restoreReadingPosition(
                     resolveMarkdownReadingPosition(markdown, restoreAnchor)
                 );
@@ -429,7 +526,16 @@ class MarkdownTabView {
         if (typeof this.model.onCopySourcedMarkdown !== 'function') {
             throw new Error('Sourced Markdown copy is unavailable');
         }
-        return this.model.onCopySourcedMarkdown(target);
+        const sourceTarget = this.model.translationView === 'compare'
+            ? mapComparisonTargetToSource(
+                target,
+                this.model.translationBlockRanges
+            )
+            : target;
+        if (!sourceTarget) {
+            throw new Error('A reliable PDF source is unavailable');
+        }
+        return this.model.onCopySourcedMarkdown(sourceTarget);
     }
 
     copyCode(code) {
@@ -494,14 +600,23 @@ class MarkdownTabView {
         if (typeof this.model.onCreateMarkdownAnnotation !== 'function') {
             throw new Error('Markdown annotation creation is unavailable');
         }
+        const sourceAnnotation = this.model.translationView === 'compare'
+            ? mapComparisonAnnotationToSource(
+                annotation,
+                this.model.translationBlockRanges
+            )
+            : annotation;
+        if (!sourceAnnotation) {
+            throw new Error('Markdown annotations require original text');
+        }
         const pdfPageIndexHint = resolvePDFPageIndexHint(
             this.model.sourceMap,
-            annotation?.ranges?.[0],
+            sourceAnnotation?.ranges?.[0],
             String(this.model.markdown || '').length
         );
         const draft = pdfPageIndexHint === null
-            ? annotation
-            : { ...annotation, pdfPageIndexHint };
+            ? sourceAnnotation
+            : { ...sourceAnnotation, pdfPageIndexHint };
         const saved = await this.model.onCreateMarkdownAnnotation(draft);
         this.model.annotationOverlay = appendMatchedAnnotation(
             this.model.annotationOverlay,
@@ -905,7 +1020,11 @@ class MarkdownTabView {
             reparseLabel: documentActions.reparseLabel,
             correctionToggle: documentActions.correctionToggle,
             correctionToggleLabel: documentActions.correctionToggleLabel,
+            retranslateDocument: documentActions.retranslateDocument,
+            retranslateDocumentLabel:
+                documentActions.retranslateDocumentLabel,
             translateDocument: documentActions.translateDocument,
+            translateDocumentLabel: documentActions.translateDocumentLabel,
             translationIdleIcon: documentActions.translationIdleIcon,
             translationLoadingIcon: documentActions.translationLoadingIcon,
             translationControls: documentActions.translationControls,
@@ -913,6 +1032,15 @@ class MarkdownTabView {
             translationView: documentActions.translationView,
             translationViewButtons: documentActions.translationViewButtons,
             translationViewLabel: documentActions.translationViewLabel,
+            translationStatus: documentActions.translationStatus,
+            translationLanguage: documentActions.translationLanguage,
+            translationFailureNavigation:
+                documentActions.translationFailureNavigation,
+            translationFailurePosition:
+                documentActions.translationFailurePosition,
+            previousTranslationFailure:
+                documentActions.previousTranslationFailure,
+            nextTranslationFailure: documentActions.nextTranslationFailure,
             restoreCorrections: documentActions.restoreCorrections,
             restoreCorrectionsLabel: documentActions.restoreCorrectionsLabel,
             saveSnapshot: documentActions.saveSnapshot,
@@ -1122,6 +1250,27 @@ class MarkdownTabView {
             this.t('revision.restoreAll')
         );
         restoreCorrections.appendChild(restoreCorrectionsLabel);
+        const retranslateDocument = this.createElement('button', {
+            id: 'mktero-retranslate-document',
+            class: 'markdown-reader-action markdown-reader-action--child',
+            type: 'button',
+            'aria-label': this.t('ai.retranslateDocument'),
+            title: this.t('ai.retranslateDocument'),
+        });
+        retranslateDocument.appendChild(createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.refreshCw,
+            {
+                className: 'markdown-reader-action-icon',
+                size: 18,
+            }
+        ));
+        const retranslateDocumentLabel = this.createElement(
+            'span',
+            { class: 'markdown-reader-action-label' },
+            this.t('ai.retranslateDocument')
+        );
+        retranslateDocument.appendChild(retranslateDocumentLabel);
         const translateDocument = this.createElement('button', {
             id: 'mktero-translate-document',
             class: 'markdown-translation-action',
@@ -1153,6 +1302,12 @@ class MarkdownTabView {
             translationIdleIcon,
             translationLoadingIcon
         );
+        const translateDocumentLabel = this.createElement(
+            'span',
+            { class: 'markdown-translation-action-label' },
+            this.t('ai.translateDocument')
+        );
+        translateDocument.appendChild(translateDocumentLabel);
         const translationViewLabel = this.createElement(
             'span',
             {
@@ -1164,7 +1319,7 @@ class MarkdownTabView {
         const translationView = this.createElement('div', {
             id: 'mktero-translation-view',
             class: 'markdown-translation-view',
-            role: 'group',
+            role: 'radiogroup',
             'aria-labelledby': 'mktero-translation-view-label',
         });
         const translationViewButtons = [];
@@ -1180,7 +1335,9 @@ class MarkdownTabView {
                     type: 'button',
                     'data-translation-view': option[0],
                     'data-i18n': option[1],
-                    'aria-pressed': String(option[0] === 'original'),
+                    role: 'radio',
+                    'aria-checked': String(option[0] === 'original'),
+                    tabindex: option[0] === 'original' ? '0' : '-1',
                 },
                 this.t(option[1])
             );
@@ -1190,6 +1347,63 @@ class MarkdownTabView {
         const translationControls = this.createElement('div', {
             class: 'markdown-translation-controls',
         });
+        const translationStatus = this.createElement('span', {
+            class: 'markdown-translation-status',
+            role: 'status',
+            'aria-live': 'polite',
+            'aria-atomic': 'true',
+        });
+        translationStatus.hidden = true;
+        const translationLanguage = this.createElement('span', {
+            class: 'markdown-translation-language',
+        });
+        translationLanguage.hidden = true;
+        const translationContext = this.createElement('span', {
+            class: 'markdown-translation-context',
+        });
+        appendChildren(
+            translationContext,
+            translationStatus,
+            translationLanguage
+        );
+        const translationFailureNavigation = this.createElement('div', {
+            class: 'markdown-translation-failure-navigation',
+        });
+        translationFailureNavigation.hidden = true;
+        const previousTranslationFailure = this.createElement('button', {
+            class: 'markdown-translation-failure-navigation-button',
+            type: 'button',
+            'aria-label': this.t('ai.previousTranslationFailure'),
+            title: this.t('ai.previousTranslationFailure'),
+        });
+        previousTranslationFailure.appendChild(createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.chevronUp,
+            { size: 16 }
+        ));
+        const nextTranslationFailure = this.createElement('button', {
+            class: 'markdown-translation-failure-navigation-button',
+            type: 'button',
+            'aria-label': this.t('ai.nextTranslationFailure'),
+            title: this.t('ai.nextTranslationFailure'),
+        });
+        nextTranslationFailure.appendChild(createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.chevronDown,
+            { size: 16 }
+        ));
+        const translationFailurePosition = this.createElement('span', {
+            class: 'markdown-translation-failure-position',
+            role: 'status',
+            'aria-live': 'polite',
+            'aria-atomic': 'true',
+        });
+        appendChildren(
+            translationFailureNavigation,
+            previousTranslationFailure,
+            translationFailurePosition,
+            nextTranslationFailure
+        );
         const translationSeparator = this.createElement('span', {
             class: 'markdown-translation-separator',
             role: 'separator',
@@ -1199,6 +1413,8 @@ class MarkdownTabView {
             translationControls,
             translationViewLabel,
             translationView,
+            translationContext,
+            translationFailureNavigation,
             translationSeparator,
             translateDocument
         );
@@ -1246,6 +1462,7 @@ class MarkdownTabView {
         saveSnapshot.appendChild(saveSnapshotLabel);
         menu.appendChild(correctionToggle);
         menu.appendChild(restoreCorrections);
+        menu.appendChild(retranslateDocument);
         menu.appendChild(reparse);
         menu.appendChild(saveSnapshot);
         const status = this.createElement('span', {
@@ -1275,14 +1492,23 @@ class MarkdownTabView {
             reparseLabel,
             correctionToggle,
             correctionToggleLabel,
+            retranslateDocument,
+            retranslateDocumentLabel,
             translateDocument,
             translationIdleIcon,
             translationLoadingIcon,
+            translateDocumentLabel,
             translationControls,
             translationSeparator,
             translationView,
             translationViewButtons,
             translationViewLabel,
+            translationStatus,
+            translationLanguage,
+            translationFailureNavigation,
+            translationFailurePosition,
+            previousTranslationFailure,
+            nextTranslationFailure,
             restoreCorrections,
             restoreCorrectionsLabel,
             saveSnapshot,
@@ -1359,13 +1585,25 @@ class MarkdownTabView {
         this.listen(this.elements.translateDocument, 'click', () => {
             this.runDocumentTranslationAction();
         });
+        this.listen(this.elements.retranslateDocument, 'click', () => {
+            this.runDocumentRetranslationAction();
+        });
         for (const button of this.elements.translationViewButtons) {
             this.listen(button, 'click', () => {
                 this.setTranslationView(
                     button.getAttribute('data-translation-view')
                 );
             });
+            this.listen(button, 'keydown', event => {
+                this.handleTranslationViewKeydown(event, button);
+            });
         }
+        this.listen(this.elements.previousTranslationFailure, 'click', () => {
+            this.navigateTranslationFailure(-1);
+        });
+        this.listen(this.elements.nextTranslationFailure, 'click', () => {
+            this.navigateTranslationFailure(1);
+        });
         this.listen(this.elements.restoreCorrections, 'click', () => {
             void this.restoreAllCorrections();
         });
@@ -1675,14 +1913,83 @@ class MarkdownTabView {
         });
     }
 
+    runDocumentRetranslationAction() {
+        if (this.elements.retranslateDocument.disabled
+            || this.documentActionBusy
+            || this.model.translationStatus === 'loading'
+            || typeof this.model.onTranslateDocument !== 'function') {
+            return;
+        }
+        this.setDocumentActionsOpen(false);
+        try {
+            Promise.resolve(this.model.onTranslateDocument({
+                forceRetranslate: true,
+            })).catch(error => this.reportTranslationError(error));
+        }
+        catch (error) {
+            this.reportTranslationError(error);
+        }
+    }
+
     setTranslationView(view) {
         if (this.elements.translationViewButtons.every(button => button.disabled)
             || typeof this.model.onSetTranslationView !== 'function') return;
         this.model.onSetTranslationView(view);
     }
 
+    handleTranslationViewKeydown(event, currentButton) {
+        const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+        if (!keys.includes(event.key)) return;
+        const enabled = this.elements.translationViewButtons.filter(
+            button => !button.disabled
+        );
+        const index = enabled.indexOf(currentButton);
+        if (index < 0) return;
+        event.preventDefault();
+        const direction = ['ArrowRight', 'ArrowDown'].includes(event.key)
+            ? 1
+            : -1;
+        const next = enabled[(index + direction + enabled.length)
+            % enabled.length];
+        next.focus?.();
+        this.setTranslationView(next.getAttribute('data-translation-view'));
+    }
+
+    navigateTranslationFailure(direction) {
+        const failures = visibleTranslationFailureRanges(this.model);
+        if (!failures.length) return;
+        const current = this.activeNavigationOffset;
+        const activeIndex = Math.max(
+            0,
+            failures.findIndex(failure => failure.id
+                === this.activeTranslationFailureID)
+        );
+        const next = this.activeTranslationFailureID
+            ? failures[(activeIndex + direction + failures.length)
+                % failures.length]
+            : direction > 0
+                ? failures.find(failure => failure.from > current)
+                    || failures[0]
+                : [...failures].reverse().find(failure => failure.from < current)
+                    || failures.at(-1);
+        this.activeTranslationFailureID = next.id;
+        this.restoreReadingPosition(next.from);
+        this.editor.highlightTranslationBlock?.(next.id);
+    }
+
     reportTranslationError(error) {
         this.zotero?.logError?.(error);
+    }
+
+    retryTranslationBlock(blockID) {
+        if (this.model.translationStatus === 'loading'
+            || typeof this.model.onRetryDocumentTranslationBlock
+                !== 'function') {
+            return;
+        }
+        Promise.resolve(
+            this.model.onRetryDocumentTranslationBlock(blockID)
+        ).catch(error => this.reportTranslationError(error));
     }
 
     commitCorrection(correction) {
@@ -2099,6 +2406,17 @@ class MarkdownTabView {
         );
         this.elements.correctionToggle.setAttribute('title', correctionLabel);
         this.elements.correctionToggleLabel.textContent = correctionLabel;
+        this.elements.retranslateDocument.setAttribute(
+            'aria-label',
+            this.t('ai.retranslateDocument')
+        );
+        this.elements.retranslateDocument.setAttribute(
+            'title',
+            this.t('ai.retranslateDocument')
+        );
+        this.elements.retranslateDocumentLabel.textContent = this.t(
+            'ai.retranslateDocument'
+        );
         const translationLabelKey = this.model.translationStatus === 'loading'
             ? 'ai.cancelDocumentTranslation'
             : this.model.translationStatus === 'partial'
@@ -2118,12 +2436,29 @@ class MarkdownTabView {
             translationLabel
         );
         this.elements.translateDocument.setAttribute('title', translationLabel);
+        this.elements.translateDocumentLabel.textContent = translationLabel;
         this.elements.translationViewLabel.textContent = this.t(
             'ai.translationViewLabel'
         );
         for (const button of this.elements.translationViewButtons) {
             button.textContent = this.t(button.getAttribute('data-i18n'));
         }
+        this.elements.previousTranslationFailure.setAttribute(
+            'aria-label',
+            this.t('ai.previousTranslationFailure')
+        );
+        this.elements.previousTranslationFailure.setAttribute(
+            'title',
+            this.t('ai.previousTranslationFailure')
+        );
+        this.elements.nextTranslationFailure.setAttribute(
+            'aria-label',
+            this.t('ai.nextTranslationFailure')
+        );
+        this.elements.nextTranslationFailure.setAttribute(
+            'title',
+            this.t('ai.nextTranslationFailure')
+        );
         this.elements.correctionUndoMessage.textContent = this.t(
             'revision.deletedUndo'
         );
@@ -2290,33 +2625,49 @@ class MarkdownTabView {
         this.elements.correctionToggle.disabled = !correctionAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);
+        const translationReady = hasAvailableTranslation(model);
+        const translating = model.translationStatus === 'loading';
+        const partial = model.translationStatus === 'partial'
+            || translating && (model.translationFailedBlocks || []).length > 0;
+        this.elements.translationViewLabel.hidden = !translationReady;
+        this.elements.translationView.hidden = !translationReady;
+        this.elements.translationLanguage.hidden = !translationReady;
+        this.elements.translationFailureNavigation.hidden = !partial;
+        this.elements.translationSeparator.hidden = translationReady
+            && !partial
+            && !translating;
+        this.elements.translateDocument.hidden = translationReady
+            && !partial
+            && !translating;
+        this.elements.retranslateDocument.hidden = !translationReady;
+        this.elements.retranslateDocument.disabled = !translationReady
+            || translating
+            || loadingView.visible
+            || Boolean(this.documentActionBusy);
         this.elements.translateDocument.disabled = !translationAvailable
             || loadingView.visible
-            || model.translationStatus === 'ready'
             || (Boolean(this.documentActionBusy)
                 && model.translationStatus !== 'loading');
         const translationViewDisabled = !translationAvailable
-            || !isAvailableTranslationStatus(model.translationStatus)
+            || !translationReady
             || loadingView.visible
             || Boolean(this.documentActionBusy);
         for (const button of this.elements.translationViewButtons) {
             button.disabled = translationViewDisabled;
         }
-        const translationView = isAvailableTranslationStatus(
-            model.translationStatus
-        )
+        const translationView = translationReady
             ? model.translationView || 'original'
             : 'original';
         for (const button of this.elements.translationViewButtons) {
             const selected = button.getAttribute('data-translation-view')
                 === translationView;
-            button.setAttribute('aria-pressed', String(selected));
+            button.setAttribute('aria-checked', String(selected));
+            button.setAttribute('tabindex', selected ? '0' : '-1');
         }
         this.elements.translateDocument.setAttribute(
             'aria-busy',
             String(model.translationStatus === 'loading')
         );
-        const translating = model.translationStatus === 'loading';
         this.elements.translateDocument.classList.toggle(
             'is-translating',
             translating
@@ -2329,6 +2680,11 @@ class MarkdownTabView {
             this.elements.translationIdleIcon.removeAttribute('hidden');
             this.elements.translationLoadingIcon.setAttribute('hidden', 'hidden');
         }
+        this.syncTranslationStatus(model, {
+            translating,
+            partial,
+            translationReady,
+        });
         this.elements.restoreCorrections.disabled = !restoreAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);
@@ -2360,6 +2716,115 @@ class MarkdownTabView {
         );
         this.syncErrorActions(model);
         this.syncWarningActions(model);
+    }
+
+    syncTranslationStatus(model, {
+        translating,
+        partial,
+        translationReady,
+    }) {
+        const completed = Math.max(
+            0,
+            Number(model.translationCompletedBlocks) || 0
+        );
+        const total = Math.max(
+            completed,
+            Number(model.translationTotalBlocks) || 0
+        );
+        const failed = (model.translationFailedBlocks || []).length;
+        let status = '';
+        if (translating) {
+            const requestedLanguageKey = translationLanguageMessageKey(
+                model.translationRequestedTargetLanguage
+            );
+            const requestedLanguage = requestedLanguageKey
+                ? this.t(requestedLanguageKey)
+                : '';
+            status = requestedLanguage
+                ? this.t(translationReady
+                    ? 'ai.translationGeneratingLanguage'
+                    : 'ai.translationProgressLanguage', {
+                    completed,
+                    total,
+                    progress: Math.max(
+                        0,
+                        Math.min(100, Number(model.translationProgress) || 0)
+                    ),
+                    language: requestedLanguage,
+                })
+                : total
+                    ? this.t('ai.translationProgress', {
+                        completed,
+                        total,
+                        progress: Math.max(
+                            0,
+                            Math.min(
+                                100,
+                                Number(model.translationProgress) || 0
+                            )
+                        ),
+                    })
+                : this.t(
+                    `ai.translationStage.${model.translationStage
+                        || 'preparing'}`
+                );
+        }
+        else if (partial) {
+            status = this.t('ai.translationPartialCompact', { failed });
+        }
+        this.elements.translationStatus.textContent = status;
+        this.elements.translationStatus.hidden = !status;
+
+        const languageKey = translationLanguageMessageKey(
+            model.translationTargetLanguage
+        );
+        const languageName = languageKey ? this.t(languageKey) : '';
+        const language = translating && translationReady && languageName
+            ? this.t('ai.translationCurrentLanguage', { language: languageName })
+            : languageName;
+        this.elements.translationLanguage.textContent = language;
+        this.elements.translationLanguage.hidden = !translationReady
+            || !language;
+        if (language) {
+            this.elements.translationLanguage.setAttribute(
+                'title',
+                this.t('preferences.ai.targetLanguageLabel')
+            );
+        }
+        else {
+            this.elements.translationLanguage.removeAttribute('title');
+        }
+        this.elements.previousTranslationFailure.disabled = !partial
+            || !translationReady;
+        this.elements.nextTranslationFailure.disabled = !partial
+            || !translationReady;
+        this.syncTranslationFailurePosition();
+    }
+
+    syncTranslationFailurePosition() {
+        const failures = visibleTranslationFailureRanges(this.model);
+        if (!failures.length) {
+            this.activeTranslationFailureID = null;
+            this.elements.translationFailurePosition.textContent = '';
+            this.elements.translationFailurePosition.removeAttribute('aria-label');
+            return;
+        }
+        let index = failures.findIndex(failure => failure.id
+            === this.activeTranslationFailureID);
+        if (index < 0) {
+            index = failures.findLastIndex(failure => (
+                failure.from <= this.activeNavigationOffset
+            ));
+            if (index < 0) index = 0;
+            this.activeTranslationFailureID = failures[index].id;
+        }
+        const current = index + 1;
+        const total = failures.length;
+        this.elements.translationFailurePosition.textContent = `${current}/${total}`;
+        this.elements.translationFailurePosition.setAttribute(
+            'aria-label',
+            this.t('ai.translationFailurePosition', { current, total })
+        );
     }
 
     syncErrorActions(model) {
@@ -2451,6 +2916,10 @@ class MarkdownTabView {
         this.elements.reparse.setAttribute('tabindex', menuTabIndex);
         this.elements.saveSnapshot.setAttribute('tabindex', menuTabIndex);
         this.elements.correctionToggle.setAttribute('tabindex', menuTabIndex);
+        this.elements.retranslateDocument.setAttribute(
+            'tabindex',
+            menuTabIndex
+        );
         this.elements.restoreCorrections.setAttribute(
             'tabindex',
             menuTabIndex
@@ -2740,6 +3209,10 @@ class MarkdownTabView {
         this.activeNavigationOffset = Number.isFinite(requestedOffset)
             ? Math.max(0, Math.trunc(requestedOffset))
             : 0;
+        if (this.elements?.translationFailurePosition) {
+            this.activeTranslationFailureID = null;
+            this.syncTranslationFailurePosition();
+        }
         const activeOutline = findActiveNavigationItem(
             [...this.elements.outlineList.querySelectorAll(
                 '.markdown-outline-link[data-offset]'
@@ -3121,6 +3594,150 @@ function mapSourceOffsetToComparison(offset, sourceRanges) {
         : offset;
 }
 
+function translationViewName(translatedView, comparisonView) {
+    if (comparisonView) return 'compare';
+    return translatedView ? 'translated' : 'original';
+}
+
+function createVisibleTranslationFailures(
+    model,
+    translatedView,
+    comparisonView
+) {
+    if (!translatedView && !comparisonView) return [];
+    const view = translatedView ? 'translated' : 'compare';
+    return translationFailureRangesForView(model, view).map(failure => ({
+        ...failure,
+        retryEnabled: model.translationStatus !== 'loading',
+    }));
+}
+
+function createVisibleTranslationPairs(model, translatedView, comparisonView) {
+    const translatableIDs = new Set(
+        (model.translationBlocks || []).map(translation => translation.id)
+    );
+    const failedIDs = new Set(
+        (model.translationFailedBlocks || []).map(failure => failure.id)
+    );
+    const retryEnabled = model.translationStatus !== 'loading';
+    return (model.translationBlockRanges || []).flatMap(range => {
+        const failed = failedIDs.has(range?.id);
+        if (!translatedView && !comparisonView && !failed) return [];
+        const sourceFrom = comparisonView
+            ? range?.comparisonSourceFrom
+            : !translatedView
+                ? range?.sourceFrom
+                : null;
+        const sourceTo = comparisonView
+            ? range?.comparisonSourceTo
+            : !translatedView
+                ? range?.sourceTo
+                : null;
+        const translatedFrom = translatedView
+            ? range?.translatedFrom
+            : comparisonView
+                ? range?.comparisonTranslationFrom
+                : null;
+        const translatedTo = translatedView
+            ? range?.translatedTo
+            : comparisonView
+                ? range?.comparisonTranslationTo
+                : null;
+        const validSource = Number.isSafeInteger(sourceFrom)
+            && Number.isSafeInteger(sourceTo)
+            && sourceTo > sourceFrom;
+        const validTranslation = Number.isSafeInteger(translatedFrom)
+            && Number.isSafeInteger(translatedTo)
+            && translatedTo > translatedFrom;
+        if (!range?.id
+            || !translatableIDs.has(range.id)
+            || !validSource && !validTranslation) {
+            return [];
+        }
+        return [{
+            id: range.id,
+            ...(validSource ? { sourceFrom, sourceTo } : {}),
+            ...(validTranslation ? { translatedFrom, translatedTo } : {}),
+            retryEnabled: retryEnabled && !failed,
+            showRetry: validTranslation && !failed,
+        }];
+    });
+}
+
+function mapAnnotationOverlayToComparison(overlay, blockRanges) {
+    const source = overlay || createEmptyAnnotationOverlay();
+    return {
+        matched: (source.matched || []).flatMap(annotation => {
+            const ranges = (annotation.ranges || []).map(range => (
+                mapSourceRangeToComparison(range, blockRanges)
+            ));
+            return ranges.length && ranges.every(Boolean)
+                ? [{ ...annotation, ranges }]
+                : [];
+        }),
+        unmatched: [...(source.unmatched || [])],
+    };
+}
+
+function mapSourceMapToComparison(sourceMap, blockRanges) {
+    if (!Array.isArray(sourceMap)) return [];
+    return sourceMap.flatMap(entry => {
+        const range = mapSourceRangeToComparison({
+            from: entry.markdownFrom,
+            to: entry.markdownTo,
+        }, blockRanges);
+        if (!range) return [];
+        const locationRanges = Array.isArray(entry.locationRanges)
+            ? entry.locationRanges.flatMap(locationRange => {
+                const mapped = mapSourceRangeToComparison({
+                    from: locationRange.markdownFrom,
+                    to: locationRange.markdownTo,
+                }, blockRanges);
+                return mapped ? [{
+                    ...locationRange,
+                    markdownFrom: mapped.from,
+                    markdownTo: mapped.to,
+                }] : [];
+            })
+            : undefined;
+        return [{
+            ...entry,
+            markdownFrom: range.from,
+            markdownTo: range.to,
+            ...(locationRanges === undefined ? {} : { locationRanges }),
+        }];
+    });
+}
+
+function mapComparisonTargetToSource(target, blockRanges) {
+    if (target?.kind === 'selection') {
+        const ranges = Array.isArray(target.ranges)
+            ? target.ranges.map(range => (
+                mapComparisonRangeToSource(range, blockRanges)
+            ))
+            : [];
+        return ranges.length && ranges.every(Boolean)
+            ? { ...target, ranges }
+            : null;
+    }
+    if (target?.kind === 'block') {
+        const range = mapComparisonRangeToSource(target, blockRanges);
+        return range ? { ...target, ...range } : null;
+    }
+    return null;
+}
+
+function mapComparisonAnnotationToSource(annotation, blockRanges) {
+    const ranges = Array.isArray(annotation?.ranges)
+        ? annotation.ranges.map(range => (
+            mapComparisonRangeToSource(range, blockRanges)
+        ))
+        : [];
+    return ranges.length && ranges.every(Boolean)
+        ? { ...annotation, ranges }
+        : null;
+}
+
 function orderedAnnotationEntries(annotationOverlay) {
     const matched = Array.isArray(annotationOverlay?.matched)
         ? annotationOverlay.matched
@@ -3242,6 +3859,64 @@ function appendChildren(parent, ...children) {
 
 function isAvailableTranslationStatus(status) {
     return status === 'ready' || status === 'partial';
+}
+
+function hasAvailableTranslation(model) {
+    return isAvailableTranslationStatus(model?.translationStatus)
+        || model?.translationStatus === 'loading'
+            && Array.isArray(model.translationBlocks)
+            && model.translationBlocks.length > 0
+            && typeof model.translatedMarkdown === 'string'
+            && typeof model.comparisonMarkdown === 'string';
+}
+
+function translationLanguageMessageKey(language) {
+    return {
+        'zh-CN': 'preferences.ai.language.zhCN',
+        'zh-TW': 'preferences.ai.language.zhTW',
+        'en-US': 'preferences.ai.language.enUS',
+        'ja-JP': 'preferences.ai.language.jaJP',
+        'ko-KR': 'preferences.ai.language.koKR',
+        'es-ES': 'preferences.ai.language.esES',
+        'fr-FR': 'preferences.ai.language.frFR',
+        'pt-BR': 'preferences.ai.language.ptBR',
+    }[String(language || '')] || '';
+}
+
+function normalizedTranslationLanguage(language) {
+    const normalized = String(language || '').trim();
+    return isSupportedAITargetLanguage(normalized) ? normalized : '';
+}
+
+function visibleTranslationFailureRanges(model) {
+    const view = model.translationView || 'original';
+    return translationFailureRangesForView(model, view)
+        .map(failure => ({ id: failure.id, from: failure.from }))
+        .sort((left, right) => left.from - right.from);
+}
+
+function translationFailureRangesForView(model, view) {
+    const rangesByID = new Map(
+        (model.translationBlockRanges || []).map(range => [range.id, range])
+    );
+    return (model.translationFailedBlocks || []).flatMap(failure => {
+        const block = rangesByID.get(failure.id);
+        const from = view === 'translated'
+            ? block?.translatedFrom
+            : view === 'compare'
+                ? block?.comparisonSourceFrom
+                : block?.sourceFrom;
+        const to = view === 'translated'
+            ? block?.translatedTo
+            : view === 'compare'
+                ? block?.comparisonSourceTo
+                : block?.sourceTo;
+        return Number.isSafeInteger(from)
+            && Number.isSafeInteger(to)
+            && to > from
+            ? [{ id: failure.id, from, to }]
+            : [];
+    });
 }
 
 function resolveZipPath(basePath, relativePath) {

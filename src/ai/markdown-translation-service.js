@@ -7,11 +7,10 @@ import {
     createRuntimeAbortController,
 } from '../platform/abort-controller.js';
 import {
-    assembleTranslatedMarkdown,
     collectMarkdownTranslationBlocks,
     collectMarkdownTranslationBatchResponse,
     collectMarkdownTranslationSections,
-    createComparisonMarkdownView,
+    createDocumentTranslationViews,
     createMarkdownTranslationBatches,
     validateTranslatedBlock,
 } from '../markdown/markdown-translation-blocks.js';
@@ -91,6 +90,9 @@ export class MarkdownTranslationService {
         markdown,
         signal,
         onProgress,
+        retryBlockIDs = null,
+        existingTranslation = null,
+        forceRetranslate = false,
     }) {
         const settings = validateAISettings(this.getSettings());
         const source = String(markdown || '');
@@ -106,7 +108,9 @@ export class MarkdownTranslationService {
         }
         throwIfDocumentAborted(signal);
         const reportProgress = createTranslationProgressReporter(onProgress);
-        reportProgress('preparing');
+        const settingsIdentity = createDocumentTranslationSettingsIdentity(
+            settings
+        );
         const translationKey = await this.#safeCreateDocumentTranslationKey(
             normalizedDocumentKey,
             source,
@@ -119,41 +123,54 @@ export class MarkdownTranslationService {
                 source
             )
             : null;
-        if (cached) {
+        if (cached
+            && !forceRetranslate
+            && !existingTranslation
+            && retryBlockIDs === null) {
             if (!cached.partial) {
                 reportProgress('complete', {
                     completed: cached.completedBlocks,
                     total: cached.totalBlocks,
                 });
-                return cached;
+                return {
+                    ...cached,
+                    documentKey: normalizedDocumentKey,
+                    sourceMarkdown: source,
+                    settingsIdentity,
+                };
             }
         }
         const blocks = collectMarkdownTranslationBlocks(source);
         const translatableBlocks = blocks.filter(block => block.translatable);
         validateDocumentTranslationInput(translatableBlocks);
-        const retryBlockIDs = new Set(
-            cached?.partial
-                ? cached.failedBlocks.map(failure => failure.id)
-                : translatableBlocks.map(block => block.id)
+        const visible = normalizeVisibleTranslation(
+            existingTranslation,
+            source,
+            blocks,
+            settings,
+            translationKey,
+            normalizedDocumentKey,
+            settingsIdentity
         );
-        const cachedTranslationsByID = new Map(
-            (cached?.blocks || []).map(translation => [
-                translation.id,
-                translation,
-            ])
-        );
-        const retainedTranslations = cached?.partial
-            ? translatableBlocks.flatMap(block => (
-                !retryBlockIDs.has(block.id)
-                    && cachedTranslationsByID.has(block.id)
-                    ? [cachedTranslationsByID.get(block.id)]
-                    : []
-            ))
-            : [];
-        const requestBlocks = blocks.map(block => ({
-            ...block,
-            translatable: block.translatable && retryBlockIDs.has(block.id),
-        }));
+        const baseline = visible || cached;
+        const visibleTranslationChanged = Boolean(existingTranslation)
+            && !visible;
+        const {
+            requestBlocks,
+            retainedTranslations,
+            retainedFailures,
+            retainedCompletedBlocks,
+        } = createDocumentTranslationRequestPlan({
+            blocks,
+            translatableBlocks,
+            baseline,
+            retryBlockIDs: visibleTranslationChanged ? null : retryBlockIDs,
+            forceRetranslate,
+        });
+        reportProgress('preparing', {
+            completed: retainedCompletedBlocks,
+            total: translatableBlocks.length,
+        });
         const sections = collectMarkdownTranslationSections(
             source,
             requestBlocks
@@ -176,7 +193,7 @@ export class MarkdownTranslationService {
                 signal,
                 onProgress: reportProgress,
                 createAbortController: this.createAbortController,
-                initialCompletedBlocks: retainedTranslations.length,
+                initialCompletedBlocks: retainedCompletedBlocks,
                 initialTranslationBytes,
                 progressTotalBlocks: translatableBlocks.length,
             });
@@ -185,6 +202,10 @@ export class MarkdownTranslationService {
             retainedTranslations,
             requestedTranslations
         );
+        const mergedFailures = [
+            ...retainedFailures,
+            ...failures,
+        ];
         const views =
             buildDocumentTranslationViews(
                 source,
@@ -197,8 +218,8 @@ export class MarkdownTranslationService {
             model: String(model || settings.model),
             targetLanguage: settings.targetLanguage,
             promptVersion: TRANSLATION_PROMPT_VERSION,
-            partial: failures.length > 0,
-            failedBlocks: failures,
+            partial: mergedFailures.length > 0,
+            failedBlocks: mergedFailures,
         };
         throwIfDocumentAborted(signal);
         if (translationKey && this.cache?.putTranslation) {
@@ -214,7 +235,8 @@ export class MarkdownTranslationService {
             }
         }
         throwIfDocumentAborted(signal);
-        const completedBlocks = translatableBlocks.length - failures.length;
+        const completedBlocks = translatableBlocks.length
+            - mergedFailures.length;
         reportProgress('complete', {
             completed: completedBlocks,
             total: translatableBlocks.length,
@@ -222,6 +244,9 @@ export class MarkdownTranslationService {
         return {
             ...value,
             translationKey,
+            documentKey: normalizedDocumentKey,
+            sourceMarkdown: source,
+            settingsIdentity,
             cacheHit: false,
             totalBlocks: translatableBlocks.length,
             completedBlocks,
@@ -233,13 +258,7 @@ export class MarkdownTranslationService {
         return this.createCacheKey(JSON.stringify({
             documentKey,
             source,
-            provider: settings.provider,
-            protocol: settings.protocol,
-            apiBase: settings.apiBase,
-            model: settings.model,
-            reasoning: normalizeReasoning(settings.reasoning),
-            targetLanguage: settings.targetLanguage,
-            promptVersion: TRANSLATION_PROMPT_VERSION,
+            ...documentTranslationSettingsIdentity(settings),
         }));
     }
 
@@ -341,21 +360,7 @@ function translationMessages(source, targetLanguage, previousFailure = '') {
 }
 
 function buildDocumentTranslationViews(source, blocks, translations) {
-    const comparison = createComparisonMarkdownView(
-        source,
-        blocks,
-        translations
-    );
-    return {
-        translatedMarkdown: assembleTranslatedMarkdown(
-            source,
-            blocks,
-            translations
-        ),
-        comparisonMarkdown: comparison.markdown,
-        comparisonSourceRanges: comparison.sourceRanges,
-        comparisonTranslationRanges: comparison.translationRanges,
-    };
+    return createDocumentTranslationViews(source, blocks, translations);
 }
 
 async function requestDocumentTranslationBatches({
@@ -803,6 +808,148 @@ function normalizeCachedTranslationFailures(failures, blocks) {
         });
     }
     return [...failuresByID.values()];
+}
+
+function normalizeVisibleTranslation(
+    value,
+    source,
+    blocks,
+    settings,
+    translationKey,
+    documentKey,
+    settingsIdentity
+) {
+    if (!value || !Array.isArray(value.blocks)) return null;
+    const keyedIdentityMatches = Boolean(translationKey)
+        && String(value.translationKey || '') === translationKey;
+    const explicitIdentityMatches = !value.translationKey
+        && String(value.documentKey || '') === documentKey
+        && String(value.sourceMarkdown || '') === source
+        && String(value.settingsIdentity || '') === settingsIdentity;
+    if (!keyedIdentityMatches
+        && !explicitIdentityMatches
+        || String(value.targetLanguage || '') !== settings.targetLanguage) {
+        return null;
+    }
+    try {
+        const translatableBlocks = blocks.filter(block => block.translatable);
+        const translations = mergeDocumentTranslations(
+            translatableBlocks,
+            [],
+            value.blocks
+        );
+        validateDocumentTranslationOutput(translatableBlocks, translations);
+        const failedBlocks = normalizeCachedTranslationFailures(
+            value.failedBlocks,
+            blocks
+        );
+        return {
+            ...value,
+            ...buildDocumentTranslationViews(source, blocks, translations),
+            blocks: translations,
+            partial: failedBlocks.length > 0,
+            failedBlocks,
+            targetLanguage: settings.targetLanguage,
+            translationKey,
+            cacheHit: false,
+            totalBlocks: translatableBlocks.length,
+            completedBlocks: translatableBlocks.length - failedBlocks.length,
+        };
+    }
+    catch {
+        return null;
+    }
+}
+
+function createDocumentTranslationSettingsIdentity(settings) {
+    return JSON.stringify(documentTranslationSettingsIdentity(settings));
+}
+
+function documentTranslationSettingsIdentity(settings) {
+    return {
+        provider: settings.provider,
+        protocol: settings.protocol,
+        apiBase: settings.apiBase,
+        model: settings.model,
+        reasoning: normalizeReasoning(settings.reasoning),
+        targetLanguage: settings.targetLanguage,
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+    };
+}
+
+function normalizeRetryBlockIDs(values, blocks, baseline) {
+    if (values === null || values === undefined) return null;
+    if (!baseline || !Array.isArray(values)) {
+        throw aiError(
+            'An existing document translation is required for block retry',
+            'AI_INVALID_REQUEST'
+        );
+    }
+    const allowed = new Set(blocks.map(block => block.id));
+    const ids = [...new Set(values.map(value => String(value || '')))]
+        .filter(id => allowed.has(id));
+    if (!ids.length) {
+        throw aiError(
+            'The requested translation blocks are unavailable for retry',
+            'AI_INVALID_REQUEST'
+        );
+    }
+    return ids;
+}
+
+function createDocumentTranslationRequestPlan({
+    blocks,
+    translatableBlocks,
+    baseline,
+    retryBlockIDs,
+    forceRetranslate,
+}) {
+    const explicitRetryIDs = normalizeRetryBlockIDs(
+        forceRetranslate ? null : retryBlockIDs,
+        translatableBlocks,
+        baseline
+    );
+    const requestedBlockIDs = new Set(
+        forceRetranslate
+            ? translatableBlocks.map(block => block.id)
+            : explicitRetryIDs !== null || baseline?.partial
+                ? (explicitRetryIDs || baseline.failedBlocks.map(
+                    failure => failure.id
+                ))
+                : translatableBlocks.map(block => block.id)
+    );
+    const translationsByID = new Map(
+        (baseline?.blocks || []).map(translation => [
+            translation.id,
+            translation,
+        ])
+    );
+    const retainedTranslations = baseline
+        ? translatableBlocks.flatMap(block => (
+            !requestedBlockIDs.has(block.id)
+                && translationsByID.has(block.id)
+                ? [translationsByID.get(block.id)]
+                : []
+        ))
+        : [];
+    const retainedFailures = (baseline?.failedBlocks || []).filter(
+        failure => !requestedBlockIDs.has(failure.id)
+    );
+    const retainedFailureIDs = new Set(
+        retainedFailures.map(failure => failure.id)
+    );
+    return {
+        requestBlocks: blocks.map(block => ({
+            ...block,
+            translatable: block.translatable
+                && requestedBlockIDs.has(block.id),
+        })),
+        retainedTranslations,
+        retainedFailures,
+        retainedCompletedBlocks: retainedTranslations.filter(
+            translation => !retainedFailureIDs.has(translation.id)
+        ).length,
+    };
 }
 
 function aiError(message, code) {

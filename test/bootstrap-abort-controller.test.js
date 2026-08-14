@@ -182,7 +182,7 @@ test('aborts live AI SDK requests across bootstrap translation lifecycles', {
     );
     assert.equal(
         shadow.querySelector('[data-translation-view="original"]')
-            ?.getAttribute('aria-pressed'),
+            ?.getAttribute('aria-checked'),
         'true'
     );
 

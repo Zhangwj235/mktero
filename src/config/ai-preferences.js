@@ -213,9 +213,13 @@ export function normalizeAIBaseURL(value) {
 
 export function normalizeTargetLanguage(value) {
     const language = String(value || '').trim();
-    return AI_TARGET_LANGUAGES.has(language)
+    return isSupportedAITargetLanguage(language)
         ? language
         : AI_DEFAULT_TARGET_LANGUAGE;
+}
+
+export function isSupportedAITargetLanguage(value) {
+    return AI_TARGET_LANGUAGES.has(String(value || '').trim());
 }
 
 export function normalizeReasoning(value) {

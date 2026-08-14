@@ -876,6 +876,93 @@ main {
     gap: var(--toolbar-control-gap);
 }
 
+.markdown-translation-context {
+    display: inline-flex;
+    min-width: 0;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 6px;
+}
+
+.markdown-translation-status {
+    min-width: 0;
+    color: var(--muted);
+    font: 12px/1.35 var(--ui-font);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.markdown-translation-language {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    background: var(--surface-raised);
+    font: 600 11px/1.2 var(--ui-font);
+    white-space: nowrap;
+}
+
+.markdown-translation-failure-navigation {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+}
+
+.markdown-translation-failure-position {
+    display: inline-grid;
+    min-width: 38px;
+    height: 28px;
+    margin-inline-start: -1px;
+    padding: 0 5px;
+    border-block: 1px solid var(--border);
+    color: var(--warning);
+    background: var(--surface-raised);
+    font: 600 11px/1 var(--ui-font);
+    font-variant-numeric: tabular-nums;
+    place-items: center;
+}
+
+.markdown-translation-failure-navigation-button {
+    display: inline-grid;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border);
+    color: var(--warning);
+    background: var(--surface-raised);
+    cursor: pointer;
+    place-items: center;
+}
+
+.markdown-translation-failure-navigation-button:first-child {
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.markdown-translation-failure-navigation-button:last-child {
+    margin-inline-start: -1px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.markdown-translation-failure-navigation-button:hover:not(:disabled) {
+    position: relative;
+    z-index: 1;
+    border-color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 9%, var(--surface-raised));
+}
+
+.markdown-translation-failure-navigation-button:focus-visible {
+    position: relative;
+    z-index: 2;
+    outline: 2px solid color-mix(in srgb, var(--warning) 38%, transparent);
+    outline-offset: 1px;
+}
+
+.markdown-translation-failure-navigation-button:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
 .markdown-translation-separator {
     width: 1px;
     height: 24px;
@@ -885,19 +972,27 @@ main {
 
 .markdown-translation-action {
     display: inline-flex;
-    width: 32px;
-    min-width: 32px;
+    width: auto;
+    min-width: 0;
     height: 32px;
     min-height: 32px;
-    flex: 0 0 32px;
+    max-width: 100%;
+    flex: 0 0 auto;
     align-items: center;
+    gap: 7px;
     justify-content: center;
-    padding: 0;
+    padding: 0 10px;
     border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
     border-radius: var(--radius-sm);
     color: var(--accent-strong);
     background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
     cursor: pointer;
+    font: 600 12px/1.2 var(--ui-font);
+}
+
+.markdown-translation-action-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .markdown-translation-action:hover:not(:disabled),
@@ -919,8 +1014,13 @@ main {
 }
 
 .markdown-translation-view-label {
-    color: var(--text);
-    font: 550 12.5px/1.2 var(--ui-font);
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    border: 0;
     white-space: nowrap;
 }
 
@@ -932,7 +1032,7 @@ main {
 }
 
 .markdown-translation-view-button {
-    min-width: 68px;
+    min-width: 56px;
     height: 32px;
     padding: 0 9px;
     border: 1px solid var(--border);
@@ -971,7 +1071,7 @@ main {
     outline-offset: 1px;
 }
 
-.markdown-translation-view-button[aria-pressed='true'] {
+.markdown-translation-view-button[aria-checked='true'] {
     position: relative;
     z-index: 1;
     border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
@@ -1640,7 +1740,147 @@ main {
 .markdown-editor-host > .cm-editor .cm-mktero-translation-line {
     padding-inline: 18px 4px !important;
     box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 78%, transparent);
-    color: color-mix(in srgb, var(--reader-text) 82%, var(--muted));
+    color: var(--reader-text);
+    background: color-mix(in srgb, var(--accent) 3%, transparent);
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-line[data-translation-start='true'] {
+    margin-top: 0.38em;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-line.cm-mktero-heading {
+    border-bottom: 0;
+    color: var(--reader-text);
+    font-weight: 600;
+}
+
+.markdown-editor-host > .cm-editor .cm-mktero-translation-pair {
+    position: relative;
+    transition:
+        background-color 120ms ease,
+        box-shadow 120ms ease;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-pair-with-retry {
+    padding-inline-end: 38px;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-pair.is-translation-pair-active {
+    background: color-mix(in srgb, var(--accent) 8%, var(--reader-background));
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-retry-button {
+    position: absolute;
+    z-index: 2;
+    inset-block-start: 2px;
+    inset-inline-end: 4px;
+    display: inline-grid;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+    border-radius: var(--radius-sm);
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+    box-shadow: 0 1px 4px rgb(28 36 46 / 8%);
+    cursor: pointer;
+    opacity: 0.38;
+    place-items: center;
+    transition:
+        opacity 120ms ease,
+        background-color 120ms ease;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-pair-translated.is-translation-pair-active
+    .cm-mktero-translation-retry-button,
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-retry-button:hover:not(:disabled),
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-retry-button:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    outline-offset: 1px;
+    background: var(--surface-raised);
+    opacity: 1;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-retry-button:disabled {
+    cursor: default;
+    opacity: 0.25;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-line.cm-mktero-heading-1 {
+    padding-top: 0.25em;
+    font-size: 1.6em;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-line.cm-mktero-heading-2 {
+    font-size: 1.32em;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-failure {
+    display: flex;
+    max-width: 100%;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 14px 0 6px;
+    padding: 8px 10px;
+    border-inline-start: 3px solid var(--warning);
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 7%, var(--reader-background));
+    font: 12px/1.35 var(--ui-font);
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-failure-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-failure-line {
+    background: color-mix(in srgb, var(--warning) 5%, transparent);
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-failure-retry {
+    min-height: 28px;
+    flex: 0 0 auto;
+    padding: 4px 9px;
+    border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--border));
+    border-radius: var(--radius-sm);
+    color: var(--warning);
+    background: var(--surface-raised);
+    cursor: pointer;
+    font: 600 12px/1.2 var(--ui-font);
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-failure-retry:hover:not(:disabled),
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-failure-retry:focus-visible {
+    border-color: var(--warning);
+    outline: 2px solid color-mix(in srgb, var(--warning) 30%, transparent);
+    outline-offset: 1px;
+    background: color-mix(in srgb, var(--warning) 10%, var(--surface-raised));
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-failure-retry:disabled {
+    cursor: default;
+    opacity: 0.55;
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-bilingual-boundary {
@@ -2996,6 +3236,7 @@ main {
 
     .markdown-translation-controls {
         width: 100%;
+        flex-wrap: wrap;
         padding: 5px 0 1px;
         border-top: 1px solid var(--border-subtle);
     }
@@ -3021,6 +3262,47 @@ main {
     }
 
     .markdown-reader-action-status { max-width: 84px; }
+    .markdown-translation-controls {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 6px;
+    }
+    .markdown-translation-view {
+        width: 100%;
+        grid-column: 1 / -1;
+    }
+    .markdown-translation-view-button {
+        min-width: 0;
+        flex: 1 1 0;
+        padding-inline: 5px;
+    }
+    .markdown-translation-status {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .markdown-translation-context {
+        grid-row: 2;
+        grid-column: 1;
+        overflow: hidden;
+    }
+    .markdown-translation-language {
+        min-width: 0;
+        flex: 0 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .markdown-translation-failure-navigation {
+        grid-row: 2;
+        grid-column: 2;
+    }
+    .markdown-translation-separator { display: none; }
+    .markdown-translation-action {
+        width: 100%;
+        grid-row: 3;
+        grid-column: 1 / -1;
+    }
 }
 
 @container mktero-view (max-width: 760px) {
@@ -3039,6 +3321,10 @@ main {
     .markdown-reader-font-chevron,
     .markdown-outline-link,
     .markdown-note-link {
+        transition: none;
+    }
+    .markdown-editor-host > .cm-editor .cm-mktero-translation-pair,
+    .markdown-editor-host > .cm-editor .cm-mktero-translation-retry-button {
         transition: none;
     }
     .markdown-editor-host > .cm-editor .cm-mktero-reference-highlight {

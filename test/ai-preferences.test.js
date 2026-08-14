@@ -15,6 +15,7 @@ import {
     AI_STREAMING_PREF,
     AI_TARGET_LANGUAGE_PREF,
     getAISettings,
+    isSupportedAITargetLanguage,
     normalizeAIBaseURL,
     validateAISettings,
 } from '../src/config/ai-preferences.js';
@@ -130,6 +131,16 @@ test('accepts the expanded AI translation language choices', () => {
             targetLanguage
         );
     }
+});
+
+test('shares one supported target-language set with translation rendering', () => {
+    assert.equal(isSupportedAITargetLanguage('zh-TW'), true);
+    assert.equal(isSupportedAITargetLanguage(' pt-BR '), true);
+    assert.equal(isSupportedAITargetLanguage('de-DE'), false);
+    assert.equal(
+        isSupportedAITargetLanguage('en-US" onclick="alert(1)'),
+        false
+    );
 });
 
 test('allows HTTPS providers and local HTTP model servers', () => {

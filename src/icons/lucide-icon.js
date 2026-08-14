@@ -3,6 +3,7 @@ import {
     ChevronDown,
     ChevronLeft,
     ChevronRight,
+    ChevronUp,
     Clock,
     Copy,
     ExternalLink,
@@ -50,6 +51,10 @@ export const LUCIDE_ICONS = Object.freeze({
     chevronRight: Object.freeze({
         name: 'chevron-right',
         nodes: ChevronRight,
+    }),
+    chevronUp: Object.freeze({
+        name: 'chevron-up',
+        nodes: ChevronUp,
     }),
     clock: Object.freeze({
         name: 'clock',
