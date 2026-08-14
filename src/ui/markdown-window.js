@@ -1060,12 +1060,10 @@ class MarkdownTabView {
             saveSnapshotLabel: documentActions.saveSnapshotLabel,
             readerControls: documentActions.readerControls,
             readerFontSize: documentActions.readerFontSize,
-            readerFontLabel: documentActions.readerFontLabel,
             readerFontDecrease: documentActions.readerFontDecrease,
             readerFontIncrease: documentActions.readerFontIncrease,
             readerFontValue: documentActions.readerFontValue,
             readerFontFamily: documentActions.readerFontFamily,
-            readerFontFamilyLabel: documentActions.readerFontFamilyLabel,
             readerFontTrigger: documentActions.readerFontTrigger,
             readerFontCurrent: documentActions.readerFontCurrent,
             readerFontOptions: documentActions.readerFontOptions,
@@ -1099,11 +1097,6 @@ class MarkdownTabView {
             'aria-label': this.t('viewer.documentActions'),
             'aria-hidden': 'true',
         });
-        const readerFontLabel = this.createElement(
-            'span',
-            { class: 'markdown-reader-font-label' },
-            this.t('viewer.textSize')
-        );
         const readerFontDecrease = this.createElement('button', {
             id: 'mktero-reader-font-decrease',
             class: 'markdown-reader-font-button',
@@ -1138,12 +1131,7 @@ class MarkdownTabView {
             role: 'group',
             'aria-label': this.t('viewer.textSize'),
         });
-        appendChildren(readerFontSize, readerFontLabel, readerFontControls);
-        const readerFontFamilyLabel = this.createElement(
-            'span',
-            { class: 'markdown-reader-font-label' },
-            this.t('viewer.textFont')
-        );
+        readerFontSize.appendChild(readerFontControls);
         const readerFontCurrent = this.createElement('span', {
             class: 'markdown-reader-font-current',
         });
@@ -1212,11 +1200,7 @@ class MarkdownTabView {
             role: 'group',
             'aria-label': this.t('viewer.textFont'),
         });
-        appendChildren(
-            readerFontFamily,
-            readerFontFamilyLabel,
-            readerFontPicker
-        );
+        readerFontFamily.appendChild(readerFontPicker);
         const readerControls = this.createElement('div', {
             class: 'markdown-reader-controls',
         });
@@ -1528,12 +1512,10 @@ class MarkdownTabView {
             saveSnapshotLabel,
             readerControls,
             readerFontSize,
-            readerFontLabel,
             readerFontDecrease,
             readerFontIncrease,
             readerFontValue,
             readerFontFamily,
-            readerFontFamilyLabel,
             readerFontTrigger,
             readerFontCurrent,
             readerFontOptions,
@@ -2521,7 +2503,6 @@ class MarkdownTabView {
             'aria-label',
             this.t('viewer.textSize')
         );
-        this.elements.readerFontLabel.textContent = this.t('viewer.textSize');
         this.elements.readerFontDecrease.setAttribute(
             'aria-label',
             this.t('viewer.textSizeDecrease')
@@ -2541,9 +2522,6 @@ class MarkdownTabView {
         this.elements.readerFontFamily.setAttribute(
             'aria-label',
             this.t('viewer.textFont')
-        );
-        this.elements.readerFontFamilyLabel.textContent = this.t(
-            'viewer.textFont'
         );
         this.elements.readerFontOptions.setAttribute(
             'aria-label',

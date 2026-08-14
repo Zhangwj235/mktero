@@ -92,9 +92,11 @@ visible text is sufficient.
 3. Use the outline, citation and figure previews, source links, and Zotero notes
    panel to navigate the document.
 4. Use the fixed toolbar above the Markdown body to change text size and font,
-   select a reading mode, or translate the article. These controls use compact,
-   even spacing, with in-flight progress condensed onto the main toolbar row at
-   normal reader widths and the translation action separated from reading mode.
+   select a reading mode, or translate the article. Self-describing size and
+   font controls omit redundant visible labels, while retaining accessible
+   names. The toolbar uses compact, even spacing, with in-flight progress
+   condensed onto the main toolbar row at normal reader widths and the
+   translation action separated from reading mode.
    The More menu contains `Manage corrections`, `Retranslate document`,
    `Reparse PDF`, and `Save snapshot` when those actions are available.
 

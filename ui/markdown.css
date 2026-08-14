@@ -1175,16 +1175,6 @@ main {
     flex: 0 1 auto;
 }
 
-.markdown-reader-font-family > .markdown-reader-font-label {
-    flex: 0 0 auto;
-}
-
-.markdown-reader-font-label {
-    color: var(--text);
-    font-size: 12.5px;
-    font-weight: 550;
-}
-
 .markdown-reader-font-controls {
     display: inline-grid;
     align-items: center;
@@ -3178,7 +3168,6 @@ main {
         padding: 5px 0 1px;
         border-top: 1px solid var(--border-subtle);
     }
-    .markdown-reader-font-label { display: none; }
     .markdown-reader-font-picker {
         flex-basis: 132px;
         width: 132px;

@@ -179,6 +179,7 @@ test('styles the reader font picker as part of the top toolbar', () => {
     const options = ruleBody('.markdown-reader-font-options');
     const option = ruleBody('.markdown-reader-font-option');
 
+    assert.doesNotMatch(MARKDOWN_STYLES, /\.markdown-reader-font-label/);
     assert.match(picker, /width:\s*148px/);
     assert.match(picker, /position:\s*relative/);
     assert.match(trigger, /display:\s*flex/);

@@ -1585,6 +1585,18 @@ test('keeps reading controls in a toolbar above the Markdown body', () => {
         assert.equal(readingLayout?.contains(editor), true);
         assert.equal(toolbar?.contains(size), true);
         assert.equal(toolbar?.contains(family), true);
+        assert.equal(
+            toolbar?.querySelector('.markdown-reader-font-label'),
+            null
+        );
+        assert.deepEqual(
+            [...size.children],
+            [shadow.querySelector('.markdown-reader-font-controls')]
+        );
+        assert.deepEqual(
+            [...family.children],
+            [shadow.querySelector('.markdown-reader-font-picker')]
+        );
         assert.equal(readerControls?.nextElementSibling, translationControls);
         assert.deepEqual(
             [...translationControls.children],
