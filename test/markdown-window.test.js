@@ -728,11 +728,6 @@ test('chooses translated, incomplete, and new languages from the translated tab'
             status: 'missing',
             selected: 'false',
         }, {
-            language: 'en-US',
-            label: 'English',
-            status: 'missing',
-            selected: 'false',
-        }, {
             language: 'ko-KR',
             label: 'Korean',
             status: 'missing',
@@ -2083,7 +2078,7 @@ test('offers fonts for the current language only in translated mode', () => {
                 'apple-myungjo',
                 'batang',
             ], 'Noto Serif KR'],
-            ...['en-US', 'es-ES', 'fr-FR', 'pt-BR'].map(language => ([
+            ...['es-ES', 'fr-FR', 'pt-BR'].map(language => ([
                 language,
                 ['stix-two-text', 'georgia', 'cambria', 'times-new-roman'],
                 'STIX Two Text',

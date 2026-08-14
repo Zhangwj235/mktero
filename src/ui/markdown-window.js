@@ -113,7 +113,6 @@ const TRANSLATION_FONT_OPTIONS = Object.freeze({
         ['batang', 'viewer.fontBatang',
             'Batang, "Noto Serif KR", "Source Han Serif K", AppleMyungjo, serif'],
     ]),
-    'en-US': LATIN_TRANSLATION_FONT_OPTIONS,
     'es-ES': LATIN_TRANSLATION_FONT_OPTIONS,
     'fr-FR': LATIN_TRANSLATION_FONT_OPTIONS,
     'pt-BR': LATIN_TRANSLATION_FONT_OPTIONS,
@@ -4430,7 +4429,6 @@ function translationLanguageMessageKey(language) {
     return {
         'zh-CN': 'preferences.ai.language.zhCN',
         'zh-TW': 'preferences.ai.language.zhTW',
-        'en-US': 'preferences.ai.language.enUS',
         'ja-JP': 'preferences.ai.language.jaJP',
         'ko-KR': 'preferences.ai.language.koKR',
         'es-ES': 'preferences.ai.language.esES',

@@ -32,7 +32,6 @@ const MAX_TRANSLATION_RETRIES = 2;
 const TARGET_LANGUAGE_NAMES = Object.freeze({
     'zh-CN': 'Simplified Chinese',
     'zh-TW': 'Traditional Chinese',
-    'en-US': 'English',
     'ja-JP': 'Japanese',
     'ko-KR': 'Korean',
     'es-ES': 'Spanish',

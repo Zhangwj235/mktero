@@ -48,7 +48,6 @@ const AI_REASONING_LEVELS = new Set([
 export const AI_TARGET_LANGUAGES = Object.freeze([
     'zh-CN',
     'zh-TW',
-    'en-US',
     'ja-JP',
     'ko-KR',
     'es-ES',

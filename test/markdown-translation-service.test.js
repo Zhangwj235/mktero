@@ -187,6 +187,19 @@ test('translates an explicitly selected language without changing the default', 
     assert.equal(settings.targetLanguage, 'zh-CN');
 });
 
+test('rejects English as a translation target before calling the provider', async () => {
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+    });
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+        targetLanguage: 'en-US',
+    }), error => error?.code === 'AI_INVALID_REQUEST');
+});
+
 test('reports provider stages before validating the complete translation', async () => {
     const progress = [];
     const service = new MarkdownTranslationService({
@@ -360,6 +373,16 @@ test('lists complete and partial cached translations for every language', async 
             partial: true,
             failedBlocks: [],
         }],
+        ['en-US', {
+            translatedMarkdown: '# Paper',
+            comparisonMarkdown: '',
+            blocks: [{ id: blockID, markdown: '# Paper' }],
+            model: 'cached-model',
+            targetLanguage: 'en-US',
+            promptVersion: TRANSLATION_PROMPT_VERSION,
+            partial: false,
+            failedBlocks: [],
+        }],
         ['es-ES', {
             translatedMarkdown: '# Articulo',
             comparisonMarkdown: '',
@@ -408,6 +431,10 @@ test('lists complete and partial cached translations for every language', async 
         ['ja-JP', false],
         ['fr-FR', true],
     ]);
+    assert.equal(cachedByLanguage.has('en-US'), true);
+    assert.equal(variants.some(result => (
+        result.targetLanguage === 'en-US'
+    )), false);
     assert.equal(providerCalls.length, 0);
 });
 
@@ -728,14 +755,14 @@ test('loads a complete document translation without calling the provider', async
 
 test('reuses a complete cache when the visible translation uses another language', async () => {
     const cached = {
-        translatedMarkdown: '# English paper',
-        comparisonMarkdown: '# Paper\n\n# English paper',
+        translatedMarkdown: '# Article français',
+        comparisonMarkdown: '# Paper\n\n# Article français',
         blocks: [{
             id: 'translation-0-0-7-heading',
-            markdown: '# English paper',
+            markdown: '# Article français',
         }],
         model: 'cached-model',
-        targetLanguage: 'en-US',
+        targetLanguage: 'fr-FR',
         promptVersion: TRANSLATION_PROMPT_VERSION,
         partial: false,
         failedBlocks: [],
@@ -746,7 +773,7 @@ test('reuses a complete cache when the visible translation uses another language
             getTranslation: async () => cached,
             putTranslation: assert.fail,
         },
-        getSettings: () => ({ ...SETTINGS, targetLanguage: 'en-US' }),
+        getSettings: () => ({ ...SETTINGS, targetLanguage: 'fr-FR' }),
         createCacheKey: async () => 'd'.repeat(64),
     });
 
@@ -765,8 +792,8 @@ test('reuses a complete cache when the visible translation uses another language
     });
 
     assert.equal(result.cacheHit, true);
-    assert.equal(result.targetLanguage, 'en-US');
-    assert.equal(result.translatedMarkdown, '# English paper');
+    assert.equal(result.targetLanguage, 'fr-FR');
+    assert.equal(result.translatedMarkdown, '# Article français');
 });
 
 test('reports cached partial translations but retries them on explicit translation', async () => {
@@ -1352,9 +1379,9 @@ test('retranslates every block when a visible retry uses changed settings', asyn
                 );
                 requests.push(entries);
                 const translations = new Map([
-                    [headingID, '# English paper'],
-                    [firstID, 'First paragraph in English.'],
-                    [secondID, 'Second paragraph in English.'],
+                    [headingID, '# Article français'],
+                    [firstID, 'Premier paragraphe.'],
+                    [secondID, 'Deuxième paragraphe.'],
                 ]);
                 return {
                     text: JSON.stringify(entries.map(entry => ({
@@ -1371,7 +1398,7 @@ test('retranslates every block when a visible retry uses changed settings', asyn
         getSettings: () => ({
             ...SETTINGS,
             streaming: false,
-            targetLanguage: 'en-US',
+            targetLanguage: 'fr-FR',
         }),
         createCacheKey: async () => 'd'.repeat(64),
     });
@@ -1399,12 +1426,12 @@ test('retranslates every block when a visible retry uses changed settings', asyn
         firstID,
         secondID,
     ]);
-    assert.equal(result.targetLanguage, 'en-US');
+    assert.equal(result.targetLanguage, 'fr-FR');
     assert.equal(result.translationKey, 'd'.repeat(64));
     assert.equal(result.partial, false);
     assert.doesNotMatch(result.translatedMarkdown, /\u8bba\u6587|\u7b2c\u4e8c\u6bb5/);
     assert.equal(writes[0][1], 'd'.repeat(64));
-    assert.equal(writes[0][2].targetLanguage, 'en-US');
+    assert.equal(writes[0][2].targetLanguage, 'fr-FR');
 });
 
 test('keeps source blocks and caches a structurally incomplete partial response', async () => {

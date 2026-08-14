@@ -1847,19 +1847,16 @@ main {
 }
 
 .markdown-reading-pane:is(
-    [lang='en-US'],
     [lang='es-ES'],
     [lang='fr-FR'],
     [lang='pt-BR']
 ),
 .markdown-editor-host > .cm-editor .cm-mktero-translation-line:is(
-    [lang='en-US'],
     [lang='es-ES'],
     [lang='fr-FR'],
     [lang='pt-BR']
 ),
 .markdown-editor-host > .cm-editor .cm-mktero-translation-block:is(
-    [lang='en-US'],
     [lang='es-ES'],
     [lang='fr-FR'],
     [lang='pt-BR']

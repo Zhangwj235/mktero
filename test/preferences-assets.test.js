@@ -32,6 +32,10 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 0\)/);
     assert.doesNotMatch(prefs, /extensions\.mktero\.aiReasoning/);
     assert.doesNotMatch(prefs, /extensions\.mktero\.aiCacheEnabled/);
+    assert.doesNotMatch(
+        pane,
+        /<html:option value="en-US"[^>]*preferences\.ai\.language\.enUS/
+    );
     assert.match(
         prefs,
         /pref\("extensions\.mktero\.readerFont", "system-serif"\)/

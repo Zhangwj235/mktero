@@ -12,6 +12,7 @@ import {
     AI_PROVIDER_PREF,
     AI_REQUEST_TIMEOUT_PREF,
     AI_STREAMING_PREF,
+    AI_TARGET_LANGUAGES,
     AI_TARGET_LANGUAGE_PREF,
     getAISettings,
     isSupportedAITargetLanguage,
@@ -103,7 +104,27 @@ test('disables reasoning without reading the legacy preference', () => {
     assert.equal(reads.includes('extensions.mktero.aiReasoning'), false);
 });
 
-test('accepts the expanded AI translation language choices', () => {
+test('supports non-English targets and normalizes legacy English to Chinese', () => {
+    assert.deepEqual(AI_TARGET_LANGUAGES, [
+        'zh-CN',
+        'zh-TW',
+        'ja-JP',
+        'ko-KR',
+        'es-ES',
+        'fr-FR',
+        'pt-BR',
+    ]);
+    assert.equal(isSupportedAITargetLanguage('en-US'), false);
+    assert.equal(
+        getAISettings({
+            Prefs: {
+                get: key => key === AI_TARGET_LANGUAGE_PREF
+                    ? 'en-US'
+                    : undefined,
+            },
+        }).targetLanguage,
+        'zh-CN'
+    );
     for (const targetLanguage of ['es-ES', 'fr-FR', 'pt-BR']) {
         assert.equal(
             getAISettings({

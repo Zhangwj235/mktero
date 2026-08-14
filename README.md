@@ -67,7 +67,7 @@ Open `Settings -> Mktero` after installation.
 | Enable AI features | Off | Allow Markdown translation through the configured model service |
 | Stream responses | On | Stream each Markdown batch response; turn off to wait for each batch to finish |
 | AI base URL / API Key / provider / protocol / model | OpenAI Responses / empty model | Route AI calls through Vercel AI SDK Core to a hosted provider or loopback model server |
-| Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese; open Markdown tabs reuse a complete cache for the selected language when available |
+| Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, Japanese, Korean, Spanish, French, or Brazilian Portuguese; English is excluded because source papers are assumed to be English |
 | Request timeout | 600,000 ms | Allow up to one hour for each batch request |
 | Maximum output tokens | Automatic (0) | Let the provider choose by default, or allow up to 262,144 tokens when the selected model supports it |
 
