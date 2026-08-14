@@ -21,6 +21,7 @@ import {
     sha256Hex,
 } from '../src/cache/markdown-cache.js';
 import {
+    MarkdownTranslationService,
     TRANSLATION_PROMPT_VERSION,
 } from '../src/ai/markdown-translation-service.js';
 
@@ -260,7 +261,7 @@ test('switches open tabs only to complete cached target-language translations', 
         ['extensions.mktero.aiApiBase', 'https://ai.example.com/v1'],
         ['extensions.mktero.aiApiKey', 'test-token'],
         ['extensions.mktero.aiModel', 'test-chat'],
-        ['extensions.mktero.aiTargetLanguage', 'zh-CN'],
+        ['extensions.mktero.aiTargetLanguage', 'ko-KR'],
         ['extensions.mktero.aiStreaming', false],
     ]);
     const preferenceObservers = new Map();
@@ -389,8 +390,71 @@ test('switches open tabs only to complete cached target-language translations', 
     );
     const translate = shadow.querySelector('#mktero-translate-document');
     await waitFor(() => translatedMode.textContent === 'Simplified Chinese');
+    assert.equal(
+        shadow.querySelector('[data-translation-view="original"]')
+            .getAttribute('aria-checked'),
+        'true'
+    );
+    assert.equal(translate.hidden, false);
     translatedMode.click();
-    assert.match(shadow.textContent, /\u8bba\u6587/);
+    const languageOptions = () => [...shadow.querySelectorAll(
+        '[data-translation-language]'
+    )];
+    assert.deepEqual(languageOptions().map(option => (
+        option.getAttribute('data-translation-language')
+    )), ['zh-CN', 'ja-JP']);
+    languageOptions()[0].click();
+    await waitFor(() => shadow.textContent.includes('\u8bba\u6587'));
+
+    translatedMode.click();
+    languageOptions()[1].click();
+    await waitFor(() => translatedMode.textContent === 'Japanese');
+    assert.match(shadow.textContent, /\u8ad6\u6587/);
+    assert.equal(preferences.get('extensions.mktero.aiTargetLanguage'), 'ko-KR');
+    assert.equal(translate.hidden, false);
+    assert.equal(providerSignals.length, 0);
+
+    const originalGetCached = MarkdownTranslationService.prototype
+        .getCachedDocumentTranslation;
+    t.after(() => {
+        MarkdownTranslationService.prototype.getCachedDocumentTranslation =
+            originalGetCached;
+    });
+    let releaseChineseCacheRead;
+    let resolveChineseCacheReadStarted;
+    const chineseCacheReadStarted = new Promise(resolve => {
+        resolveChineseCacheReadStarted = resolve;
+    });
+    const chineseCacheReadGate = new Promise(resolve => {
+        releaseChineseCacheRead = resolve;
+    });
+    let delayChineseCacheRead = true;
+    MarkdownTranslationService.prototype.getCachedDocumentTranslation =
+        async function (options) {
+            if (delayChineseCacheRead && options.targetLanguage === 'zh-CN') {
+                resolveChineseCacheReadStarted();
+                await chineseCacheReadGate;
+            }
+            return originalGetCached.call(this, options);
+        };
+    preferences.set('extensions.mktero.aiTargetLanguage', 'zh-CN');
+    const chineseChange = preferenceObservers.get(
+        'extensions.mktero.aiTargetLanguage'
+    ).callback('zh-CN');
+    await chineseCacheReadStarted;
+    translatedMode.click();
+    languageOptions().find(option => (
+        option.getAttribute('data-translation-language') === 'ja-JP'
+    )).click();
+    await waitFor(() => translatedMode.textContent === 'Japanese');
+    delayChineseCacheRead = false;
+    releaseChineseCacheRead();
+    await chineseChange;
+    MarkdownTranslationService.prototype.getCachedDocumentTranslation =
+        originalGetCached;
+    assert.equal(translatedMode.textContent, 'Japanese');
+    assert.match(shadow.textContent, /\u8ad6\u6587/);
+    assert.equal(translate.hidden, false);
 
     activeMainWindow = secondMainWindow;
     const secondToolbarButtons = [];
@@ -408,14 +472,18 @@ test('switches open tabs only to complete cached target-language translations', 
     await waitFor(() => secondTranslatedMode.textContent
         === 'Simplified Chinese');
     secondTranslatedMode.click();
+    secondShadow.querySelector(
+        '[data-translation-language="zh-CN"]'
+    ).click();
+    await waitFor(() => secondShadow.textContent.includes('\u8bba\u6587'));
 
     preferences.set('extensions.mktero.aiTargetLanguage', 'ja-JP');
     const japaneseChange = preferenceObservers.get(
         'extensions.mktero.aiTargetLanguage'
     ).callback('ja-JP');
-    assert.equal(translate.hidden, false);
-    assert.equal(translatedMode.textContent, 'Simplified Chinese');
-    assert.match(shadow.textContent, /\u8bba\u6587/);
+    assert.equal(translate.hidden, true);
+    assert.equal(translatedMode.textContent, 'Japanese');
+    assert.match(shadow.textContent, /\u8ad6\u6587/);
     await japaneseChange;
     assert.equal(translatedMode.textContent, 'Japanese');
     assert.equal(translate.hidden, true);
@@ -425,6 +493,60 @@ test('switches open tabs only to complete cached target-language translations', 
     assert.equal(secondTranslatedMode.getAttribute('aria-checked'), 'true');
     assert.match(secondShadow.textContent, /\u8ad6\u6587/);
 
+    const originalTranslateDocument = MarkdownTranslationService.prototype
+        .translateDocument;
+    const originalListCached = MarkdownTranslationService.prototype
+        .listCachedDocumentTranslations;
+    let releaseCachedLanguageRefresh;
+    let resolveCachedLanguageRefreshStarted;
+    const cachedLanguageRefreshStarted = new Promise(resolve => {
+        resolveCachedLanguageRefreshStarted = resolve;
+    });
+    const cachedLanguageRefreshGate = new Promise(resolve => {
+        releaseCachedLanguageRefresh = resolve;
+    });
+    t.after(() => {
+        releaseCachedLanguageRefresh();
+        MarkdownTranslationService.prototype.translateDocument =
+            originalTranslateDocument;
+        MarkdownTranslationService.prototype.listCachedDocumentTranslations =
+            originalListCached;
+    });
+    MarkdownTranslationService.prototype.translateDocument =
+        async function (options) {
+            await putCachedTranslation(cache, cacheKey, markdown, {
+                targetLanguage: 'ja-JP',
+                translatedMarkdown: markdown,
+                partial: true,
+            });
+            return originalGetCached.call(this, {
+                documentKey: options.documentKey,
+                markdown: options.markdown,
+                targetLanguage: 'ja-JP',
+            });
+        };
+    MarkdownTranslationService.prototype.listCachedDocumentTranslations =
+        async function (options) {
+            resolveCachedLanguageRefreshStarted();
+            await cachedLanguageRefreshGate;
+            return originalListCached.call(this, options);
+        };
+    shadow.querySelector('#mktero-document-actions').click();
+    shadow.querySelector('#mktero-retranslate-document').click();
+    await cachedLanguageRefreshStarted;
+    translatedMode.click();
+    assert.deepEqual(languageOptions().map(option => (
+        option.getAttribute('data-translation-language')
+    )), ['zh-CN']);
+    releaseCachedLanguageRefresh();
+    await waitFor(() => shadow.querySelector(
+        '.markdown-translation-failure-navigation'
+    ).hidden === false);
+    MarkdownTranslationService.prototype.translateDocument =
+        originalTranslateDocument;
+    MarkdownTranslationService.prototype.listCachedDocumentTranslations =
+        originalListCached;
+
     preferences.set('extensions.mktero.aiTargetLanguage', 'fr-FR');
     const frenchChange = preferenceObservers.get(
         'extensions.mktero.aiTargetLanguage'
@@ -433,7 +555,7 @@ test('switches open tabs only to complete cached target-language translations', 
     await frenchChange;
     assert.equal(translatedMode.textContent, 'Japanese');
     assert.equal(translatedMode.getAttribute('aria-checked'), 'true');
-    assert.match(shadow.textContent, /\u8ad6\u6587/);
+    assert.doesNotMatch(shadow.textContent, /\u8ad6\u6587/);
 
     translate.click();
     const frenchSignal = await waitFor(() => providerSignals[0]);
@@ -444,7 +566,7 @@ test('switches open tabs only to complete cached target-language translations', 
     assert.equal(translate.getAttribute('aria-label'), 'Translate document');
     assert.equal(translate.getAttribute('aria-busy'), 'false');
     assert.equal(translatedMode.textContent, 'Japanese');
-    assert.match(shadow.textContent, /\u8ad6\u6587/);
+    assert.doesNotMatch(shadow.textContent, /\u8ad6\u6587/);
     await spanishChange;
     assert.equal(frenchSignal.aborted, true);
     assert.ok(errors.some(error => error?.name === 'AbortError'));

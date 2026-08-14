@@ -454,7 +454,10 @@ test('keeps document translation status legible without crowding the toolbar', (
     assert.match(status, /font-variant-numeric:\s*tabular-nums/);
     assert.match(status, /text-overflow:\s*ellipsis/);
     assert.match(status, /white-space:\s*nowrap/);
-    assert.doesNotMatch(MARKDOWN_STYLES, /\.markdown-translation-language/);
+    assert.doesNotMatch(
+        MARKDOWN_STYLES,
+        /\.markdown-translation-language\s*\{/
+    );
     assert.match(failureNavigation, /display:\s*inline-flex/);
     assert.match(failureNavigationButton, /width:\s*28px/);
     assert.match(failureNavigationButton, /height:\s*28px/);
@@ -637,6 +640,23 @@ test('wraps translation controls at narrow reader widths', () => {
         MARKDOWN_STYLES,
         /@container\s+markdown-reader\s*\(max-width:\s*390px\)[\s\S]*\.markdown-translation-action\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/
     );
+});
+
+test('anchors the cached translation language menu below the mode selector', () => {
+    const view = ruleBody('.markdown-translation-view');
+    const menu = ruleBody('.markdown-translation-language-options');
+    const option = ruleBody('.markdown-translation-language-option');
+    const lastButton = ruleBody(
+        '.markdown-translation-view-button:last-of-type'
+    );
+
+    assert.match(view, /position:\s*relative/);
+    assert.match(menu, /position:\s*absolute/);
+    assert.match(menu, /top:\s*calc\(100% \+ 6px\)/);
+    assert.match(menu, /left:\s*50%/);
+    assert.match(menu, /transform:\s*translateX\(-50%\)/);
+    assert.match(option, /grid-template-columns:\s*14px minmax\(0, 1fr\)/);
+    assert.match(lastButton, /border-radius:/);
 });
 
 test('styles citation popups and temporary reference highlights', () => {

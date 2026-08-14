@@ -229,6 +229,8 @@ class MarkdownTabView {
         this.documentActionsOpen = false;
         this.readerFontOptionsOpen = false;
         this.readerFontOptionsContext = '';
+        this.translationLanguagesOpen = false;
+        this.translationLanguageSignature = '';
         this.translationReaderFonts = new Map();
         this.activeNavigationOffset = 0;
         this.activeTranslationFailureID = null;
@@ -1102,7 +1104,13 @@ class MarkdownTabView {
             translationSeparator: documentActions.translationSeparator,
             translationView: documentActions.translationView,
             translationViewButtons: documentActions.translationViewButtons,
+            translationViewLabels: documentActions.translationViewLabels,
             translationViewLabel: documentActions.translationViewLabel,
+            translatedViewLabel: documentActions.translatedViewLabel,
+            translationLanguageChevron:
+                documentActions.translationLanguageChevron,
+            translationLanguageOptions:
+                documentActions.translationLanguageOptions,
             translationStatus: documentActions.translationStatus,
             translationFailureNavigation:
                 documentActions.translationFailureNavigation,
@@ -1353,27 +1361,53 @@ class MarkdownTabView {
             'aria-labelledby': 'mktero-translation-view-label',
         });
         const translationViewButtons = [];
+        const translationViewLabels = [];
+        let translatedViewLabel = null;
+        let translationLanguageChevron = null;
         for (const option of [
             ['original', 'ai.translationView.original'],
             ['translated', 'ai.translationView.translated'],
             ['compare', 'ai.translationView.compare'],
         ]) {
-            const button = this.createElement(
-                'button',
-                {
-                    class: 'markdown-translation-view-button',
-                    type: 'button',
-                    'data-translation-view': option[0],
-                    'data-i18n': option[1],
-                    role: 'radio',
-                    'aria-checked': String(option[0] === 'original'),
-                    tabindex: option[0] === 'original' ? '0' : '-1',
-                },
-                this.t(option[1])
-            );
+            const button = this.createElement('button', {
+                class: 'markdown-translation-view-button',
+                type: 'button',
+                'data-translation-view': option[0],
+                role: 'radio',
+                'aria-checked': String(option[0] === 'original'),
+                tabindex: option[0] === 'original' ? '0' : '-1',
+            });
+            const label = this.createElement('span', {
+                class: 'markdown-translation-view-button-label',
+                'data-i18n': option[1],
+            }, this.t(option[1]));
+            button.appendChild(label);
+            translationViewLabels.push(label);
+            if (option[0] === 'translated') {
+                translatedViewLabel = label;
+                translationLanguageChevron = createLucideIcon(
+                    this.document,
+                    LUCIDE_ICONS.chevronDown,
+                    {
+                        className: 'markdown-translation-language-chevron',
+                        size: 13,
+                    }
+                );
+                translationLanguageChevron.hidden = true;
+                button.appendChild(translationLanguageChevron);
+            }
             translationViewButtons.push(button);
             translationView.appendChild(button);
         }
+        const translationLanguageOptions = this.createElement('div', {
+            id: 'mktero-translation-language-options',
+            class: 'markdown-translation-language-options',
+            role: 'listbox',
+            'aria-label': this.t('ai.translationLanguages'),
+            'aria-hidden': 'true',
+        });
+        translationLanguageOptions.hidden = true;
+        translationView.appendChild(translationLanguageOptions);
         const translationControls = this.createElement('div', {
             class: 'markdown-translation-controls',
         });
@@ -1524,7 +1558,11 @@ class MarkdownTabView {
             translationSeparator,
             translationView,
             translationViewButtons,
+            translationViewLabels,
             translationViewLabel,
+            translatedViewLabel,
+            translationLanguageChevron,
+            translationLanguageOptions,
             translationStatus,
             translationFailureNavigation,
             translationFailurePosition,
@@ -1593,6 +1631,7 @@ class MarkdownTabView {
         this.listen(this.elements.actionToggle, 'click', () => {
             if (this.elements.actionToggle.disabled) return;
             this.setReaderFontOptionsOpen(false);
+            this.setTranslationLanguagesOpen(false);
             this.setDocumentActionsOpen(!this.documentActionsOpen);
         });
         this.listen(this.elements.reparse, 'click', () => {
@@ -1609,14 +1648,50 @@ class MarkdownTabView {
         });
         for (const button of this.elements.translationViewButtons) {
             this.listen(button, 'click', () => {
+                if (button.getAttribute('data-translation-view') === 'translated'
+                    && this.hasTranslationLanguageOptions()) {
+                    this.setDocumentActionsOpen(false);
+                    this.setReaderFontOptionsOpen(false);
+                    this.setTranslationLanguagesOpen(
+                        !this.translationLanguagesOpen
+                    );
+                    if (this.translationLanguagesOpen) {
+                        this.focusTranslationLanguageOption(
+                            this.model.translationTargetLanguage
+                        );
+                    }
+                    return;
+                }
+                this.setTranslationLanguagesOpen(false);
                 this.setTranslationView(
                     button.getAttribute('data-translation-view')
                 );
             });
             this.listen(button, 'keydown', event => {
+                if (button.getAttribute('data-translation-view') === 'translated'
+                    && this.handleTranslationLanguageTriggerKeydown(event)) {
+                    return;
+                }
                 this.handleTranslationViewKeydown(event, button);
             });
         }
+        this.listen(this.elements.translationLanguageOptions, 'click', event => {
+            const option = event.target?.closest?.(
+                '.markdown-translation-language-option'
+            );
+            if (!option
+                || !this.elements.translationLanguageOptions.contains(option)) {
+                return;
+            }
+            this.selectTranslationLanguage(
+                option.getAttribute('data-translation-language')
+            );
+        });
+        this.listen(
+            this.elements.translationLanguageOptions,
+            'keydown',
+            event => this.handleTranslationLanguageOptionKeydown(event)
+        );
         this.listen(this.elements.previousTranslationFailure, 'click', () => {
             this.navigateTranslationFailure(-1);
         });
@@ -1649,12 +1724,14 @@ class MarkdownTabView {
         });
         this.listen(this.elements.readerFontTrigger, 'click', () => {
             this.setDocumentActionsOpen(false);
+            this.setTranslationLanguagesOpen(false);
             this.setReaderFontOptionsOpen(!this.readerFontOptionsOpen);
         });
         this.listen(this.elements.readerFontTrigger, 'keydown', event => {
             if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
             event.preventDefault();
             this.setDocumentActionsOpen(false);
+            this.setTranslationLanguagesOpen(false);
             this.setReaderFontOptionsOpen(true);
             this.focusReaderFontOption(this.activeReaderFontValue());
         });
@@ -1673,6 +1750,12 @@ class MarkdownTabView {
             this.handleReaderFontOptionKeydown(event);
         });
         this.listen(this.ownerWindow, 'keydown', event => {
+            if (event.key === 'Escape' && this.translationLanguagesOpen) {
+                event.preventDefault();
+                this.setTranslationLanguagesOpen(false);
+                this.translatedViewButton()?.focus?.();
+                return;
+            }
             if (event.key === 'Escape' && this.readerFontOptionsOpen) {
                 event.preventDefault();
                 this.setReaderFontOptionsOpen(false);
@@ -1686,8 +1769,13 @@ class MarkdownTabView {
             }
         });
         const closeDocumentActionsOnOutsidePress = event => {
-            if (!this.documentActionsOpen && !this.readerFontOptionsOpen) return;
+            if (!this.documentActionsOpen
+                && !this.readerFontOptionsOpen
+                && !this.translationLanguagesOpen) return;
             const path = event.composedPath?.() || [];
+            if (!path.includes(this.elements.translationView)) {
+                this.setTranslationLanguagesOpen(false);
+            }
             if (!path.includes(this.elements.readerFontFamily)) {
                 this.setReaderFontOptionsOpen(false);
             }
@@ -1953,7 +2041,149 @@ class MarkdownTabView {
     setTranslationView(view) {
         if (this.elements.translationViewButtons.every(button => button.disabled)
             || typeof this.model.onSetTranslationView !== 'function') return;
+        this.setTranslationLanguagesOpen(false);
         this.model.onSetTranslationView(view);
+    }
+
+    translatedViewButton() {
+        return this.elements.translationViewButtons.find(button => (
+            button.getAttribute('data-translation-view') === 'translated'
+        ));
+    }
+
+    hasTranslationLanguageOptions() {
+        return typeof this.model.onSelectTranslationLanguage === 'function'
+            && this.translatedViewButton()?.getAttribute('aria-haspopup')
+                === 'listbox'
+            && this.translationLanguageOptionButtons().length > 0;
+    }
+
+    handleTranslationLanguageTriggerKeydown(event) {
+        if (!this.hasTranslationLanguageOptions()) return false;
+        if (event.key === 'Escape' && this.translationLanguagesOpen) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.setTranslationLanguagesOpen(false);
+            return true;
+        }
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return false;
+        event.preventDefault();
+        event.stopPropagation();
+        this.setDocumentActionsOpen(false);
+        this.setReaderFontOptionsOpen(false);
+        this.setTranslationLanguagesOpen(true);
+        this.focusTranslationLanguageOption(
+            this.model.translationTargetLanguage,
+            { lastFallback: event.key === 'ArrowUp' }
+        );
+        return true;
+    }
+
+    selectTranslationLanguage(language) {
+        if (!this.hasTranslationLanguageOptions()
+            || this.translatedViewButton()?.disabled
+            || typeof this.model.onSelectTranslationLanguage !== 'function') {
+            return;
+        }
+        this.setTranslationLanguagesOpen(false);
+        this.translatedViewButton()?.focus?.();
+        try {
+            Promise.resolve(
+                this.model.onSelectTranslationLanguage(language)
+            ).catch(error => this.reportTranslationError(error));
+        }
+        catch (error) {
+            this.reportTranslationError(error);
+        }
+    }
+
+    setTranslationLanguagesOpen(open) {
+        const button = this.translatedViewButton();
+        if (!button) return;
+        const visible = Boolean(open)
+            && !button.disabled
+            && this.hasTranslationLanguageOptions();
+        this.translationLanguagesOpen = visible;
+        button.setAttribute('aria-expanded', String(visible));
+        this.elements.translationLanguageOptions.hidden = !visible;
+        this.elements.translationLanguageOptions.setAttribute(
+            'aria-hidden',
+            String(!visible)
+        );
+        this.elements.translationView.classList.toggle(
+            'is-language-menu-open',
+            visible
+        );
+        for (const option of this.translationLanguageOptionButtons()) {
+            const selected = option.getAttribute('aria-selected') === 'true';
+            option.setAttribute('tabindex', visible && selected ? '0' : '-1');
+        }
+    }
+
+    translationLanguageOptionButtons() {
+        return [...this.elements.translationLanguageOptions.querySelectorAll(
+            '.markdown-translation-language-option'
+        )];
+    }
+
+    focusTranslationLanguageOption(language, { lastFallback = false } = {}) {
+        const options = this.translationLanguageOptionButtons();
+        const target = options.find(option => (
+            option.getAttribute('data-translation-language') === language
+        )) || options[lastFallback ? options.length - 1 : 0];
+        if (!target) return;
+        for (const option of options) {
+            option.setAttribute('tabindex', option === target ? '0' : '-1');
+        }
+        target.focus?.();
+    }
+
+    handleTranslationLanguageOptionKeydown(event) {
+        const option = event.target?.closest?.(
+            '.markdown-translation-language-option'
+        );
+        if (!option
+            || !this.elements.translationLanguageOptions.contains(option)) {
+            return;
+        }
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            this.setTranslationLanguagesOpen(false);
+            this.translatedViewButton()?.focus?.();
+            return;
+        }
+        if (event.key === 'Tab') {
+            this.setTranslationLanguagesOpen(false);
+            return;
+        }
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            option.click();
+            return;
+        }
+        const options = this.translationLanguageOptionButtons();
+        const index = options.indexOf(option);
+        let nextIndex;
+        if (event.key === 'ArrowDown') {
+            nextIndex = (index + 1) % options.length;
+        }
+        else if (event.key === 'ArrowUp') {
+            nextIndex = (index - 1 + options.length) % options.length;
+        }
+        else if (event.key === 'Home') {
+            nextIndex = 0;
+        }
+        else if (event.key === 'End') {
+            nextIndex = options.length - 1;
+        }
+        else {
+            return;
+        }
+        event.preventDefault();
+        this.focusTranslationLanguageOption(
+            options[nextIndex].getAttribute('data-translation-language')
+        );
     }
 
     handleTranslationViewKeydown(event, currentButton) {
@@ -2539,9 +2769,13 @@ class MarkdownTabView {
         this.elements.translationViewLabel.textContent = this.t(
             'ai.translationViewLabel'
         );
-        for (const button of this.elements.translationViewButtons) {
-            button.textContent = this.t(button.getAttribute('data-i18n'));
+        for (const label of this.elements.translationViewLabels) {
+            label.textContent = this.t(label.getAttribute('data-i18n'));
         }
+        this.elements.translationLanguageOptions.setAttribute(
+            'aria-label',
+            this.t('ai.translationLanguages')
+        );
         this.elements.previousTranslationFailure.setAttribute(
             'aria-label',
             this.t('ai.previousTranslationFailure')
@@ -2729,6 +2963,7 @@ class MarkdownTabView {
         const partial = model.translationStatus === 'partial'
             || translating && (model.translationFailedBlocks || []).length > 0;
         this.syncTranslatedViewLabel(model, translationReady);
+        this.syncTranslationLanguageOptions(model, translationReady);
         this.elements.translationViewLabel.hidden = !translationReady;
         this.elements.translationView.hidden = !translationReady;
         this.elements.translationFailureNavigation.hidden = !partial;
@@ -2754,6 +2989,7 @@ class MarkdownTabView {
         for (const button of this.elements.translationViewButtons) {
             button.disabled = translationViewDisabled;
         }
+        if (translationViewDisabled) this.setTranslationLanguagesOpen(false);
         const translationView = translationReady
             ? model.translationView || 'original'
             : 'original';
@@ -2822,10 +3058,9 @@ class MarkdownTabView {
     }
 
     syncTranslatedViewLabel(model, translationReady) {
-        const button = this.elements.translationViewButtons.find(candidate => (
-            candidate.getAttribute('data-translation-view') === 'translated'
-        ));
-        if (!button) return;
+        const button = this.translatedViewButton();
+        const labelElement = this.elements.translatedViewLabel;
+        if (!button || !labelElement) return;
         const languageKey = translationReady
             ? translationLanguageMessageKey(model.translationTargetLanguage)
             : '';
@@ -2834,9 +3069,93 @@ class MarkdownTabView {
         const description = language
             ? this.t('ai.translationView.translatedLanguage', { language })
             : label;
-        button.textContent = label;
+        labelElement.textContent = label;
         button.setAttribute('aria-label', description);
         button.setAttribute('title', description);
+    }
+
+    syncTranslationLanguageOptions(model, translationReady) {
+        const button = this.translatedViewButton();
+        if (!button) return;
+        const languages = normalizedCachedTranslationLanguages(
+            model.translationCachedLanguages
+        );
+        const options = languages.map(language => ({
+            language,
+            label: this.t(translationLanguageMessageKey(language)),
+        }));
+        const signature = JSON.stringify(options);
+        if (signature !== this.translationLanguageSignature) {
+            const focused = this.mount.activeElement;
+            const optionHadFocus = Boolean(focused)
+                && this.elements.translationLanguageOptions.contains(focused);
+            this.setTranslationLanguagesOpen(false);
+            this.elements.translationLanguageOptions.replaceChildren(
+                ...options.map(option => (
+                    this.createTranslationLanguageOption(option)
+                ))
+            );
+            this.translationLanguageSignature = signature;
+            if (optionHadFocus) button.focus?.();
+        }
+        const available = translationReady
+            && options.length > 0
+            && model.translationStatus !== 'loading'
+            && typeof model.onSelectTranslationLanguage === 'function';
+        if (available) {
+            button.setAttribute('aria-haspopup', 'listbox');
+            button.setAttribute(
+                'aria-controls',
+                'mktero-translation-language-options'
+            );
+            button.setAttribute(
+                'aria-expanded',
+                String(this.translationLanguagesOpen)
+            );
+        }
+        else {
+            this.setTranslationLanguagesOpen(false);
+            button.removeAttribute('aria-haspopup');
+            button.removeAttribute('aria-controls');
+            button.removeAttribute('aria-expanded');
+        }
+        this.elements.translationLanguageChevron.hidden = !available;
+        for (const option of this.translationLanguageOptionButtons()) {
+            const selected = option.getAttribute('data-translation-language')
+                === model.translationTargetLanguage;
+            option.setAttribute('aria-selected', String(selected));
+            option.classList.toggle('is-selected', selected);
+            option.setAttribute(
+                'tabindex',
+                this.translationLanguagesOpen && selected ? '0' : '-1'
+            );
+        }
+    }
+
+    createTranslationLanguageOption({ language, label }) {
+        const button = this.createElement('button', {
+            class: 'markdown-translation-language-option',
+            type: 'button',
+            role: 'option',
+            'aria-selected': 'false',
+            'data-translation-language': language,
+            tabindex: '-1',
+        });
+        appendChildren(
+            button,
+            createLucideIcon(
+                this.document,
+                LUCIDE_ICONS.check,
+                {
+                    className: 'markdown-translation-language-option-check',
+                    size: 14,
+                }
+            ),
+            this.createElement('span', {
+                class: 'markdown-translation-language-option-label',
+            }, label)
+        );
+        return button;
     }
 
     syncTranslationStatus(model, {
@@ -3997,6 +4316,12 @@ function translationLanguageMessageKey(language) {
         'fr-FR': 'preferences.ai.language.frFR',
         'pt-BR': 'preferences.ai.language.ptBR',
     }[String(language || '')] || '';
+}
+
+function normalizedCachedTranslationLanguages(values) {
+    if (!Array.isArray(values)) return [];
+    return [...new Set(values.map(value => String(value || '').trim()))]
+        .filter(isSupportedAITargetLanguage);
 }
 
 function normalizedTranslationLanguage(language) {

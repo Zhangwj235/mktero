@@ -1027,6 +1027,7 @@ main {
 }
 
 .markdown-translation-view {
+    position: relative;
     display: inline-flex;
     min-width: 0;
     height: 32px;
@@ -1034,6 +1035,7 @@ main {
 }
 
 .markdown-translation-view-button {
+    display: inline-flex;
     min-width: 56px;
     height: 32px;
     padding: 0 9px;
@@ -1046,6 +1048,16 @@ main {
     font: 12px/1 var(--ui-font);
     text-overflow: ellipsis;
     white-space: nowrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.markdown-translation-view-button-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .markdown-translation-view-button + .markdown-translation-view-button {
@@ -1056,7 +1068,7 @@ main {
     border-radius: var(--radius-sm) 0 0 var(--radius-sm);
 }
 
-.markdown-translation-view-button:last-child {
+.markdown-translation-view-button:last-of-type {
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
@@ -1087,6 +1099,84 @@ main {
 .markdown-translation-view-button:disabled {
     cursor: default;
     opacity: 0.5;
+}
+
+.markdown-translation-language-chevron {
+    flex: 0 0 auto;
+    color: currentColor;
+    transition: transform 140ms ease;
+}
+
+.markdown-translation-view-button[aria-expanded='true']
+    .markdown-translation-language-chevron {
+    transform: rotate(180deg);
+}
+
+.markdown-translation-language-options {
+    position: absolute;
+    z-index: 8;
+    top: calc(100% + 6px);
+    left: 50%;
+    display: grid;
+    width: max(42%, 172px);
+    max-width: min(220px, calc(100vw - 24px));
+    gap: 2px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--surface-raised) 94%, var(--surface));
+    box-shadow: var(--shadow-popover);
+    transform: translateX(-50%);
+}
+
+.markdown-translation-language-options[hidden] {
+    display: none;
+}
+
+.markdown-translation-language-option {
+    display: grid;
+    width: 100%;
+    min-height: 30px;
+    padding: 0 8px 0 6px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    background: transparent;
+    cursor: pointer;
+    font: 12px/1.2 var(--ui-font);
+    align-items: center;
+    gap: 7px;
+    grid-template-columns: 14px minmax(0, 1fr);
+    text-align: left;
+}
+
+.markdown-translation-language-option:hover,
+.markdown-translation-language-option:focus-visible {
+    outline: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+    outline-offset: -1px;
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface-raised));
+}
+
+.markdown-translation-language-option[aria-selected='true'] {
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+    font-weight: 600;
+}
+
+.markdown-translation-language-option-check {
+    opacity: 0;
+}
+
+.markdown-translation-language-option[aria-selected='true']
+    .markdown-translation-language-option-check {
+    opacity: 1;
+}
+
+.markdown-translation-language-option-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .markdown-reader-action-menu {

@@ -98,7 +98,9 @@ visible text is sufficient.
    condensed onto the main toolbar row at normal reader widths and the
    translation action separated from reading mode. Once a translation is
    available, its reading-mode tab displays the target language directly
-   instead of repeating that language in a separate label. Simplified Chinese,
+   instead of repeating that language in a separate label. Select that tab to
+   choose among the document's complete cached translations; incomplete or
+   missing languages are omitted. Simplified Chinese,
    Traditional Chinese, Japanese, and Korean translated text automatically use
    language-aware academic serif fallbacks. In Translation mode, the font
    picker changes to academic fonts for the translation language; Original and
@@ -199,11 +201,14 @@ the configured language leaves the current reading view in place while Mktero
 checks that language's cache; a complete hit replaces the translation in the
 open tab immediately, while a missing or partial result exposes the translation
 action. Partial caches resume their missing blocks instead of being treated as
-complete. The translated and bilingual reading documents are rebuilt from the
-cached blocks in source order, so presentation updates do not require another
-AI request. Clearing, replacing, or evicting that Markdown cache entry removes
-all of its translations. Lists, blockquotes, and GFM tables are translated;
-images, code,
+complete. The translated reading-mode tab lists every complete cached language
+for the current document and model configuration. Choosing one switches the
+visible translation without changing the default language in Settings or
+sending another AI request. The translated and bilingual reading documents are
+rebuilt from the cached blocks in source order, so presentation updates do not
+require another AI request. Clearing, replacing, or evicting that Markdown
+cache entry removes all of its translations. Lists, blockquotes, and GFM tables
+are translated; images, code,
 standalone formulas, link definitions, and raw HTML are preserved. Closing the
 tab, reparsing, editing the Markdown, or shutting down Mktero cancels active
 translation requests.

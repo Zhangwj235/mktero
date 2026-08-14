@@ -1,5 +1,7 @@
 import {
     AI_DEFAULT_REASONING,
+    AI_TARGET_LANGUAGES,
+    isSupportedAITargetLanguage,
     normalizeReasoning,
     validateAISettings,
 } from '../config/ai-preferences.js';
@@ -67,24 +69,53 @@ export class MarkdownTranslationService {
         this.onCacheError = onCacheError;
     }
 
-    async getCachedDocumentTranslation({ documentKey, markdown }) {
-        const settings = this.getSettings();
+    async getCachedDocumentTranslation({
+        documentKey,
+        markdown,
+        targetLanguage,
+    }) {
+        const configuredSettings = this.getSettings();
+        const selectedLanguage = targetLanguage === undefined
+            ? configuredSettings.targetLanguage
+            : String(targetLanguage || '').trim();
+        if (!isSupportedAITargetLanguage(selectedLanguage)) return null;
+        const settings = {
+            ...configuredSettings,
+            targetLanguage: selectedLanguage,
+        };
         if (!this.cache?.getTranslation) return null;
         const source = String(markdown || '');
         const normalizedDocumentKey = translationIdentifier(documentKey);
         if (!normalizedDocumentKey || !source.trim()) return null;
-        const translationKey = await this.#safeCreateDocumentTranslationKey(
+        return this.#getCachedDocumentTranslationForSettings(
             normalizedDocumentKey,
             source,
             settings
         );
-        if (!translationKey) return null;
-        return this.#readCachedDocumentTranslation(
-            normalizedDocumentKey,
-            translationKey,
-            source,
-            settings.targetLanguage
-        );
+    }
+
+    async listCachedDocumentTranslations({ documentKey, markdown }) {
+        if (!this.cache?.getTranslation) return [];
+        const source = String(markdown || '');
+        const normalizedDocumentKey = translationIdentifier(documentKey);
+        if (!normalizedDocumentKey || !source.trim()) return [];
+        const configuredSettings = this.getSettings();
+        const cached = await Promise.all(AI_TARGET_LANGUAGES.map(
+            async targetLanguage => {
+                const settings = {
+                    ...configuredSettings,
+                    targetLanguage,
+                };
+                const result =
+                    await this.#getCachedDocumentTranslationForSettings(
+                        normalizedDocumentKey,
+                        source,
+                        settings
+                    );
+                return result && !result.partial ? result : null;
+            }
+        ));
+        return cached.filter(Boolean);
     }
 
     async translateDocument({
@@ -315,7 +346,7 @@ export class MarkdownTranslationService {
                 ...cached,
                 ...views,
                 blocks: translations,
-                partial: failedBlocks.length > 0,
+                partial: Boolean(cached.partial) || failedBlocks.length > 0,
                 failedBlocks,
                 translationKey,
                 cacheHit: true,
@@ -327,6 +358,25 @@ export class MarkdownTranslationService {
             this.onCacheError(error);
             return null;
         }
+    }
+
+    async #getCachedDocumentTranslationForSettings(
+        documentKey,
+        source,
+        settings
+    ) {
+        const translationKey = await this.#safeCreateDocumentTranslationKey(
+            documentKey,
+            source,
+            settings
+        );
+        if (!translationKey) return null;
+        return this.#readCachedDocumentTranslation(
+            documentKey,
+            translationKey,
+            source,
+            settings.targetLanguage
+        );
     }
 
     async #safeCreateDocumentTranslationKey(documentKey, source, settings) {

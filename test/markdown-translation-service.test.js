@@ -286,6 +286,86 @@ test('continues translating without persistence when cache hashing fails', async
     assert.deepEqual(cacheErrors, ['hash unavailable', 'hash unavailable']);
 });
 
+test('lists only complete cached document translations for every language', async () => {
+    const blockID = 'translation-0-0-7-heading';
+    const cachedByLanguage = new Map([
+        ['zh-CN', {
+            translatedMarkdown: '# \u8bba\u6587',
+            comparisonMarkdown: '',
+            blocks: [{ id: blockID, markdown: '# \u8bba\u6587' }],
+            model: 'cached-model',
+            targetLanguage: 'zh-CN',
+            promptVersion: TRANSLATION_PROMPT_VERSION,
+            partial: false,
+            failedBlocks: [],
+        }],
+        ['ja-JP', {
+            translatedMarkdown: '# \u8ad6\u6587',
+            comparisonMarkdown: '',
+            blocks: [{ id: blockID, markdown: '# \u8ad6\u6587' }],
+            model: 'cached-model',
+            targetLanguage: 'ja-JP',
+            promptVersion: TRANSLATION_PROMPT_VERSION,
+            partial: false,
+            failedBlocks: [],
+        }],
+        ['fr-FR', {
+            translatedMarkdown: '# Paper',
+            comparisonMarkdown: '',
+            blocks: [{ id: blockID, markdown: '# Paper' }],
+            model: 'cached-model',
+            targetLanguage: 'fr-FR',
+            promptVersion: TRANSLATION_PROMPT_VERSION,
+            partial: true,
+            failedBlocks: [],
+        }],
+        ['es-ES', {
+            translatedMarkdown: '# Articulo',
+            comparisonMarkdown: '',
+            blocks: [{ id: 'unknown-block', markdown: '# Articulo' }],
+            model: 'cached-model',
+            targetLanguage: 'es-ES',
+            promptVersion: TRANSLATION_PROMPT_VERSION,
+            partial: false,
+            failedBlocks: [],
+        }],
+    ]);
+    const providerCalls = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                providerCalls.push(request);
+                throw new Error('The provider must not be called');
+            },
+        },
+        cache: {
+            getTranslation: async (_documentKey, language) => (
+                cachedByLanguage.get(language) || null
+            ),
+        },
+        getSettings: () => ({ ...SETTINGS, targetLanguage: 'zh-CN' }),
+        createCacheKey: async value => JSON.parse(value).targetLanguage,
+    });
+
+    const japanese = await service.getCachedDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+        targetLanguage: 'ja-JP',
+    });
+    const cached = await service.listCachedDocumentTranslations({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+
+    assert.equal(japanese.targetLanguage, 'ja-JP');
+    assert.equal(japanese.translatedMarkdown, '# \u8ad6\u6587');
+    assert.deepEqual(cached.map(result => result.targetLanguage), [
+        'zh-CN',
+        'ja-JP',
+    ]);
+    assert.equal(providerCalls.length, 0);
+});
+
 test('continues translating when reading the Markdown translation cache fails', async () => {
     const cacheErrors = [];
     const service = new MarkdownTranslationService({

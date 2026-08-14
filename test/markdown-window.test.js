@@ -641,6 +641,116 @@ test('translates the document and switches between three reading modes', async (
     }
 });
 
+test('chooses complete cached translation languages from the translated tab', () => {
+    const selectedLanguages = [];
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        translationStatus: 'ready',
+        translationView: 'original',
+        translationTargetLanguage: 'zh-CN',
+        translationCachedLanguages: [
+            'zh-CN',
+            'ja-JP',
+            'fr-FR',
+            'unsupported',
+            'ja-JP',
+        ],
+        translationBlocks: [{
+            id: 'translation-0-0-7-heading',
+            markdown: '# \u8bba\u6587',
+        }],
+        translatedMarkdown: '# \u8bba\u6587',
+        comparisonMarkdown: '# Paper\n\n# \u8bba\u6587',
+        onTranslateDocument: () => {},
+        onSetTranslationView: () => {},
+        onSelectTranslationLanguage: language => {
+            selectedLanguages.push(language);
+        },
+    });
+    const first = createView(model);
+    const second = createView(model);
+    const trigger = first.shadow.querySelector(
+        '[data-translation-view="translated"]'
+    );
+    const menu = first.shadow.querySelector(
+        '#mktero-translation-language-options'
+    );
+    const options = () => [...menu.querySelectorAll(
+        '[data-translation-language]'
+    )];
+
+    try {
+        let focused = '';
+        trigger.focus = () => { focused = 'trigger'; };
+        for (const option of options()) {
+            const language = option.getAttribute('data-translation-language');
+            option.focus = () => { focused = language; };
+        }
+        assert.equal(trigger.getAttribute('aria-haspopup'), 'listbox');
+        assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+        assert.equal(
+            trigger.querySelector('[data-lucide="chevron-down"]')?.hidden,
+            false
+        );
+        assert.equal(menu.hidden, true);
+
+        trigger.click();
+        assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+        assert.equal(menu.hidden, false);
+        assert.deepEqual(options().map(option => ({
+            language: option.getAttribute('data-translation-language'),
+            label: option.textContent.trim(),
+            selected: option.getAttribute('aria-selected'),
+        })), [{
+            language: 'zh-CN',
+            label: 'Simplified Chinese',
+            selected: 'true',
+        }, {
+            language: 'ja-JP',
+            label: 'Japanese',
+            selected: 'false',
+        }, {
+            language: 'fr-FR',
+            label: 'French',
+            selected: 'false',
+        }]);
+        assert.equal(
+            second.shadow.querySelector('#mktero-translation-language-options')
+                .hidden,
+            true
+        );
+
+        options()[1].click();
+        assert.deepEqual(selectedLanguages, ['ja-JP']);
+        assert.equal(menu.hidden, true);
+        assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+
+        dispatchKeyboardEvent(trigger, 'ArrowDown');
+        assert.equal(menu.hidden, false);
+        assert.equal(focused, 'zh-CN');
+        dispatchKeyboardEvent(options()[0], 'ArrowDown');
+        assert.equal(focused, 'ja-JP');
+        dispatchKeyboardEvent(options()[1], 'Escape');
+        assert.equal(menu.hidden, true);
+        assert.equal(focused, 'trigger');
+
+        trigger.click();
+        const outside = first.document.createElement('div');
+        first.document.body.appendChild(outside);
+        outside.dispatchEvent(new first.document.defaultView.Event('mousedown', {
+            bubbles: true,
+        }));
+        assert.equal(menu.hidden, true);
+    }
+    finally {
+        first.view.destroy();
+        second.view.destroy();
+    }
+});
+
 test('cycles translated reading modes with arrow keys and roving focus', () => {
     const modes = [];
     const model = createModel({

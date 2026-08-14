@@ -432,6 +432,10 @@ test('exposes and refreshes document translation actions on the tab model', asyn
         ]),
         onCancelDocumentTranslation: () => calls.push(['cancel-first']),
         onSetTranslationView: view => calls.push(['view-first', view]),
+        onSelectTranslationLanguage: language => calls.push([
+            'language-first',
+            language,
+        ]),
     });
     const second = presenter.open(42, {
         onTranslateDocument: options => calls.push([
@@ -440,11 +444,16 @@ test('exposes and refreshes document translation actions on the tab model', asyn
         ]),
         onCancelDocumentTranslation: () => calls.push(['cancel-second']),
         onSetTranslationView: view => calls.push(['view-second', view]),
+        onSelectTranslationLanguage: language => calls.push([
+            'language-second',
+            language,
+        ]),
     });
 
     second.model.onTranslateDocument({ forceRetranslate: true });
     second.model.onCancelDocumentTranslation();
     second.model.onSetTranslationView('compare');
+    second.model.onSelectTranslationLanguage('ja-JP');
 
     assert.equal(first.model, second.model);
     assert.equal(second.model.translationView, 'original');
@@ -453,6 +462,7 @@ test('exposes and refreshes document translation actions on the tab model', asyn
         ['translate-second', { forceRetranslate: true }],
         ['cancel-second'],
         ['view-second', 'compare'],
+        ['language-second', 'ja-JP'],
     ]);
 });
 

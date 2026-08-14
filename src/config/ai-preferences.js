@@ -45,7 +45,7 @@ const AI_REASONING_LEVELS = new Set([
     'high',
     'xhigh',
 ]);
-const AI_TARGET_LANGUAGES = new Set([
+export const AI_TARGET_LANGUAGES = Object.freeze([
     'zh-CN',
     'zh-TW',
     'en-US',
@@ -55,6 +55,7 @@ const AI_TARGET_LANGUAGES = new Set([
     'fr-FR',
     'pt-BR',
 ]);
+const AI_TARGET_LANGUAGE_SET = new Set(AI_TARGET_LANGUAGES);
 const AI_PROTOCOLS_BY_PROVIDER = Object.freeze({
     [AI_PROVIDER_OPENAI]: Object.freeze([
         AI_PROTOCOL_OPENAI_RESPONSES,
@@ -232,7 +233,7 @@ export function normalizeTargetLanguage(value) {
 }
 
 export function isSupportedAITargetLanguage(value) {
-    return AI_TARGET_LANGUAGES.has(String(value || '').trim());
+    return AI_TARGET_LANGUAGE_SET.has(String(value || '').trim());
 }
 
 export function normalizeReasoning(value) {
