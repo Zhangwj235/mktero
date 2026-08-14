@@ -99,8 +99,9 @@ visible text is sufficient.
    translation action separated from reading mode. Once a translation is
    available, its reading-mode tab displays the target language directly
    instead of repeating that language in a separate label. Select that tab to
-   choose among the document's complete cached translations; incomplete or
-   missing languages are omitted. Simplified Chinese,
+   open a language menu: complete translations switch immediately, while
+   incomplete or untranslated languages continue or start translation when
+   selected. Simplified Chinese,
    Traditional Chinese, Japanese, and Korean translated text automatically use
    language-aware academic serif fallbacks. In Translation mode, the font
    picker changes to academic fonts for the translation language; Original and
@@ -159,8 +160,10 @@ is always an explicit action and never rewrites the source Markdown or becomes
 part of a saved snapshot. Streaming is enabled by default for provider
 transport. While translation is running, the toolbar
 action shows a loading spinner, target language, translated block count, and
-percentage; it remains available as `Cancel translation`, so select it again to
-stop the request. Existing original, translated, and bilingual views remain
+percentage. Before any complete translation exists, the action remains
+available as `Cancel translation`; after one exists, cancellation moves into
+the translation-language menu so the current document remains readable.
+Existing original, translated, and bilingual views remain
 available while a retry runs in the background. The reader switches to the
 translated document after all requested batches settle. An incomplete result remains
 visible, marks every source-text fallback, and supports retrying all incomplete
@@ -182,7 +185,8 @@ Bilingual mode, PDF annotations, source navigation, sourced copy, and new
 Markdown annotations remain available on source blocks; translated blocks do
 not expose source-only actions. Bilingual blocks remain visually stable while
 reading and do not expose per-block translation actions. `Retranslate document`
-in the More menu regenerates the complete translation with the current settings.
+in the More menu regenerates the visible language with the current provider and
+model settings.
 
 All AI calls pass through Vercel AI SDK Core. Mktero includes adapters for
 OpenAI, Anthropic, Google Gemini, DeepSeek, Alibaba Cloud Model Studio,
@@ -196,17 +200,17 @@ authentication is disabled.
 
 The translated blocks are stored inside the corresponding PDF Markdown cache
 entry and keyed by source content, provider, protocol, model, target language,
-and prompt version. Each target language keeps an independent result. Changing
-the configured language leaves the current reading view in place while Mktero
-checks that language's cache; a complete hit replaces the translation in the
-open tab immediately. The primary translation action stays hidden while any
-complete translation is readable; partial translations expose a retry action,
-and a different language can be generated from `Retranslate document` in the
-More menu. Partial caches resume their missing blocks instead of being treated
-as complete. The translated reading-mode tab lists every complete cached language
-for the current document and model configuration. Choosing one switches the
-visible translation without changing the default language in Settings or
-sending another AI request. The translated and bilingual reading documents are
+and prompt version. Each target language keeps an independent result. The
+language configured in Settings is only the default for the first translation
+of a document; changing it never replaces, cancels, or starts translation in an
+open Markdown tab. Once any complete translation exists, the primary
+translation action stays hidden. The translated reading-mode tab opens a menu
+containing every supported language for the current document and model
+configuration. Choosing a complete language switches the cached translation
+without another request. Choosing an incomplete or untranslated language
+continues or starts that language's translation without changing the default
+in Settings. Partial caches resume their missing blocks instead of being
+treated as complete. The translated and bilingual reading documents are
 rebuilt from the cached blocks in source order, so presentation updates do not
 require another AI request. Clearing, replacing, or evicting that Markdown
 cache entry removes all of its translations. Lists, blockquotes, and GFM tables

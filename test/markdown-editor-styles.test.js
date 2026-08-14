@@ -645,7 +645,12 @@ test('wraps translation controls at narrow reader widths', () => {
 test('anchors the cached translation language menu below the mode selector', () => {
     const view = ruleBody('.markdown-translation-view');
     const menu = ruleBody('.markdown-translation-language-options');
+    const group = ruleBody('.markdown-translation-language-group');
     const option = ruleBody('.markdown-translation-language-option');
+    const disabledOption = ruleBody(
+        '.markdown-translation-language-option:disabled'
+    );
+    const cancel = ruleBody('.markdown-translation-language-cancel');
     const lastButton = ruleBody(
         '.markdown-translation-view-button:last-of-type'
     );
@@ -655,7 +660,14 @@ test('anchors the cached translation language menu below the mode selector', () 
     assert.match(menu, /top:\s*calc\(100% \+ 6px\)/);
     assert.match(menu, /left:\s*50%/);
     assert.match(menu, /transform:\s*translateX\(-50%\)/);
+    assert.match(group, /display:\s*grid/);
     assert.match(option, /grid-template-columns:\s*14px minmax\(0, 1fr\)/);
+    assert.match(disabledOption, /opacity:\s*0\.55/);
+    assert.match(cancel, /border-top:\s*1px solid var\(--border-subtle\)/);
+    assert.match(
+        MARKDOWN_STYLES,
+        /data-translation-status='translating'[\s\S]*animation:\s*mktero-spin/
+    );
     assert.match(lastButton, /border-radius:/);
 });
 

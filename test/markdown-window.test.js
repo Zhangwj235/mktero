@@ -641,8 +641,9 @@ test('translates the document and switches between three reading modes', async (
     }
 });
 
-test('chooses complete cached translation languages from the translated tab', () => {
+test('chooses translated, incomplete, and new languages from the translated tab', () => {
     const selectedLanguages = [];
+    const canceledTranslations = [];
     const model = createModel({
         status: 'ready',
         progress: 100,
@@ -654,10 +655,10 @@ test('chooses complete cached translation languages from the translated tab', ()
         translationCachedLanguages: [
             'zh-CN',
             'ja-JP',
-            'fr-FR',
             'unsupported',
             'ja-JP',
         ],
+        translationPartialLanguages: ['fr-FR', 'unsupported'],
         translationBlocks: [{
             id: 'translation-0-0-7-heading',
             markdown: '# \u8bba\u6587',
@@ -665,6 +666,9 @@ test('chooses complete cached translation languages from the translated tab', ()
         translatedMarkdown: '# \u8bba\u6587',
         comparisonMarkdown: '# Paper\n\n# \u8bba\u6587',
         onTranslateDocument: () => {},
+        onCancelDocumentTranslation: () => {
+            canceledTranslations.push('cancel');
+        },
         onSetTranslationView: () => {},
         onSelectTranslationLanguage: language => {
             selectedLanguages.push(language);
@@ -689,7 +693,7 @@ test('chooses complete cached translation languages from the translated tab', ()
             const language = option.getAttribute('data-translation-language');
             option.focus = () => { focused = language; };
         }
-        assert.equal(trigger.getAttribute('aria-haspopup'), 'listbox');
+        assert.equal(trigger.getAttribute('aria-haspopup'), 'menu');
         assert.equal(trigger.getAttribute('aria-expanded'), 'false');
         assert.equal(
             trigger.querySelector('[data-lucide="chevron-down"]')?.hidden,
@@ -700,21 +704,53 @@ test('chooses complete cached translation languages from the translated tab', ()
         trigger.click();
         assert.equal(trigger.getAttribute('aria-expanded'), 'true');
         assert.equal(menu.hidden, false);
+        assert.deepEqual([...menu.querySelectorAll(
+            '.markdown-translation-language-group-label'
+        )].map(label => label.textContent), ['Translated', 'Translate to']);
         assert.deepEqual(options().map(option => ({
             language: option.getAttribute('data-translation-language'),
             label: option.textContent.trim(),
-            selected: option.getAttribute('aria-selected'),
+            status: option.getAttribute('data-translation-status'),
+            selected: option.getAttribute('aria-checked'),
         })), [{
             language: 'zh-CN',
             label: 'Simplified Chinese',
+            status: 'complete',
             selected: 'true',
         }, {
             language: 'ja-JP',
             label: 'Japanese',
+            status: 'complete',
+            selected: 'false',
+        }, {
+            language: 'zh-TW',
+            label: 'Traditional Chinese',
+            status: 'missing',
+            selected: 'false',
+        }, {
+            language: 'en-US',
+            label: 'English',
+            status: 'missing',
+            selected: 'false',
+        }, {
+            language: 'ko-KR',
+            label: 'Korean',
+            status: 'missing',
+            selected: 'false',
+        }, {
+            language: 'es-ES',
+            label: 'Spanish',
+            status: 'missing',
             selected: 'false',
         }, {
             language: 'fr-FR',
             label: 'French',
+            status: 'partial',
+            selected: 'false',
+        }, {
+            language: 'pt-BR',
+            label: 'Portuguese (Brazil)',
+            status: 'missing',
             selected: 'false',
         }]);
         assert.equal(
@@ -743,6 +779,32 @@ test('chooses complete cached translation languages from the translated tab', ()
         outside.dispatchEvent(new first.document.defaultView.Event('mousedown', {
             bubbles: true,
         }));
+        assert.equal(menu.hidden, true);
+
+        first.view.render({
+            ...model,
+            translationStatus: 'loading',
+            translationRequestedTargetLanguage: 'ko-KR',
+            translationCachedLanguages: [],
+        });
+        assert.equal(
+            first.shadow.querySelector('#mktero-translate-document').hidden,
+            true
+        );
+        assert.equal(trigger.getAttribute('aria-haspopup'), 'menu');
+        trigger.click();
+        assert.equal(menu.hidden, false);
+        assert.equal(
+            options()[0].getAttribute('data-translation-status'),
+            'complete'
+        );
+        assert.equal(options().every(option => option.disabled), true);
+        const cancel = menu.querySelector(
+            '#mktero-cancel-translation-language'
+        );
+        assert.equal(cancel.hidden, false);
+        cancel.click();
+        assert.deepEqual(canceledTranslations, ['cancel']);
         assert.equal(menu.hidden, true);
     }
     finally {

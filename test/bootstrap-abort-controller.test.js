@@ -225,7 +225,7 @@ test('aborts live AI SDK requests across bootstrap translation lifecycles', {
     assert.ok(errors.every(error => !String(error).includes('test-token')));
 });
 
-test('switches open tabs only to complete cached target-language translations', {
+test('uses the language menu without changing the default translation language', {
     timeout: 10_000,
 }, async t => {
     const previousGlobals = captureGlobals([
@@ -268,7 +268,8 @@ test('switches open tabs only to complete cached target-language translations', 
     const unregisteredObservers = [];
     const errors = [];
     let toolbarHandler;
-    const providerSignals = [];
+    const providerRequests = [];
+    const providerReplies = [];
     const mainWindow = createMainWindow(AbortController, []);
     const secondMainWindow = createMainWindow(AbortController, []);
     let activeMainWindow = mainWindow;
@@ -320,8 +321,32 @@ test('switches open tabs only to complete cached target-language translations', 
     globalThis.IOUtils = ioUtils;
     globalThis.PathUtils = pathUtils;
     globalThis.Services = { obs: createObserverService() };
-    globalThis.fetch = async (_url, { signal } = {}) => {
-        providerSignals.push(signal);
+    globalThis.fetch = async (_url, { signal, body } = {}) => {
+        const request = {
+            signal,
+            body: JSON.parse(body),
+        };
+        providerRequests.push(request);
+        if (providerReplies.length) {
+            const reply = providerReplies.shift();
+            return new Response(JSON.stringify({
+                id: 'chatcmpl-translation-test',
+                object: 'chat.completion',
+                created: 1,
+                model: 'test-chat',
+                choices: [{
+                    index: 0,
+                    message: {
+                        role: 'assistant',
+                        content: reply(request.body),
+                    },
+                    finish_reason: 'stop',
+                }],
+            }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
         return new Promise((_, reject) => {
             const abort = () => reject(signal.reason || Object.assign(
                 new Error('aborted'),
@@ -401,8 +426,20 @@ test('switches open tabs only to complete cached target-language translations', 
         '[data-translation-language]'
     )];
     assert.deepEqual(languageOptions().map(option => (
-        option.getAttribute('data-translation-language')
-    )), ['zh-CN', 'ja-JP']);
+        [
+            option.getAttribute('data-translation-language'),
+            option.getAttribute('data-translation-status'),
+        ]
+    )), [
+        ['zh-CN', 'complete'],
+        ['ja-JP', 'complete'],
+        ['zh-TW', 'missing'],
+        ['en-US', 'missing'],
+        ['ko-KR', 'missing'],
+        ['es-ES', 'missing'],
+        ['fr-FR', 'partial'],
+        ['pt-BR', 'missing'],
+    ]);
     languageOptions()[0].click();
     await waitFor(() => shadow.textContent.includes('\u8bba\u6587'));
 
@@ -412,46 +449,13 @@ test('switches open tabs only to complete cached target-language translations', 
     assert.match(shadow.textContent, /\u8ad6\u6587/);
     assert.equal(preferences.get('extensions.mktero.aiTargetLanguage'), 'ko-KR');
     assert.equal(translate.hidden, true);
-    assert.equal(providerSignals.length, 0);
+    assert.equal(providerRequests.length, 0);
 
-    const originalGetCached = MarkdownTranslationService.prototype
-        .getCachedDocumentTranslation;
-    t.after(() => {
-        MarkdownTranslationService.prototype.getCachedDocumentTranslation =
-            originalGetCached;
-    });
-    let releaseChineseCacheRead;
-    let resolveChineseCacheReadStarted;
-    const chineseCacheReadStarted = new Promise(resolve => {
-        resolveChineseCacheReadStarted = resolve;
-    });
-    const chineseCacheReadGate = new Promise(resolve => {
-        releaseChineseCacheRead = resolve;
-    });
-    let delayChineseCacheRead = true;
-    MarkdownTranslationService.prototype.getCachedDocumentTranslation =
-        async function (options) {
-            if (delayChineseCacheRead && options.targetLanguage === 'zh-CN') {
-                resolveChineseCacheReadStarted();
-                await chineseCacheReadGate;
-            }
-            return originalGetCached.call(this, options);
-        };
     preferences.set('extensions.mktero.aiTargetLanguage', 'zh-CN');
     const chineseChange = preferenceObservers.get(
         'extensions.mktero.aiTargetLanguage'
     ).callback('zh-CN');
-    await chineseCacheReadStarted;
-    translatedMode.click();
-    languageOptions().find(option => (
-        option.getAttribute('data-translation-language') === 'ja-JP'
-    )).click();
-    await waitFor(() => translatedMode.textContent === 'Japanese');
-    delayChineseCacheRead = false;
-    releaseChineseCacheRead();
     await chineseChange;
-    MarkdownTranslationService.prototype.getCachedDocumentTranslation =
-        originalGetCached;
     assert.equal(translatedMode.textContent, 'Japanese');
     assert.match(shadow.textContent, /\u8ad6\u6587/);
     assert.equal(translate.hidden, true);
@@ -489,86 +493,79 @@ test('switches open tabs only to complete cached target-language translations', 
     assert.equal(translate.hidden, true);
     assert.equal(translatedMode.getAttribute('aria-checked'), 'true');
     assert.match(shadow.textContent, /\u8ad6\u6587/);
-    assert.equal(secondTranslatedMode.textContent, 'Japanese');
+    assert.equal(secondTranslatedMode.textContent, 'Simplified Chinese');
     assert.equal(secondTranslatedMode.getAttribute('aria-checked'), 'true');
-    assert.match(secondShadow.textContent, /\u8ad6\u6587/);
+    assert.match(secondShadow.textContent, /\u8bba\u6587/);
 
-    const originalTranslateDocument = MarkdownTranslationService.prototype
-        .translateDocument;
-    const originalListCached = MarkdownTranslationService.prototype
-        .listCachedDocumentTranslations;
-    let releaseCachedLanguageRefresh;
-    let resolveCachedLanguageRefreshStarted;
-    const cachedLanguageRefreshStarted = new Promise(resolve => {
-        resolveCachedLanguageRefreshStarted = resolve;
-    });
-    const cachedLanguageRefreshGate = new Promise(resolve => {
-        releaseCachedLanguageRefresh = resolve;
-    });
-    t.after(() => {
-        releaseCachedLanguageRefresh();
-        MarkdownTranslationService.prototype.translateDocument =
-            originalTranslateDocument;
-        MarkdownTranslationService.prototype.listCachedDocumentTranslations =
-            originalListCached;
-    });
-    MarkdownTranslationService.prototype.translateDocument =
-        async function (options) {
-            await putCachedTranslation(cache, cacheKey, markdown, {
-                targetLanguage: 'ja-JP',
-                translatedMarkdown: markdown,
-                partial: true,
-            });
-            return originalGetCached.call(this, {
-                documentKey: options.documentKey,
-                markdown: options.markdown,
-                targetLanguage: 'ja-JP',
-            });
-        };
-    MarkdownTranslationService.prototype.listCachedDocumentTranslations =
-        async function (options) {
-            resolveCachedLanguageRefreshStarted();
-            await cachedLanguageRefreshGate;
-            return originalListCached.call(this, options);
-        };
-    shadow.querySelector('#mktero-document-actions').click();
-    shadow.querySelector('#mktero-retranslate-document').click();
-    await cachedLanguageRefreshStarted;
     translatedMode.click();
-    assert.deepEqual(languageOptions().map(option => (
-        option.getAttribute('data-translation-language')
-    )), ['zh-CN']);
-    releaseCachedLanguageRefresh();
-    await waitFor(() => shadow.querySelector(
-        '.markdown-translation-failure-navigation'
-    ).hidden === false);
-    MarkdownTranslationService.prototype.translateDocument =
-        originalTranslateDocument;
-    MarkdownTranslationService.prototype.listCachedDocumentTranslations =
-        originalListCached;
-
-    preferences.set('extensions.mktero.aiTargetLanguage', 'fr-FR');
-    const frenchChange = preferenceObservers.get(
-        'extensions.mktero.aiTargetLanguage'
-    ).callback('fr-FR');
-    assert.equal(translate.hidden, false);
-    await frenchChange;
+    languageOptions().find(option => (
+        option.getAttribute('data-translation-language') === 'ko-KR'
+    )).click();
+    const koreanRequest = await waitFor(() => providerRequests[0]);
+    assert.match(koreanRequest.body.messages[0].content, /Korean/);
+    assert.equal(preferences.get('extensions.mktero.aiTargetLanguage'), 'ja-JP');
+    assert.equal(translate.hidden, true);
     assert.equal(translatedMode.textContent, 'Japanese');
-    assert.equal(translatedMode.getAttribute('aria-checked'), 'true');
-    assert.doesNotMatch(shadow.textContent, /\u8ad6\u6587/);
-
-    translate.click();
-    const frenchSignal = await waitFor(() => providerSignals[0]);
+    assert.match(shadow.textContent, /\u8ad6\u6587/);
     preferences.set('extensions.mktero.aiTargetLanguage', 'es-ES');
-    const spanishChange = preferenceObservers.get(
+    await preferenceObservers.get(
         'extensions.mktero.aiTargetLanguage'
     ).callback('es-ES');
-    assert.equal(translate.getAttribute('aria-label'), 'Translate document');
-    assert.equal(translate.getAttribute('aria-busy'), 'false');
+    assert.equal(koreanRequest.signal.aborted, false);
     assert.equal(translatedMode.textContent, 'Japanese');
-    assert.doesNotMatch(shadow.textContent, /\u8ad6\u6587/);
-    await spanishChange;
-    assert.equal(frenchSignal.aborted, true);
+    translatedMode.click();
+    shadow.querySelector('#mktero-cancel-translation-language').click();
+    await waitFor(() => koreanRequest.signal.aborted);
+    await waitFor(() => translatedMode.getAttribute('aria-expanded') === 'false');
+    await waitFor(() => languageOptions().every(option => !option.disabled));
+
+    translatedMode.click();
+    languageOptions().find(option => (
+        option.getAttribute('data-translation-language') === 'fr-FR'
+    )).click();
+    const frenchRequest = await waitFor(() => providerRequests[1]);
+    assert.match(frenchRequest.body.messages[0].content, /French/);
+    assert.equal(preferences.get('extensions.mktero.aiTargetLanguage'), 'es-ES');
+    assert.equal(translatedMode.textContent, 'Japanese');
+    assert.match(shadow.textContent, /\u8ad6\u6587/);
+    translatedMode.click();
+    shadow.querySelector('#mktero-cancel-translation-language').click();
+    await waitFor(() => frenchRequest.signal.aborted);
+    await waitFor(() => languageOptions().every(option => !option.disabled));
+
+    providerReplies.push(body => JSON.stringify(
+        JSON.parse(body.messages.at(-1).content).map(entry => ({
+            id: entry.id,
+            translatedMarkdown: '# 한국어 논문',
+        }))
+    ));
+    translatedMode.click();
+    languageOptions().find(option => (
+        option.getAttribute('data-translation-language') === 'ko-KR'
+    )).click();
+    await waitFor(() => translatedMode.textContent === 'Korean');
+    assert.match(shadow.textContent, /한국어 논문/);
+    assert.equal(preferences.get('extensions.mktero.aiTargetLanguage'), 'es-ES');
+    assert.equal(translate.hidden, true);
+
+    const invalidReply = body => JSON.stringify(
+        JSON.parse(body.messages.at(-1).content).map(entry => ({
+            id: entry.id,
+            translatedMarkdown: '<script>invalid</script>',
+        }))
+    );
+    providerReplies.push(invalidReply, invalidReply, invalidReply);
+    shadow.querySelector('#mktero-document-actions').click();
+    shadow.querySelector('#mktero-retranslate-document').click();
+    await waitFor(() => providerRequests.length === 6);
+    await waitFor(() => languageOptions().every(option => !option.disabled));
+    assert.equal(translatedMode.textContent, 'Korean');
+    assert.match(shadow.textContent, /한국어 논문/);
+    assert.equal(translate.hidden, true);
+    translatedMode.click();
+    assert.equal(languageOptions().find(option => (
+        option.getAttribute('data-translation-language') === 'ko-KR'
+    )).getAttribute('data-translation-status'), 'complete');
     assert.ok(errors.some(error => error?.name === 'AbortError'));
     assert.ok(errors.every(error => !String(error).includes('test-token')));
 

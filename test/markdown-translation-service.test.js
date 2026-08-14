@@ -148,6 +148,45 @@ test('streams the complete document by default and uses the selected language', 
     assert.equal(result.translatedMarkdown, '# Article traduit');
 });
 
+test('translates an explicitly selected language without changing the default', async () => {
+    const requests = [];
+    const cacheInputs = [];
+    const settings = {
+        ...SETTINGS,
+        streaming: false,
+        targetLanguage: 'zh-CN',
+    };
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                requests.push(request);
+                return {
+                    text: translateSingleBlockRequest(
+                        request.messages[1].content,
+                        '# 한국어 논문'
+                    ),
+                };
+            },
+        },
+        getSettings: () => settings,
+        createCacheKey: async value => {
+            cacheInputs.push(JSON.parse(value));
+            return 'c'.repeat(64);
+        },
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+        targetLanguage: 'ko-KR',
+    });
+
+    assert.match(requests[0].messages[0].content, /Korean/);
+    assert.equal(cacheInputs[0].targetLanguage, 'ko-KR');
+    assert.equal(result.targetLanguage, 'ko-KR');
+    assert.equal(settings.targetLanguage, 'zh-CN');
+});
+
 test('reports provider stages before validating the complete translation', async () => {
     const progress = [];
     const service = new MarkdownTranslationService({
@@ -243,6 +282,7 @@ test('keeps a completed document translation when caching fails', async () => {
     });
 
     assert.equal(result.translatedMarkdown, '# 论文');
+    assert.equal(result.cacheStatus, 'missing');
     assert.deepEqual(cacheErrors, ['disk full']);
 });
 
@@ -282,11 +322,12 @@ test('continues translating without persistence when cache hashing fails', async
     assert.equal(cached, null);
     assert.equal(result.translatedMarkdown, '# 论文');
     assert.equal(result.translationKey, null);
+    assert.equal(result.cacheStatus, 'missing');
     assert.equal(providerCalls, 1);
     assert.deepEqual(cacheErrors, ['hash unavailable', 'hash unavailable']);
 });
 
-test('lists only complete cached document translations for every language', async () => {
+test('lists complete and partial cached translations for every language', async () => {
     const blockID = 'translation-0-0-7-heading';
     const cachedByLanguage = new Map([
         ['zh-CN', {
@@ -352,16 +393,20 @@ test('lists only complete cached document translations for every language', asyn
         markdown: '# Paper',
         targetLanguage: 'ja-JP',
     });
-    const cached = await service.listCachedDocumentTranslations({
+    const variants = await service.listCachedDocumentTranslationVariants({
         documentKey: 'a'.repeat(64),
         markdown: '# Paper',
     });
 
     assert.equal(japanese.targetLanguage, 'ja-JP');
     assert.equal(japanese.translatedMarkdown, '# \u8ad6\u6587');
-    assert.deepEqual(cached.map(result => result.targetLanguage), [
-        'zh-CN',
-        'ja-JP',
+    assert.deepEqual(variants.map(result => [
+        result.targetLanguage,
+        result.partial,
+    ]), [
+        ['zh-CN', false],
+        ['ja-JP', false],
+        ['fr-FR', true],
     ]);
     assert.equal(providerCalls.length, 0);
 });
@@ -675,6 +720,7 @@ test('loads a complete document translation without calling the provider', async
         }],
         translationKey: 'c'.repeat(64),
         cacheHit: true,
+        cacheStatus: 'complete',
         totalBlocks: 1,
         completedBlocks: 1,
     });
@@ -770,6 +816,79 @@ test('reports cached partial translations but retries them on explicit translati
     assert.equal(retried.partial, false);
     assert.equal(retried.translatedMarkdown, '# 论文');
     assert.equal(providerCalls, 1);
+});
+
+test('resumes a selected partial language while another language is visible', async () => {
+    const markdown = '# Paper\n\nParagraph.';
+    const headingID = 'translation-0-0-7-heading';
+    const paragraphID = 'translation-1-9-19-paragraph';
+    const cachedFrench = {
+        translatedMarkdown: '# Article\n\nParagraph.',
+        comparisonMarkdown: '',
+        blocks: [{
+            id: headingID,
+            markdown: '# Article',
+        }, {
+            id: paragraphID,
+            markdown: 'Paragraph.',
+        }],
+        model: 'cached-model',
+        targetLanguage: 'fr-FR',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: true,
+        failedBlocks: [{
+            id: paragraphID,
+            message: 'Invalid response',
+        }],
+    };
+    const requests = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                requests.push(request);
+                return {
+                    text: translateSingleBlockRequest(
+                        request.messages[1].content,
+                        'Paragraphe.'
+                    ),
+                };
+            },
+        },
+        cache: {
+            getTranslation: async (_documentKey, translationKey) => (
+                translationKey === 'f'.repeat(64) ? cachedFrench : null
+            ),
+            putTranslation: async () => {},
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async value => (
+            JSON.parse(value).targetLanguage === 'fr-FR'
+                ? 'f'.repeat(64)
+                : 'j'.repeat(64)
+        ),
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown,
+        targetLanguage: 'fr-FR',
+        existingTranslation: {
+            translationKey: 'j'.repeat(64),
+            blocks: [{ id: headingID, markdown: '# \u8ad6\u6587' }],
+            failedBlocks: [],
+            targetLanguage: 'ja-JP',
+        },
+    });
+
+    assert.equal(requests.length, 1);
+    assert.match(requests[0].messages[0].content, /French/);
+    assert.deepEqual(
+        parseTranslationRequest(requests[0].messages[1].content),
+        [{ id: paragraphID, sourceMarkdown: 'Paragraph.' }]
+    );
+    assert.equal(result.partial, false);
+    assert.equal(result.targetLanguage, 'fr-FR');
+    assert.equal(result.translatedMarkdown, '# Article\n\nParagraphe.');
 });
 
 test('treats a cached translation with a missing block as partial and repairs it', async () => {
@@ -1165,6 +1284,57 @@ test('forces a fresh full translation instead of returning a complete cache hit'
         completed: 0,
         total: 2,
     });
+});
+
+test('does not replace a complete cache with a partial retranslation', async () => {
+    const cached = {
+        translatedMarkdown: '# \u8bba\u6587',
+        blocks: [{
+            id: 'translation-0-0-7-heading',
+            markdown: '# \u8bba\u6587',
+        }],
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const writes = [];
+    let providerCalls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                providerCalls++;
+                return {
+                    text: translateSingleBlockRequest(
+                        request.messages[1].content,
+                        '<script>invalid</script>'
+                    ),
+                };
+            },
+        },
+        cache: {
+            getTranslation: async () => cached,
+            putTranslation: async (...args) => writes.push(args),
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+        forceRetranslate: true,
+        existingTranslation: {
+            ...cached,
+            translationKey: 'c'.repeat(64),
+        },
+    });
+
+    assert.equal(providerCalls, 3);
+    assert.equal(result.partial, true);
+    assert.equal(result.cacheStatus, 'complete');
+    assert.deepEqual(writes, []);
 });
 
 test('retranslates every block when a visible retry uses changed settings', async () => {

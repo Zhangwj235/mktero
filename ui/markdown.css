@@ -1133,6 +1133,23 @@ main {
     display: none;
 }
 
+.markdown-translation-language-group {
+    display: grid;
+    gap: 2px;
+}
+
+.markdown-translation-language-group + .markdown-translation-language-group {
+    margin-top: 3px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.markdown-translation-language-group-label {
+    padding: 4px 7px 2px;
+    color: var(--muted);
+    font: 600 10px/1.2 var(--ui-font);
+}
+
 .markdown-translation-language-option {
     display: grid;
     width: 100%;
@@ -1157,7 +1174,12 @@ main {
     background: color-mix(in srgb, var(--accent) 9%, var(--surface-raised));
 }
 
-.markdown-translation-language-option[aria-selected='true'] {
+.markdown-translation-language-option:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.markdown-translation-language-option[aria-checked='true'] {
     color: var(--accent-strong);
     background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
     font-weight: 600;
@@ -1167,9 +1189,30 @@ main {
     opacity: 0;
 }
 
-.markdown-translation-language-option[aria-selected='true']
+.markdown-translation-language-option[aria-checked='true']
     .markdown-translation-language-option-check {
     opacity: 1;
+}
+
+.markdown-translation-language-option[data-translation-status='partial']
+    .markdown-translation-language-option-check,
+.markdown-translation-language-option[data-translation-status='translating']
+    .markdown-translation-language-option-check,
+.markdown-translation-language-cancel
+    .markdown-translation-language-option-check {
+    opacity: 1;
+}
+
+.markdown-translation-language-option[data-translation-status='translating']
+    .markdown-translation-language-option-check {
+    animation: mktero-spin 900ms linear infinite;
+}
+
+.markdown-translation-language-cancel {
+    margin-top: 3px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border-subtle);
+    color: var(--muted);
 }
 
 .markdown-translation-language-option-label {

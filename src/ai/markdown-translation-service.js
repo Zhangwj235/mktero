@@ -94,7 +94,7 @@ export class MarkdownTranslationService {
         );
     }
 
-    async listCachedDocumentTranslations({ documentKey, markdown }) {
+    async listCachedDocumentTranslationVariants({ documentKey, markdown }) {
         if (!this.cache?.getTranslation) return [];
         const source = String(markdown || '');
         const normalizedDocumentKey = translationIdentifier(documentKey);
@@ -112,7 +112,7 @@ export class MarkdownTranslationService {
                         source,
                         settings
                     );
-                return result && !result.partial ? result : null;
+                return result;
             }
         ));
         return cached.filter(Boolean);
@@ -126,8 +126,22 @@ export class MarkdownTranslationService {
         retryBlockIDs = null,
         existingTranslation = null,
         forceRetranslate = false,
+        targetLanguage,
     }) {
-        const settings = validateAISettings(this.getSettings());
+        const configuredSettings = this.getSettings();
+        const selectedLanguage = targetLanguage === undefined
+            ? configuredSettings.targetLanguage
+            : String(targetLanguage || '').trim();
+        if (!isSupportedAITargetLanguage(selectedLanguage)) {
+            throw aiError(
+                'The translation target language is invalid',
+                'AI_INVALID_REQUEST'
+            );
+        }
+        const settings = validateAISettings({
+            ...configuredSettings,
+            targetLanguage: selectedLanguage,
+        });
         const source = String(markdown || '');
         if (!source.trim()) {
             throw aiError('The translation source is empty', 'AI_INVALID_REQUEST');
@@ -255,13 +269,23 @@ export class MarkdownTranslationService {
             failedBlocks: mergedFailures,
         };
         throwIfDocumentAborted(signal);
-        if (translationKey && this.cache?.putTranslation) {
+        let cacheStatus = cached?.partial ? 'partial'
+            : cached ? 'complete' : 'missing';
+        const preservesCompleteCache = value.partial
+            && (
+                cached && !cached.partial
+                || visible && !visible.partial
+            );
+        if (translationKey
+            && this.cache?.putTranslation
+            && !preservesCompleteCache) {
             try {
                 await this.cache.putTranslation(
                     normalizedDocumentKey,
                     translationKey,
                     value
                 );
+                cacheStatus = value.partial ? 'partial' : 'complete';
             }
             catch (error) {
                 this.onCacheError(error);
@@ -281,6 +305,7 @@ export class MarkdownTranslationService {
             sourceMarkdown: source,
             settingsIdentity,
             cacheHit: false,
+            cacheStatus,
             totalBlocks: translatableBlocks.length,
             completedBlocks,
             usage,
@@ -342,14 +367,16 @@ export class MarkdownTranslationService {
                 ...(cached.failedBlocks || []),
                 ...missingFailures,
             ], blocks);
+            const partial = Boolean(cached.partial) || failedBlocks.length > 0;
             return {
                 ...cached,
                 ...views,
                 blocks: translations,
-                partial: Boolean(cached.partial) || failedBlocks.length > 0,
+                partial,
                 failedBlocks,
                 translationKey,
                 cacheHit: true,
+                cacheStatus: partial ? 'partial' : 'complete',
                 totalBlocks,
                 completedBlocks: totalBlocks - failedBlocks.length,
             };

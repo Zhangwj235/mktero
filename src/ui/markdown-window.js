@@ -12,6 +12,7 @@ import {
 } from '../core/markdown-local-annotations.js';
 import { resolvePDFPageIndexHint } from '../core/markdown-source-map.js';
 import {
+    AI_TARGET_LANGUAGES,
     isSupportedAITargetLanguage,
 } from '../config/ai-preferences.js';
 import {
@@ -1402,7 +1403,7 @@ class MarkdownTabView {
         const translationLanguageOptions = this.createElement('div', {
             id: 'mktero-translation-language-options',
             class: 'markdown-translation-language-options',
-            role: 'listbox',
+            role: 'menu',
             'aria-label': this.t('ai.translationLanguages'),
             'aria-hidden': 'true',
         });
@@ -1681,6 +1682,10 @@ class MarkdownTabView {
             );
             if (!option
                 || !this.elements.translationLanguageOptions.contains(option)) {
+                return;
+            }
+            if (option.hasAttribute('data-translation-cancel')) {
+                this.cancelTranslationFromLanguageMenu();
                 return;
             }
             this.selectTranslationLanguage(
@@ -2054,7 +2059,7 @@ class MarkdownTabView {
     hasTranslationLanguageOptions() {
         return typeof this.model.onSelectTranslationLanguage === 'function'
             && this.translatedViewButton()?.getAttribute('aria-haspopup')
-                === 'listbox'
+                === 'menu'
             && this.translationLanguageOptionButtons().length > 0;
     }
 
@@ -2097,6 +2102,21 @@ class MarkdownTabView {
         }
     }
 
+    cancelTranslationFromLanguageMenu() {
+        if (this.model.translationStatus !== 'loading'
+            || typeof this.model.onCancelDocumentTranslation !== 'function') {
+            return;
+        }
+        this.setTranslationLanguagesOpen(false);
+        this.translatedViewButton()?.focus?.();
+        try {
+            this.model.onCancelDocumentTranslation();
+        }
+        catch (error) {
+            this.reportTranslationError(error);
+        }
+    }
+
     setTranslationLanguagesOpen(open) {
         const button = this.translatedViewButton();
         if (!button) return;
@@ -2114,20 +2134,26 @@ class MarkdownTabView {
             'is-language-menu-open',
             visible
         );
-        for (const option of this.translationLanguageOptionButtons()) {
-            const selected = option.getAttribute('aria-selected') === 'true';
+        for (const option of this.translationLanguageMenuButtons()) {
+            const selected = option.getAttribute('aria-checked') === 'true';
             option.setAttribute('tabindex', visible && selected ? '0' : '-1');
         }
     }
 
     translationLanguageOptionButtons() {
         return [...this.elements.translationLanguageOptions.querySelectorAll(
-            '.markdown-translation-language-option'
+            '[data-translation-language]'
         )];
     }
 
+    translationLanguageMenuButtons() {
+        return [...this.elements.translationLanguageOptions.querySelectorAll(
+            '.markdown-translation-language-option:not([disabled])'
+        )].filter(option => !option.hidden);
+    }
+
     focusTranslationLanguageOption(language, { lastFallback = false } = {}) {
-        const options = this.translationLanguageOptionButtons();
+        const options = this.translationLanguageMenuButtons();
         const target = options.find(option => (
             option.getAttribute('data-translation-language') === language
         )) || options[lastFallback ? options.length - 1 : 0];
@@ -2162,7 +2188,7 @@ class MarkdownTabView {
             option.click();
             return;
         }
-        const options = this.translationLanguageOptionButtons();
+        const options = this.translationLanguageMenuButtons();
         const index = options.indexOf(option);
         let nextIndex;
         if (event.key === 'ArrowDown') {
@@ -2955,6 +2981,7 @@ class MarkdownTabView {
             || loadingView.visible
             || Boolean(this.documentActionBusy);
         const translationReady = hasAvailableTranslation(model);
+        const completeTranslationReady = hasCompleteTranslation(model);
         const translating = model.translationStatus === 'loading';
         const partial = model.translationStatus === 'partial'
             || translating && (model.translationFailedBlocks || []).length > 0;
@@ -2963,10 +2990,12 @@ class MarkdownTabView {
         this.elements.translationViewLabel.hidden = !translationReady;
         this.elements.translationView.hidden = !translationReady;
         this.elements.translationFailureNavigation.hidden = !partial;
-        this.elements.translationSeparator.hidden = translationReady
+        this.elements.translationSeparator.hidden = completeTranslationReady
+            || translationReady
             && !partial
             && !translating;
-        this.elements.translateDocument.hidden = translationReady
+        this.elements.translateDocument.hidden = completeTranslationReady
+            || translationReady
             && !partial
             && !translating;
         this.elements.retranslateDocument.hidden = !translationReady;
@@ -3073,33 +3102,61 @@ class MarkdownTabView {
     syncTranslationLanguageOptions(model, translationReady) {
         const button = this.translatedViewButton();
         if (!button) return;
-        const languages = normalizedCachedTranslationLanguages(
+        const completeLanguages = new Set(normalizedCachedTranslationLanguages(
             model.translationCachedLanguages
-        );
-        const options = languages.map(language => ({
+        ));
+        if (hasVisibleCompleteTranslation(model)
+            && isSupportedAITargetLanguage(model.translationTargetLanguage)) {
+            completeLanguages.add(model.translationTargetLanguage);
+        }
+        const partialLanguages = new Set(normalizedCachedTranslationLanguages(
+            model.translationPartialLanguages
+        ));
+        const translating = model.translationStatus === 'loading';
+        const options = AI_TARGET_LANGUAGES.map(language => ({
             language,
             label: this.t(translationLanguageMessageKey(language)),
+            status: translating
+                && model.translationRequestedTargetLanguage === language
+                ? 'translating'
+                : completeLanguages.has(language)
+                ? 'complete'
+                : partialLanguages.has(language) ? 'partial' : 'missing',
+            disabled: translating,
         }));
-        const signature = JSON.stringify(options);
+        const completeOptions = options.filter(option => (
+            completeLanguages.has(option.language)
+        ));
+        const availableOptions = options.filter(option => (
+            !completeLanguages.has(option.language)
+        ));
+        const groups = [{
+            label: this.t('ai.translationLanguages.complete'),
+            options: completeOptions,
+        }, {
+            label: this.t('ai.translationLanguages.available'),
+            options: availableOptions,
+        }].filter(group => group.options.length);
+        const signature = JSON.stringify({ groups, translating });
         if (signature !== this.translationLanguageSignature) {
             const focused = this.mount.activeElement;
             const optionHadFocus = Boolean(focused)
                 && this.elements.translationLanguageOptions.contains(focused);
             this.setTranslationLanguagesOpen(false);
             this.elements.translationLanguageOptions.replaceChildren(
-                ...options.map(option => (
-                    this.createTranslationLanguageOption(option)
-                ))
+                ...groups.map(group => (
+                    this.createTranslationLanguageGroup(group)
+                )),
+                ...(translating ? [this.createTranslationCancelOption()] : [])
             );
             this.translationLanguageSignature = signature;
             if (optionHadFocus) button.focus?.();
         }
         const available = translationReady
-            && options.length > 0
-            && model.translationStatus !== 'loading'
+            && completeOptions.length > 0
             && typeof model.onSelectTranslationLanguage === 'function';
         if (available) {
-            button.setAttribute('aria-haspopup', 'listbox');
+            button.setAttribute('aria-haspopup', 'menu');
             button.setAttribute(
                 'aria-controls',
                 'mktero-translation-language-options'
@@ -3119,7 +3176,7 @@ class MarkdownTabView {
         for (const option of this.translationLanguageOptionButtons()) {
             const selected = option.getAttribute('data-translation-language')
                 === model.translationTargetLanguage;
-            option.setAttribute('aria-selected', String(selected));
+            option.setAttribute('aria-checked', String(selected));
             option.classList.toggle('is-selected', selected);
             option.setAttribute(
                 'tabindex',
@@ -3128,20 +3185,51 @@ class MarkdownTabView {
         }
     }
 
-    createTranslationLanguageOption({ language, label }) {
+    createTranslationLanguageGroup({ label, options }) {
+        const group = this.createElement('div', {
+            class: 'markdown-translation-language-group',
+            role: 'group',
+            'aria-label': label,
+        });
+        group.appendChild(this.createElement('span', {
+            class: 'markdown-translation-language-group-label',
+            'aria-hidden': 'true',
+        }, label));
+        appendChildren(
+            group,
+            ...options.map(option => this.createTranslationLanguageOption(option))
+        );
+        return group;
+    }
+
+    createTranslationLanguageOption({
+        language,
+        label,
+        status,
+        disabled,
+    }) {
         const button = this.createElement('button', {
             class: 'markdown-translation-language-option',
             type: 'button',
-            role: 'option',
-            'aria-selected': 'false',
+            role: 'menuitemradio',
+            'aria-checked': 'false',
             'data-translation-language': language,
+            'data-translation-status': status,
             tabindex: '-1',
         });
+        const icon = status === 'complete'
+            ? LUCIDE_ICONS.check
+            : status === 'translating'
+                ? LUCIDE_ICONS.loaderCircle
+            : status === 'partial'
+                ? LUCIDE_ICONS.refreshCw
+                : LUCIDE_ICONS.languages;
+        button.disabled = Boolean(disabled);
         appendChildren(
             button,
             createLucideIcon(
                 this.document,
-                LUCIDE_ICONS.check,
+                icon,
                 {
                     className: 'markdown-translation-language-option-check',
                     size: 14,
@@ -3150,6 +3238,29 @@ class MarkdownTabView {
             this.createElement('span', {
                 class: 'markdown-translation-language-option-label',
             }, label)
+        );
+        return button;
+    }
+
+    createTranslationCancelOption() {
+        const button = this.createElement('button', {
+            id: 'mktero-cancel-translation-language',
+            class: 'markdown-translation-language-option '
+                + 'markdown-translation-language-cancel',
+            type: 'button',
+            role: 'menuitem',
+            'data-translation-cancel': '',
+            tabindex: '-1',
+        });
+        appendChildren(
+            button,
+            createLucideIcon(this.document, LUCIDE_ICONS.x, {
+                className: 'markdown-translation-language-option-check',
+                size: 14,
+            }),
+            this.createElement('span', {
+                class: 'markdown-translation-language-option-label',
+            }, this.t('ai.cancelDocumentTranslationCompact'))
         );
         return button;
     }
@@ -4278,6 +4389,20 @@ function hasAvailableTranslation(model) {
             && model.translationBlocks.length > 0
             && typeof model.translatedMarkdown === 'string'
             && typeof model.comparisonMarkdown === 'string';
+}
+
+function hasCompleteTranslation(model) {
+    return hasVisibleCompleteTranslation(model)
+        || normalizedCachedTranslationLanguages(
+            model?.translationCachedLanguages
+        ).length > 0;
+}
+
+function hasVisibleCompleteTranslation(model) {
+    return (model?.translationStatus === 'ready'
+            || model?.translationStatus === 'loading'
+                && (model.translationFailedBlocks || []).length === 0)
+        && hasAvailableTranslation(model);
 }
 
 function hasTranslationLanguageMismatch(model) {
