@@ -16,6 +16,27 @@ test('prefers the plugin global AbortController without consulting Zotero window
     assert.ok(controller instanceof SandboxAbortController);
 });
 
+test('uses the main window AbortController without consulting the hidden window', () => {
+    class MainWindowAbortController {}
+    const controller = createRuntimeAbortController({
+        globalObject: {},
+        zotero: {
+            getMainWindow: () => ({
+                AbortController: MainWindowAbortController,
+            }),
+        },
+        services: {
+            appShell: {
+                get hiddenDOMWindow() {
+                    throw new Error('NS_ERROR_FAILURE');
+                },
+            },
+        },
+    });
+
+    assert.ok(controller instanceof MainWindowAbortController);
+});
+
 test('falls back to the hidden DOM AbortController without a main window', () => {
     class HiddenAbortController {}
     const controller = createRuntimeAbortController({

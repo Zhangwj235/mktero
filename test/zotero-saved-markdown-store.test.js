@@ -264,6 +264,13 @@ test('uses the Zotero main window Blob constructor before the plugin global', ()
         zotero: {
             getMainWindow: () => ({ Blob: BlobType }),
         },
+        services: {
+            appShell: {
+                get hiddenDOMWindow() {
+                    throw new Error('NS_ERROR_FAILURE');
+                },
+            },
+        },
         globalObject: {},
     });
     const originalBlob = globalThis.Blob;
@@ -277,6 +284,23 @@ test('uses the Zotero main window Blob constructor before the plugin global', ()
     finally {
         globalThis.Blob = originalBlob;
     }
+});
+
+test('falls back to the plugin global Blob when Zotero windows are unavailable', () => {
+    class SandboxBlob {}
+    const factory = createZoteroBlobFactory({
+        zotero: { getMainWindow: () => null },
+        services: {
+            appShell: {
+                get hiddenDOMWindow() {
+                    throw new Error('NS_ERROR_FAILURE');
+                },
+            },
+        },
+        globalObject: { Blob: SandboxBlob },
+    });
+
+    assert.ok(factory([], {}) instanceof SandboxBlob);
 });
 
 test('saves source files when Zotero restricts ordinary attachments to regular items', async () => {

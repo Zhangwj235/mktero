@@ -168,6 +168,13 @@ test('bridges Web Streams from the Zotero main window before AI SDK loading', as
     };
     const context = vm.createContext({
         Zotero: { getMainWindow: () => streams },
+        Services: {
+            appShell: {
+                get hiddenDOMWindow() {
+                    throw new Error('NS_ERROR_FAILURE');
+                },
+            },
+        },
     });
     vm.runInContext(source, context);
     assert.equal(context.ReadableStream, streams.ReadableStream);

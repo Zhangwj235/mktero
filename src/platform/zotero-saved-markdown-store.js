@@ -894,21 +894,23 @@ export function createZoteroBlobFactory({
     globalObject = globalThis,
 } = {}) {
     return (parts, options) => {
-        let mainWindow = null;
-        try {
-            mainWindow = zotero?.getMainWindow?.() || null;
+        for (const resolveOwner of [
+            () => zotero?.getMainWindow?.(),
+            () => services?.appShell?.hiddenDOMWindow,
+            () => globalObject,
+        ]) {
+            let BlobType = null;
+            try {
+                BlobType = resolveOwner()?.Blob;
+            }
+            catch {
+                continue;
+            }
+            if (typeof BlobType === 'function') {
+                return new BlobType(parts, options);
+            }
         }
-        catch {
-            mainWindow = null;
-        }
-        const hiddenDOMWindow = services?.appShell?.hiddenDOMWindow || null;
-        const BlobType = [mainWindow, hiddenDOMWindow, globalObject]
-            .map(window => window?.Blob)
-            .find(candidate => typeof candidate === 'function');
-        if (!BlobType) {
-            throw new Error('The Zotero runtime cannot create image attachments');
-        }
-        return new BlobType(parts, options);
+        throw new Error('The Zotero runtime cannot create image attachments');
     };
 }
 
