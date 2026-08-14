@@ -31,6 +31,11 @@ import {
     RenderedTableWidget,
 } from './rendered-table-widget.js';
 import {
+    applyTranslationPresentation,
+    normalizeTranslationPresentation,
+    sameTranslationPresentation,
+} from './translation-presentation.js';
+import {
     appendRenderedMarkdown,
     installRenderedCitations,
     installRenderedImagePreview,
@@ -86,6 +91,7 @@ class RenderedMarkdownWidget extends WidgetType {
         annotations = [],
         extraClassName = '',
         tableCaption = null,
+        translationPresentation = {},
         translate = translateEnglish,
     }) {
         super();
@@ -104,6 +110,9 @@ class RenderedMarkdownWidget extends WidgetType {
         this.annotationKey = JSON.stringify(annotations);
         this.extraClassName = extraClassName;
         this.tableCaption = tableCaption;
+        this.translationPresentation = normalizeTranslationPresentation(
+            translationPresentation
+        );
         this.translate = translate;
     }
 
@@ -116,7 +125,11 @@ class RenderedMarkdownWidget extends WidgetType {
             && this.citationKey === other.citationKey
             && this.annotationKey === other.annotationKey
             && this.extraClassName === other.extraClassName
-            && this.tableCaption?.text === other.tableCaption?.text;
+            && this.tableCaption?.text === other.tableCaption?.text
+            && sameTranslationPresentation(
+                this.translationPresentation,
+                other.translationPresentation
+            );
     }
 
     toDOM(view) {
@@ -128,6 +141,7 @@ class RenderedMarkdownWidget extends WidgetType {
             `cm-mktero-${this.display}`,
             this.extraClassName,
         ].filter(Boolean).join(' ');
+        applyTranslationPresentation(container, this.translationPresentation);
         container.dataset.markdownFrom = String(this.from);
         container.dataset.markdownTo = String(this.from + this.source.length);
         appendRenderedMarkdown(
@@ -2170,6 +2184,11 @@ function dollarWrappedNumericCitationContent(source) {
 
 function renderedRange(node, state, display, context) {
     const source = node.table?.source || state.sliceDoc(node.from, node.to);
+    const translationPresentation = translationPresentationForRange(
+        context,
+        node.from,
+        node.to
+    );
     const tableIsHighlighted = node.tableTarget?.id
         && node.tableTarget.id === context.highlightedTableID;
     const figureIsHighlighted = context.figureReferences.targetsByFrom
@@ -2205,6 +2224,7 @@ function renderedRange(node, state, display, context) {
                 restoreCorrection: context.restoreCorrection,
                 onCorrectionError: context.onCorrectionError,
                 onCorrectionEditingChange: context.onCorrectionEditingChange,
+                translationPresentation,
                 ...context,
             }),
             block: true,
@@ -2241,10 +2261,27 @@ function renderedRange(node, state, display, context) {
             tableCaption: node.table?.kind === 'html'
                 ? node.caption
                 : null,
+            translationPresentation,
             ...context,
         }),
         block: true,
     }).range(node.from, node.to);
+}
+
+function translationPresentationForRange(context, from, to) {
+    const translationFailure = context.translationFailures.some(range => (
+        from >= range.from && to <= range.to
+    ));
+    if (translationFailure) {
+        return { language: '', sourceFallback: true };
+    }
+    const translation = context.translationRanges.find(range => (
+        from >= range.from && to <= range.to
+    ));
+    return {
+        language: translation?.language || '',
+        sourceFallback: false,
+    };
 }
 
 function decorateCorrections(state, decorations, context) {

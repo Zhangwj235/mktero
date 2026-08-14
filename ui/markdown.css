@@ -26,6 +26,10 @@
     --reader-page-marker-font-size: calc(var(--reader-font-size) * 0.72);
     --ui-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     --reader-font: "STIX Two Text", "Noto Serif SC", ui-serif, "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif;
+    --reader-translation-font-zh-cn: "Noto Serif SC", "Source Han Serif SC", "Source Han Serif CN", "Songti SC", STSong, SimSun, serif;
+    --reader-translation-font-zh-tw: "Noto Serif TC", "Source Han Serif TC", "Source Han Serif TW", "Songti TC", PMingLiU, serif;
+    --reader-translation-font-ja: "Noto Serif JP", "Source Han Serif JP", "Yu Mincho", YuMincho, "Hiragino Mincho ProN", "Hiragino Mincho Pro", serif;
+    --reader-translation-font-ko: "Noto Serif KR", "Source Han Serif K", AppleMyungjo, Batang, serif;
     --radius-sm: 6px;
     --radius-md: 9px;
     --radius-lg: 12px;
@@ -1671,9 +1675,48 @@ main {
 .markdown-editor-host > .cm-editor {
     color: var(--reader-text);
     background: var(--reader-background);
-    font-family: var(--reader-font);
+    font-family: var(--reader-content-font, var(--reader-font));
     font-size: var(--reader-font-size);
     line-height: var(--reader-line-height);
+}
+
+.markdown-reading-pane[lang='zh-CN'],
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-line[lang='zh-CN'],
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-block[lang='zh-CN'] {
+    --reader-content-font: var(--reader-translation-font-zh-cn);
+}
+
+.markdown-reading-pane[lang='zh-TW'],
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-line[lang='zh-TW'],
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-block[lang='zh-TW'] {
+    --reader-content-font: var(--reader-translation-font-zh-tw);
+}
+
+.markdown-reading-pane[lang='ja-JP'],
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-line[lang='ja-JP'],
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-block[lang='ja-JP'] {
+    --reader-content-font: var(--reader-translation-font-ja);
+}
+
+.markdown-reading-pane[lang='ko-KR'],
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-line[lang='ko-KR'],
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-block[lang='ko-KR'] {
+    --reader-content-font: var(--reader-translation-font-ko);
+}
+
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-line[lang],
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-block[lang] {
+    font-family: var(--reader-content-font, var(--reader-font));
 }
 
 .markdown-editor-host > .cm-editor .cm-scroller {
@@ -1794,6 +1837,15 @@ main {
 .markdown-editor-host > .cm-editor
     .cm-mktero-translation-failure-line {
     background: color-mix(in srgb, var(--warning) 5%, transparent);
+}
+
+.markdown-reading-pane[lang]
+    .markdown-editor-host > .cm-editor
+    .cm-mktero-translation-failure-line,
+.markdown-editor-host > .cm-editor
+    .cm-mktero-translation-failure-block {
+    --reader-content-font: var(--reader-font);
+    font-family: var(--reader-font);
 }
 
 .markdown-editor-host > .cm-editor .cm-mktero-bilingual-boundary {
@@ -2712,7 +2764,7 @@ main {
     max-width: 100%;
     margin: 6px auto 0;
     color: var(--text);
-    font-family: var(--reader-font);
+    font-family: inherit;
     font-size: var(--reader-panel-label-font-size);
     line-height: var(--reader-caption-line-height);
     text-align: center;
@@ -2727,7 +2779,7 @@ main {
     margin: 12px auto 0;
     padding: 0 12px;
     color: var(--muted);
-    font-family: var(--reader-font);
+    font-family: inherit;
     font-size: var(--reader-caption-font-size);
     line-height: var(--reader-caption-line-height);
     letter-spacing: 0;
@@ -2956,7 +3008,7 @@ main {
     max-width: none;
     table-layout: auto;
     border-collapse: collapse;
-    font-family: var(--reader-font);
+    font-family: inherit;
     font-size: var(--reader-table-font-size);
     line-height: var(--reader-table-line-height);
 }
@@ -2966,7 +3018,7 @@ main {
     caption-side: top;
     padding: 10px 12px;
     color: var(--muted);
-    font-family: var(--reader-font);
+    font-family: inherit;
     font-size: var(--reader-caption-font-size);
     line-height: var(--reader-caption-line-height);
     letter-spacing: 0;
@@ -3105,7 +3157,7 @@ main {
     border-radius: var(--radius-sm);
     background: color-mix(in srgb, var(--surface) 50%, transparent);
     color: var(--muted);
-    font-family: var(--reader-font);
+    font-family: inherit;
     font-size: var(--reader-caption-font-size);
     line-height: var(--reader-caption-line-height);
 }

@@ -98,7 +98,10 @@ visible text is sufficient.
    condensed onto the main toolbar row at normal reader widths and the
    translation action separated from reading mode. Once a translation is
    available, its reading-mode tab displays the target language directly
-   instead of repeating that language in a separate label.
+   instead of repeating that language in a separate label. Simplified Chinese,
+   Traditional Chinese, Japanese, and Korean translated text automatically use
+   language-aware academic serif fallbacks; source text and Latin-language
+   translations keep the selected reader font.
    The More menu contains `Manage corrections`, `Retranslate document`,
    `Reparse PDF`, and `Save snapshot` when those actions are available.
 

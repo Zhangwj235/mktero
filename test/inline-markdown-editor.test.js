@@ -174,6 +174,134 @@ test('marks translated lines and clears the marks with the next document', () =>
     dom.window.close();
 });
 
+test('marks translated block widgets with their content language', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL: source => source === 'images/figure.png'
+            ? 'blob:translated-figure'
+            : null,
+    });
+    const markdown = [
+        'Original paragraph.',
+        '',
+        'Table 1 Results',
+        '',
+        '| Metric | Value |',
+        '| --- | ---: |',
+        '| Score | 42 |',
+        '',
+        '![图 1](images/figure.png)',
+    ].join('\n');
+    const translationFrom = markdown.indexOf('Table 1');
+
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: translationFrom,
+            to: markdown.length,
+            language: 'zh-CN',
+        }],
+    });
+
+    const table = document.querySelector('.cm-mktero-table');
+    assert.equal(table?.getAttribute('lang'), 'zh-CN');
+    assert.equal(
+        table?.classList.contains('cm-mktero-translation-block'),
+        true
+    );
+    assert.equal(table?.closest('.cm-mktero-translation-line'), null);
+    assert.equal(
+        document.querySelector('.cm-mktero-image')?.getAttribute('lang'),
+        'zh-CN'
+    );
+
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: translationFrom,
+            to: markdown.length,
+            language: 'ja-JP',
+        }],
+    });
+    assert.equal(
+        document.querySelector('.cm-mktero-table')?.getAttribute('lang'),
+        'ja-JP'
+    );
+
+    editor.setDocument({
+        markdown,
+        translationFailures: [{
+            id: 'translation-table-failure',
+            from: translationFrom,
+            to: markdown.length,
+        }],
+    });
+    const failureTable = document.querySelector('.cm-mktero-table');
+    assert.equal(failureTable?.hasAttribute('lang'), false);
+    assert.equal(
+        failureTable?.classList.contains(
+            'cm-mktero-translation-failure-block'
+        ),
+        true
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-image')?.classList.contains(
+            'cm-mktero-translation-failure-block'
+        ),
+        true
+    );
+
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: markdown.indexOf('Metric'),
+            to: markdown.length,
+            language: 'zh-CN',
+        }],
+        translationFailures: [{
+            id: 'partial-table-failure',
+            from: markdown.indexOf('Score'),
+            to: markdown.length,
+        }],
+    });
+    const partialTable = document.querySelector('.cm-mktero-table');
+    assert.equal(partialTable?.hasAttribute('lang'), false);
+    assert.equal(
+        partialTable?.classList.contains('cm-mktero-translation-block'),
+        false
+    );
+    assert.equal(
+        partialTable?.classList.contains(
+            'cm-mktero-translation-failure-block'
+        ),
+        false
+    );
+
+    editor.setDocument({
+        markdown,
+        translationRanges: [{
+            from: translationFrom,
+            to: markdown.length,
+            language: 'zh-CN" onclick="alert(1)',
+        }],
+    });
+    const unsafeTable = document.querySelector('.cm-mktero-table');
+    assert.equal(unsafeTable?.hasAttribute('lang'), false);
+    assert.equal(unsafeTable?.hasAttribute('onclick'), false);
+    assert.equal(
+        unsafeTable?.classList.contains('cm-mktero-translation-block'),
+        false
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('pairs bilingual blocks without hover highlighting or per-block actions', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

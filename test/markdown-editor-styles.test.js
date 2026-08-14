@@ -252,7 +252,7 @@ test('styles academic figure captions as distinct labels', () => {
     assert.doesNotMatch(caption, /border-left/);
     assert.doesNotMatch(caption, /border-radius/);
     assert.doesNotMatch(caption, /background\s*:/);
-    assert.match(caption, /font-family:\s*var\(--reader-font\)/);
+    assert.match(caption, /font-family:\s*inherit/);
     assert.match(caption, /font-size:\s*var\(--reader-caption-font-size\)/);
     assert.match(caption, /letter-spacing:\s*0/);
     assert.match(caption, /text-align:\s*center/);
@@ -484,6 +484,84 @@ test('keeps block-level comparison in one full-size reading surface', () => {
     assert.match(boundary, /height:\s*0/);
     assert.match(boundary, /min-height:\s*0/);
     assert.match(boundary, /overflow:\s*hidden/);
+});
+
+test('uses language-aware academic serif fonts only for translated text', () => {
+    const host = ruleBody(':host');
+    const editor = lastRuleBody('.markdown-editor-host > .cm-editor');
+    const translatedLine = ruleBody([
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-line[lang],',
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-block[lang]',
+    ].join('\n'));
+    const sourceFallback = ruleBody([
+        '.markdown-reading-pane[lang]',
+        '    .markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-failure-line,',
+        '.markdown-editor-host > .cm-editor',
+        '    .cm-mktero-translation-failure-block',
+    ].join('\n'));
+    const languageFonts = [
+        ['zh-CN', 'zh-cn', 'Noto Serif SC'],
+        ['zh-TW', 'zh-tw', 'Noto Serif TC'],
+        ['ja-JP', 'ja', 'Noto Serif JP'],
+        ['ko-KR', 'ko', 'Noto Serif KR'],
+    ];
+
+    for (const [language, variableSuffix, preferredFont] of languageFonts) {
+        assert.match(
+            host,
+            new RegExp(
+                `--reader-translation-font-${variableSuffix}:[^;]*${preferredFont}`
+            )
+        );
+        const languageRule = ruleBody([
+            `.markdown-reading-pane[lang='${language}'],`,
+            '.markdown-editor-host > .cm-editor',
+            `    .cm-mktero-translation-line[lang='${language}'],`,
+            '.markdown-editor-host > .cm-editor',
+            `    .cm-mktero-translation-block[lang='${language}']`,
+        ].join('\n'));
+        assert.match(
+            languageRule,
+            new RegExp(
+                `--reader-content-font:\\s*var\\(--reader-translation-font-${variableSuffix}\\)`
+            )
+        );
+    }
+    assert.match(
+        editor,
+        /font-family:\s*var\(--reader-content-font, var\(--reader-font\)\)/
+    );
+    assert.match(
+        translatedLine,
+        /font-family:\s*var\(--reader-content-font, var\(--reader-font\)\)/
+    );
+    assert.match(
+        sourceFallback,
+        /--reader-content-font:\s*var\(--reader-font\)/
+    );
+    assert.match(sourceFallback, /font-family:\s*var\(--reader-font\)/);
+    assert.doesNotMatch(
+        MARKDOWN_STYLES,
+        /cm-mktero-translation-pair-source[^}]*font-family/
+    );
+
+    const figureCaption = ruleBody(
+        '.markdown-editor-host > .cm-editor .cm-mktero-image .mktero-figure figcaption'
+    );
+    const table = ruleBody([
+        '.markdown-editor-host > .cm-editor .cm-mktero-table table,',
+        '.markdown-editor-host > .cm-editor .cm-mktero-html-block table',
+    ].join('\n'));
+    const tableCaption = ruleBody([
+        '.markdown-editor-host > .cm-editor .cm-mktero-table table caption,',
+        '.markdown-editor-host > .cm-editor .cm-mktero-html-block table caption',
+    ].join('\n'));
+    assert.match(figureCaption, /font-family:\s*inherit/);
+    assert.match(table, /font-family:\s*inherit/);
+    assert.match(tableCaption, /font-family:\s*inherit/);
 });
 
 test('distinguishes translated headings and source fallbacks', () => {
