@@ -27,7 +27,8 @@ export const AI_PROTOCOL_GOOGLE = 'google-generative-ai';
 
 export const AI_DEFAULT_API_BASE = 'https://api.openai.com/v1';
 export const AI_DEFAULT_TARGET_LANGUAGE = 'zh-CN';
-export const AI_DEFAULT_REASONING = 'provider-default';
+export const AI_DEFAULT_REASONING = 'none';
+export const AI_PROVIDER_DEFAULT_REASONING = 'provider-default';
 export const AI_DEFAULT_REQUEST_TIMEOUT_MS = 600_000;
 export const AI_DEFAULT_MAX_OUTPUT_TOKENS = 0;
 export const AI_MAX_REQUEST_TIMEOUT_MS = 3_600_000;
@@ -38,7 +39,7 @@ const MAX_AI_API_KEY_LENGTH = 16_384;
 const MAX_AI_MODEL_LENGTH = 512;
 const AI_REASONING_LEVELS = new Set([
     AI_DEFAULT_REASONING,
-    'none',
+    AI_PROVIDER_DEFAULT_REASONING,
     'low',
     'medium',
     'high',

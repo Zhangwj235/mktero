@@ -862,6 +862,10 @@ main {
     font-family: var(--ui-font);
 }
 
+.markdown-reader-toolbar.is-translating {
+    flex-wrap: nowrap;
+}
+
 .markdown-reader-controls {
     display: flex;
     min-width: 0;
@@ -872,6 +876,8 @@ main {
 .markdown-translation-controls {
     display: flex;
     min-width: 0;
+    max-width: 100%;
+    flex: 1 1 auto;
     align-items: center;
     gap: var(--toolbar-control-gap);
 }
@@ -886,10 +892,12 @@ main {
 
 .markdown-translation-status {
     min-width: 0;
+    overflow: hidden;
     color: var(--muted);
     font: 12px/1.35 var(--ui-font);
     font-variant-numeric: tabular-nums;
-    overflow-wrap: anywhere;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .markdown-translation-language {
@@ -992,7 +1000,7 @@ main {
 
 .markdown-translation-action-label {
     min-width: 0;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
 }
 
 .markdown-translation-action:hover:not(:disabled),
@@ -3155,11 +3163,17 @@ main {
         --toolbar-control-gap: 8px;
 
         min-height: 44px;
+        flex-wrap: wrap;
         padding: 4px 8px;
+    }
+
+    .markdown-reader-toolbar.is-translating {
+        flex-wrap: wrap;
     }
 
     .markdown-translation-controls {
         width: 100%;
+        flex: 1 0 100%;
         flex-wrap: wrap;
         padding: 5px 0 1px;
         border-top: 1px solid var(--border-subtle);

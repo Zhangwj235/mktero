@@ -2438,7 +2438,10 @@ class MarkdownTabView {
             translationLabel
         );
         this.elements.translateDocument.setAttribute('title', translationLabel);
-        this.elements.translateDocumentLabel.textContent = translationLabel;
+        this.elements.translateDocumentLabel.textContent =
+            this.model.translationStatus === 'loading'
+                ? this.t('ai.cancelDocumentTranslationCompact')
+                : translationLabel;
         this.elements.translationViewLabel.textContent = this.t(
             'ai.translationViewLabel'
         );
@@ -2671,6 +2674,10 @@ class MarkdownTabView {
             String(model.translationStatus === 'loading')
         );
         this.elements.translateDocument.classList.toggle(
+            'is-translating',
+            translating
+        );
+        this.elements.editorActions.classList.toggle(
             'is-translating',
             translating
         );

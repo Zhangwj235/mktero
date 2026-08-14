@@ -93,7 +93,8 @@ visible text is sufficient.
    panel to navigate the document.
 4. Use the fixed toolbar above the Markdown body to change text size and font,
    select a reading mode, or translate the article. These controls use compact,
-   even spacing, with the translation action separated from the reading mode.
+   even spacing, with in-flight progress condensed onto the main toolbar row at
+   normal reader widths and the translation action separated from reading mode.
    The More menu contains `Manage corrections`, `Retranslate document`,
    `Reparse PDF`, and `Save snapshot` when those actions are available.
 
@@ -315,8 +316,10 @@ controlled by Zotero.
   corrections.
 - AI translation is an optional cached reading layer. It never starts
   automatically, modifies source Markdown, syncs through Zotero, or saves
-  translations into snapshots. Requests use the configured model and provider's
-  default reasoning behavior; Mktero does not expose a reasoning-effort setting.
+  translations into snapshots. Mktero requests non-reasoning generation to keep
+  translation responsive. If the selected model or Provider explicitly rejects
+  disabling reasoning, Mktero retries once with that Provider's default behavior.
+  Mktero does not expose a reasoning-effort setting.
 - Only local PDF attachments are supported. Missing or undownloaded files
   cannot be converted.
 - Text annotations require extractable PDF text. A scanned PDF may convert via

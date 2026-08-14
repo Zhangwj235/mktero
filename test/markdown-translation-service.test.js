@@ -37,7 +37,7 @@ test('tests a valid connection before AI translation is enabled', async () => {
 
     assert.equal(result.text, 'OK');
     assert.equal(request.settings.enabled, true);
-    assert.equal(request.settings.reasoning, 'provider-default');
+    assert.equal(request.settings.reasoning, 'none');
     assert.equal(request.maxOutputTokens, 4);
     assert.equal(request.acceptNonTextResponse, true);
     assert.deepEqual(request.messages, [{

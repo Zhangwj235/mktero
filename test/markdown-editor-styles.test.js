@@ -102,6 +102,9 @@ test('article layout outranks the CodeMirror adopted base theme', () => {
 
 test('keeps the reader toolbar above content without covering it', () => {
     const toolbar = ruleBody('.markdown-reader-toolbar');
+    const translatingToolbar = ruleBody(
+        '.markdown-reader-toolbar.is-translating'
+    );
     const readerControls = ruleBody('.markdown-reader-controls');
     const translationControls = ruleBody('.markdown-translation-controls');
     const fontFamily = ruleBody('.markdown-reader-font-family');
@@ -111,6 +114,8 @@ test('keeps the reader toolbar above content without covering it', () => {
     assert.match(toolbar, /--toolbar-control-gap:\s*10px/);
     assert.match(toolbar, /position:\s*relative/);
     assert.match(toolbar, /flex:\s*0 0 auto/);
+    assert.match(toolbar, /flex-wrap:\s*wrap/);
+    assert.match(translatingToolbar, /flex-wrap:\s*nowrap/);
     assert.match(toolbar, /min-height:\s*44px/);
     assert.match(toolbar, /padding:\s*4px 12px/);
     assert.match(toolbar, /border-bottom:\s*1px solid var\(--border-subtle\)/);
@@ -424,6 +429,7 @@ test('styles secondary document actions as a toolbar popover', () => {
 
 test('keeps document translation status legible without crowding the toolbar', () => {
     const action = ruleBody('.markdown-translation-action');
+    const controls = ruleBody('.markdown-translation-controls');
     const status = ruleBody('.markdown-translation-status');
     const language = ruleBody('.markdown-translation-language');
     const failureNavigation = ruleBody(
@@ -443,8 +449,11 @@ test('keeps document translation status legible without crowding the toolbar', (
     assert.match(action, /min-height:\s*32px/);
     assert.match(action, /padding:\s*0 10px/);
     assert.match(action, /gap:\s*7px/);
+    assert.match(controls, /flex:\s*1 1 auto/);
+    assert.match(controls, /max-width:\s*100%/);
     assert.match(status, /font-variant-numeric:\s*tabular-nums/);
-    assert.match(status, /overflow-wrap:\s*anywhere/);
+    assert.match(status, /text-overflow:\s*ellipsis/);
+    assert.match(status, /white-space:\s*nowrap/);
     assert.match(language, /border:\s*1px solid var\(--border\)/);
     assert.match(failureNavigation, /display:\s*inline-flex/);
     assert.match(failureNavigationButton, /width:\s*28px/);
@@ -515,7 +524,11 @@ test('keeps paired bilingual blocks free of per-block action styles', () => {
 test('wraps translation controls at narrow reader widths', () => {
     assert.match(
         MARKDOWN_STYLES,
-        /@container\s+markdown-reader\s*\(max-width:\s*620px\)[\s\S]*\.markdown-translation-controls\s*\{[^}]*flex-wrap:\s*wrap/
+        /@container\s+markdown-reader\s*\(max-width:\s*620px\)[\s\S]*\.markdown-reader-toolbar\.is-translating\s*\{[^}]*flex-wrap:\s*wrap/
+    );
+    assert.match(
+        MARKDOWN_STYLES,
+        /@container\s+markdown-reader\s*\(max-width:\s*620px\)[\s\S]*\.markdown-translation-controls\s*\{[^}]*flex:\s*1 0 100%[^}]*flex-wrap:\s*wrap/
     );
     assert.match(
         MARKDOWN_STYLES,

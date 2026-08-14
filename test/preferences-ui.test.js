@@ -268,7 +268,7 @@ test('tests the current AI SDK settings without exposing the key', async () => {
     assert.equal(testedSettings.protocol, 'openai-chat-completions');
     assert.equal(testedSettings.apiKey, 'private-token');
     assert.equal(testedSettings.model, 'example-chat');
-    assert.equal(testedSettings.reasoning, 'provider-default');
+    assert.equal(testedSettings.reasoning, 'none');
     assert.equal(testedSettings.requestTimeoutMs, '600000');
     assert.equal(testedSettings.maxOutputTokens, '0');
     assert.equal(

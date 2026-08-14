@@ -331,7 +331,17 @@ test('translates the document and switches between three reading modes', async (
             translate.getAttribute('aria-label'),
             'Cancel translation (model is reasoning…)'
         );
+        assert.equal(
+            translate.querySelector('.markdown-translation-action-label')
+                ?.textContent,
+            'Cancel'
+        );
         assert.equal(translate.classList.contains('is-translating'), true);
+        assert.equal(
+            shadow.querySelector('.markdown-reader-toolbar')
+                ?.classList.contains('is-translating'),
+            true
+        );
         assert.equal(
             translate.querySelector('.markdown-translation-idle-icon')
                 ?.hasAttribute('hidden'),
@@ -345,7 +355,7 @@ test('translates the document and switches between three reading modes', async (
         assert.equal(status.hidden, false);
         assert.equal(
             status.textContent,
-            'Translating to Japanese 42/113 · 37%'
+            'Japanese · 42/113 · 37%'
         );
         assert.equal(selector.hidden, true);
 
@@ -413,6 +423,11 @@ test('translates the document and switches between three reading modes', async (
             }],
         };
         view.render(translatedModel);
+        assert.equal(
+            shadow.querySelector('.markdown-reader-toolbar')
+                ?.classList.contains('is-translating'),
+            false
+        );
         assert.equal(translate.hidden, true);
         assert.equal(translate.getAttribute('aria-label'), 'Translated');
         assert.equal(translate.getAttribute('title'), 'Translated');
@@ -825,7 +840,7 @@ test('keeps a partial translation readable while retrying the document', () => {
         );
         assert.equal(
             shadow.querySelector('.markdown-translation-status').textContent,
-            'Generating Japanese 0/1 · 0%'
+            'Japanese · 0/1 · 0%'
         );
         assert.deepEqual(updates.at(-1).translationFailures, [{
             id: block.id,
@@ -843,7 +858,7 @@ test('keeps a partial translation readable while retrying the document', () => {
         );
         assert.equal(
             shadow.querySelector('.markdown-translation-status').textContent,
-            'Generating Japanese 0/1 · 0%'
+            'Japanese · 0/1 · 0%'
         );
         view.render({
             ...partialModel,
@@ -856,7 +871,7 @@ test('keeps a partial translation readable while retrying the document', () => {
         });
         assert.equal(
             shadow.querySelector('.markdown-translation-status').textContent,
-            'Generating Japanese 0/0 · 0%'
+            'Japanese · 0/0 · 0%'
         );
         assert.equal(
             shadow.querySelector(

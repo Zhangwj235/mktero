@@ -75,7 +75,7 @@ test('calls AI SDK generateText with bounded Mktero settings', async () => {
     assert.equal(request.model.provider, 'mktero-compatible.chat');
     assert.deepEqual(request.messages, [{ role: 'user', content: 'Test' }]);
     assert.equal(request.maxOutputTokens, 64);
-    assert.equal(request.reasoning, 'provider-default');
+    assert.equal(request.reasoning, 'none');
     assert.equal(request.maxRetries, 0);
     assert.ok(request.abortSignal);
     assert.deepEqual(result, {
@@ -457,6 +457,176 @@ test('passes the configured reasoning level to AI SDK Core', async () => {
     assert.equal(request.reasoning, 'high');
 });
 
+test('falls back to provider reasoning when a model cannot disable it', async () => {
+    const attempts = [];
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async request => {
+            attempts.push(request.reasoning);
+            if (request.reasoning === 'none') {
+                throw new APICallError({
+                    message: 'reasoning cannot be disabled for this model',
+                    url: 'https://api.example.com/v1',
+                    requestBodyValues: {},
+                    statusCode: 400,
+                    responseBody: JSON.stringify({
+                        error: {
+                            param: 'reasoning_effort',
+                            code: 'unsupported_value',
+                        },
+                    }),
+                });
+            }
+            return { text: 'Completed' };
+        },
+    });
+
+    const result = await gateway.generateText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+    const repeated = await gateway.generateText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test again' }],
+    });
+
+    assert.deepEqual(attempts, [
+        'none',
+        'provider-default',
+        'provider-default',
+    ]);
+    assert.equal(result.text, 'Completed');
+    assert.equal(repeated.text, 'Completed');
+});
+
+test('falls back from a rejected reasoning-free stream before text starts', async () => {
+    const attempts = [];
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        stream: async request => {
+            attempts.push(request.reasoning);
+            return {
+                fullStream: {
+                    async *[Symbol.asyncIterator]() {
+                        if (request.reasoning === 'none') {
+                            yield {
+                                type: 'error',
+                                error: new APICallError({
+                                    message: 'thinking must be enabled',
+                                    url: 'https://api.example.com/v1',
+                                    requestBodyValues: {},
+                                    statusCode: 422,
+                                    responseBody: JSON.stringify({
+                                        error: {
+                                            param: 'thinking',
+                                            code: 'invalid_request',
+                                        },
+                                    }),
+                                }),
+                            };
+                            return;
+                        }
+                        yield { type: 'text-start' };
+                        yield { type: 'text-delta', text: 'Translated' };
+                        yield {
+                            type: 'finish',
+                            finishReason: 'stop',
+                            response: { modelId: 'reasoning-model' },
+                        };
+                    },
+                },
+            };
+        },
+    });
+
+    const result = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test' }],
+    });
+    const repeated = await gateway.streamText({
+        settings: SETTINGS,
+        messages: [{ role: 'user', content: 'Test again' }],
+    });
+
+    assert.deepEqual(attempts, [
+        'none',
+        'provider-default',
+        'provider-default',
+    ]);
+    assert.equal(result.text, 'Translated');
+    assert.equal(repeated.text, 'Translated');
+});
+
+test('does not replay a stream after translated text has started', async () => {
+    let attempts = 0;
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        stream: async () => {
+            attempts += 1;
+            return {
+                fullStream: {
+                    async *[Symbol.asyncIterator]() {
+                        yield { type: 'text-start' };
+                        yield { type: 'text-delta', text: 'Partial' };
+                        yield {
+                            type: 'error',
+                            error: new APICallError({
+                                message: 'reasoning cannot be disabled',
+                                url: 'https://api.example.com/v1',
+                                requestBodyValues: {},
+                                statusCode: 400,
+                                responseBody: JSON.stringify({
+                                    error: {
+                                        param: 'reasoning_effort',
+                                        code: 'unsupported_value',
+                                    },
+                                }),
+                            }),
+                        };
+                    },
+                },
+            };
+        },
+    });
+
+    await assert.rejects(
+        gateway.streamText({
+            settings: SETTINGS,
+            messages: [{ role: 'user', content: 'Test' }],
+        }),
+        error => error?.code === 'AI_HTTP_ERROR'
+    );
+    assert.equal(attempts, 1);
+});
+
+test('does not retry unrelated provider errors with default reasoning', async () => {
+    let attempts = 0;
+    const gateway = new AISDKGateway({
+        fetch: async () => assert.fail('provider fetch should be lazy'),
+        generate: async () => {
+            attempts += 1;
+            throw new APICallError({
+                message: 'the selected model is invalid',
+                url: 'https://api.example.com/v1',
+                requestBodyValues: {},
+                statusCode: 400,
+                responseBody: JSON.stringify({
+                    error: { param: 'model', code: 'invalid_request' },
+                }),
+            });
+        },
+    });
+
+    await assert.rejects(
+        gateway.generateText({
+            settings: SETTINGS,
+            messages: [{ role: 'user', content: 'Test' }],
+        }),
+        error => error?.code === 'AI_HTTP_ERROR'
+    );
+    assert.equal(attempts, 1);
+});
+
 test('binds request timeout functions to their runtime window', async () => {
     const calls = [];
     const runtimeWindow = {
@@ -829,64 +999,86 @@ test('uses the Open Responses wire protocol through AI SDK Core', async () => {
     assert.equal(result.text, 'Open result');
 });
 
-test('maps reasoning strength through domestic provider adapters', async t => {
+test('maps reasoning policy through domestic provider adapters', async t => {
     const cases = [{
         name: 'DeepSeek',
         provider: 'deepseek',
-        expected: body => {
-            assert.equal(body.thinking.type, 'enabled');
-            assert.equal(body.reasoning_effort, 'high');
+        expected: {
+            high: body => {
+                assert.equal(body.thinking.type, 'enabled');
+                assert.equal(body.reasoning_effort, 'high');
+            },
+            none: body => {
+                assert.equal(body.thinking.type, 'disabled');
+                assert.equal(body.reasoning_effort, undefined);
+            },
         },
     }, {
         name: 'Alibaba',
         provider: 'alibaba',
-        expected: body => {
-            assert.equal(body.enable_thinking, true);
-            assert.ok(body.thinking_budget > 0);
+        expected: {
+            high: body => {
+                assert.equal(body.enable_thinking, true);
+                assert.ok(body.thinking_budget > 0);
+            },
+            none: body => {
+                assert.equal(body.enable_thinking, false);
+                assert.equal(body.thinking_budget, undefined);
+            },
         },
     }, {
         name: 'Moonshot AI',
         provider: 'moonshotai',
-        expected: body => {
-            assert.equal(body.reasoning_effort, 'high');
+        expected: {
+            high: body => {
+                assert.equal(body.reasoning_effort, 'high');
+            },
+            none: body => {
+                assert.equal(body.thinking.type, 'disabled');
+                assert.equal(body.reasoning_effort, undefined);
+            },
         },
     }];
 
     for (const { name, provider, expected } of cases) {
-        await t.test(name, async () => {
-            let request;
-            const gateway = new AISDKGateway({
-                fetch: async (url, init) => {
-                    request = { url: String(url), init };
-                    return jsonResponse({
-                        id: 'chatcmpl-test',
-                        object: 'chat.completion',
-                        created: 1,
-                        model: 'provider-model',
-                        choices: [{
-                            index: 0,
-                            message: {
-                                role: 'assistant',
-                                content: 'Provider result',
-                            },
-                            finish_reason: 'stop',
-                        }],
+        await t.test(name, async t => {
+            for (const reasoning of ['high', 'none']) {
+                await t.test(reasoning, async () => {
+                    let request;
+                    const gateway = new AISDKGateway({
+                        fetch: async (url, init) => {
+                            request = { url: String(url), init };
+                            return jsonResponse({
+                                id: 'chatcmpl-test',
+                                object: 'chat.completion',
+                                created: 1,
+                                model: 'provider-model',
+                                choices: [{
+                                    index: 0,
+                                    message: {
+                                        role: 'assistant',
+                                        content: 'Provider result',
+                                    },
+                                    finish_reason: 'stop',
+                                }],
+                            });
+                        },
                     });
-                },
-            });
 
-            const result = await gateway.generateText({
-                settings: {
-                    ...SETTINGS,
-                    provider,
-                    reasoning: 'high',
-                },
-                messages: [{ role: 'user', content: 'Test' }],
-            });
+                    const result = await gateway.generateText({
+                        settings: {
+                            ...SETTINGS,
+                            provider,
+                            reasoning,
+                        },
+                        messages: [{ role: 'user', content: 'Test' }],
+                    });
 
-            assert.equal(request.init.method, 'POST');
-            expected(JSON.parse(request.init.body));
-            assert.equal(result.text, 'Provider result');
+                    assert.equal(request.init.method, 'POST');
+                    expected[reasoning](JSON.parse(request.init.body));
+                    assert.equal(result.text, 'Provider result');
+                });
+            }
         });
     }
 });

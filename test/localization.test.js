@@ -50,6 +50,8 @@ test('creates a fixed localization from the Zotero locale', () => {
     assert.equal(chinese.t('revision.start'), '管理校对');
     assert.equal(chinese.t('revision.deletedBlock'), '已删除一段内容');
     assert.equal(chinese.t('revision.undoDelete'), '撤销删除');
+    assert.equal(localization.t('ai.cancelDocumentTranslationCompact'), 'Cancel');
+    assert.equal(chinese.t('ai.cancelDocumentTranslationCompact'), '取消');
 });
 
 test('localizes Markdown annotation synchronization status', () => {

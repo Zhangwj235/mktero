@@ -1,4 +1,5 @@
 import {
+    AI_DEFAULT_REASONING,
     normalizeReasoning,
     validateAISettings,
 } from '../config/ai-preferences.js';
@@ -319,7 +320,7 @@ export class MarkdownTranslationService {
         const connectionSettings = validateAISettings({
             ...settings,
             enabled: true,
-            reasoning: 'provider-default',
+            reasoning: AI_DEFAULT_REASONING,
         });
         return this.aiGateway.generateText({
             settings: connectionSettings,

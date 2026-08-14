@@ -43,7 +43,7 @@ test('reads and normalizes the configured AI settings', () => {
         apiBase: 'https://example.com/v1',
         apiKey: 'secret-token',
         model: 'example-chat',
-        reasoning: 'provider-default',
+        reasoning: 'none',
         targetLanguage: 'zh-CN',
         requestTimeoutMs: 45_000,
         maxOutputTokens: 3_000,
@@ -85,7 +85,7 @@ test('allows full-document timeout and output token budgets', () => {
     assert.equal(settings.maxOutputTokens, 262_144);
 });
 
-test('uses model-default reasoning without reading the legacy preference', () => {
+test('disables reasoning without reading the legacy preference', () => {
     const reads = [];
     const settings = getAISettings({
         Prefs: {
@@ -98,7 +98,7 @@ test('uses model-default reasoning without reading the legacy preference', () =>
         },
     });
 
-    assert.equal(settings.reasoning, 'provider-default');
+    assert.equal(settings.reasoning, 'none');
     assert.equal(reads.includes('extensions.mktero.aiReasoning'), false);
 });
 
