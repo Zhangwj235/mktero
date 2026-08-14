@@ -61,6 +61,62 @@ const RESPONSIVE_SIDE_PANEL_BREAKPOINTS = Object.freeze({
     outline: 820,
     notes: 1120,
 });
+const LATIN_TRANSLATION_FONT_OPTIONS = createFontOptions([
+    ['stix-two-text', 'viewer.fontSTIXTwoText',
+        'var(--reader-translation-font-latin)'],
+    ['georgia', 'viewer.fontGeorgia',
+        'Georgia, Cambria, "Times New Roman", serif'],
+    ['cambria', 'viewer.fontCambria',
+        'Cambria, Georgia, "Times New Roman", serif'],
+    ['times-new-roman', 'viewer.fontTimesNewRoman',
+        '"Times New Roman", Georgia, Cambria, serif'],
+]);
+const TRANSLATION_FONT_OPTIONS = Object.freeze({
+    'zh-CN': createFontOptions([
+        ['noto-serif-sc', 'viewer.fontNotoSerifSC',
+            'var(--reader-translation-font-zh-cn)'],
+        ['source-han-serif-sc', 'viewer.fontSourceHanSerifSC',
+            '"Source Han Serif SC", "Source Han Serif CN", "Noto Serif SC", "Songti SC", STSong, SimSun, serif'],
+        ['songti-sc', 'viewer.fontSongtiSC',
+            '"Songti SC", STSong, "Noto Serif SC", "Source Han Serif SC", SimSun, serif'],
+        ['simsun', 'viewer.fontSimSun',
+            'SimSun, "Noto Serif SC", "Source Han Serif SC", "Songti SC", STSong, serif'],
+    ]),
+    'zh-TW': createFontOptions([
+        ['noto-serif-tc', 'viewer.fontNotoSerifTC',
+            'var(--reader-translation-font-zh-tw)'],
+        ['source-han-serif-tc', 'viewer.fontSourceHanSerifTC',
+            '"Source Han Serif TC", "Source Han Serif TW", "Noto Serif TC", "Songti TC", PMingLiU, serif'],
+        ['songti-tc', 'viewer.fontSongtiTC',
+            '"Songti TC", "Noto Serif TC", "Source Han Serif TC", PMingLiU, serif'],
+        ['pmingliu', 'viewer.fontPMingLiU',
+            'PMingLiU, "Noto Serif TC", "Source Han Serif TC", "Songti TC", serif'],
+    ]),
+    'ja-JP': createFontOptions([
+        ['noto-serif-jp', 'viewer.fontNotoSerifJP',
+            'var(--reader-translation-font-ja)'],
+        ['source-han-serif-jp', 'viewer.fontSourceHanSerifJP',
+            '"Source Han Serif JP", "Noto Serif JP", "Yu Mincho", YuMincho, "Hiragino Mincho ProN", serif'],
+        ['yu-mincho', 'viewer.fontYuMincho',
+            '"Yu Mincho", YuMincho, "Noto Serif JP", "Source Han Serif JP", "Hiragino Mincho ProN", serif'],
+        ['hiragino-mincho', 'viewer.fontHiraginoMincho',
+            '"Hiragino Mincho ProN", "Hiragino Mincho Pro", "Noto Serif JP", "Source Han Serif JP", "Yu Mincho", serif'],
+    ]),
+    'ko-KR': createFontOptions([
+        ['noto-serif-kr', 'viewer.fontNotoSerifKR',
+            'var(--reader-translation-font-ko)'],
+        ['source-han-serif-k', 'viewer.fontSourceHanSerifK',
+            '"Source Han Serif K", "Noto Serif KR", AppleMyungjo, Batang, serif'],
+        ['apple-myungjo', 'viewer.fontAppleMyungjo',
+            'AppleMyungjo, "Noto Serif KR", "Source Han Serif K", Batang, serif'],
+        ['batang', 'viewer.fontBatang',
+            'Batang, "Noto Serif KR", "Source Han Serif K", AppleMyungjo, serif'],
+    ]),
+    'en-US': LATIN_TRANSLATION_FONT_OPTIONS,
+    'es-ES': LATIN_TRANSLATION_FONT_OPTIONS,
+    'fr-FR': LATIN_TRANSLATION_FONT_OPTIONS,
+    'pt-BR': LATIN_TRANSLATION_FONT_OPTIONS,
+});
 const SIDE_PANEL_CONFIG = Object.freeze({
     outline: Object.freeze({
         elementKey: 'outline',
@@ -172,6 +228,8 @@ class MarkdownTabView {
         this.responsiveResizeObserver = null;
         this.documentActionsOpen = false;
         this.readerFontOptionsOpen = false;
+        this.readerFontOptionsContext = '';
+        this.translationReaderFonts = new Map();
         this.activeNavigationOffset = 0;
         this.activeTranslationFailureID = null;
         this.listeners = [];
@@ -1163,33 +1221,9 @@ class MarkdownTabView {
             'aria-label': this.t('viewer.textFont'),
         });
         readerFontOptions.hidden = true;
-        for (const option of MARKDOWN_READER_FONT_OPTIONS) {
-            const button = this.createElement('button', {
-                id: `mktero-reader-font-option-${option.value}`,
-                class: 'markdown-reader-font-option',
-                type: 'button',
-                role: 'option',
-                'aria-selected': 'false',
-                'data-reader-font': option.value,
-                tabindex: '-1',
-            });
-            appendChildren(
-                button,
-                createLucideIcon(
-                    this.document,
-                    LUCIDE_ICONS.check,
-                    {
-                        className: 'markdown-reader-font-option-check',
-                        size: 14,
-                    }
-                ),
-                this.createElement('span', {
-                    class: 'markdown-reader-font-option-label',
-                    'data-i18n': option.labelKey,
-                }, this.t(option.labelKey))
-            );
-            readerFontOptions.appendChild(button);
-        }
+        readerFontOptions.replaceChildren(...MARKDOWN_READER_FONT_OPTIONS.map(
+            option => this.createReaderFontOption(option)
+        ));
         const readerFontPicker = this.createElement('div', {
             class: 'markdown-reader-font-picker',
         });
@@ -1622,7 +1656,7 @@ class MarkdownTabView {
             event.preventDefault();
             this.setDocumentActionsOpen(false);
             this.setReaderFontOptionsOpen(true);
-            this.focusReaderFontOption(this.readerFont);
+            this.focusReaderFontOption(this.activeReaderFontValue());
         });
         this.listen(this.elements.readerFontOptions, 'click', event => {
             const option = event.target?.closest?.(
@@ -2140,9 +2174,45 @@ class MarkdownTabView {
             getMarkdownReaderFontFamily(this.readerFont)
         );
         if (!this.elements) return;
-        const selectedConfig = MARKDOWN_READER_FONT_OPTIONS.find(option => (
-            option.value === this.readerFont
-        ));
+        this.syncReaderFontPicker();
+    }
+
+    syncReaderFontPicker() {
+        const translation = this.translationReaderFontContext();
+        if (translation) {
+            this.host.style.setProperty(
+                '--reader-selected-translation-font',
+                translation.selected.family
+            );
+        }
+        else {
+            this.host.style.removeProperty('--reader-selected-translation-font');
+        }
+        const translatedMode = translation
+            && this.model?.translationView === 'translated';
+        const options = translatedMode
+            ? translation.options
+            : MARKDOWN_READER_FONT_OPTIONS;
+        const context = translatedMode
+            ? `translation:${translation.language}`
+            : 'source';
+        if (this.readerFontOptionsContext !== context) {
+            const focusedOption = this.mount.activeElement;
+            const optionHadFocus = Boolean(focusedOption)
+                && this.elements.readerFontOptions.contains(focusedOption);
+            this.setReaderFontOptionsOpen(false);
+            if (optionHadFocus) this.elements.readerFontTrigger.focus?.();
+            this.elements.readerFontOptions.replaceChildren(...options.map(
+                option => this.createReaderFontOption(option)
+            ));
+            this.readerFontOptionsContext = context;
+        }
+        const selectedValue = translatedMode
+            ? translation.selected.value
+            : this.readerFont;
+        const selectedConfig = options.find(option => (
+            option.value === selectedValue
+        )) || options[0];
         const selectedLabel = this.t(selectedConfig.labelKey);
         const triggerLabel = `${this.t('viewer.textFont')}: ${selectedLabel}`;
         this.elements.readerFontCurrent.textContent = selectedLabel;
@@ -2150,7 +2220,7 @@ class MarkdownTabView {
         this.elements.readerFontTrigger.setAttribute('title', triggerLabel);
         for (const option of this.readerFontOptionButtons()) {
             const selected = option.getAttribute('data-reader-font')
-                === this.readerFont;
+                === selectedConfig.value;
             option.setAttribute('aria-selected', String(selected));
             option.classList.toggle('is-selected', selected);
             option.setAttribute(
@@ -2158,6 +2228,54 @@ class MarkdownTabView {
                 this.readerFontOptionsOpen && selected ? '0' : '-1'
             );
         }
+    }
+
+    translationReaderFontContext() {
+        if (!hasAvailableTranslation(this.model)) return null;
+        const language = normalizedTranslationLanguage(
+            this.model.translationTargetLanguage
+        );
+        const options = TRANSLATION_FONT_OPTIONS[language];
+        if (!options?.length) return null;
+        const selectedValue = this.translationReaderFonts.get(language);
+        const selected = options.find(option => option.value === selectedValue)
+            || options[0];
+        return { language, options, selected };
+    }
+
+    activeReaderFontValue() {
+        const translation = this.translationReaderFontContext();
+        return translation && this.model?.translationView === 'translated'
+            ? translation.selected.value
+            : this.readerFont;
+    }
+
+    createReaderFontOption(option) {
+        const button = this.createElement('button', {
+            id: `mktero-reader-font-option-${option.value}`,
+            class: 'markdown-reader-font-option',
+            type: 'button',
+            role: 'option',
+            'aria-selected': 'false',
+            'data-reader-font': option.value,
+            tabindex: '-1',
+        });
+        appendChildren(
+            button,
+            createLucideIcon(
+                this.document,
+                LUCIDE_ICONS.check,
+                {
+                    className: 'markdown-reader-font-option-check',
+                    size: 14,
+                }
+            ),
+            this.createElement('span', {
+                class: 'markdown-reader-font-option-label',
+                'data-i18n': option.labelKey,
+            }, this.t(option.labelKey))
+        );
+        return button;
     }
 
     setReaderFontOptionsOpen(open) {
@@ -2280,6 +2398,16 @@ class MarkdownTabView {
     }
 
     changeReaderFont(font) {
+        const translation = this.translationReaderFontContext();
+        if (translation && this.model?.translationView === 'translated') {
+            const selected = translation.options.find(option => (
+                option.value === font
+            ));
+            if (!selected || selected.value === translation.selected.value) return;
+            this.translationReaderFonts.set(translation.language, selected.value);
+            this.syncReaderFontPicker();
+            return;
+        }
         const normalized = normalizeMarkdownReaderFont(font);
         if (normalized === this.readerFont) return;
         this.setReaderFont(normalized);
@@ -3874,6 +4002,12 @@ function translationLanguageMessageKey(language) {
 function normalizedTranslationLanguage(language) {
     const normalized = String(language || '').trim();
     return isSupportedAITargetLanguage(normalized) ? normalized : '';
+}
+
+function createFontOptions(definitions) {
+    return Object.freeze(definitions.map(([value, labelKey, family]) => (
+        Object.freeze({ value, labelKey, family })
+    )));
 }
 
 function visibleTranslationFailureRanges(model) {

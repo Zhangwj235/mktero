@@ -30,6 +30,7 @@
     --reader-translation-font-zh-tw: "Noto Serif TC", "Source Han Serif TC", "Source Han Serif TW", "Songti TC", PMingLiU, serif;
     --reader-translation-font-ja: "Noto Serif JP", "Source Han Serif JP", "Yu Mincho", YuMincho, "Hiragino Mincho ProN", "Hiragino Mincho Pro", serif;
     --reader-translation-font-ko: "Noto Serif KR", "Source Han Serif K", AppleMyungjo, Batang, serif;
+    --reader-translation-font-latin: "STIX Two Text", "Times New Roman", Georgia, serif;
     --radius-sm: 6px;
     --radius-md: 9px;
     --radius-lg: 12px;
@@ -1685,7 +1686,7 @@ main {
     .cm-mktero-translation-line[lang='zh-CN'],
 .markdown-editor-host > .cm-editor
     .cm-mktero-translation-block[lang='zh-CN'] {
-    --reader-content-font: var(--reader-translation-font-zh-cn);
+    --reader-content-font: var(--reader-selected-translation-font, var(--reader-translation-font-zh-cn));
 }
 
 .markdown-reading-pane[lang='zh-TW'],
@@ -1693,7 +1694,7 @@ main {
     .cm-mktero-translation-line[lang='zh-TW'],
 .markdown-editor-host > .cm-editor
     .cm-mktero-translation-block[lang='zh-TW'] {
-    --reader-content-font: var(--reader-translation-font-zh-tw);
+    --reader-content-font: var(--reader-selected-translation-font, var(--reader-translation-font-zh-tw));
 }
 
 .markdown-reading-pane[lang='ja-JP'],
@@ -1701,7 +1702,7 @@ main {
     .cm-mktero-translation-line[lang='ja-JP'],
 .markdown-editor-host > .cm-editor
     .cm-mktero-translation-block[lang='ja-JP'] {
-    --reader-content-font: var(--reader-translation-font-ja);
+    --reader-content-font: var(--reader-selected-translation-font, var(--reader-translation-font-ja));
 }
 
 .markdown-reading-pane[lang='ko-KR'],
@@ -1709,7 +1710,28 @@ main {
     .cm-mktero-translation-line[lang='ko-KR'],
 .markdown-editor-host > .cm-editor
     .cm-mktero-translation-block[lang='ko-KR'] {
-    --reader-content-font: var(--reader-translation-font-ko);
+    --reader-content-font: var(--reader-selected-translation-font, var(--reader-translation-font-ko));
+}
+
+.markdown-reading-pane:is(
+    [lang='en-US'],
+    [lang='es-ES'],
+    [lang='fr-FR'],
+    [lang='pt-BR']
+),
+.markdown-editor-host > .cm-editor .cm-mktero-translation-line:is(
+    [lang='en-US'],
+    [lang='es-ES'],
+    [lang='fr-FR'],
+    [lang='pt-BR']
+),
+.markdown-editor-host > .cm-editor .cm-mktero-translation-block:is(
+    [lang='en-US'],
+    [lang='es-ES'],
+    [lang='fr-FR'],
+    [lang='pt-BR']
+) {
+    --reader-content-font: var(--reader-selected-translation-font, var(--reader-translation-font-latin));
 }
 
 .markdown-editor-host > .cm-editor

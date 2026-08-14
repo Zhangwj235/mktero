@@ -1801,6 +1801,189 @@ test('selects a font from the top toolbar without opening document actions', () 
     }
 });
 
+test('offers fonts for the current language only in translated mode', () => {
+    const persistedFonts = [];
+    const translatedModel = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        translationStatus: 'ready',
+        translationView: 'original',
+        translationTargetLanguage: 'zh-CN',
+        translatedMarkdown: '# \u8bba\u6587',
+        comparisonMarkdown: '# Paper\n\n# \u8bba\u6587',
+        onTranslateDocument: () => {},
+        onSetTranslationView: () => {},
+    });
+    const { view, shadow } = createView(translatedModel, {}, {
+        readerFont: 'georgia',
+        onReaderFontChange: font => persistedFonts.push(font),
+    });
+    const trigger = shadow.querySelector('#mktero-reader-font-family');
+    const listbox = shadow.querySelector('#mktero-reader-font-options');
+    const optionValues = () => [...listbox.querySelectorAll('[role="option"]')]
+        .map(option => option.getAttribute('data-reader-font'));
+
+    try {
+        assert.deepEqual(optionValues(), [
+            'system-serif',
+            'georgia',
+            'cambria',
+            'times-new-roman',
+        ]);
+        assert.equal(trigger.textContent.trim(), 'Georgia');
+
+        view.render({ ...translatedModel, translationView: 'translated' });
+        assert.deepEqual(optionValues(), [
+            'noto-serif-sc',
+            'source-han-serif-sc',
+            'songti-sc',
+            'simsun',
+        ]);
+        assert.equal(trigger.textContent.trim(), 'Noto Serif SC');
+        assert.equal(
+            shadow.host.style.getPropertyValue('--reader-selected-translation-font'),
+            'var(--reader-translation-font-zh-cn)'
+        );
+
+        const sourceHan = listbox.querySelector(
+            '[data-reader-font="source-han-serif-sc"]'
+        );
+        sourceHan.click();
+        assert.deepEqual(persistedFonts, []);
+        assert.equal(trigger.textContent.trim(), 'Source Han Serif SC');
+        assert.equal(sourceHan.getAttribute('aria-selected'), 'true');
+        assert.match(
+            shadow.host.style.getPropertyValue('--reader-selected-translation-font'),
+            /^"Source Han Serif SC"/
+        );
+
+        view.render({ ...translatedModel, translationView: 'compare' });
+        assert.deepEqual(optionValues(), [
+            'system-serif',
+            'georgia',
+            'cambria',
+            'times-new-roman',
+        ]);
+        assert.equal(trigger.textContent.trim(), 'Georgia');
+
+        view.render({ ...translatedModel, translationView: 'translated' });
+        assert.equal(trigger.textContent.trim(), 'Source Han Serif SC');
+
+        trigger.click();
+        let focusedElement = listbox.querySelector(
+            '[data-reader-font="source-han-serif-sc"]'
+        );
+        let triggerFocuses = 0;
+        Object.defineProperty(shadow, 'activeElement', {
+            configurable: true,
+            get: () => focusedElement,
+        });
+        trigger.focus = () => {
+            triggerFocuses++;
+            focusedElement = trigger;
+        };
+        view.render({
+            ...translatedModel,
+            translationView: 'translated',
+            translationTargetLanguage: 'ja-JP',
+        });
+        assert.equal(triggerFocuses, 1);
+        assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+
+        const languageOptions = [
+            ['zh-TW', [
+                'noto-serif-tc',
+                'source-han-serif-tc',
+                'songti-tc',
+                'pmingliu',
+            ], 'Noto Serif TC'],
+            ['ja-JP', [
+                'noto-serif-jp',
+                'source-han-serif-jp',
+                'yu-mincho',
+                'hiragino-mincho',
+            ], 'Noto Serif JP'],
+            ['ko-KR', [
+                'noto-serif-kr',
+                'source-han-serif-k',
+                'apple-myungjo',
+                'batang',
+            ], 'Noto Serif KR'],
+            ...['en-US', 'es-ES', 'fr-FR', 'pt-BR'].map(language => ([
+                language,
+                ['stix-two-text', 'georgia', 'cambria', 'times-new-roman'],
+                'STIX Two Text',
+            ])),
+        ];
+        for (const [language, expectedOptions, expectedLabel]
+            of languageOptions) {
+            view.render({
+                ...translatedModel,
+                translationView: 'translated',
+                translationTargetLanguage: language,
+            });
+            assert.deepEqual(optionValues(), expectedOptions, language);
+            assert.equal(trigger.textContent.trim(), expectedLabel, language);
+        }
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('isolates translated font choices across Zotero windows', () => {
+    const translatedModel = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        translationStatus: 'ready',
+        translationView: 'translated',
+        translationTargetLanguage: 'zh-CN',
+        translatedMarkdown: '# \u8bba\u6587',
+        comparisonMarkdown: '# Paper\n\n# \u8bba\u6587',
+        onTranslateDocument: () => {},
+        onSetTranslationView: () => {},
+    });
+    const first = createView(translatedModel);
+    const second = createView(translatedModel);
+
+    try {
+        first.shadow.querySelector(
+            '[data-reader-font="source-han-serif-sc"]'
+        ).click();
+
+        assert.equal(
+            first.shadow.querySelector('#mktero-reader-font-family')
+                .textContent.trim(),
+            'Source Han Serif SC'
+        );
+        assert.equal(
+            second.shadow.querySelector('#mktero-reader-font-family')
+                .textContent.trim(),
+            'Noto Serif SC'
+        );
+        assert.match(
+            first.shadow.host.style.getPropertyValue(
+                '--reader-selected-translation-font'
+            ),
+            /^"Source Han Serif SC"/
+        );
+        assert.equal(
+            second.shadow.host.style.getPropertyValue(
+                '--reader-selected-translation-font'
+            ),
+            'var(--reader-translation-font-zh-cn)'
+        );
+    }
+    finally {
+        first.view.destroy();
+        second.view.destroy();
+    }
+});
+
 test('operates the toolbar font picker from the keyboard', () => {
     const persistedFonts = [];
     const { view, shadow } = createView(createModel({

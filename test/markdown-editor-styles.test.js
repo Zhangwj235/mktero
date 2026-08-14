@@ -526,7 +526,7 @@ test('uses language-aware academic serif fonts only for translated text', () => 
         assert.match(
             languageRule,
             new RegExp(
-                `--reader-content-font:\\s*var\\(--reader-translation-font-${variableSuffix}\\)`
+                `--reader-content-font:\\s*var\\(--reader-selected-translation-font,\\s*var\\(--reader-translation-font-${variableSuffix}\\)\\)`
             )
         );
     }
