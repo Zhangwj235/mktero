@@ -1046,7 +1046,6 @@ class MarkdownTabView {
             translationViewButtons: documentActions.translationViewButtons,
             translationViewLabel: documentActions.translationViewLabel,
             translationStatus: documentActions.translationStatus,
-            translationLanguage: documentActions.translationLanguage,
             translationFailureNavigation:
                 documentActions.translationFailureNavigation,
             translationFailurePosition:
@@ -1351,18 +1350,10 @@ class MarkdownTabView {
             'aria-atomic': 'true',
         });
         translationStatus.hidden = true;
-        const translationLanguage = this.createElement('span', {
-            class: 'markdown-translation-language',
-        });
-        translationLanguage.hidden = true;
         const translationContext = this.createElement('span', {
             class: 'markdown-translation-context',
         });
-        appendChildren(
-            translationContext,
-            translationStatus,
-            translationLanguage
-        );
+        translationContext.appendChild(translationStatus);
         const translationFailureNavigation = this.createElement('div', {
             class: 'markdown-translation-failure-navigation',
         });
@@ -1501,7 +1492,6 @@ class MarkdownTabView {
             translationViewButtons,
             translationViewLabel,
             translationStatus,
-            translationLanguage,
             translationFailureNavigation,
             translationFailurePosition,
             previousTranslationFailure,
@@ -2612,9 +2602,9 @@ class MarkdownTabView {
         const translating = model.translationStatus === 'loading';
         const partial = model.translationStatus === 'partial'
             || translating && (model.translationFailedBlocks || []).length > 0;
+        this.syncTranslatedViewLabel(model, translationReady);
         this.elements.translationViewLabel.hidden = !translationReady;
         this.elements.translationView.hidden = !translationReady;
-        this.elements.translationLanguage.hidden = !translationReady;
         this.elements.translationFailureNavigation.hidden = !partial;
         this.elements.translationSeparator.hidden = translationReady
             && !partial
@@ -2705,6 +2695,24 @@ class MarkdownTabView {
         this.syncWarningActions(model);
     }
 
+    syncTranslatedViewLabel(model, translationReady) {
+        const button = this.elements.translationViewButtons.find(candidate => (
+            candidate.getAttribute('data-translation-view') === 'translated'
+        ));
+        if (!button) return;
+        const languageKey = translationReady
+            ? translationLanguageMessageKey(model.translationTargetLanguage)
+            : '';
+        const language = languageKey ? this.t(languageKey) : '';
+        const label = language || this.t('ai.translationView.translated');
+        const description = language
+            ? this.t('ai.translationView.translatedLanguage', { language })
+            : label;
+        button.textContent = label;
+        button.setAttribute('aria-label', description);
+        button.setAttribute('title', description);
+    }
+
     syncTranslationStatus(model, {
         translating,
         partial,
@@ -2761,26 +2769,6 @@ class MarkdownTabView {
         }
         this.elements.translationStatus.textContent = status;
         this.elements.translationStatus.hidden = !status;
-
-        const languageKey = translationLanguageMessageKey(
-            model.translationTargetLanguage
-        );
-        const languageName = languageKey ? this.t(languageKey) : '';
-        const language = translating && translationReady && languageName
-            ? this.t('ai.translationCurrentLanguage', { language: languageName })
-            : languageName;
-        this.elements.translationLanguage.textContent = language;
-        this.elements.translationLanguage.hidden = !translationReady
-            || !language;
-        if (language) {
-            this.elements.translationLanguage.setAttribute(
-                'title',
-                this.t('preferences.ai.targetLanguageLabel')
-            );
-        }
-        else {
-            this.elements.translationLanguage.removeAttribute('title');
-        }
         this.elements.previousTranslationFailure.disabled = !partial
             || !translationReady;
         this.elements.nextTranslationFailure.disabled = !partial

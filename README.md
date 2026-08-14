@@ -96,7 +96,9 @@ visible text is sufficient.
    font controls omit redundant visible labels, while retaining accessible
    names. The toolbar uses compact, even spacing, with in-flight progress
    condensed onto the main toolbar row at normal reader widths and the
-   translation action separated from reading mode.
+   translation action separated from reading mode. Once a translation is
+   available, its reading-mode tab displays the target language directly
+   instead of repeating that language in a separate label.
    The More menu contains `Manage corrections`, `Retranslate document`,
    `Reparse PDF`, and `Save snapshot` when those actions are available.
 

@@ -260,7 +260,6 @@ test('translates the document and switches between three reading modes', async (
         const translate = shadow.querySelector('#mktero-translate-document');
         const selector = shadow.querySelector('#mktero-translation-view');
         const status = shadow.querySelector('.markdown-translation-status');
-        const language = shadow.querySelector('.markdown-translation-language');
         const failureNavigation = shadow.querySelector(
             '.markdown-translation-failure-navigation'
         );
@@ -302,7 +301,10 @@ test('translates the document and switches between three reading modes', async (
         );
         assert.equal(selector.hidden, true);
         assert.equal(status.hidden, true);
-        assert.equal(language.hidden, true);
+        assert.equal(
+            shadow.querySelector('.markdown-translation-language'),
+            null
+        );
         assert.equal(retranslateDocument.hidden, true);
         assert.equal(selector.getAttribute('role'), 'radiogroup');
         assert.equal(originalMode.getAttribute('role'), 'radio');
@@ -434,12 +436,29 @@ test('translates the document and switches between three reading modes', async (
         assert.equal(selector.hidden, false);
         assert.equal(status.hidden, true);
         assert.equal(status.textContent, '');
-        assert.equal(language.hidden, false);
-        assert.equal(language.textContent, 'Simplified Chinese');
+        assert.equal(translatedMode.textContent, 'Simplified Chinese');
+        assert.equal(
+            translatedMode.getAttribute('aria-label'),
+            'Translation: Simplified Chinese'
+        );
+        assert.equal(
+            translatedMode.getAttribute('title'),
+            'Translation: Simplified Chinese'
+        );
         assert.equal(retranslateDocument.hidden, false);
         assert.equal(originalMode.disabled, false);
         assert.equal(translatedMode.disabled, false);
         assert.equal(compareMode.disabled, false);
+
+        view.render({
+            ...translatedModel,
+            translationTargetLanguage: 'pt-BR',
+        });
+        assert.equal(translatedMode.textContent, 'Portuguese (Brazil)');
+        assert.equal(
+            translatedMode.getAttribute('title'),
+            'Translation: Portuguese (Brazil)'
+        );
 
         translatedMode.click();
         assert.deepEqual(actions, ['translate', 'cancel', 'translated']);
@@ -835,8 +854,9 @@ test('keeps a partial translation readable while retrying the document', () => {
         });
         assert.equal(updates.at(-1).markdown, 'Fallback.');
         assert.equal(
-            shadow.querySelector('.markdown-translation-language').textContent,
-            'Current: Simplified Chinese'
+            shadow.querySelector('[data-translation-view="translated"]')
+                .textContent,
+            'Simplified Chinese'
         );
         assert.equal(
             shadow.querySelector('.markdown-translation-status').textContent,
@@ -1568,9 +1588,6 @@ test('keeps reading controls in a toolbar above the Markdown body', () => {
         const translationContext = shadow.querySelector(
             '.markdown-translation-context'
         );
-        const translationLanguage = shadow.querySelector(
-            '.markdown-translation-language'
-        );
         const failureNavigation = shadow.querySelector(
             '.markdown-translation-failure-navigation'
         );
@@ -1611,7 +1628,7 @@ test('keeps reading controls in a toolbar above the Markdown body', () => {
         );
         assert.deepEqual(
             [...translationContext.children],
-            [translationStatus, translationLanguage]
+            [translationStatus]
         );
         assert.equal(translationSeparator?.getAttribute('role'), 'separator');
         assert.equal(
