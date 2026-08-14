@@ -455,7 +455,7 @@ test('translates the document and switches between three reading modes', async (
             translationView: 'translated',
             translationConfiguredTargetLanguage: 'ja-JP',
         });
-        assert.equal(translate.hidden, false);
+        assert.equal(translate.hidden, true);
         assert.equal(translate.getAttribute('aria-label'), 'Translate document');
         assert.equal(selector.hidden, false);
         assert.equal(translatedMode.textContent, 'Simplified Chinese');

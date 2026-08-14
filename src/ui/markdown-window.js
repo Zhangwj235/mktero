@@ -2955,10 +2955,6 @@ class MarkdownTabView {
             || loadingView.visible
             || Boolean(this.documentActionBusy);
         const translationReady = hasAvailableTranslation(model);
-        const translationLanguageMismatch = translationReady
-            && hasTranslationLanguageMismatch(model);
-        const currentTranslationReady = translationReady
-            && !translationLanguageMismatch;
         const translating = model.translationStatus === 'loading';
         const partial = model.translationStatus === 'partial'
             || translating && (model.translationFailedBlocks || []).length > 0;
@@ -2967,10 +2963,10 @@ class MarkdownTabView {
         this.elements.translationViewLabel.hidden = !translationReady;
         this.elements.translationView.hidden = !translationReady;
         this.elements.translationFailureNavigation.hidden = !partial;
-        this.elements.translationSeparator.hidden = currentTranslationReady
+        this.elements.translationSeparator.hidden = translationReady
             && !partial
             && !translating;
-        this.elements.translateDocument.hidden = currentTranslationReady
+        this.elements.translateDocument.hidden = translationReady
             && !partial
             && !translating;
         this.elements.retranslateDocument.hidden = !translationReady;

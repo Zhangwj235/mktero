@@ -199,9 +199,11 @@ entry and keyed by source content, provider, protocol, model, target language,
 and prompt version. Each target language keeps an independent result. Changing
 the configured language leaves the current reading view in place while Mktero
 checks that language's cache; a complete hit replaces the translation in the
-open tab immediately, while a missing or partial result exposes the translation
-action. Partial caches resume their missing blocks instead of being treated as
-complete. The translated reading-mode tab lists every complete cached language
+open tab immediately. The primary translation action stays hidden while any
+complete translation is readable; partial translations expose a retry action,
+and a different language can be generated from `Retranslate document` in the
+More menu. Partial caches resume their missing blocks instead of being treated
+as complete. The translated reading-mode tab lists every complete cached language
 for the current document and model configuration. Choosing one switches the
 visible translation without changing the default language in Settings or
 sending another AI request. The translated and bilingual reading documents are

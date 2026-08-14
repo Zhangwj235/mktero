@@ -395,7 +395,7 @@ test('switches open tabs only to complete cached target-language translations', 
             .getAttribute('aria-checked'),
         'true'
     );
-    assert.equal(translate.hidden, false);
+    assert.equal(translate.hidden, true);
     translatedMode.click();
     const languageOptions = () => [...shadow.querySelectorAll(
         '[data-translation-language]'
@@ -411,7 +411,7 @@ test('switches open tabs only to complete cached target-language translations', 
     await waitFor(() => translatedMode.textContent === 'Japanese');
     assert.match(shadow.textContent, /\u8ad6\u6587/);
     assert.equal(preferences.get('extensions.mktero.aiTargetLanguage'), 'ko-KR');
-    assert.equal(translate.hidden, false);
+    assert.equal(translate.hidden, true);
     assert.equal(providerSignals.length, 0);
 
     const originalGetCached = MarkdownTranslationService.prototype
@@ -454,7 +454,7 @@ test('switches open tabs only to complete cached target-language translations', 
         originalGetCached;
     assert.equal(translatedMode.textContent, 'Japanese');
     assert.match(shadow.textContent, /\u8ad6\u6587/);
-    assert.equal(translate.hidden, false);
+    assert.equal(translate.hidden, true);
 
     activeMainWindow = secondMainWindow;
     const secondToolbarButtons = [];
