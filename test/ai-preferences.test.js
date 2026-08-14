@@ -16,6 +16,7 @@ import {
     getAISettings,
     isSupportedAITargetLanguage,
     normalizeAIBaseURL,
+    observeAITargetLanguage,
     validateAISettings,
 } from '../src/config/ai-preferences.js';
 
@@ -127,6 +128,32 @@ test('accepts the expanded AI translation language choices', () => {
             targetLanguage
         );
     }
+});
+
+test('observes normalized AI target-language changes and unregisters', () => {
+    const changes = [];
+    const unregistered = [];
+    let observer;
+    const dispose = observeAITargetLanguage({
+        Prefs: {
+            registerObserver(key, callback, global) {
+                assert.equal(key, AI_TARGET_LANGUAGE_PREF);
+                assert.equal(global, true);
+                observer = callback;
+                return 'target-language-observer';
+            },
+            unregisterObserver(value) {
+                unregistered.push(value);
+            },
+        },
+    }, language => changes.push(language));
+
+    observer('ja-JP');
+    observer('unsupported');
+    dispose();
+
+    assert.deepEqual(changes, ['ja-JP', 'zh-CN']);
+    assert.deepEqual(unregistered, ['target-language-observer']);
 });
 
 test('shares one supported target-language set with translation rendering', () => {

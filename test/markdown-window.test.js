@@ -452,6 +452,20 @@ test('translates the document and switches between three reading modes', async (
 
         view.render({
             ...translatedModel,
+            translationView: 'translated',
+            translationConfiguredTargetLanguage: 'ja-JP',
+        });
+        assert.equal(translate.hidden, false);
+        assert.equal(translate.getAttribute('aria-label'), 'Translate document');
+        assert.equal(selector.hidden, false);
+        assert.equal(translatedMode.textContent, 'Simplified Chinese');
+        assert.equal(
+            editors[0].renderedDocuments.at(-1).markdown,
+            '# \u8bba\u6587\n\n\u7ffb\u8bd1\u8fd9\u4e00\u6bb5\u3002'
+        );
+
+        view.render({
+            ...translatedModel,
             translationTargetLanguage: 'pt-BR',
         });
         assert.equal(translatedMode.textContent, 'Portuguese (Brazil)');

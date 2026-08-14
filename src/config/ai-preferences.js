@@ -111,6 +111,19 @@ export function getAISettings(zotero) {
     };
 }
 
+export function observeAITargetLanguage(zotero, onChange) {
+    if (typeof zotero?.Prefs?.registerObserver !== 'function'
+        || typeof onChange !== 'function') {
+        return () => {};
+    }
+    const observer = zotero.Prefs.registerObserver(
+        AI_TARGET_LANGUAGE_PREF,
+        value => onChange(normalizeTargetLanguage(value)),
+        true
+    );
+    return () => zotero.Prefs.unregisterObserver?.(observer);
+}
+
 export function validateAISettings(settings) {
     if (!settings?.enabled) {
         throw aiConfigurationError('AI features are disabled');

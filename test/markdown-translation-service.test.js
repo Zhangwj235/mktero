@@ -600,6 +600,49 @@ test('loads a complete document translation without calling the provider', async
     });
 });
 
+test('reuses a complete cache when the visible translation uses another language', async () => {
+    const cached = {
+        translatedMarkdown: '# English paper',
+        comparisonMarkdown: '# Paper\n\n# English paper',
+        blocks: [{
+            id: 'translation-0-0-7-heading',
+            markdown: '# English paper',
+        }],
+        model: 'cached-model',
+        targetLanguage: 'en-US',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => cached,
+            putTranslation: assert.fail,
+        },
+        getSettings: () => ({ ...SETTINGS, targetLanguage: 'en-US' }),
+        createCacheKey: async () => 'd'.repeat(64),
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+        existingTranslation: {
+            translationKey: 'c'.repeat(64),
+            blocks: [{
+                id: 'translation-0-0-7-heading',
+                markdown: '# \u8bba\u6587',
+            }],
+            failedBlocks: [],
+            targetLanguage: 'zh-CN',
+        },
+    });
+
+    assert.equal(result.cacheHit, true);
+    assert.equal(result.targetLanguage, 'en-US');
+    assert.equal(result.translatedMarkdown, '# English paper');
+});
+
 test('reports cached partial translations but retries them on explicit translation', async () => {
     const blockID = 'translation-0-0-7-heading';
     const cached = {
@@ -647,6 +690,66 @@ test('reports cached partial translations but retries them on explicit translati
     assert.equal(retried.partial, false);
     assert.equal(retried.translatedMarkdown, '# 论文');
     assert.equal(providerCalls, 1);
+});
+
+test('treats a cached translation with a missing block as partial and repairs it', async () => {
+    const markdown = '# Paper\n\nParagraph.';
+    const headingID = 'translation-0-0-7-heading';
+    const paragraphID = 'translation-1-9-19-paragraph';
+    const cached = {
+        translatedMarkdown: '# \u8bba\u6587\n\nParagraph.',
+        comparisonMarkdown: '',
+        blocks: [{ id: headingID, markdown: '# \u8bba\u6587' }],
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const requests = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                const entries = parseTranslationRequest(
+                    request.messages[1].content
+                );
+                requests.push(entries);
+                return {
+                    text: JSON.stringify([{
+                        id: paragraphID,
+                        translatedMarkdown: '\u6bb5\u843d\u3002',
+                    }]),
+                };
+            },
+        },
+        cache: {
+            getTranslation: async () => cached,
+            putTranslation: async () => {},
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    const restored = await service.getCachedDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown,
+    });
+    const repaired = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown,
+    });
+
+    assert.equal(restored.partial, true);
+    assert.deepEqual(restored.failedBlocks, [{
+        id: paragraphID,
+        message: 'Cached translation is incomplete',
+    }]);
+    assert.deepEqual(requests, [[{
+        id: paragraphID,
+        sourceMarkdown: 'Paragraph.',
+    }]]);
+    assert.equal(repaired.partial, false);
+    assert.equal(repaired.translatedMarkdown, '# \u8bba\u6587\n\n\u6bb5\u843d\u3002');
 });
 
 test('retries only failed cached blocks and preserves successful translations', async () => {

@@ -82,7 +82,8 @@ export class MarkdownTranslationService {
         return this.#readCachedDocumentTranslation(
             normalizedDocumentKey,
             translationKey,
-            source
+            source,
+            settings.targetLanguage
         );
     }
 
@@ -121,12 +122,12 @@ export class MarkdownTranslationService {
             ? await this.#readCachedDocumentTranslation(
                 normalizedDocumentKey,
                 translationKey,
-                source
+                source,
+                settings.targetLanguage
             )
             : null;
         if (cached
             && !forceRetranslate
-            && !existingTranslation
             && retryBlockIDs === null) {
             if (!cached.partial) {
                 reportProgress('complete', {
@@ -263,31 +264,57 @@ export class MarkdownTranslationService {
         }));
     }
 
-    async #readCachedDocumentTranslation(documentKey, translationKey, source) {
+    async #readCachedDocumentTranslation(
+        documentKey,
+        translationKey,
+        source,
+        targetLanguage
+    ) {
         try {
             const cached = await this.cache.getTranslation(
                 documentKey,
                 translationKey
             );
             if (!cached) return null;
+            if (cached.targetLanguage !== targetLanguage
+                || cached.promptVersion !== TRANSLATION_PROMPT_VERSION) {
+                throw new Error('The cached document translation identity changed');
+            }
             const blocks = collectMarkdownTranslationBlocks(source);
+            const translatableBlocks = blocks.filter(block => block.translatable);
+            const cachedTranslationsByID = new Map(cached.blocks.map(block => [
+                block.id,
+                block,
+            ]));
+            const missingFailures = [];
+            const translations = translatableBlocks.map(block => {
+                const translation = cachedTranslationsByID.get(block.id);
+                if (translation) return translation;
+                missingFailures.push({
+                    id: block.id,
+                    message: 'Cached translation is incomplete',
+                });
+                return { id: block.id, markdown: block.markdown };
+            });
+            validateDocumentTranslationOutput(translatableBlocks, translations);
             const views =
                 buildDocumentTranslationViews(
                     source,
                     blocks,
-                    cached.blocks
+                    translations
                 );
             if (cached.translatedMarkdown !== views.translatedMarkdown) {
                 throw new Error('The cached document translation is inconsistent');
             }
-            const totalBlocks = blocks.filter(block => block.translatable).length;
-            const failedBlocks = normalizeCachedTranslationFailures(
-                cached.failedBlocks,
-                blocks
-            );
+            const totalBlocks = translatableBlocks.length;
+            const failedBlocks = normalizeCachedTranslationFailures([
+                ...(cached.failedBlocks || []),
+                ...missingFailures,
+            ], blocks);
             return {
                 ...cached,
                 ...views,
+                blocks: translations,
                 partial: failedBlocks.length > 0,
                 failedBlocks,
                 translationKey,

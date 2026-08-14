@@ -67,7 +67,7 @@ Open `Settings -> Mktero` after installation.
 | Enable AI features | Off | Allow Markdown translation through the configured model service |
 | Stream responses | On | Stream each Markdown batch response; turn off to wait for each batch to finish |
 | AI base URL / API Key / provider / protocol / model | OpenAI Responses / empty model | Route AI calls through Vercel AI SDK Core to a hosted provider or loopback model server |
-| Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese for new translations |
+| Translation language | Simplified Chinese | Choose Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, French, or Brazilian Portuguese; open Markdown tabs reuse a complete cache for the selected language when available |
 | Request timeout | 600,000 ms | Allow up to one hour for each batch request |
 | Maximum output tokens | Automatic (0) | Let the provider choose by default, or allow up to 262,144 tokens when the selected model supports it |
 
@@ -193,11 +193,16 @@ authentication is disabled.
 
 The translated blocks are stored inside the corresponding PDF Markdown cache
 entry and keyed by source content, provider, protocol, model, target language,
-and prompt version. The translated and bilingual reading
-documents are rebuilt from those blocks in source order, so existing cached
-translations can adopt presentation updates without another AI request.
-Clearing, replacing, or evicting that Markdown cache entry removes its
-translation. Lists, blockquotes, and GFM tables are translated; images, code,
+and prompt version. Each target language keeps an independent result. Changing
+the configured language leaves the current reading view in place while Mktero
+checks that language's cache; a complete hit replaces the translation in the
+open tab immediately, while a missing or partial result exposes the translation
+action. Partial caches resume their missing blocks instead of being treated as
+complete. The translated and bilingual reading documents are rebuilt from the
+cached blocks in source order, so presentation updates do not require another
+AI request. Clearing, replacing, or evicting that Markdown cache entry removes
+all of its translations. Lists, blockquotes, and GFM tables are translated;
+images, code,
 standalone formulas, link definitions, and raw HTML are preserved. Closing the
 tab, reparsing, editing the Markdown, or shutting down Mktero cancels active
 translation requests.

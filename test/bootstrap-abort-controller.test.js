@@ -18,7 +18,11 @@ import { JSDOM } from 'jsdom';
 import {
     createMinerUCacheKey,
     createZoteroMarkdownCache,
+    sha256Hex,
 } from '../src/cache/markdown-cache.js';
+import {
+    TRANSLATION_PROMPT_VERSION,
+} from '../src/ai/markdown-translation-service.js';
 
 test('aborts live AI SDK requests across bootstrap translation lifecycles', {
     timeout: 15_000,
@@ -220,6 +224,239 @@ test('aborts live AI SDK requests across bootstrap translation lifecycles', {
     assert.ok(errors.every(error => !String(error).includes('test-token')));
 });
 
+test('switches open tabs only to complete cached target-language translations', {
+    timeout: 10_000,
+}, async t => {
+    const previousGlobals = captureGlobals([
+        'Zotero',
+        'IOUtils',
+        'PathUtils',
+        'fetch',
+        'startup',
+        'shutdown',
+        'Services',
+        '__MKTERO_MARKDOWN_STYLES__',
+    ]);
+    const profilePath = await mkdtemp(path.join(
+        os.tmpdir(),
+        'mktero-translation-language-'
+    ));
+    const pdfPath = path.join(profilePath, 'paper.pdf');
+    const pdfData = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55]);
+    const markdown = '# Paper';
+    await writeFile(pdfPath, pdfData);
+    const ioUtils = createNodeIOUtils();
+    const pathUtils = {
+        join: path.join,
+        parent: path.dirname,
+        filename: path.basename,
+        tempDir: path.join(profilePath, 'tmp'),
+    };
+    const preferences = new Map([
+        ['extensions.mktero.cacheEnabled', true],
+        ['extensions.mktero.aiEnabled', true],
+        ['extensions.mktero.aiProvider', 'custom'],
+        ['extensions.mktero.aiProtocol', 'openai-chat-completions'],
+        ['extensions.mktero.aiApiBase', 'https://ai.example.com/v1'],
+        ['extensions.mktero.aiApiKey', 'test-token'],
+        ['extensions.mktero.aiModel', 'test-chat'],
+        ['extensions.mktero.aiTargetLanguage', 'zh-CN'],
+        ['extensions.mktero.aiStreaming', false],
+    ]);
+    const preferenceObservers = new Map();
+    const unregisteredObservers = [];
+    const errors = [];
+    let toolbarHandler;
+    const providerSignals = [];
+    const mainWindow = createMainWindow(AbortController, []);
+    const secondMainWindow = createMainWindow(AbortController, []);
+    let activeMainWindow = mainWindow;
+    globalThis.Zotero = {
+        version: '9.0.6',
+        locale: 'en-US',
+        uiReadyPromise: Promise.resolve(),
+        Profile: { dir: profilePath },
+        Session: { state: { windows: [] } },
+        Prefs: {
+            get: key => preferences.get(key) ?? '',
+            registerObserver(key, callback) {
+                const id = `${key}-${preferenceObservers.size}`;
+                preferenceObservers.set(key, { callback, id });
+                return id;
+            },
+            unregisterObserver(id) {
+                unregisteredObservers.push(id);
+                for (const [key, observer] of preferenceObservers) {
+                    if (observer.id === id) preferenceObservers.delete(key);
+                }
+            },
+        },
+        Items: {
+            getAsync: async itemID => ({
+                id: itemID,
+                attachmentFilename: 'paper.pdf',
+                parentItem: null,
+                isPDFAttachment: () => true,
+                getDisplayTitle: () => 'Paper',
+                getFilePathAsync: async () => pdfPath,
+                getAnnotations: () => [],
+            }),
+            loadDataTypes: async () => {},
+        },
+        PreferencePanes: {
+            register: async options => options.id,
+            unregister() {},
+        },
+        Reader: {
+            registerEventListener(_type, handler) {
+                toolbarHandler = handler;
+            },
+        },
+        getMainWindow: () => activeMainWindow,
+        debug() {},
+        logError(error) { errors.push(error); },
+    };
+    globalThis.IOUtils = ioUtils;
+    globalThis.PathUtils = pathUtils;
+    globalThis.Services = { obs: createObserverService() };
+    globalThis.fetch = async (_url, { signal } = {}) => {
+        providerSignals.push(signal);
+        return new Promise((_, reject) => {
+            const abort = () => reject(signal.reason || Object.assign(
+                new Error('aborted'),
+                { name: 'AbortError' }
+            ));
+            if (signal.aborted) abort();
+            else signal.addEventListener('abort', abort, { once: true });
+        });
+    };
+    globalThis.__MKTERO_MARKDOWN_STYLES__ = readFileSync(
+        new URL('../ui/markdown.css', import.meta.url),
+        'utf8'
+    );
+
+    t.after(async () => {
+        globalThis.shutdown?.();
+        mainWindow.document.defaultView.close();
+        secondMainWindow.document.defaultView.close();
+        restoreGlobals(previousGlobals);
+        await rm(profilePath, { recursive: true, force: true });
+    });
+
+    const cacheKey = await createMinerUCacheKey(pdfData);
+    const cache = createZoteroMarkdownCache({
+        zotero: globalThis.Zotero,
+        ioUtils,
+        pathUtils,
+    });
+    await cache.put(cacheKey, {
+        markdown,
+        assets: [],
+        sourceMap: [],
+        extractedPages: 1,
+        totalPages: 1,
+    });
+    await putCachedTranslation(cache, cacheKey, markdown, {
+        targetLanguage: 'zh-CN',
+        translatedMarkdown: '# \u8bba\u6587',
+    });
+    await putCachedTranslation(cache, cacheKey, markdown, {
+        targetLanguage: 'ja-JP',
+        translatedMarkdown: '# \u8ad6\u6587',
+    });
+    await putCachedTranslation(cache, cacheKey, markdown, {
+        targetLanguage: 'fr-FR',
+        translatedMarkdown: '# Paper',
+        partial: true,
+    });
+
+    await import('../src/bootstrap.js?translation-language-cache-regression');
+    await globalThis.startup({
+        id: 'mktero@tenglvjun.github.io',
+        rootURI: 'resource://mktero/',
+    });
+    const toolbarButtons = [];
+    toolbarHandler({
+        reader: { type: 'pdf', itemID: 42 },
+        doc: createToolbarDocument(),
+        append: button => toolbarButtons.push(button),
+    });
+    toolbarButtons[0].click();
+    const root = await waitFor(() => mainWindow.tabRoot('tab-1'));
+    const shadow = root.shadowRoot;
+    const translatedMode = shadow.querySelector(
+        '[data-translation-view="translated"]'
+    );
+    const translate = shadow.querySelector('#mktero-translate-document');
+    await waitFor(() => translatedMode.textContent === 'Simplified Chinese');
+    translatedMode.click();
+    assert.match(shadow.textContent, /\u8bba\u6587/);
+
+    activeMainWindow = secondMainWindow;
+    const secondToolbarButtons = [];
+    toolbarHandler({
+        reader: { type: 'pdf', itemID: 43 },
+        doc: createToolbarDocument(),
+        append: button => secondToolbarButtons.push(button),
+    });
+    secondToolbarButtons[0].click();
+    const secondRoot = await waitFor(() => secondMainWindow.tabRoot('tab-1'));
+    const secondShadow = secondRoot.shadowRoot;
+    const secondTranslatedMode = secondShadow.querySelector(
+        '[data-translation-view="translated"]'
+    );
+    await waitFor(() => secondTranslatedMode.textContent
+        === 'Simplified Chinese');
+    secondTranslatedMode.click();
+
+    preferences.set('extensions.mktero.aiTargetLanguage', 'ja-JP');
+    const japaneseChange = preferenceObservers.get(
+        'extensions.mktero.aiTargetLanguage'
+    ).callback('ja-JP');
+    assert.equal(translate.hidden, false);
+    assert.equal(translatedMode.textContent, 'Simplified Chinese');
+    assert.match(shadow.textContent, /\u8bba\u6587/);
+    await japaneseChange;
+    assert.equal(translatedMode.textContent, 'Japanese');
+    assert.equal(translate.hidden, true);
+    assert.equal(translatedMode.getAttribute('aria-checked'), 'true');
+    assert.match(shadow.textContent, /\u8ad6\u6587/);
+    assert.equal(secondTranslatedMode.textContent, 'Japanese');
+    assert.equal(secondTranslatedMode.getAttribute('aria-checked'), 'true');
+    assert.match(secondShadow.textContent, /\u8ad6\u6587/);
+
+    preferences.set('extensions.mktero.aiTargetLanguage', 'fr-FR');
+    const frenchChange = preferenceObservers.get(
+        'extensions.mktero.aiTargetLanguage'
+    ).callback('fr-FR');
+    assert.equal(translate.hidden, false);
+    await frenchChange;
+    assert.equal(translatedMode.textContent, 'Japanese');
+    assert.equal(translatedMode.getAttribute('aria-checked'), 'true');
+    assert.match(shadow.textContent, /\u8ad6\u6587/);
+
+    translate.click();
+    const frenchSignal = await waitFor(() => providerSignals[0]);
+    preferences.set('extensions.mktero.aiTargetLanguage', 'es-ES');
+    const spanishChange = preferenceObservers.get(
+        'extensions.mktero.aiTargetLanguage'
+    ).callback('es-ES');
+    assert.equal(translate.getAttribute('aria-label'), 'Translate document');
+    assert.equal(translate.getAttribute('aria-busy'), 'false');
+    assert.equal(translatedMode.textContent, 'Japanese');
+    assert.match(shadow.textContent, /\u8ad6\u6587/);
+    await spanishChange;
+    assert.equal(frenchSignal.aborted, true);
+    assert.ok(errors.some(error => error?.name === 'AbortError'));
+    assert.ok(errors.every(error => !String(error).includes('test-token')));
+
+    const targetObserverID = preferenceObservers.get(
+        'extensions.mktero.aiTargetLanguage'
+    ).id;
+    globalThis.shutdown();
+    assert.ok(unregisteredObservers.includes(targetObserverID));
+});
+
 test('uses the Zotero window AbortController when the plugin sandbox has none', {
     timeout: 5_000,
 }, async t => {
@@ -399,6 +636,39 @@ function createObserverService() {
             return Number(listeners.has(topic));
         },
     };
+}
+
+async function putCachedTranslation(cache, documentKey, source, {
+    targetLanguage,
+    translatedMarkdown,
+    partial = false,
+}) {
+    const translationKey = await sha256Hex(new TextEncoder().encode(
+        JSON.stringify({
+            documentKey,
+            source,
+            provider: 'custom',
+            protocol: 'openai-chat-completions',
+            apiBase: 'https://ai.example.com/v1',
+            model: 'test-chat',
+            reasoning: 'none',
+            targetLanguage,
+            promptVersion: TRANSLATION_PROMPT_VERSION,
+        })
+    ));
+    const blockID = 'translation-0-0-7-heading';
+    await cache.putTranslation(documentKey, translationKey, {
+        translatedMarkdown,
+        comparisonMarkdown: `${source}\n\n${translatedMarkdown}`,
+        blocks: [{ id: blockID, markdown: translatedMarkdown }],
+        model: 'test-chat',
+        targetLanguage,
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial,
+        failedBlocks: partial
+            ? [{ id: blockID, message: 'Incomplete translation' }]
+            : [],
+    });
 }
 
 function startTranslation(shadow) {

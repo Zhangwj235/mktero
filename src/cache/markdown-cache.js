@@ -10,6 +10,7 @@ const CACHE_SCHEMA_VERSION = 1;
 const METADATA_FILE = 'entry.json';
 const MARKDOWN_FILE = 'document.md';
 const TRANSLATION_SCHEMA_VERSION = 1;
+const MAX_TRANSLATION_VARIANTS = 32;
 const DEFAULT_MAX_BYTES = 512 * 1024 * 1024;
 const DEFAULT_MAX_ENTRIES = 100;
 const DEFAULT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -186,31 +187,14 @@ export class MarkdownCache {
         catch {
             return null;
         }
-        if (metadata.translationKey !== translationKey
-            || !metadata.translationFile) {
-            return null;
-        }
-        const translationPath = this.path.join(
-            entryPath,
-            metadata.translationFile
-        );
+        const descriptor = (metadata.translations || []).find(candidate => (
+            candidate.translationKey === translationKey
+        ));
+        if (!descriptor) return null;
         try {
-            const fileInfo = await this.io.stat(translationPath);
-            if (!Number.isSafeInteger(fileInfo?.size)
-                || fileInfo.size !== metadata.translationBytes
-                || fileInfo.size > this.maxTranslationBytes
-                || (fileInfo.type && fileInfo.type !== 'regular')) {
-                throw new Error('Cached translation file size is invalid');
-            }
-            const serialized = await this.io.readUTF8(translationPath);
-            if (new TextEncoder().encode(serialized).length !== fileInfo.size) {
-                throw new Error('Cached translation size is invalid');
-            }
-            const record = JSON.parse(serialized);
-            validateTranslationRecord(
-                record,
-                translationKey,
-                this.maxTranslationBytes
+            const record = await this.#readTranslationRecord(
+                entryPath,
+                descriptor
             );
             return translationValue(record);
         }
@@ -218,7 +202,8 @@ export class MarkdownCache {
             await this.#removeTranslationReference(
                 entryPath,
                 metadataPath,
-                metadata
+                metadata,
+                translationKey
             ).catch(() => {});
             return null;
         }
@@ -248,23 +233,14 @@ export class MarkdownCache {
             metadataPath,
             cacheKey
         );
-        if (!metadata?.translationFile) return false;
-        const translationPath = this.path.join(
-            entryPath,
-            metadata.translationFile
-        );
-        const translationBytes = metadata.translationBytes || 0;
-        const nextMetadata = { ...metadata };
-        delete nextMetadata.translationFile;
-        delete nextMetadata.translationKey;
-        delete nextMetadata.translationBytes;
-        nextMetadata.sizeBytes = Math.max(
-            nextMetadata.markdownBytes,
-            nextMetadata.sizeBytes - translationBytes
-        );
+        const translations = metadata?.translations || [];
+        if (!translations.length) return false;
+        const nextMetadata = withoutTranslationReferences(metadata);
         await this.#writeMetadata(metadataPath, nextMetadata);
-        await this.io.remove(translationPath, { ignoreAbsent: true })
-            .catch(() => {});
+        await Promise.all(translations.map(descriptor => this.io.remove(
+            this.path.join(entryPath, descriptor.translationFile),
+            { ignoreAbsent: true }
+        ).catch(() => {})));
         return true;
     }
 
@@ -295,26 +271,42 @@ export class MarkdownCache {
             await this.io.writeUTF8(translationPath, serialized, {
                 tmpPath: temporaryPath,
             });
-            const previousTranslationFile = metadata.translationFile;
-            const previousTranslationBytes = metadata.translationBytes || 0;
+            const previousTranslations = metadata.translations || [];
+            const retainedTranslations = previousTranslations
+                .filter(descriptor => descriptor.targetLanguage
+                    !== translation.targetLanguage
+                    && descriptor.translationKey !== translationKey)
+                .slice(-(MAX_TRANSLATION_VARIANTS - 1));
+            const translations = [
+                ...retainedTranslations,
+                {
+                    translationFile,
+                    translationKey,
+                    translationBytes,
+                    targetLanguage: translation.targetLanguage,
+                },
+            ];
             const nextMetadata = {
                 ...metadata,
-                translationFile,
-                translationKey,
-                translationBytes,
-                sizeBytes: metadata.sizeBytes
-                    - previousTranslationBytes
-                    + translationBytes,
+                translations,
+                sizeBytes: cachedDocumentSize(metadata)
+                    + translations.reduce((total, descriptor) => (
+                        total + descriptor.translationBytes
+                    ), 0),
                 lastAccessedAt: this.now(),
             };
             await this.#writeMetadata(metadataPath, nextMetadata);
-            if (previousTranslationFile
-                && previousTranslationFile !== translationFile) {
-                await this.io.remove(
-                    this.path.join(entryPath, previousTranslationFile),
+            const retainedFiles = new Set(retainedTranslations.map(
+                descriptor => descriptor.translationFile
+            ));
+            await Promise.all(previousTranslations
+                .filter(descriptor => !retainedFiles.has(
+                    descriptor.translationFile
+                ))
+                .map(descriptor => this.io.remove(
+                    this.path.join(entryPath, descriptor.translationFile),
                     { ignoreAbsent: true }
-                ).catch(() => {});
-            }
+                ).catch(() => {})));
         }
         catch (error) {
             await Promise.all([translationPath, temporaryPath].map(filePath => (
@@ -555,35 +547,133 @@ export class MarkdownCache {
         metadata,
         { persist = true } = {}
     ) {
-        if (hasValidTranslationMetadata(
-            metadata,
-            this.maxTranslationBytes
-        )) {
-            return metadata;
+        const storedTranslations = Array.isArray(metadata.translations)
+            ? metadata.translations
+            : null;
+        const candidates = storedTranslations
+            ? storedTranslations.slice(0, MAX_TRANSLATION_VARIANTS)
+            : legacyTranslationDescriptor(metadata)
+                ? [legacyTranslationDescriptor(metadata)]
+                : [];
+        const legacy = metadata.translations === undefined
+            && hasLegacyTranslationMetadata(metadata);
+        const translations = [];
+        const rejectedFiles = new Set();
+        for (let index = MAX_TRANSLATION_VARIANTS;
+            index < (storedTranslations?.length || 0);
+            index++) {
+            const file = storedTranslations[index]?.translationFile;
+            if (isSafeTranslationFile(file)) rejectedFiles.add(file);
         }
-        if (!persist) return withoutTranslationReference(metadata);
-        return this.#removeTranslationReference(
-            entryPath,
-            metadataPath,
-            metadata
-        );
+        const acceptedFiles = new Set();
+        const acceptedLanguages = new Set();
+        for (const candidate of candidates) {
+            let descriptor = candidate;
+            if (legacy && isValidTranslationDescriptor(candidate, {
+                maxBytes: this.maxTranslationBytes,
+                requireTargetLanguage: false,
+            })) {
+                try {
+                    const record = await this.#readTranslationRecord(
+                        entryPath,
+                        candidate
+                    );
+                    descriptor = {
+                        ...candidate,
+                        targetLanguage: record.targetLanguage,
+                    };
+                }
+                catch {
+                    descriptor = null;
+                }
+            }
+            const valid = isValidTranslationDescriptor(descriptor, {
+                maxBytes: this.maxTranslationBytes,
+                requireTargetLanguage: true,
+            });
+            if (!valid
+                || acceptedFiles.has(descriptor.translationFile)
+                || acceptedLanguages.has(descriptor.targetLanguage)) {
+                if (isSafeTranslationFile(candidate?.translationFile)) {
+                    rejectedFiles.add(candidate.translationFile);
+                }
+                continue;
+            }
+            translations.push({
+                translationFile: descriptor.translationFile,
+                translationKey: descriptor.translationKey,
+                translationBytes: descriptor.translationBytes,
+                targetLanguage: descriptor.targetLanguage,
+            });
+            acceptedFiles.add(descriptor.translationFile);
+            acceptedLanguages.add(descriptor.targetLanguage);
+        }
+        for (const file of acceptedFiles) rejectedFiles.delete(file);
+        const nextMetadata = withTranslationReferences(metadata, translations);
+        const changed = JSON.stringify(nextMetadata) !== JSON.stringify(metadata);
+        if (!persist || !changed) return nextMetadata;
+        await this.#writeMetadata(metadataPath, nextMetadata);
+        await Promise.all([...rejectedFiles].map(file => this.io.remove(
+            this.path.join(entryPath, file),
+            { ignoreAbsent: true }
+        ).catch(() => {})));
+        return nextMetadata;
     }
 
-    async #removeTranslationReference(entryPath, metadataPath, metadata) {
-        const translationFile = isSafeTranslationFile(metadata?.translationFile)
-            ? metadata.translationFile
-            : null;
-        const nextMetadata = withoutTranslationReference(metadata);
+    async #removeTranslationReference(
+        entryPath,
+        metadataPath,
+        metadata,
+        translationKey
+    ) {
+        const translations = metadata.translations || [];
+        const removed = translations.filter(descriptor => (
+            descriptor.translationKey === translationKey
+        ));
+        const nextMetadata = withTranslationReferences(
+            metadata,
+            translations.filter(descriptor => (
+                descriptor.translationKey !== translationKey
+            ))
+        );
         try {
             await this.#writeMetadata(metadataPath, nextMetadata);
-            if (translationFile) {
-                await this.io.remove(this.path.join(entryPath, translationFile), {
+            await Promise.all(removed.map(descriptor => this.io.remove(
+                this.path.join(entryPath, descriptor.translationFile), {
                     ignoreAbsent: true,
-                }).catch(() => {});
-            }
+                }).catch(() => {})));
         }
         catch {}
         return nextMetadata;
+    }
+
+    async #readTranslationRecord(entryPath, descriptor) {
+        const translationPath = this.path.join(
+            entryPath,
+            descriptor.translationFile
+        );
+        const fileInfo = await this.io.stat(translationPath);
+        if (!Number.isSafeInteger(fileInfo?.size)
+            || fileInfo.size !== descriptor.translationBytes
+            || fileInfo.size > this.maxTranslationBytes
+            || (fileInfo.type && fileInfo.type !== 'regular')) {
+            throw new Error('Cached translation file size is invalid');
+        }
+        const serialized = await this.io.readUTF8(translationPath);
+        if (new TextEncoder().encode(serialized).length !== fileInfo.size) {
+            throw new Error('Cached translation size is invalid');
+        }
+        const record = JSON.parse(serialized);
+        validateTranslationRecord(
+            record,
+            descriptor.translationKey,
+            this.maxTranslationBytes
+        );
+        if (descriptor.targetLanguage
+            && record.targetLanguage !== descriptor.targetLanguage) {
+            throw new Error('Cached translation language is inconsistent');
+        }
+        return record;
     }
 
     async #removeReferencedFiles(entryPath, metadata) {
@@ -596,9 +686,9 @@ export class MarkdownCache {
             ...(metadata.assets || []).map(asset => (
                 this.path.join(entryPath, 'assets', asset.file)
             )),
-            ...(metadata.translationFile
-                ? [this.path.join(entryPath, metadata.translationFile)]
-                : []),
+            ...translationFiles(metadata).map(file => (
+                this.path.join(entryPath, file)
+            )),
         ];
         await Promise.all(files.map(filePath => this.io.remove(filePath, {
             ignoreAbsent: true,
@@ -676,22 +766,52 @@ function validateMetadata(
     }
 }
 
-function hasValidTranslationMetadata(metadata, maxTranslationBytes) {
-    const fields = [
+function isSafeTranslationFile(file) {
+    return /^translation-[a-z0-9-]+\.json$/.test(String(file || ''));
+}
+
+function isValidTranslationDescriptor(descriptor, {
+    maxBytes,
+    requireTargetLanguage,
+}) {
+    return isSafeTranslationFile(descriptor?.translationFile)
+        && /^[a-f0-9]{64}$/.test(String(descriptor?.translationKey))
+        && Number.isSafeInteger(descriptor?.translationBytes)
+        && descriptor.translationBytes >= 0
+        && descriptor.translationBytes <= maxBytes
+        && (!requireTargetLanguage
+            || typeof descriptor.targetLanguage === 'string'
+                && descriptor.targetLanguage.length > 0
+                && descriptor.targetLanguage.length <= 64);
+}
+
+function hasLegacyTranslationMetadata(metadata) {
+    return [
         metadata.translationFile,
         metadata.translationKey,
         metadata.translationBytes,
-    ];
-    if (fields.every(value => value === undefined)) return true;
-    return isSafeTranslationFile(metadata.translationFile)
-        && /^[a-f0-9]{64}$/.test(String(metadata.translationKey))
-        && Number.isSafeInteger(metadata.translationBytes)
-        && metadata.translationBytes >= 0
-        && metadata.translationBytes <= maxTranslationBytes;
+    ].some(value => value !== undefined);
 }
 
-function isSafeTranslationFile(file) {
-    return /^translation-[a-z0-9-]+\.json$/.test(String(file || ''));
+function legacyTranslationDescriptor(metadata) {
+    if (!hasLegacyTranslationMetadata(metadata)) return null;
+    return {
+        translationFile: metadata.translationFile,
+        translationKey: metadata.translationKey,
+        translationBytes: metadata.translationBytes,
+    };
+}
+
+function translationFiles(metadata) {
+    const files = Array.isArray(metadata?.translations)
+        ? metadata.translations
+            .map(descriptor => descriptor?.translationFile)
+            .filter(isSafeTranslationFile)
+        : [];
+    if (isSafeTranslationFile(metadata?.translationFile)) {
+        files.push(metadata.translationFile);
+    }
+    return [...new Set(files)];
 }
 
 function cachedDocumentSize(metadata) {
@@ -700,13 +820,22 @@ function cachedDocumentSize(metadata) {
         + metadata.assets.reduce((total, asset) => total + asset.size, 0);
 }
 
-function withoutTranslationReference(metadata) {
+function withTranslationReferences(metadata, translations) {
     const value = { ...metadata };
     delete value.translationFile;
     delete value.translationKey;
     delete value.translationBytes;
-    value.sizeBytes = cachedDocumentSize(value);
+    if (translations.length) value.translations = translations;
+    else delete value.translations;
+    value.sizeBytes = cachedDocumentSize(value)
+        + translations.reduce((total, descriptor) => (
+            total + descriptor.translationBytes
+        ), 0);
     return value;
+}
+
+function withoutTranslationReferences(metadata) {
+    return withTranslationReferences(metadata, []);
 }
 
 function validateTranslationRecord(record, translationKey, maxBytes) {

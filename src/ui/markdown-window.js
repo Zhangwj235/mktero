@@ -2391,13 +2391,7 @@ class MarkdownTabView {
         this.elements.retranslateDocumentLabel.textContent = this.t(
             'ai.retranslateDocument'
         );
-        const translationLabelKey = this.model.translationStatus === 'loading'
-            ? 'ai.cancelDocumentTranslation'
-            : this.model.translationStatus === 'partial'
-                ? 'ai.retryDocumentTranslation'
-                : isAvailableTranslationStatus(this.model.translationStatus)
-                    ? 'ai.translatedDocument'
-                    : 'ai.translateDocument';
+        const translationLabelKey = translationActionLabelKey(this.model);
         const translationLabel = this.model.translationStatus === 'loading'
             ? this.t(translationLabelKey, {
                 stage: this.t(
@@ -2599,6 +2593,10 @@ class MarkdownTabView {
             || loadingView.visible
             || Boolean(this.documentActionBusy);
         const translationReady = hasAvailableTranslation(model);
+        const translationLanguageMismatch = translationReady
+            && hasTranslationLanguageMismatch(model);
+        const currentTranslationReady = translationReady
+            && !translationLanguageMismatch;
         const translating = model.translationStatus === 'loading';
         const partial = model.translationStatus === 'partial'
             || translating && (model.translationFailedBlocks || []).length > 0;
@@ -2606,10 +2604,10 @@ class MarkdownTabView {
         this.elements.translationViewLabel.hidden = !translationReady;
         this.elements.translationView.hidden = !translationReady;
         this.elements.translationFailureNavigation.hidden = !partial;
-        this.elements.translationSeparator.hidden = translationReady
+        this.elements.translationSeparator.hidden = currentTranslationReady
             && !partial
             && !translating;
-        this.elements.translateDocument.hidden = translationReady
+        this.elements.translateDocument.hidden = currentTranslationReady
             && !partial
             && !translating;
         this.elements.retranslateDocument.hidden = !translationReady;
@@ -3837,6 +3835,27 @@ function hasAvailableTranslation(model) {
             && model.translationBlocks.length > 0
             && typeof model.translatedMarkdown === 'string'
             && typeof model.comparisonMarkdown === 'string';
+}
+
+function hasTranslationLanguageMismatch(model) {
+    const configured = String(
+        model?.translationConfiguredTargetLanguage || ''
+    );
+    const visible = String(model?.translationTargetLanguage || '');
+    return Boolean(configured && visible && configured !== visible);
+}
+
+function translationActionLabelKey(model) {
+    if (model?.translationStatus === 'loading') {
+        return 'ai.cancelDocumentTranslation';
+    }
+    if (hasTranslationLanguageMismatch(model)) return 'ai.translateDocument';
+    if (model?.translationStatus === 'partial') {
+        return 'ai.retryDocumentTranslation';
+    }
+    return isAvailableTranslationStatus(model?.translationStatus)
+        ? 'ai.translatedDocument'
+        : 'ai.translateDocument';
 }
 
 function translationLanguageMessageKey(language) {
