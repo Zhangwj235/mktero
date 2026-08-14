@@ -9,7 +9,31 @@ try {
 catch {
     mainWindow = null;
 }
-const hiddenWindow = globalThis.Services?.appShell?.hiddenDOMWindow;
+
+let hiddenWindow = null;
+let hiddenWindowResolved = false;
+
+function resolveHiddenWindow() {
+    if (hiddenWindowResolved) return hiddenWindow;
+    hiddenWindowResolved = true;
+    try {
+        hiddenWindow = globalThis.Services?.appShell?.hiddenDOMWindow || null;
+    }
+    catch {
+        hiddenWindow = null;
+    }
+    return hiddenWindow;
+}
+
+function resolveConstructor(owner, name) {
+    try {
+        const Constructor = owner?.[name];
+        return typeof Constructor === 'function' ? Constructor : null;
+    }
+    catch {
+        return null;
+    }
+}
 
 for (const name of [
     'ReadableStream',
@@ -18,8 +42,8 @@ for (const name of [
     'TextDecoderStream',
     'TextEncoderStream',
 ]) {
-    if (typeof globalThis[name] !== 'function'
-        && typeof (mainWindow?.[name] || hiddenWindow?.[name]) === 'function') {
-        globalThis[name] = mainWindow?.[name] || hiddenWindow[name];
-    }
+    if (typeof globalThis[name] === 'function') continue;
+    const Constructor = resolveConstructor(mainWindow, name)
+        || resolveConstructor(resolveHiddenWindow(), name);
+    if (Constructor) globalThis[name] = Constructor;
 }
