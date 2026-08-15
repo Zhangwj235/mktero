@@ -1168,6 +1168,25 @@ test('matches a LaTeX signed number against a compact PDF symbol', async () => {
     locator.dispose();
 });
 
+test('matches a LaTeX temperature threshold against a misencoded PDF degree', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem(
+            'cycles with>=0.2\uFFFDC wrist temperature signal.'
+        ),
+    ]]);
+    const selectedText = 'cycles with \\geq0.2^{\\circ}\\mathrm{C} wrist '
+        + 'temperature signal.';
+
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
+    assert.equal(located.position.pageIndex, 0);
+    assert.equal(located.position.rects.length, 1);
+    locator.dispose();
+});
+
 test('matches a long signed-number passage against a misencoded PDF glyph', async () => {
     const locator = await createSyntheticLocator([[
         createTextItem('If the labelled day falls within', {

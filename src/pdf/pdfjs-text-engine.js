@@ -21,7 +21,7 @@ const MAX_PAGE_TEXT_LENGTH = 1_000_000;
 const MAX_TOTAL_TEXT_LENGTH = 10_000_000;
 const MAX_TEXT_ITEMS = 250_000;
 
-export const PDF_TEXT_INDEX_PROFILE = `pdfjs-${PDFJS_VERSION}|text-v6`;
+export const PDF_TEXT_INDEX_PROFILE = `pdfjs-${PDFJS_VERSION}|text-v7`;
 
 // Zotero's DOM-free plugin sandbox cannot dynamically import the packaged
 // worker URL when PDF.js falls back to its in-process worker implementation.

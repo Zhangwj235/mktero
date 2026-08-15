@@ -69,6 +69,19 @@ test('normalizes PDF.js spacing around degree units while preserving source rang
     assert.equal(pdf.slice(range.from, range.to), '0.3   ° C');
 });
 
+test('limits misencoded degree recovery to standalone temperature units', () => {
+    assert.equal(
+        normalizePdfAnnotationText('Thresholds 0.2\uFFFDC and 1\uFFFDF.'),
+        'Thresholds 0.2°C and 1°F.'
+    );
+    assert.equal(
+        normalizePdfAnnotationText(
+            'Unrelated A\uFFFDC, 0.2\uFFFDK, 0.2\uFFFDCase, 0.2\uFFFDC2.'
+        ),
+        'Unrelated A\uFFFDC, 0.2\uFFFDK, 0.2\uFFFDCase, 0.2\uFFFDC2.'
+    );
+});
+
 test('normalizes MinerU LaTeX symbols while preserving source ranges', () => {
     const markdown = 'Difference 0.30\\;^{\\circ}\\mathrm{C}; window \\pm2.';
     const pdf = 'Difference 0.30 °C; window ± 2.';
@@ -107,6 +120,36 @@ test('normalizes MinerU LaTeX symbols while preserving source ranges', () => {
         '\\pm2'
     );
     assert.equal(normalizePdfAnnotationText('\\pmod2'), '\\pmod2');
+});
+
+test('normalizes LaTeX relational operators while preserving source ranges', () => {
+    const markdown = 'Limits x \\geq 2, y \\le 3, z \\neq 4.';
+    const pdf = 'Limits x >= 2, y <= 3, z != 4.';
+    const index = createPdfAnnotationTextIndex(markdown);
+    const pdfIndex = createPdfAnnotationTextIndex(pdf);
+    const normalized = 'Limits x≥2, y≤3, z≠4.';
+
+    assert.equal(index.text, normalized);
+    assert.equal(pdfIndex.text, normalized);
+    assert.equal(
+        normalizePdfAnnotationText('Limits x ≥ 2, y ≤ 3, z ≠ 4.'),
+        normalized
+    );
+    const target = 'x≥2';
+    const range = index.sourceRange(
+        normalized.indexOf(target),
+        target.length
+    );
+    const pdfRange = pdfIndex.sourceRange(
+        normalized.indexOf(target),
+        target.length
+    );
+    assert.equal(markdown.slice(range.from, range.to), 'x \\geq 2');
+    assert.equal(pdf.slice(pdfRange.from, pdfRange.to), 'x >= 2');
+    assert.equal(
+        normalizePdfAnnotationText('x \\ge 2, y \\leq 3, z \\ne 4'),
+        'x≥2, y≤3, z≠4'
+    );
 });
 
 test('normalizes LaTeX temperature units from saved Markdown annotations', () => {
@@ -150,6 +193,7 @@ test('normalizes statistical exponents before relational operators', () => {
 
 test('leaves escaped, malformed, and oversized LaTeX-like input unchanged', () => {
     const fragment = '\\\\pm 2 ( \\\\pm 3) 0.30\\\\;^{\\circ}C '
+        + '\\\\geq 2 \\geqslant 3 \\leqmatrix \\neqalign '
         + '\\pmod2 \\pmatrix '
         + '\\input{secret} 0.30\\;^{\\cir';
     const source = Array(1_000).fill(fragment).join(' ');
