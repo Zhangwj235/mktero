@@ -1,4 +1,7 @@
 export const MAX_PDF_ANNOTATION_TEXT_LENGTH = 100_000;
+export const MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS = 80;
+export const MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_LENGTH
+    = MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS * 2;
 
 export const ZOTERO_ANNOTATION_COLORS = Object.freeze([
     Object.freeze({ name: 'yellow', value: '#ffd400' }),
@@ -14,6 +17,26 @@ export const ZOTERO_ANNOTATION_COLORS = Object.freeze([
 export function isZoteroAnnotationColor(value) {
     const color = String(value || '').toLowerCase();
     return ZOTERO_ANNOTATION_COLORS.some(option => option.value === color);
+}
+
+export function normalizePDFAnnotationTextQuote(value) {
+    if (value === undefined || value === null) return null;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new TypeError('Invalid PDF annotation text quote');
+    }
+    const prefix = value.prefix === undefined ? '' : value.prefix;
+    const suffix = value.suffix === undefined ? '' : value.suffix;
+    if (typeof prefix !== 'string'
+        || typeof suffix !== 'string'
+        || prefix.length > MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_LENGTH
+        || suffix.length > MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_LENGTH
+        || [...prefix].length
+            > MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS
+        || [...suffix].length
+            > MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS) {
+        throw new TypeError('Invalid PDF annotation text quote');
+    }
+    return prefix || suffix ? { prefix, suffix } : null;
 }
 
 export function comparePdfAnnotations(left, right) {

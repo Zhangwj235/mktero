@@ -62,6 +62,20 @@ export function createVisibleMarkdownTextIndex(markdown) {
     const text = chunks.join('');
     return {
         text,
+        visibleOffsetAt(offset) {
+            if (!Number.isSafeInteger(offset) || offset >= markdown.length) {
+                return text.length;
+            }
+            if (offset <= 0) return 0;
+            const index = findFirstSourceSegment(segments, offset);
+            const segment = segments[index];
+            if (!segment) return text.length;
+            if (offset <= segment.sourceFrom) return segment.visibleFrom;
+            return segment.visibleFrom + Math.min(
+                offset - segment.sourceFrom,
+                segment.visibleTo - segment.visibleFrom
+            );
+        },
         sourceOffsetAt(offset) {
             const segment = findSegment(segments, offset);
             return segment

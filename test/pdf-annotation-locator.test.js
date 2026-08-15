@@ -590,6 +590,75 @@ test('does not guess between repeated text on the hinted page', async () => {
     locator.dispose();
 });
 
+test('uses surrounding text to disambiguate repeated text on one page', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('BACKGROUND: Repeated result in prior work.', {
+            y: 700,
+            hasEOL: true,
+        }),
+        createTextItem('SUMMARY ANSWER: Repeated result for this study.', {
+            y: 680,
+        }),
+    ]]);
+
+    const located = await locator.locate(42, 'Repeated result', {
+        pdfPageIndexHint: 0,
+        textQuote: {
+            prefix: 'SUMMARY ANSWER: ',
+            suffix: ' for this study.',
+        },
+    });
+
+    assert.equal(located.position.pageIndex, 0);
+    assertRectCloseTo(
+        located.position.rects[0],
+        [232, 677.6, 382, 689.6]
+    );
+    locator.dispose();
+});
+
+test('does not guess when repeated text has the same surroundings', async () => {
+    const repeated = 'SUMMARY ANSWER: Repeated result for this study.';
+    const locator = await createSyntheticLocator([[
+        createTextItem(repeated, { y: 700, hasEOL: true }),
+        createTextItem(repeated, { y: 680 }),
+    ]]);
+
+    await assert.rejects(
+        locator.locate(42, 'Repeated result', {
+            pdfPageIndexHint: 0,
+            textQuote: {
+                prefix: 'SUMMARY ANSWER: ',
+                suffix: ' for this study.',
+            },
+        }),
+        error => error?.code === 'MKTERO_PDF_TEXT_AMBIGUOUS'
+    );
+    locator.dispose();
+});
+
+test('does not guess from a partially matching surrounding quote', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('SUMMARY ANSWER: Repeated result for another study.', {
+            y: 700,
+            hasEOL: true,
+        }),
+        createTextItem('BACKGROUND: Repeated result in prior work.', { y: 680 }),
+    ]]);
+
+    await assert.rejects(
+        locator.locate(42, 'Repeated result', {
+            pdfPageIndexHint: 0,
+            textQuote: {
+                prefix: 'SUMMARY ANSWER: ',
+                suffix: ' for this study.',
+            },
+        }),
+        error => error?.code === 'MKTERO_PDF_TEXT_AMBIGUOUS'
+    );
+    locator.dispose();
+});
+
 test('creates exact rectangles for partial and multi-line TextItems', async () => {
     const locator = await createSyntheticLocator([[
         createTextItem('prefix Selected suffix', {

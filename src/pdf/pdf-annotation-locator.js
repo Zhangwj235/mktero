@@ -5,9 +5,13 @@ import {
 } from '../markdown/pdf-annotation-text.js';
 import { findTextOccurrences } from '../markdown/text-normalization.js';
 import { sha256Hex } from '../core/sha256.js';
+import {
+    normalizePDFAnnotationTextQuote,
+} from '../core/pdf-annotation.js';
 
 const MAX_MATCHES = 10_000;
 const MIN_GLYPH_FALLBACK_TEXT_LENGTH = 32;
+const MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH = 12;
 const MISENCODED_PLUS_MINUS = /§(?=\d)/gu;
 const PLUS_MINUS_NUMBER = /±(?=\d)/u;
 
@@ -101,6 +105,7 @@ export class PDFAnnotationLocator {
             try {
                 return locateInIndex(entry.index, text, {
                     pdfPageIndexHint: options.pdfPageIndexHint,
+                    textQuote: options.textQuote,
                     measureText: this.measureText,
                 });
             }
@@ -241,6 +246,7 @@ export async function createPDFTextIndexCacheKey(sourceHash, profile) {
 
 function locateInIndex(index, text, {
     pdfPageIndexHint,
+    textQuote,
     measureText,
 }) {
     const selectedText = String(text || '');
@@ -254,13 +260,15 @@ function locateInIndex(index, text, {
     const pages = pdfPageIndexHint === undefined
         ? index.pages
         : index.pages.filter(page => page.pageIndex === pdfPageIndexHint);
-    let located = findMatchWithTextStrategies(pages, target);
+    const quote = normalizePDFAnnotationTextQuote(textQuote);
+    let located = findMatchWithTextStrategies(pages, target, quote);
     if (!located
         && target.length >= MIN_GLYPH_FALLBACK_TEXT_LENGTH
         && PLUS_MINUS_NUMBER.test(target)) {
         located = findMatchWithTextStrategies(
             pages,
             target,
+            quote,
             normalizedText => normalizedText.replace(
                 MISENCODED_PLUS_MINUS,
                 '±'
@@ -298,6 +306,7 @@ function locateInIndex(index, text, {
 function findMatchWithTextStrategies(
     pages,
     target,
+    textQuote,
     transformText = value => value
 ) {
     const strategies = [
@@ -315,10 +324,14 @@ function findMatchWithTextStrategies(
         },
     ];
     for (const strategy of strategies) {
+        const normalizedTextQuote = mapTextQuote(textQuote, value => (
+            transformText(strategy.createSourceIndex(value).text.trim())
+        ));
         const match = findUniqueIndexMatch(
             pages,
             target,
-            page => transformText(strategy.normalizedTextForPage(page))
+            page => transformText(strategy.normalizedTextForPage(page)),
+            normalizedTextQuote
         );
         if (match) {
             return {
@@ -330,25 +343,72 @@ function findMatchWithTextStrategies(
     return null;
 }
 
-function findUniqueIndexMatch(pages, target, normalizedTextForPage) {
-    let match = null;
+function findUniqueIndexMatch(
+    pages,
+    target,
+    normalizedTextForPage,
+    textQuote
+) {
+    const matches = [];
     for (const page of pages) {
+        const normalizedText = normalizedTextForPage(page);
         const occurrences = findTextOccurrences(
-            normalizedTextForPage(page),
+            normalizedText,
             target,
             MAX_MATCHES
         );
-        if (occurrences.truncated || occurrences.offsets.length > 1) {
-            throw ambiguousError();
+        if (occurrences.truncated) throw ambiguousError();
+        for (const normalizedFrom of occurrences.offsets) {
+            matches.push({
+                page,
+                normalizedFrom,
+                normalizedText,
+            });
+            if (matches.length > MAX_MATCHES) throw ambiguousError();
         }
-        if (!occurrences.offsets.length) continue;
-        if (match) throw ambiguousError();
-        match = {
-            page,
-            normalizedFrom: occurrences.offsets[0],
-        };
     }
-    return match;
+    if (matches.length <= 1) return matches[0] || null;
+    const contextualMatch = findUniqueContextualMatch(
+        matches,
+        target.length,
+        textQuote
+    );
+    if (!contextualMatch) throw ambiguousError();
+    return contextualMatch;
+}
+
+function findUniqueContextualMatch(matches, targetLength, textQuote) {
+    if (!textQuote) return null;
+    const contextualMatches = matches.filter(match => textQuoteMatches(
+        match,
+        targetLength,
+        textQuote
+    ));
+    return contextualMatches.length === 1 ? contextualMatches[0] : null;
+}
+
+function textQuoteMatches(match, targetLength, textQuote) {
+    const before = match.normalizedText
+        .slice(0, match.normalizedFrom)
+        .trimEnd();
+    const after = match.normalizedText
+        .slice(match.normalizedFrom + targetLength)
+        .trimStart();
+    const comparisons = [];
+    if (textQuote.prefix.length >= MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH) {
+        comparisons.push(before.endsWith(textQuote.prefix));
+    }
+    if (textQuote.suffix.length >= MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH) {
+        comparisons.push(after.startsWith(textQuote.suffix));
+    }
+    return comparisons.length > 0 && comparisons.every(Boolean);
+}
+
+function mapTextQuote(textQuote, transformText) {
+    if (!textQuote) return null;
+    const prefix = transformText(textQuote.prefix);
+    const suffix = transformText(textQuote.suffix);
+    return prefix || suffix ? { prefix, suffix } : null;
 }
 
 function locateSourceRange(page, sourceRange, measureText) {

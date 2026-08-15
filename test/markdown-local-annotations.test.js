@@ -109,6 +109,35 @@ test('persists a supplied PDF page hint before first synchronization', async () 
     assert.equal((await store.get(42))[0].pdfPageIndexHint, 1);
 });
 
+test('persists surrounding text for PDF synchronization retries', async () => {
+    const store = createMemoryStore();
+    const synchronized = [];
+    const annotations = new MarkdownLocalAnnotations({
+        store,
+        createID: () => 'local-1',
+        async createPDFAnnotation(_itemID, draft) {
+            synchronized.push(draft);
+            return { deferred: true };
+        },
+    });
+    const textQuote = {
+        prefix: 'SUMMARY ANSWER: ',
+        suffix: ' for this study.',
+    };
+
+    await annotations.create(42, {
+        text: 'Repeated result',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 16, to: 31 }],
+        textQuote,
+    });
+
+    await waitFor(() => synchronized.length === 1);
+    assert.deepEqual(synchronized[0].textQuote, textQuote);
+    assert.deepEqual((await store.get(42))[0].textQuote, textQuote);
+});
+
 test('persists a Markdown highlight without waiting for PDF synchronization', async () => {
     const store = createMemoryStore();
     const annotations = new MarkdownLocalAnnotations({
@@ -178,6 +207,10 @@ test('keeps a deferred Markdown highlight without reporting a failure', async ()
         id: 'mktero-local-1',
         source: 'markdown',
         type: 'highlight',
+        textQuote: {
+            prefix: '',
+            suffix: ' continues.',
+        },
     }]);
     assert.equal(resolved.warning, undefined);
     assert.deepEqual(resolved.matched[0].synchronization, {
@@ -309,6 +342,10 @@ test('migrates an existing local Markdown highlight into Zotero PDF', async () =
             comment: local.comment,
             color: local.color,
             ranges: local.ranges,
+            textQuote: {
+                prefix: 'The ',
+                suffix: ' continues.',
+            },
         },
     }]);
 });
@@ -346,6 +383,136 @@ test('backfills a PDF page hint before synchronizing an existing highlight', asy
     await waitFor(() => synchronized.length === 1);
     assert.equal(synchronized[0].pdfPageIndexHint, 0);
     assert.equal((await store.get(42))[0].pdfPageIndexHint, 0);
+});
+
+test('backfills surrounding text before synchronizing an existing highlight', async () => {
+    const markdown = 'SUMMARY ANSWER: Repeated result for this study.';
+    const local = {
+        id: 'mktero-local-1',
+        source: 'markdown',
+        type: 'highlight',
+        text: 'Repeated result',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 16, to: 31 }],
+    };
+    const store = createMemoryStore([local]);
+    const synchronized = [];
+    const annotations = new MarkdownLocalAnnotations({
+        store,
+        async createPDFAnnotation(_itemID, draft) {
+            synchronized.push(draft);
+            return { deferred: true };
+        },
+    });
+
+    await annotations.resolve(42, markdown);
+
+    await waitFor(() => synchronized.length === 1);
+    assert.deepEqual(synchronized[0].textQuote, {
+        prefix: 'SUMMARY ANSWER: ',
+        suffix: ' for this study.',
+    });
+    assert.deepEqual((await store.get(42))[0].textQuote, {
+        prefix: 'SUMMARY ANSWER: ',
+        suffix: ' for this study.',
+    });
+});
+
+test('keeps resolved annotations when text quote backfill cannot be saved', async () => {
+    const markdown = 'SUMMARY ANSWER: Repeated result for this study.';
+    const local = {
+        id: 'mktero-local-1',
+        source: 'markdown',
+        type: 'highlight',
+        text: 'Repeated result',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 16, to: 31 }],
+    };
+    const errors = [];
+    let synchronizationCalls = 0;
+    const annotations = new MarkdownLocalAnnotations({
+        store: {
+            async get() {
+                return [local];
+            },
+            async put() {
+                throw new Error('profile storage unavailable');
+            },
+        },
+        async createPDFAnnotation() {
+            synchronizationCalls++;
+            return { deferred: true };
+        },
+        onError: error => errors.push(error.message),
+    });
+
+    const result = await annotations.resolve(42, markdown);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(result.matched.map(annotation => annotation.id), [local.id]);
+    assert.deepEqual(result.matched[0].textQuote, {
+        prefix: 'SUMMARY ANSWER: ',
+        suffix: ' for this study.',
+    });
+    assert.deepEqual(result.unmatched, []);
+    assert.equal(result.warning, undefined);
+    assert.equal(synchronizationCalls, 0);
+    assert.deepEqual(errors, ['profile storage unavailable']);
+});
+
+test('cancels queued synchronization when anchor backfill cannot be saved', async () => {
+    const first = {
+        id: 'mktero-local-1',
+        source: 'markdown',
+        type: 'highlight',
+        text: 'First result',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 0, to: 12 }],
+    };
+    const repeated = {
+        id: 'mktero-local-2',
+        source: 'markdown',
+        type: 'highlight',
+        text: 'Repeated result',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 29, to: 44 }],
+    };
+    let releaseFirst;
+    const firstPending = new Promise(resolve => {
+        releaseFirst = resolve;
+    });
+    const synchronized = [];
+    const annotations = new MarkdownLocalAnnotations({
+        store: {
+            async get() {
+                return [first, repeated];
+            },
+            async put() {
+                throw new Error('profile storage unavailable');
+            },
+        },
+        async createPDFAnnotation(_itemID, draft) {
+            synchronized.push(draft.text);
+            if (draft.text === first.text) await firstPending;
+            return { deferred: true };
+        },
+    });
+
+    await annotations.retrySynchronization(42, first.id);
+    await waitFor(() => synchronized.length === 1);
+    await annotations.retrySynchronization(42, repeated.id);
+    await annotations.resolve(
+        42,
+        'First result. SUMMARY ANSWER: Repeated result for this study.'
+    );
+    releaseFirst();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(synchronized, [first.text]);
 });
 
 test('refreshes a stale PDF page hint from the current source map', async () => {
@@ -486,7 +653,13 @@ test('keeps a local highlight when PDF synchronization fails', async () => {
         'The The sound of stress recovery continues.'
     );
 
-    assert.deepEqual(await store.get(42), [local]);
+    assert.deepEqual(await store.get(42), [{
+        ...local,
+        textQuote: {
+            prefix: 'The ',
+            suffix: ' continues.',
+        },
+    }]);
     assert.equal(result.matched[0].id, local.id);
     assert.deepEqual(result.matched[0].synchronization, {
         status: 'pending',
