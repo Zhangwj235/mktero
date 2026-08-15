@@ -2,6 +2,7 @@ import { findAcademicTableGroups } from './markdown-figures.js';
 import {
     ACADEMIC_REFERENCE_IDENTIFIER_SOURCE,
     analyzeMarkdownLabeledReferences,
+    locateMarkdownTargetLabel,
     normalizeReferenceIdentifier,
 } from './markdown-reference-analysis.js';
 
@@ -24,11 +25,20 @@ export function analyzeMarkdownTableReferences(markdown) {
     });
 }
 
-function tableTarget(key, group) {
+function tableTarget(key, group, markdown) {
+    const labelRange = locateMarkdownTargetLabel(markdown, {
+        label: group.caption.label,
+        caption: group.caption.text,
+        from: group.from,
+        to: group.to,
+        excludedRanges: [group.table],
+    });
     return {
         id: `table:${key}`,
         key,
         label: group.caption.label,
+        labelFrom: labelRange?.from ?? null,
+        labelTo: labelRange?.to ?? null,
         caption: group.caption.text,
         from: group.from,
         to: group.to,

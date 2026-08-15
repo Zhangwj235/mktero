@@ -154,10 +154,12 @@ up to eight blocks and about 2,000 estimated source tokens, and keeps up to five
 batch requests active. Responses are matched by block ID and merged in source
 order. Missing or invalid blocks are retried individually up to two times.
 Blocks that still fail keep their source text and leave the translation in a
-retryable partial state. Reference sections are kept unchanged. Code, images, standalone formulas,
-link definitions, raw HTML, URLs,
-and inline code are replaced with protected placeholders before each request
-and restored only after the response passes structural validation. Translation
+retryable partial state. Reference sections are kept unchanged. Code, images,
+standalone formulas, link definitions, raw HTML, URLs, inline code, and
+interactive citations, superscripts, figure references, table references, and
+their target labels are replaced with protected placeholders before each
+request and restored only after the response passes structural validation.
+Caption descriptions and surrounding prose remain translatable. Translation
 is always an explicit action and never rewrites the source Markdown or becomes
 part of a saved snapshot. Streaming is enabled by default for provider
 transport. While translation is running, the toolbar
@@ -216,8 +218,8 @@ treated as complete. The translated and bilingual reading documents are
 rebuilt from the cached blocks in source order, so presentation updates do not
 require another AI request. Clearing, replacing, or evicting that Markdown
 cache entry removes all of its translations. Lists, blockquotes, and GFM tables
-are translated; images, code,
-standalone formulas, link definitions, and raw HTML are preserved. Closing the
+are translated; images, code, standalone formulas, link definitions, raw HTML,
+and interactive academic reference labels are preserved. Closing the
 tab, reparsing, editing the Markdown, or shutting down Mktero cancels active
 translation requests.
 

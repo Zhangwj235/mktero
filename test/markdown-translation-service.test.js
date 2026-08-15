@@ -753,6 +753,42 @@ test('loads a complete document translation without calling the provider', async
     });
 });
 
+test('rejects caches from the previous reference protection protocol', async () => {
+    const cacheErrors = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => ({
+                translatedMarkdown: '# 论文',
+                comparisonMarkdown: '# Paper\n\n# 论文',
+                blocks: [{
+                    id: 'translation-0-0-7-heading',
+                    markdown: '# 论文',
+                }],
+                model: 'cached-model',
+                targetLanguage: 'zh-CN',
+                promptVersion: 'mktero-translation-v6',
+                partial: false,
+                failedBlocks: [],
+            }),
+            putTranslation: assert.fail,
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'c'.repeat(64),
+        onCacheError: error => cacheErrors.push(error.message),
+    });
+
+    const result = await service.getCachedDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Paper',
+    });
+
+    assert.equal(result, null);
+    assert.deepEqual(cacheErrors, [
+        'The cached document translation identity changed',
+    ]);
+});
+
 test('reuses a complete cache when the visible translation uses another language', async () => {
     const cached = {
         translatedMarkdown: '# Article français',

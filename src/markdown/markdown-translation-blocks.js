@@ -3,6 +3,13 @@ import {
     findDisplayMathMatches,
     findInlineMathMatches,
 } from './markdown-html.js';
+import { analyzeMarkdownCitations } from './markdown-citations.js';
+import {
+    analyzeMarkdownFigureReferences,
+} from './markdown-figure-references.js';
+import {
+    analyzeMarkdownTableReferences,
+} from './markdown-table-references.js';
 
 const MARKDOWN_PARSER = markdownParser.configure(GFM);
 const HEADING_PATTERN = /^(?:ATXHeading[1-6]|SetextHeading[12])$/;
@@ -34,6 +41,8 @@ export const MAX_TRANSLATION_BATCH_SOURCE_TOKENS = 2_000;
 export function collectMarkdownTranslationBlocks(markdown) {
     const source = String(markdown || '');
     const blocks = [];
+    const interactiveRanges = collectInteractiveRanges(source);
+    let interactiveRangeIndex = 0;
     const createPlaceholder = createProtectedPlaceholderFactory(source);
     const createDocumentMarkers = createDocumentMarkerFactory(source);
     let ordinal = 0;
@@ -50,7 +59,19 @@ export function collectMarkdownTranslationBlocks(markdown) {
             referenceSection = true;
         }
         const type = translationBlockType(node.name);
-        const protectedRanges = collectProtectedRanges(node, blockMarkdown);
+        const protectedRanges = collectProtectedRanges(
+            node,
+            blockMarkdown,
+            interactiveRangesForNode(
+                interactiveRanges,
+                interactiveRangeIndex,
+                node
+            )
+        );
+        while (interactiveRangeIndex < interactiveRanges.length
+            && interactiveRanges[interactiveRangeIndex].from < node.to) {
+            interactiveRangeIndex++;
+        }
         const protectedBlock = protectMarkdown(
             blockMarkdown,
             protectedRanges,
@@ -622,9 +643,23 @@ function isTranslatableBlock(
     return hasTranslatableContent(withoutProtected);
 }
 
-function collectProtectedRanges(node, markdown) {
-    const ranges = [];
+function collectProtectedRanges(node, markdown, interactiveRanges) {
+    const ranges = interactiveRanges.map(range => ({
+        from: range.from - node.from,
+        to: range.to - node.from,
+    }));
     node.cursor().iterate(current => {
+        if (current.name === 'Image') {
+            const wrapperRanges = translatableImageWrapperRanges(
+                current.node,
+                node.from,
+                interactiveRanges
+            );
+            if (wrapperRanges) {
+                ranges.push(...wrapperRanges);
+                return undefined;
+            }
+        }
         if (!PROTECTED_NODE_TYPES.has(current.name)) return;
         ranges.push({
             from: current.from - node.from,
@@ -663,6 +698,83 @@ function collectProtectedRanges(node, markdown) {
         });
     }
     return selectOuterRanges(ranges, markdown.length);
+}
+
+function collectInteractiveRanges(markdown) {
+    const citations = analyzeMarkdownCitations(markdown);
+    const figures = analyzeMarkdownFigureReferences(markdown);
+    const tables = analyzeMarkdownTableReferences(markdown);
+    return [
+        ...citations.citations,
+        ...figures.references,
+        ...figures.targets.flatMap(target => targetLabelRange(target)),
+        ...tables.references,
+        ...tables.targets.flatMap(target => targetLabelRange(target)),
+    ].sort((left, right) => left.from - right.from || left.to - right.to);
+}
+
+function targetLabelRange(target) {
+    if (!Number.isSafeInteger(target?.labelFrom)
+        || !Number.isSafeInteger(target?.labelTo)
+        || target.labelFrom < 0
+        || target.labelTo <= target.labelFrom) {
+        return [];
+    }
+    return [{
+        from: target.labelFrom,
+        to: target.labelTo,
+        translatableImageDescription: true,
+    }];
+}
+
+function interactiveRangesForNode(ranges, fromIndex, node) {
+    const selected = [];
+    for (let index = fromIndex; index < ranges.length; index++) {
+        const range = ranges[index];
+        if (range.from >= node.to) break;
+        if (range.from >= node.from && range.to <= node.to) {
+            selected.push(range);
+        }
+    }
+    return selected;
+}
+
+function translatableImageWrapperRanges(image, blockFrom, interactiveRanges) {
+    let rangeIndex = firstRangeAtOrAfter(interactiveRanges, image.from);
+    let translatesDescription = false;
+    while (rangeIndex < interactiveRanges.length
+        && interactiveRanges[rangeIndex].from < image.to) {
+        const range = interactiveRanges[rangeIndex];
+        if (range.translatableImageDescription && range.to <= image.to) {
+            translatesDescription = true;
+            break;
+        }
+        rangeIndex++;
+    }
+    if (!translatesDescription) return null;
+    const marks = [];
+    for (let child = image.firstChild; child; child = child.nextSibling) {
+        if (child.name === 'LinkMark') marks.push(child);
+    }
+    if (marks.length < 2 || marks[0].to > marks[1].from) return null;
+    return [{
+        from: image.from - blockFrom,
+        to: marks[0].to - blockFrom,
+    }, {
+        from: marks[1].from - blockFrom,
+        to: image.to - blockFrom,
+    }];
+}
+
+function firstRangeAtOrAfter(ranges, position) {
+    let low = 0;
+    let high = ranges.length;
+    while (low < high) {
+        const middle = low + Math.floor((high - low) / 2);
+        if (ranges[middle].from < position) low = middle + 1;
+        else high = middle;
+    }
+    return low;
 }
 
 function findContainerDisplayMathMatches(markdown) {
@@ -750,8 +862,12 @@ function selectOuterRanges(ranges, sourceLength) {
         .sort((left, right) => left.from - right.from || right.to - left.to);
     for (const range of sorted) {
         const previous = selected.at(-1);
-        if (previous && range.from < previous.to) continue;
-        selected.push(range);
+        if (previous && range.from <= previous.to) {
+            previous.to = Math.max(previous.to, range.to);
+        }
+        else {
+            selected.push({ ...range });
+        }
     }
     return selected;
 }
@@ -812,13 +928,11 @@ function createDocumentMarkerFactory(source) {
 }
 
 function validateProtectedPlaceholders(block, translated) {
-    const expected = new Set(
-        (block.protectedFragments || []).map(fragment => fragment.placeholder)
-    );
+    const expected = (block.protectedFragments || [])
+        .map(fragment => fragment.placeholder);
     const actual = translated.match(PROTECTED_PLACEHOLDER_PATTERN) || [];
-    if (actual.length !== expected.size
-        || new Set(actual).size !== actual.length
-        || actual.some(placeholder => !expected.has(placeholder))) {
+    if (actual.length !== expected.length
+        || actual.some((placeholder, index) => placeholder !== expected[index])) {
         throw new Error('The translated Markdown block changed protected content');
     }
     const originalTree = MARKDOWN_PARSER.parse(block.requestMarkdown);
@@ -912,7 +1026,35 @@ function removeRepeatedComparisonImages(markdown, block) {
         }
         value = value.replace(fragment.markdown, '');
     }
+    const imageEdits = [];
+    MARKDOWN_PARSER.parse(value).iterate({
+        enter(node) {
+            if (node.name !== 'Image') return undefined;
+            const altRange = markdownImageAltRange(node.node);
+            if (altRange) {
+                imageEdits.push({
+                    from: node.from,
+                    to: node.to,
+                    text: value.slice(altRange.from, altRange.to),
+                });
+            }
+            return false;
+        },
+    });
+    for (const edit of imageEdits.reverse()) {
+        value = value.slice(0, edit.from) + edit.text + value.slice(edit.to);
+    }
     return value.trim();
+}
+
+function markdownImageAltRange(image) {
+    const marks = [];
+    for (let child = image.firstChild; child; child = child.nextSibling) {
+        if (child.name === 'LinkMark') marks.push(child);
+    }
+    return marks.length >= 2 && marks[0].to <= marks[1].from
+        ? { from: marks[0].to, to: marks[1].from }
+        : null;
 }
 
 function parseTranslationResponse(response) {
