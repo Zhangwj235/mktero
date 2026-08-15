@@ -45,7 +45,7 @@ for current limits.
 
 ### Install
 
-1. Download `mktero-0.3.0.xpi` from
+1. Download `mktero-0.3.1.xpi` from
    [GitHub Releases](https://github.com/tenglvjun/mktero/releases/latest).
 2. In Zotero, open `Tools -> Plugins`.
 3. Open the gear menu and choose `Install Add-on From File...`.
@@ -412,7 +412,7 @@ npm run build
 ```
 
 The build creates the unpacked extension, a reproducible
-`build/mktero-0.3.0.xpi`, its SHA-256 checksum, and `build/updates.json`.
+`build/mktero-0.3.1.xpi`, its SHA-256 checksum, and `build/updates.json`.
 Generated `build/` and `node_modules/` directories are ignored and must not be
 committed.
 
@@ -421,8 +421,8 @@ Before creating the release tag, keep the versions in `manifest.json`,
 tag with:
 
 ```bash
-git tag v0.3.0 -m "Mktero 0.3.0"
-git push origin v0.3.0
+git tag v0.3.1 -m "Mktero 0.3.1"
+git push origin v0.3.1
 ```
 
 The release workflow checks the tag against `manifest.json` before publishing.
