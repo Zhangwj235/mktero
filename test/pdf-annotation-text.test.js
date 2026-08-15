@@ -152,6 +152,41 @@ test('normalizes LaTeX relational operators while preserving source ranges', () 
     );
 });
 
+test('normalizes relational operators after opening delimiters', () => {
+    const markdown = 'PA encompasses any body movement that results in energy '
+        + 'expenditure ( \\geq 1.5 MET).';
+    const pdf = 'PA encompasses any body movement that results in energy '
+        + 'expenditure (≥\u20091.5 MET).';
+    const markdownIndex = createPdfAnnotationTextIndex(markdown);
+    const pdfIndex = createPdfAnnotationTextIndex(pdf);
+    const normalized = 'PA encompasses any body movement that results in '
+        + 'energy expenditure (≥1.5 MET).';
+
+    assert.equal(markdownIndex.text, normalized);
+    assert.equal(pdfIndex.text, normalized);
+
+    const target = '(≥1.5 MET)';
+    const markdownRange = markdownIndex.sourceRange(
+        normalized.indexOf(target),
+        target.length
+    );
+    const pdfRange = pdfIndex.sourceRange(
+        normalized.indexOf(target),
+        target.length
+    );
+    assert.equal(
+        markdown.slice(markdownRange.from, markdownRange.to),
+        '( \\geq 1.5 MET)'
+    );
+    assert.equal(
+        pdf.slice(pdfRange.from, pdfRange.to),
+        '(≥\u20091.5 MET)'
+    );
+    assert.equal(normalizePdfAnnotationText('( example)'), '( example)');
+    assert.equal(normalizePdfAnnotationText('( \\\\geq 1.5)'), '( \\\\geq 1.5)');
+    assert.equal(normalizePdfAnnotationText('( \\geqslant 1.5)'), '( \\geqslant 1.5)');
+});
+
 test('normalizes LaTeX temperature units from saved Markdown annotations', () => {
     const markdown = 'Temperature increased by 0.3^{\\circ}\\mathrm{C}.';
     const pdf = 'Temperature increased by 0.3 °C.';

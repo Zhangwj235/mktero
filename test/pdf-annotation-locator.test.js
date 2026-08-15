@@ -1249,6 +1249,25 @@ test('matches a LaTeX signed number against a compact PDF symbol', async () => {
     locator.dispose();
 });
 
+test('locates a parenthesized LaTeX relation in the NExT passage', async () => {
+    const pdfText = 'PA encompasses any body movement that results in energy '
+        + 'expenditure (≥\u20091.5 MET).';
+    const locator = await createSyntheticLocator([[
+        createTextItem(pdfText),
+    ]]);
+    const selectedText = 'PA encompasses any body movement that results in '
+        + 'energy expenditure ( \\geq 1.5 MET).';
+
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
+    assert.equal(located.position.pageIndex, 0);
+    assert.equal(located.position.rects.length, 1);
+    locator.dispose();
+});
+
 test('matches a LaTeX temperature threshold against a misencoded PDF degree', async () => {
     const locator = await createSyntheticLocator([[
         createTextItem(
