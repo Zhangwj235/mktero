@@ -1,5 +1,6 @@
 import { findTextOccurrences } from '../markdown/text-normalization.js';
 import {
+    createHyphenFoldedPdfAnnotationTextIndex,
     createPdfAnnotationTextIndex,
     expandPdfAnnotationSourceRange,
     normalizePdfAnnotationText,
@@ -18,6 +19,8 @@ import { resolvePDFPageIndexHint } from './markdown-source-map.js';
 const MAX_MATCHABLE_MARKDOWN_LENGTH = 8 * 1024 * 1024;
 const MAX_MATCH_CANDIDATES = 10_000;
 const MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH = 12;
+const MAX_FOLDED_TEXT_QUOTE_CONTEXT_CODE_POINTS
+    = MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS * 2;
 
 export class MarkdownAnnotationOverlay {
     constructor({
@@ -227,38 +230,55 @@ function selectTextQuoteCandidateRange(
     textQuote
 ) {
     if (!textQuote) return null;
-    const matches = ranges.filter(range => textQuoteMatchesRange(
+    const exactMatches = ranges.filter(range => textQuoteMatchesRange(
         normalizedIndex,
         range,
-        textQuote
+        textQuote,
+        normalizePdfAnnotationText,
+        MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS
     ));
-    return matches.length === 1 ? matches[0] : null;
+    if (exactMatches.length) {
+        return exactMatches.length === 1 ? exactMatches[0] : null;
+    }
+    const foldHyphens = value => (
+        createHyphenFoldedPdfAnnotationTextIndex(value).text.trim()
+    );
+    const foldedMatches = ranges.filter(range => textQuoteMatchesRange(
+        normalizedIndex,
+        range,
+        textQuote,
+        foldHyphens,
+        MAX_FOLDED_TEXT_QUOTE_CONTEXT_CODE_POINTS
+    ));
+    return foldedMatches.length === 1 ? foldedMatches[0] : null;
 }
 
 function textQuoteMatchesRange(
     normalizedIndex,
     range,
-    textQuote
+    textQuote,
+    normalizeContext,
+    contextCodePoints
 ) {
     const normalizedRange = normalizedIndex.normalizedRangeForSourceRange(
         range.from,
         range.to
     );
-    const prefix = normalizePdfAnnotationText(textQuote.prefix);
-    const suffix = normalizePdfAnnotationText(textQuote.suffix);
+    const prefix = normalizeContext(textQuote.prefix);
+    const suffix = normalizeContext(textQuote.suffix);
     const comparisons = [];
     if (prefix.length >= MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH) {
-        const before = normalizePdfAnnotationText(trailingCodePoints(
+        const before = normalizeContext(trailingCodePoints(
             normalizedIndex.text,
-            MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
+            contextCodePoints,
             normalizedRange.from
         ));
         comparisons.push(before.endsWith(prefix));
     }
     if (suffix.length >= MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH) {
-        const after = normalizePdfAnnotationText(leadingCodePoints(
+        const after = normalizeContext(leadingCodePoints(
             normalizedIndex.text,
-            MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
+            contextCodePoints,
             normalizedRange.to
         ));
         comparisons.push(after.startsWith(suffix));

@@ -612,6 +612,26 @@ test('extracts context for the PDF occurrence encoded by its sort index', async 
     locator.dispose();
 });
 
+test('extracts folded context for a mixed-hyphen PDF occurrence', async () => {
+    const target = 'pre-exercise and preexercise';
+    const prefix = 'self-\nesteem context before ';
+    const pdfTarget = 'pre-\nexercise and pre-\nexercise';
+    const pageText = `${prefix}${pdfTarget} and unique suffix.`;
+    const locator = await createSyntheticLocator([[
+        createTextItem(pageText),
+    ]]);
+    const sourceOffset = pageText.indexOf(pdfTarget);
+
+    const textQuote = await locator.locateTextQuote(42, target, {
+        pdfPageIndexHint: 0,
+        sortIndex: `00000|${String(sourceOffset).padStart(6, '0')}|00000`,
+    });
+
+    assert.equal(textQuote.prefix, 'selfesteem context before ');
+    assert.match(textQuote.suffix, /^ and unique suffix\./u);
+    locator.dispose();
+});
+
 test('bounds extracted PDF context by Unicode code points', async () => {
     const target = 'repeated result';
     const expectedPrefix = '😀'.repeat(80);
@@ -1246,6 +1266,211 @@ test('matches a LaTeX signed number against a compact PDF symbol', async () => {
 
     assert.equal(located.position.pageIndex, 0);
     assert.equal(located.position.rects.length, 1);
+    locator.dispose();
+});
+
+test('locates a parenthesized LaTeX relation in the NExT passage', async () => {
+    const pdfText = 'PA encompasses any body movement that results in energy '
+        + 'expenditure (≥\u20091.5 MET).';
+    const locator = await createSyntheticLocator([[
+        createTextItem(pdfText),
+    ]]);
+    const selectedText = 'PA encompasses any body movement that results in '
+        + 'energy expenditure ( \\geq 1.5 MET).';
+
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
+    assert.equal(located.position.pageIndex, 0);
+    assert.equal(located.position.rects.length, 1);
+    locator.dispose();
+});
+
+test('locates the NExT Lafer passage with Markdown percentages', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem(
+            'The pilot trial conducted by Lafer et al. [84], examined the '
+            + 'impact of 12 weeks, three times per week of exercise '
+            + '(aerobics and strength exercises) interven-',
+            { hasEOL: true }
+        ),
+        createTextItem(
+            'tion on individuals with BD. The study involved 15 subjects '
+            + 'with BD, utilized the Montgomery Åsberg Depression Rating '
+            + 'Scale (MADRS), and demonstrated that 82% of participants '
+            + 'exhibited an antidepressant response, characterized by a '
+            + 'reduction exceeding 50% in depressive symptoms. Additionally, '
+            + '45% of these patients met the criteria for complete remission. '
+            + 'The baseline MADRS score observed was 23.6 ± 8.3 points, and '
+            + 'post intervention, the score decreased to 10.2 ± 4.8 points.',
+            { y: 680 }
+        ),
+    ]]);
+    const selectedText = 'The pilot trial conducted by Lafer et al. [84], '
+        + 'examined the impact of 12 weeks, three times per week of exercise '
+        + '(aerobics and strength exercises) intervention on individuals '
+        + 'with BD. The study involved 15 subjects with BD, utilized the '
+        + 'Montgomery Åsberg Depression Rating Scale (MADRS), and demonstrated '
+        + 'that 82\\% of participants exhibited an antidepressant response, '
+        + 'characterized by a reduction exceeding 50\\% in depressive symptoms. '
+        + 'Additionally, 45\\% of these patients met the criteria for complete '
+        + 'remission. The baseline MADRS score observed was 23.6 \\pm 8.3 '
+        + 'points, and post intervention, the score decreased to 10.2 \\pm '
+        + '4.8 points.';
+
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
+    assert.equal(located.position.rects.length, 2);
+    locator.dispose();
+});
+
+test('locates the NExT psychosocial passage with mixed line-end hyphens', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem(
+            'Evidence from other mental disorders indicates that PA can '
+            + 'improve self-',
+            { hasEOL: true }
+        ),
+        createTextItem(
+            'esteem, reduce internalized stigma, and enhance self-efficacy, '
+            + "defined as one's belief in one's own abilities to execute a "
+            + 'task and achieve predetermined objec-',
+            { y: 680, hasEOL: true }
+        ),
+        createTextItem(
+            'tives [62, 116, 145] , such psychosocial outcomes may be '
+            + 'particularly important for individuals with BD, who often '
+            + 'face challenges of social isolation and diminished self-',
+            { y: 660, hasEOL: true }
+        ),
+        createTextItem(
+            'efficacy, both of which are negatively associated with lower '
+            + 'PA participation',
+            { y: 640 }
+        ),
+    ]]);
+    const selectedText = 'Evidence from other mental disorders indicates '
+        + 'that PA can improve self-esteem, reduce internalized stigma, and '
+        + "enhance self-efficacy, defined as one's belief in one's own "
+        + 'abilities to execute a task and achieve predetermined objectives '
+        + '[62, 116, 145] , such psychosocial outcomes may be particularly '
+        + 'important for individuals with BD, who often face challenges of '
+        + 'social isolation and diminished self-efficacy, both of which are '
+        + 'negatively associated with lower PA participation';
+
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
+    assert.equal(located.position.rects.length, 4);
+    locator.dispose();
+});
+
+test('locates the NExT neuroimaging passage with mixed line-end hyphens', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem(
+            'In this study, neuroimaging findings revealed that before '
+            + 'exercise, those with BD showed atypical patterns of activation '
+            + 'and deactivation, particularly in the ventral prefrontal '
+            + 'cortex, amygdala, hippocampus, and anterior cin-',
+            { hasEOL: true }
+        ),
+        createTextItem(
+            'gulate cortex, which correlated with depressive and manic '
+            + 'symptoms. After exercise, these pre-',
+            { y: 680, hasEOL: true }
+        ),
+        createTextItem(
+            'exercise symptom–brain activation relationships were no longer '
+            + 'evident, and task performance matched that of control subjects.',
+            { y: 660 }
+        ),
+    ]]);
+    const selectedText = 'In this study, neuroimaging findings revealed that '
+        + 'before exercise, those with BD showed atypical patterns of '
+        + 'activation and deactivation, particularly in the ventral '
+        + 'prefrontal cortex, amygdala, hippocampus, and anterior cingulate '
+        + 'cortex, which correlated with depressive and manic symptoms. '
+        + 'After exercise, these pre-exercise symptom–brain activation '
+        + 'relationships were no longer evident, and task performance '
+        + 'matched that of control subjects.';
+
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
+    assert.equal(located.position.rects.length, 3);
+    locator.dispose();
+});
+
+test('resolves repeated line-end hyphen decisions per occurrence', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('pre-', { hasEOL: true }),
+        createTextItem('exercise and pre-', { y: 680, hasEOL: true }),
+        createTextItem('exercise', { y: 660 }),
+    ]]);
+
+    const located = await locator.locate(
+        42,
+        'pre-exercise and preexercise',
+        { pdfPageIndexHint: 0 }
+    );
+
+    assert.equal(located.position.rects.length, 3);
+    locator.dispose();
+});
+
+test('uses folded hyphen context to disambiguate mixed line endings', async () => {
+    const target = 'pre-exercise and objectives';
+    const firstPrefix = 'self-\nesteem context for first. ';
+    const first = 'pre-\nexercise and objec-\ntives';
+    const pageText = firstPrefix + first
+        + '. Other context for second. '
+        + first;
+    const locator = await createSyntheticLocator([[
+        createTextItem(pageText),
+    ]]);
+    const sourceOffset = pageText.indexOf(first, firstPrefix.length);
+
+    const located = await locator.locate(42, target, {
+        pdfPageIndexHint: 0,
+        textQuote: {
+            prefix: 'self-esteem context for first. ',
+            suffix: '',
+        },
+    });
+
+    assert.equal(
+        located.sortIndex.split('|')[1],
+        String(sourceOffset).padStart(6, '0')
+    );
+    locator.dispose();
+});
+
+test('keeps identical folded hyphen contexts ambiguous', async () => {
+    const repeated = 'self-\nesteem context. '
+        + 'pre-\nexercise and objec-\ntives.';
+    const locator = await createSyntheticLocator([[
+        createTextItem(`${repeated} ${repeated}`),
+    ]]);
+
+    await assert.rejects(
+        locator.locate(42, 'pre-exercise and objectives', {
+            pdfPageIndexHint: 0,
+            textQuote: {
+                prefix: 'self-esteem context. ',
+                suffix: '.',
+            },
+        }),
+        error => error?.code === 'MKTERO_PDF_TEXT_AMBIGUOUS'
+    );
     locator.dispose();
 });
 
