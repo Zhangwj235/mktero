@@ -2,6 +2,7 @@ import { findAcademicFigures } from './markdown-figures.js';
 import {
     ACADEMIC_REFERENCE_IDENTIFIER_SOURCE,
     analyzeMarkdownLabeledReferences,
+    locateMarkdownTargetLabel,
     normalizeReferenceIdentifier,
 } from './markdown-reference-analysis.js';
 
@@ -31,11 +32,19 @@ function figureReferenceKeys(key) {
     return subfigure ? [key, subfigure[1]] : [key];
 }
 
-function figureTarget(key, figure) {
+function figureTarget(key, figure, markdown) {
+    const labelRange = locateMarkdownTargetLabel(markdown, {
+        label: figure.caption.label,
+        caption: figure.caption.text,
+        from: figure.from,
+        to: figure.to,
+    });
     return {
         id: `figure:${key}`,
         key,
         label: figure.caption.label,
+        labelFrom: labelRange?.from ?? null,
+        labelTo: labelRange?.to ?? null,
         caption: figure.caption.text,
         from: figure.from,
         to: figure.to,

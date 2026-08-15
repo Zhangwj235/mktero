@@ -15,6 +15,15 @@ import {
     resolveTranslationReadingPosition,
     validateTranslatedBlock,
 } from '../src/markdown/markdown-translation-blocks.js';
+import {
+    analyzeMarkdownFigureReferences,
+} from '../src/markdown/markdown-figure-references.js';
+import {
+    analyzeMarkdownTableReferences,
+} from '../src/markdown/markdown-table-references.js';
+import {
+    analyzeMarkdownCitations,
+} from '../src/markdown/markdown-citations.js';
 
 test('collects translatable top-level Markdown blocks in document order', () => {
     const markdown = [
@@ -185,6 +194,281 @@ test('protects numeric citation markers from translation', () => {
             '既有研究'
         ).replace('supports this result', '支持这一结果')
     ), '既有研究 [1, 3-5] 支持这一结果.');
+});
+
+test('protects interactive author-year citations from translation', () => {
+    const markdown = [
+        '# Results',
+        '',
+        'Smith et al. (2020) reported the outcome.',
+        '',
+        '## References',
+        '',
+        'Smith, A., Jones, B., & Lee, C. (2020). Follow-up study.',
+    ].join('\n');
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const block = blocks.find(candidate => (
+        candidate.markdown.includes('reported the outcome')
+    ));
+
+    assert.doesNotMatch(block.requestMarkdown, /Smith et al\./);
+    assert.deepEqual(
+        block.protectedFragments.map(fragment => fragment.markdown),
+        ['Smith et al. (2020)']
+    );
+    assert.equal(validateTranslatedBlock(
+        block,
+        block.requestMarkdown.replace(
+            'reported the outcome',
+            '报告了这一结果'
+        )
+    ), 'Smith et al. (2020) 报告了这一结果.');
+    const translated = assembleTranslatedMarkdown(
+        markdown,
+        blocks,
+        blocks.filter(candidate => candidate.translatable).map(candidate => ({
+            id: candidate.id,
+            markdown: candidate.requestMarkdown
+                .replace('Results', '结果')
+                .replace('reported the outcome', '报告了这一结果'),
+        }))
+    );
+    const analysis = analyzeMarkdownCitations(translated);
+    assert.deepEqual(analysis.citations.map(citation => (
+        translated.slice(citation.from, citation.to)
+    )), ['Smith et al. (2020)']);
+});
+
+test('preserves interactive figure references and target labels', () => {
+    const markdown = [
+        '# Results',
+        '',
+        'The ablation appears in Fig. 2.',
+        '',
+        '![](images/panel-a.png)',
+        '',
+        '![](images/panel-b.png)  ',
+        'Figure 2. Ablation results.',
+    ].join('\n');
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const referenceBlock = blocks.find(block => (
+        block.markdown.includes('The ablation')
+    ));
+    const captionBlock = blocks.find(block => (
+        block.markdown.includes('Figure 2. Ablation')
+    ));
+
+    assert.doesNotMatch(referenceBlock.requestMarkdown, /Fig\. 2/);
+    assert.doesNotMatch(captionBlock.requestMarkdown, /Figure 2\./);
+
+    const translated = assembleTranslatedMarkdown(
+        markdown,
+        blocks,
+        blocks.filter(block => block.translatable).map(block => ({
+            id: block.id,
+            markdown: block.requestMarkdown
+                .replace('Results', '结果')
+                .replace('The ablation appears in', '消融结果见')
+                .replace('Ablation results', '消融结果'),
+        }))
+    );
+    const analysis = analyzeMarkdownFigureReferences(translated);
+
+    assert.deepEqual(analysis.references.map(reference => (
+        translated.slice(reference.from, reference.to)
+    )), ['Fig. 2']);
+    assert.deepEqual(
+        analysis.targets.map(target => target.label),
+        ['Figure 2.']
+    );
+});
+
+test('preserves interactive table references and target labels', () => {
+    const markdown = [
+        '# Results',
+        '',
+        'Performance is reported in Table 1.',
+        '',
+        'Table 1. Model performance',
+        '',
+        '| Model | Accuracy |',
+        '| --- | ---: |',
+        '| Baseline | 0.72 |',
+    ].join('\n');
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const referenceBlock = blocks.find(block => (
+        block.markdown.includes('reported in Table')
+    ));
+    const captionBlock = blocks.find(block => (
+        block.markdown.includes('Table 1. Model')
+    ));
+
+    assert.doesNotMatch(referenceBlock.requestMarkdown, /Table 1/);
+    assert.doesNotMatch(captionBlock.requestMarkdown, /Table 1\./);
+
+    const translated = assembleTranslatedMarkdown(
+        markdown,
+        blocks,
+        blocks.filter(block => block.translatable).map(block => ({
+            id: block.id,
+            markdown: block.requestMarkdown
+                .replace('Results', '结果')
+                .replace('Performance is reported in', '性能见')
+                .replace('Model performance', '模型性能')
+                .replace('Model', '模型')
+                .replace('Accuracy', '准确率')
+                .replace('Baseline', '基线'),
+        }))
+    );
+    const analysis = analyzeMarkdownTableReferences(translated);
+
+    assert.deepEqual(analysis.references.map(reference => (
+        translated.slice(reference.from, reference.to)
+    )), ['Table 1']);
+    assert.deepEqual(
+        analysis.targets.map(target => target.label),
+        ['Table 1.']
+    );
+});
+
+test('protects a table caption label after matching table cell text', () => {
+    const markdown = [
+        'The result appears in Table 1.',
+        '',
+        '| Note |',
+        '| --- |',
+        '| Table 1 Result summary |',
+        '',
+        'Table 1 Result summary',
+    ].join('\n');
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const tableBlock = blocks.find(block => block.type === 'table');
+    const captionBlock = blocks.find(block => (
+        block.markdown === 'Table 1 Result summary'
+    ));
+
+    assert.match(tableBlock.requestMarkdown, /Table 1/);
+    assert.doesNotMatch(captionBlock.requestMarkdown, /Table 1/);
+});
+
+test('translates embedded figure descriptions without changing the image', () => {
+    const markdown = [
+        'The design appears in Fig. 1.',
+        '',
+        '![Figure 1. Model results.](images/f1.png)',
+    ].join('\n');
+    const blocks = collectMarkdownTranslationBlocks(markdown);
+    const imageBlock = blocks.find(block => (
+        block.markdown.includes('Model results')
+    ));
+
+    assert.equal(imageBlock.translatable, true);
+    assert.match(imageBlock.requestMarkdown, /Model results/);
+    assert.doesNotMatch(imageBlock.requestMarkdown, /Figure 1|f1\.png/);
+    const translatedImage = imageBlock.requestMarkdown.replace(
+        'Model results',
+        '模型结果'
+    );
+    assert.equal(validateTranslatedBlock(imageBlock, translatedImage), [
+        '![Figure 1. 模型结果.](images/f1.png)',
+    ].join(''));
+
+    const translations = blocks
+        .filter(block => block.translatable)
+        .map(block => ({
+            id: block.id,
+            markdown: block === imageBlock
+                ? translatedImage
+                : block.requestMarkdown.replace(
+                    'The design appears in',
+                    '该设计见'
+                ),
+        }));
+    const translated = assembleTranslatedMarkdown(
+        markdown,
+        blocks,
+        translations
+    );
+    const analysis = analyzeMarkdownFigureReferences(translated);
+
+    assert.deepEqual(analysis.references.map(reference => (
+        translated.slice(reference.from, reference.to)
+    )), ['Fig. 1']);
+    assert.deepEqual(analysis.targets.map(target => target.label), [
+        'Figure 1.',
+    ]);
+    const comparison = createComparisonMarkdown(
+        markdown,
+        blocks,
+        translations
+    );
+    assert.equal(
+        comparison.match(/!\[Figure 1\.[^\]]*\]\(images\/f1\.png\)/g)?.length,
+        1
+    );
+    assert.match(comparison, /Figure 1\. 模型结果\./);
+});
+
+test('protects a recovered table label inside a miscaptioned image', () => {
+    const markdown = [
+        'BMI classes are listed in Table 2.',
+        '',
+        '<table><tr><td>Category</td><td>BMI</td></tr></table>',
+        '',
+        '![Table 2. BMI classification.](images/histogram.jpg)',
+        'Figure 1. BMI histogram.',
+    ].join('\n');
+    const block = collectMarkdownTranslationBlocks(markdown).find(candidate => (
+        candidate.markdown.includes('BMI classification')
+    ));
+
+    assert.equal(block.translatable, true);
+    assert.doesNotMatch(block.requestMarkdown, /Table 2|Figure 1|histogram\.jpg/);
+    assert.match(block.requestMarkdown, /BMI classification/);
+    assert.match(block.requestMarkdown, /BMI histogram/);
+    assert.equal(validateTranslatedBlock(
+        block,
+        block.requestMarkdown
+            .replace('BMI classification', 'BMI 分类')
+            .replace('BMI histogram', 'BMI 直方图')
+    ), [
+        '![Table 2. BMI 分类.](images/histogram.jpg)',
+        'Figure 1. BMI 直方图.',
+    ].join('\n'));
+});
+
+test('preserves interactive Unicode citation superscripts', () => {
+    const markdown = [
+        '# Results',
+        '',
+        'Relaxation methods reduce anxiety²⁻⁴.',
+        '',
+        '## References',
+        '',
+        '[2] Beta B. Second paper. 2020.',
+        '[3] Gamma G. Third paper. 2021.',
+        '[4] Delta D. Fourth paper. 2022.',
+    ].join('\n');
+    const block = collectMarkdownTranslationBlocks(markdown).find(candidate => (
+        candidate.markdown.includes('Relaxation methods')
+    ));
+
+    assert.doesNotMatch(block.requestMarkdown, /²⁻⁴/u);
+    assert.equal(validateTranslatedBlock(
+        block,
+        block.requestMarkdown.replace(
+            'Relaxation methods reduce anxiety',
+            '放松方法可以减轻焦虑'
+        )
+    ), '放松方法可以减轻焦虑²⁻⁴.');
+});
+
+test('does not protect unresolved academic-looking prose', () => {
+    const markdown = 'We figure out Table 9 after reviewing Smith (2020).';
+    const [block] = collectMarkdownTranslationBlocks(markdown);
+
+    assert.equal(block.requestMarkdown, markdown);
+    assert.deepEqual(block.protectedFragments, []);
 });
 
 test('keeps reference headings and entries out of translation batches', () => {
@@ -419,6 +703,23 @@ test('rejects missing, duplicated, or fabricated protected placeholders', () => 
                 `**${first.placeholder}**`
             )
         ),
+        /protected/i
+    );
+});
+
+test('rejects reordered protected placeholders', () => {
+    const [block] = collectMarkdownTranslationBlocks(
+        'Run `first()` before `second()`.'
+    );
+    const [first, second] = block.protectedFragments;
+    const temporary = 'TEMPORARYPROTECTEDPLACEHOLDER';
+    const reordered = block.requestMarkdown
+        .replace(first.placeholder, temporary)
+        .replace(second.placeholder, first.placeholder)
+        .replace(temporary, second.placeholder);
+
+    assert.throws(
+        () => validateTranslatedBlock(block, reordered),
         /protected/i
     );
 });

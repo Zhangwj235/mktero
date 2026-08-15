@@ -111,6 +111,7 @@ export function createInlineMarkdownEditor({
     openAnnotationInPDF,
     onSourceNavigationError,
     onViewportChange,
+    onNavigationBackChange,
     onCommitCorrection,
     onRestoreCorrection,
     onCorrectionError,
@@ -201,6 +202,61 @@ export function createInlineMarkdownEditor({
     let correctionToolbar;
     let stalledViewportRepairFrame = null;
     let translationHighlightTimer = null;
+    let citationReturnPoint = null;
+    let citationReturnAvailable = false;
+    const setCitationReturnAvailable = available => {
+        const nextAvailable = Boolean(available);
+        if (citationReturnAvailable === nextAvailable) return;
+        citationReturnAvailable = nextAvailable;
+        onNavigationBackChange?.(nextAvailable);
+    };
+    const clearCitationReturnPoint = () => {
+        citationReturnPoint = null;
+        setCitationReturnAvailable(false);
+    };
+    const captureCitationReturnPoint = (editorView, origin) => {
+        const from = Number(origin?.from);
+        const to = Number(origin?.to);
+        if (!Number.isSafeInteger(from)
+            || !Number.isSafeInteger(to)
+            || from < 0
+            || to <= from
+            || to > editorView.state.doc.length) {
+            return false;
+        }
+        const scrollTop = Number(editorView.scrollDOM?.scrollTop);
+        citationReturnPoint = {
+            document: editorView.state.doc,
+            from,
+            to,
+            scrollTop: Number.isFinite(scrollTop) ? scrollTop : null,
+        };
+        setCitationReturnAvailable(true);
+        return true;
+    };
+    const returnToCitation = () => {
+        const point = citationReturnPoint;
+        if (!point || point.document !== view?.state.doc) {
+            clearCitationReturnPoint();
+            return false;
+        }
+        citationReturnPoint = null;
+        setCitationReturnAvailable(false);
+        activateDOMGlobals(ownerWindow);
+        view.focus();
+        if (Number.isFinite(point.scrollTop)) {
+            view.scrollDOM.scrollTop = Math.max(0, point.scrollTop);
+            view.requestMeasure();
+        }
+        else {
+            requestEditorScroll(view, point.from, view.state.doc);
+        }
+        return true;
+    };
+    const activateCitation = (editorView, target, origin) => {
+        captureCitationReturnPoint(editorView, origin);
+        referenceFeatures.citation.highlight.activate(editorView, target);
+    };
     const cancelStalledViewportRepair = () => {
         if (stalledViewportRepairFrame === null) return;
         ownerWindow.cancelAnimationFrame?.(stalledViewportRepairFrame);
@@ -269,8 +325,7 @@ export function createInlineMarkdownEditor({
                     tablePreviewPopup,
                     figurePreviewPopup,
                     annotationPopup,
-                    activateCitation:
-                        referenceFeatures.citation.highlight.activate,
+                    activateCitation,
                     activateTableReference:
                         referenceFeatures.table.highlight.activate,
                     activateFigureReference:
@@ -348,6 +403,16 @@ export function createInlineMarkdownEditor({
                 history(),
                 Prec.highest(EditorView.domEventHandlers({
                     keydown(event) {
+                        if (!activeCorrection
+                            && !tableCorrectionEditing
+                            && !event.isComposing
+                            && citationReturnAvailable
+                            && isCitationReturnShortcut(event)
+                            && returnToCitation()) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            return true;
+                        }
                         if (!activeCorrection
                             && !tableCorrectionEditing
                             && !event.isComposing
@@ -705,6 +770,9 @@ export function createInlineMarkdownEditor({
             translationHighlightTimer = null;
         }
         const value = String(markdown || '');
+        if (value !== view.state.doc.toString()) {
+            clearCitationReturnPoint();
+        }
         activeTableCorrection?.cancel?.({
             focus: false,
             force: true,
@@ -801,6 +869,7 @@ export function createInlineMarkdownEditor({
             const requestedDocument = view.state.doc;
             requestEditorScroll(view, position, requestedDocument);
         },
+        returnToCitation,
         highlightTranslationBlock(blockID) {
             activateDOMGlobals(ownerWindow);
             if (translationHighlightTimer !== null) {
@@ -830,6 +899,8 @@ export function createInlineMarkdownEditor({
                     feature.highlight.cancel();
                     feature.popup.destroy();
                 }
+                citationReturnPoint = null;
+                citationReturnAvailable = false;
                 interactionRoot.removeEventListener(
                     'mousedown',
                     closeSelectionActions,
@@ -1251,6 +1322,19 @@ function createTimedTargetHighlight({
         }, 3000);
     };
     return { activate, cancel };
+}
+
+function isCitationReturnShortcut(event) {
+    const hasOnlyAlt = event.altKey
+        && !event.ctrlKey
+        && !event.metaKey
+        && !event.shiftKey;
+    const hasOnlyMeta = event.metaKey
+        && !event.altKey
+        && !event.ctrlKey
+        && !event.shiftKey;
+    return hasOnlyAlt && event.key === 'ArrowLeft'
+        || hasOnlyMeta && event.key === '[';
 }
 
 function acquireDOMGlobals(ownerWindow) {

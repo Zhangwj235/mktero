@@ -4689,6 +4689,131 @@ test('jumps to and highlights a clicked citation reference for three seconds', (
     dom.window.close();
 });
 
+test('returns to the citation origin after jumping to its reference', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'Finding [1].',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. Target reference. 2024.',
+    ].join('\n');
+    const availability = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onNavigationBackChange: available => availability.push(available),
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const referenceOffset = markdown.indexOf('[1] Alpha');
+    view.lineBlockAt = position => {
+        assert.equal(position, referenceOffset);
+        return { top: 640 };
+    };
+    view.requestMeasure = request => {
+        if (request?.read) request.write?.(request.read(view), view);
+    };
+    view.scrollDOM.scrollTop = 128;
+
+    document.querySelector('.cm-mktero-citation').dispatchEvent(
+        new dom.window.MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+        })
+    );
+
+    assert.deepEqual(availability, [true]);
+    assert.equal(view.scrollDOM.scrollTop, 640);
+    assert.equal(editor.returnToCitation(), true);
+    assert.equal(view.scrollDOM.scrollTop, 128);
+    assert.deepEqual(availability, [true, false]);
+    assert.equal(editor.returnToCitation(), false);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('clears the citation return point when the Markdown document changes', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'Finding [1].',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. Target reference. 2024.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.lineBlockAt = () => ({ top: 640 });
+    view.requestMeasure = request => {
+        if (request?.read) request.write?.(request.read(view), view);
+    };
+
+    document.querySelector('.cm-mktero-citation').click();
+    editor.setMarkdown('# Replaced');
+
+    assert.equal(editor.returnToCitation(), false);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('returns to a citation with the reader back shortcut', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        'Finding [1].',
+        '',
+        '## References',
+        '',
+        '[1] Alpha A. Target reference. 2024.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.lineBlockAt = () => ({ top: 640 });
+    view.requestMeasure = request => {
+        if (request?.read) request.write?.(request.read(view), view);
+    };
+    view.scrollDOM.scrollTop = 128;
+    document.querySelector('.cm-mktero-citation').click();
+
+    const shortcut = new dom.window.KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'ArrowLeft',
+        altKey: true,
+    });
+    document.querySelector('.cm-content').dispatchEvent(shortcut);
+
+    assert.equal(shortcut.defaultPrevented, true);
+    assert.equal(view.scrollDOM.scrollTop, 128);
+    assert.equal(editor.returnToCitation(), false);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('refreshes rendered assets without changing the Markdown document', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

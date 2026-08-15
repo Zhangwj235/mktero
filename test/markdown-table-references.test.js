@@ -123,10 +123,12 @@ test('recovers a table target from a caption misassigned to the next image', () 
     assert.deepEqual(result.targets.map(target => ({
         id: target.id,
         caption: target.caption,
+        labelText: markdown.slice(target.labelFrom, target.labelTo),
         kind: target.table.kind,
     })), [{
         id: 'table:2',
         caption: 'Table 2. BMI classification.',
+        labelText: 'Table 2.',
         kind: 'html',
     }]);
     assert.deepEqual(result.references.map(reference => ({
