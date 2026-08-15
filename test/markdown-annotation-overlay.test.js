@@ -158,6 +158,201 @@ test('uses PDF page mappings to disambiguate repeated annotation text', async ()
     assert.deepEqual(result.unmatched, []);
 });
 
+test('uses PDF text context to disambiguate repeated text on one page', async () => {
+    const target = 'repeated result';
+    const first = `First finding before ${target} and first finding after.`;
+    const second = `Summary before ${target} and summary after.`;
+    const markdown = [first, '', second].join('\n');
+    const annotation = {
+        id: 'CONTEXT1',
+        type: 'highlight',
+        text: target,
+        comment: '',
+        color: '#ffd400',
+        pageLabel: '1',
+        pageIndex: 0,
+        sortIndex: '00000|000120|00042',
+    };
+    const requested = [];
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => [annotation] },
+        locateTextQuote: async (itemID, value) => {
+            requested.push({ itemID, value });
+            return {
+                prefix: 'First finding before ',
+                suffix: ' and first finding after.',
+            };
+        },
+    });
+
+    const result = await overlay.resolve(42, markdown, {
+        sourceMap: [{
+            type: 'text',
+            markdownFrom: 0,
+            markdownTo: markdown.length,
+            locations: [{
+                pageIndex: 0,
+                bbox: [80, 100, 920, 200],
+            }],
+        }],
+    });
+
+    assert.deepEqual(requested, [{ itemID: 42, value: annotation }]);
+    assert.deepEqual(result.matched, [{
+        ...annotation,
+        matchKind: 'exact',
+        ranges: [{
+            from: first.indexOf(target),
+            to: first.indexOf(target) + target.length,
+        }],
+    }]);
+    assert.deepEqual(result.unmatched, []);
+});
+
+test('uses PDF text context after annotation text normalization', async () => {
+    const target = "participant's response";
+    const first = `Earlier evidence described the ${target} in detail.`;
+    const second = `Study findings reported the ${target} as expected.`;
+    const markdown = [first, '', second].join('\n');
+    const annotation = {
+        id: 'CONTEXT2',
+        type: 'highlight',
+        text: 'participant’s response',
+        comment: '',
+        color: '#ffd400',
+        pageLabel: '1',
+        pageIndex: 0,
+        sortIndex: '00000|000220|00042',
+    };
+    const requested = [];
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => [annotation] },
+        locateTextQuote: async (itemID, value) => {
+            requested.push({ itemID, value });
+            return {
+                prefix: 'Study findings reported the ',
+                suffix: ' as expected.',
+            };
+        },
+    });
+
+    const result = await overlay.resolve(42, markdown);
+    const targetFrom = markdown.indexOf(target, first.length);
+
+    assert.deepEqual(requested, [{ itemID: 42, value: annotation }]);
+    assert.deepEqual(result.matched, [{
+        ...annotation,
+        matchKind: 'normalized',
+        ranges: [{ from: targetFrom, to: targetFrom + target.length }],
+    }]);
+    assert.deepEqual(result.unmatched, []);
+});
+
+test('uses the full normalized context when Markdown syntax compresses', async () => {
+    const target = "participant's response";
+    const latexContext = '\\mathrm{A}'.repeat(79);
+    const firstPrefix = `X${latexContext}`;
+    const secondPrefix = `Y${latexContext}`;
+    const first = `${firstPrefix}${target} in the first finding.`;
+    const second = `${secondPrefix}${target} in the second finding.`;
+    const markdown = [first, '', second].join('\n');
+    const annotation = {
+        id: 'CONTEXT5',
+        type: 'highlight',
+        text: 'participant’s response',
+        comment: '',
+        color: '#ffd400',
+        pageLabel: '1',
+        pageIndex: 0,
+        sortIndex: '00000|000520|00042',
+    };
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => [annotation] },
+        locateTextQuote: async () => ({
+            prefix: `X${'A'.repeat(79)}`,
+            suffix: '',
+        }),
+    });
+
+    const result = await overlay.resolve(42, markdown);
+
+    assert.deepEqual(result.matched, [{
+        ...annotation,
+        matchKind: 'normalized',
+        ranges: [{
+            from: firstPrefix.length,
+            to: firstPrefix.length + target.length,
+        }],
+    }]);
+    assert.deepEqual(result.unmatched, []);
+});
+
+test('keeps repeated text ambiguous when PDF contexts are identical', async () => {
+    const target = 'repeated result';
+    const repeated = `Shared introduction ${target} shared conclusion.`;
+    const annotation = {
+        id: 'CONTEXT3',
+        type: 'highlight',
+        text: target,
+        comment: '',
+        color: '#ffd400',
+        pageLabel: '1',
+        pageIndex: 0,
+        sortIndex: '00000|000320|00042',
+    };
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => [annotation] },
+        locateTextQuote: async () => ({
+            prefix: 'Shared introduction ',
+            suffix: ' shared conclusion.',
+        }),
+    });
+
+    const result = await overlay.resolve(
+        42,
+        [repeated, '', repeated].join('\n')
+    );
+
+    assert.deepEqual(result.matched, []);
+    assert.deepEqual(result.unmatched, [{
+        ...annotation,
+        reason: 'ambiguous',
+    }]);
+});
+
+test('keeps repeated text ambiguous when PDF context lookup fails', async () => {
+    const failure = new Error('PDF index unavailable');
+    const diagnostics = [];
+    const annotation = {
+        id: 'CONTEXT4',
+        type: 'highlight',
+        text: 'repeated result',
+        comment: '',
+        color: '#ffd400',
+        pageLabel: '1',
+        pageIndex: 0,
+        sortIndex: '00000|000420|00042',
+    };
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => [annotation] },
+        locateTextQuote: async () => { throw failure; },
+        onError: error => diagnostics.push(error),
+    });
+
+    const result = await overlay.resolve(
+        42,
+        'repeated result. Later repeated result.'
+    );
+
+    assert.deepEqual(result.matched, []);
+    assert.deepEqual(result.unmatched, [{
+        ...annotation,
+        reason: 'ambiguous',
+    }]);
+    assert.deepEqual(diagnostics, [failure]);
+    assert.equal('warning' in result, false);
+});
+
 test('keeps repeated annotation text ambiguous when page mapping is incomplete', async () => {
     const target = 'basal body temperature';
     const markdown = [

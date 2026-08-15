@@ -6,7 +6,10 @@ import {
 import { findTextOccurrences } from '../markdown/text-normalization.js';
 import { sha256Hex } from '../core/sha256.js';
 import {
+    leadingCodePoints,
+    MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
     normalizePDFAnnotationTextQuote,
+    trailingCodePoints,
 } from '../core/pdf-annotation.js';
 
 const MAX_MATCHES = 10_000;
@@ -124,6 +127,39 @@ export class PDFAnnotationLocator {
         }
         if (offlineError) throw offlineError;
         return null;
+    }
+
+    async locateTextQuote(itemID, text, options = {}) {
+        this.#requireActive();
+        throwIfAborted(options.signal);
+        validateItemID(itemID);
+        const sourceOffset = parseSortIndexSourceOffset(
+            options.sortIndex,
+            options.pdfPageIndexHint
+        );
+        if (sourceOffset === null) return null;
+        let entry = this.items.get(itemID);
+        if (!entry?.index && typeof this.loadFile === 'function') {
+            try {
+                const fileData = await this.loadFile(itemID);
+                throwIfAborted(options.signal);
+                await this.prepare(itemID, {
+                    fileData,
+                    signal: options.signal,
+                });
+                entry = this.items.get(itemID);
+            }
+            catch (error) {
+                this.#reportError(error);
+                return null;
+            }
+        }
+        if (!entry?.index) return null;
+        throwIfAborted(options.signal);
+        return locateTextQuoteInIndex(entry.index, text, {
+            pdfPageIndexHint: options.pdfPageIndexHint,
+            sourceOffset,
+        });
     }
 
     dispose() {
@@ -309,21 +345,7 @@ function findMatchWithTextStrategies(
     textQuote,
     transformText = value => value
 ) {
-    const strategies = [
-        {
-            createSourceIndex: createDehyphenatedPdfAnnotationTextIndex,
-            normalizedTextForPage: page => page.normalizedText,
-        },
-        {
-            createSourceIndex: createHyphenPreservingPdfAnnotationTextIndex,
-            normalizedTextForPage: page => (
-                createHyphenPreservingPdfAnnotationTextIndex(
-                    page.rawText
-                ).text
-            ),
-        },
-    ];
-    for (const strategy of strategies) {
+    for (const strategy of textMatchStrategies()) {
         const normalizedTextQuote = mapTextQuote(textQuote, value => (
             transformText(strategy.createSourceIndex(value).text.trim())
         ));
@@ -341,6 +363,64 @@ function findMatchWithTextStrategies(
         }
     }
     return null;
+}
+
+function locateTextQuoteInIndex(index, text, {
+    pdfPageIndexHint,
+    sourceOffset,
+}) {
+    const target = normalizePdfAnnotationText(String(text || ''));
+    if (!target) return null;
+    const page = index.pages.find(candidate => (
+        candidate.pageIndex === pdfPageIndexHint
+    ));
+    if (!page) return null;
+    for (const strategy of textMatchStrategies()) {
+        const normalizedText = strategy.normalizedTextForPage(page);
+        const occurrences = findTextOccurrences(
+            normalizedText,
+            target,
+            MAX_MATCHES
+        );
+        if (occurrences.truncated) return null;
+        const sourceIndex = strategy.createSourceIndex(page.rawText);
+        const matchingOffsets = occurrences.offsets.filter(normalizedFrom => (
+            sourceIndex.sourceRange(normalizedFrom, target.length).from
+                === sourceOffset
+        ));
+        if (matchingOffsets.length !== 1) continue;
+        const normalizedFrom = matchingOffsets[0];
+        return normalizePDFAnnotationTextQuote({
+            prefix: trailingCodePoints(
+                normalizedText,
+                MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
+                normalizedFrom
+            ),
+            suffix: leadingCodePoints(
+                normalizedText,
+                MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
+                normalizedFrom + target.length
+            ),
+        });
+    }
+    return null;
+}
+
+function textMatchStrategies() {
+    return [
+        {
+            createSourceIndex: createDehyphenatedPdfAnnotationTextIndex,
+            normalizedTextForPage: page => page.normalizedText,
+        },
+        {
+            createSourceIndex: createHyphenPreservingPdfAnnotationTextIndex,
+            normalizedTextForPage: page => (
+                createHyphenPreservingPdfAnnotationTextIndex(
+                    page.rawText
+                ).text
+            ),
+        },
+    ];
 }
 
 function findUniqueIndexMatch(
@@ -409,6 +489,13 @@ function mapTextQuote(textQuote, transformText) {
     const prefix = transformText(textQuote.prefix);
     const suffix = transformText(textQuote.suffix);
     return prefix || suffix ? { prefix, suffix } : null;
+}
+
+function parseSortIndexSourceOffset(value, pageIndex) {
+    if (!Number.isInteger(pageIndex) || pageIndex < 0) return null;
+    const match = /^(\d{5})\|(\d{6})\|\d{5}$/u.exec(String(value || ''));
+    if (!match || Number(match[1]) !== pageIndex) return null;
+    return Number(match[2]);
 }
 
 function locateSourceRange(page, sourceRange, measureText) {

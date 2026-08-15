@@ -303,6 +303,14 @@ and misplaced ligatures or numeric prefix symbols within a visual line.
 Misencoded plus-minus signs are handled only in long, uniquely matched
 selections.
 
+When loading an existing Zotero PDF annotation into Markdown, Mktero uses its
+page and sort index to locate the exact PDF occurrence and compares up to 80
+characters on either side with the remaining Markdown candidates after any
+reliable page filtering. The Markdown overlay remains limited to the original
+annotation text. If the PDF index,
+source offset, or surrounding text cannot identify exactly one candidate, the
+annotation remains ambiguous instead of being placed on a guessed occurrence.
+
 Reliable MinerU content mappings also enable source navigation and
 source-aware copying. Page hints narrow annotation matching to the correct
 physical PDF page, while mapped region coordinates are used only for source

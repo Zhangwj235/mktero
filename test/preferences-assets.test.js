@@ -84,6 +84,10 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(script, /createCombinedLocalCache/);
     assert.doesNotMatch(script, /setMkteroLanguagePreference/);
     assert.match(bootstrap, /new MinerUClient/);
+    assert.match(
+        bootstrap,
+        /locateTextQuote:\s*\(itemID, annotation\)[\s\S]*?pdfAnnotationLocator\.locateTextQuote\([\s\S]*?annotation\.text[\s\S]*?pdfPageIndexHint:\s*annotation\.pageIndex[\s\S]*?sortIndex:\s*annotation\.sortIndex/
+    );
     assert.doesNotMatch(bootstrap, /observeMkteroLanguagePreference/);
     assert.match(markdownView, /createInlineMarkdownEditor/);
     assert.doesNotMatch(markdownView, /'mktero-show-source'/);

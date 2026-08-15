@@ -269,6 +269,16 @@ globalThis.startup = async function startup({ id, rootURI }) {
     }
     const annotationOverlay = new MarkdownAnnotationOverlay({
         extractor: new ZoteroAnnotationExtractor(Zotero),
+        locateTextQuote: (itemID, annotation) => (
+            pdfAnnotationLocator.locateTextQuote(
+                itemID,
+                annotation.text,
+                {
+                    pdfPageIndexHint: annotation.pageIndex,
+                    sortIndex: annotation.sortIndex,
+                }
+            )
+        ),
         onError: error => Zotero.logError?.(error),
     });
     const localAnnotations = new MarkdownLocalAnnotations({

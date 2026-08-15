@@ -39,6 +39,32 @@ export function normalizePDFAnnotationTextQuote(value) {
     return prefix || suffix ? { prefix, suffix } : null;
 }
 
+export function leadingCodePoints(value, limit, from = 0) {
+    let offset = from;
+    let count = 0;
+    while (offset < value.length && count < limit) {
+        const character = String.fromCodePoint(value.codePointAt(offset));
+        offset += character.length;
+        count++;
+    }
+    return value.slice(from, offset);
+}
+
+export function trailingCodePoints(value, limit, to = value.length) {
+    let offset = to;
+    let count = 0;
+    while (offset > 0 && count < limit) {
+        offset--;
+        if (offset > 0
+            && isLowSurrogate(value.charCodeAt(offset))
+            && isHighSurrogate(value.charCodeAt(offset - 1))) {
+            offset--;
+        }
+        count++;
+    }
+    return value.slice(offset, to);
+}
+
 export function comparePdfAnnotations(left, right) {
     return compareStrings(
         String(left?.sortIndex || ''),
@@ -65,4 +91,12 @@ function annotationPageIndex(annotation) {
 function compareStrings(left, right) {
     if (left === right) return 0;
     return left < right ? -1 : 1;
+}
+
+function isHighSurrogate(value) {
+    return value >= 0xD800 && value <= 0xDBFF;
+}
+
+function isLowSurrogate(value) {
+    return value >= 0xDC00 && value <= 0xDFFF;
 }

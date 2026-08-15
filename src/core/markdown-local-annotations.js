@@ -1,9 +1,11 @@
 import {
     isZoteroAnnotationColor,
+    leadingCodePoints,
     MAX_PDF_ANNOTATION_TEXT_LENGTH,
     MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
     MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_LENGTH,
     normalizePDFAnnotationTextQuote,
+    trailingCodePoints,
 } from './pdf-annotation.js';
 import { createVisibleMarkdownTextIndex } from '../markdown/markdown-visible-text.js';
 import { findTextOccurrences } from '../markdown/text-normalization.js';
@@ -773,40 +775,6 @@ function validateAggregateBudget(annotations) {
 
 function normalizeVisibleText(value) {
     return String(value || '').replace(/\s+/gu, ' ').trim();
-}
-
-function leadingCodePoints(value, limit, from = 0) {
-    let offset = from;
-    let count = 0;
-    while (offset < value.length && count < limit) {
-        const character = String.fromCodePoint(value.codePointAt(offset));
-        offset += character.length;
-        count++;
-    }
-    return value.slice(from, offset);
-}
-
-function trailingCodePoints(value, limit, to = value.length) {
-    let offset = to;
-    let count = 0;
-    while (offset > 0 && count < limit) {
-        offset--;
-        if (offset > 0
-            && isLowSurrogate(value.charCodeAt(offset))
-            && isHighSurrogate(value.charCodeAt(offset - 1))) {
-            offset--;
-        }
-        count++;
-    }
-    return value.slice(offset, to);
-}
-
-function isHighSurrogate(value) {
-    return value >= 0xD800 && value <= 0xDBFF;
-}
-
-function isLowSurrogate(value) {
-    return value >= 0xDC00 && value <= 0xDFFF;
 }
 
 function createAnnotationID() {

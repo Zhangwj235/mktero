@@ -64,6 +64,18 @@ export function createNormalizedTextIndex(
     }
     return {
         text: output.join(''),
+        normalizedRangeForSourceRange(from, to) {
+            if (!Number.isSafeInteger(from)
+                || !Number.isSafeInteger(to)
+                || from < 0
+                || to < from) {
+                throw new TypeError('Invalid source text range');
+            }
+            return {
+                from: firstIndexGreaterThan(sourceEnds, from),
+                to: firstIndexAtLeast(sourceStarts, to),
+            };
+        },
         sourceRange(from, length) {
             return {
                 from: sourceStarts[from],
@@ -71,6 +83,28 @@ export function createNormalizedTextIndex(
             };
         },
     };
+}
+
+function firstIndexAtLeast(values, target) {
+    let low = 0;
+    let high = values.length;
+    while (low < high) {
+        const middle = low + Math.floor((high - low) / 2);
+        if (values[middle] < target) low = middle + 1;
+        else high = middle;
+    }
+    return low;
+}
+
+function firstIndexGreaterThan(values, target) {
+    let low = 0;
+    let high = values.length;
+    while (low < high) {
+        const middle = low + Math.floor((high - low) / 2);
+        if (values[middle] <= target) low = middle + 1;
+        else high = middle;
+    }
+    return low;
 }
 
 export function findTextOccurrences(source, target, limit = 10_000) {
