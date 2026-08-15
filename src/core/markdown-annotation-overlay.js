@@ -7,17 +7,32 @@ import {
 import {
     createVisibleMarkdownTextIndex,
 } from '../markdown/markdown-visible-text.js';
+import {
+    leadingCodePoints,
+    MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
+    normalizePDFAnnotationTextQuote,
+    trailingCodePoints,
+} from './pdf-annotation.js';
 import { resolvePDFPageIndexHint } from './markdown-source-map.js';
 
 const MAX_MATCHABLE_MARKDOWN_LENGTH = 8 * 1024 * 1024;
 const MAX_MATCH_CANDIDATES = 10_000;
+const MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH = 12;
 
 export class MarkdownAnnotationOverlay {
-    constructor({ extractor, onError = () => {} }) {
+    constructor({
+        extractor,
+        locateTextQuote = null,
+        onError = () => {},
+    }) {
         if (!extractor?.extract) {
             throw new TypeError('An annotation extractor is required');
         }
+        if (locateTextQuote !== null && typeof locateTextQuote !== 'function') {
+            throw new TypeError('A PDF text quote locator must be a function');
+        }
         this.extractor = extractor;
+        this.locateTextQuote = locateTextQuote;
         this.onError = onError;
     }
 
@@ -69,15 +84,33 @@ export class MarkdownAnnotationOverlay {
                     markdown,
                     index.sourceRange(candidate, annotation.text.length)
                 ));
-            const exactRange = selectCandidateRange(
-                selectPageCandidates(
-                    exactRanges,
-                    annotation.pageIndex,
-                    sourceMap,
-                    markdown.length
-                ),
+            const exactPageRanges = selectPageCandidates(
+                exactRanges,
+                annotation.pageIndex,
+                sourceMap,
+                markdown.length
+            );
+            let exactRange = selectCandidateRange(
+                exactPageRanges,
                 previousSourceTo
             );
+            if (!exactRange && exactPageRanges.length > 1) {
+                const textQuote = await this.#locateTextQuote(
+                    itemID,
+                    annotation
+                );
+                if (textQuote) {
+                    normalizedIndex ||= createPdfAnnotationTextIndex(
+                        index.text,
+                        offset => index.sourceOffsetAt(offset)
+                    );
+                    exactRange = selectTextQuoteCandidateRange(
+                        exactPageRanges,
+                        normalizedIndex,
+                        textQuote
+                    );
+                }
+            }
             if (exactRange) {
                 matched.push(resolvedAnnotation(
                     annotation,
@@ -110,15 +143,29 @@ export class MarkdownAnnotationOverlay {
                         normalizedText.length
                     )
                 ));
-            const normalizedRange = selectCandidateRange(
-                selectPageCandidates(
-                    normalizedRanges,
-                    annotation.pageIndex,
-                    sourceMap,
-                    markdown.length
-                ),
+            const normalizedPageRanges = selectPageCandidates(
+                normalizedRanges,
+                annotation.pageIndex,
+                sourceMap,
+                markdown.length
+            );
+            let normalizedRange = selectCandidateRange(
+                normalizedPageRanges,
                 previousSourceTo
             );
+            if (!normalizedRange && normalizedPageRanges.length > 1) {
+                const textQuote = await this.#locateTextQuote(
+                    itemID,
+                    annotation
+                );
+                if (textQuote) {
+                    normalizedRange = selectTextQuoteCandidateRange(
+                        normalizedPageRanges,
+                        normalizedIndex,
+                        textQuote
+                    );
+                }
+            }
             if (normalizedRange) {
                 matched.push(resolvedAnnotation(
                     annotation,
@@ -139,6 +186,24 @@ export class MarkdownAnnotationOverlay {
         }
         return { matched, unmatched };
     }
+
+    async #locateTextQuote(itemID, annotation) {
+        if (!this.locateTextQuote) return null;
+        try {
+            return normalizePDFAnnotationTextQuote(
+                await this.locateTextQuote(itemID, annotation)
+            );
+        }
+        catch (error) {
+            try {
+                this.onError(error);
+            }
+            catch {
+                // Context diagnostics must not hide PDF annotations.
+            }
+            return null;
+        }
+    }
 }
 
 function resolvedAnnotation(annotation, matchKind, range) {
@@ -154,6 +219,51 @@ function selectCandidateRange(ranges, previousSourceTo) {
     if (!previousSourceTo) return null;
     const following = ranges.filter(range => range.from >= previousSourceTo);
     return following.length === 1 ? following[0] : null;
+}
+
+function selectTextQuoteCandidateRange(
+    ranges,
+    normalizedIndex,
+    textQuote
+) {
+    if (!textQuote) return null;
+    const matches = ranges.filter(range => textQuoteMatchesRange(
+        normalizedIndex,
+        range,
+        textQuote
+    ));
+    return matches.length === 1 ? matches[0] : null;
+}
+
+function textQuoteMatchesRange(
+    normalizedIndex,
+    range,
+    textQuote
+) {
+    const normalizedRange = normalizedIndex.normalizedRangeForSourceRange(
+        range.from,
+        range.to
+    );
+    const prefix = normalizePdfAnnotationText(textQuote.prefix);
+    const suffix = normalizePdfAnnotationText(textQuote.suffix);
+    const comparisons = [];
+    if (prefix.length >= MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH) {
+        const before = normalizePdfAnnotationText(trailingCodePoints(
+            normalizedIndex.text,
+            MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
+            normalizedRange.from
+        ));
+        comparisons.push(before.endsWith(prefix));
+    }
+    if (suffix.length >= MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH) {
+        const after = normalizePdfAnnotationText(leadingCodePoints(
+            normalizedIndex.text,
+            MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
+            normalizedRange.to
+        ));
+        comparisons.push(after.startsWith(suffix));
+    }
+    return comparisons.length > 0 && comparisons.every(Boolean);
 }
 
 function selectPageCandidates(ranges, pageIndex, sourceMap, documentLength) {

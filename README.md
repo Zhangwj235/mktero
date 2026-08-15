@@ -290,11 +290,26 @@ document opens. Selecting ordinary Markdown text can create a local highlight
 or note immediately. Mktero then uses a local PDF.js text index to create the
 matching Zotero annotation only when the text can be located reliably. Failed
 or ambiguous matches stay visible locally and can be retried; Mktero does not
-guess a PDF position. Matching tolerates common extraction differences in
-citation superscripts, statistical exponents, words split across PDF lines,
+guess a PDF position. When selected text repeats, Mktero compares up to 80
+visible characters before and after the selection to distinguish candidates,
+while the resulting PDF highlight still covers only the selected text. If the
+surroundings do not identify one clear candidate, the match remains ambiguous.
+Context disambiguation requires the local PDF.js index; if that index is
+unavailable, the Zotero Reader fallback keeps repeated selections ambiguous
+instead of expanding the PDF highlight. Matching tolerates common extraction
+differences in citation superscripts, statistical exponents, LaTeX relational
+operators, misdecoded temperature degree signs, words split across PDF lines,
 and misplaced ligatures or numeric prefix symbols within a visual line.
 Misencoded plus-minus signs are handled only in long, uniquely matched
 selections.
+
+When loading an existing Zotero PDF annotation into Markdown, Mktero uses its
+page and sort index to locate the exact PDF occurrence and compares up to 80
+characters on either side with the remaining Markdown candidates after any
+reliable page filtering. The Markdown overlay remains limited to the original
+annotation text. If the PDF index,
+source offset, or surrounding text cannot identify exactly one candidate, the
+annotation remains ambiguous instead of being placed on a guessed occurrence.
 
 Reliable MinerU content mappings also enable source navigation and
 source-aware copying. Page hints narrow annotation matching to the correct
@@ -312,7 +327,7 @@ navigation, not as guessed annotation rectangles.
 | Cached Markdown, figures, source maps, and PDF text indexes | Active Zotero profile, unencrypted | No |
 | Cached AI translations | Active Zotero profile, unencrypted | No |
 | Pending MinerU task IDs and timestamps | Active Zotero profile, unencrypted | No |
-| Pending Markdown annotation records | Active Zotero profile, unencrypted until synchronized | No |
+| Pending Markdown annotation records, including bounded surrounding text used for matching | Active Zotero profile, unencrypted until synchronized | No |
 | Corrected Markdown blocks and their base figures/source maps | Active Zotero profile, unencrypted | No |
 | Synchronized PDF annotations | Local Zotero library | According to Zotero settings |
 | Saved snapshot Note, HTML, Markdown, source map, and figures | Zotero items and attachments, unencrypted | According to Zotero settings |

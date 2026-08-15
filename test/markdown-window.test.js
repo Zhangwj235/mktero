@@ -2760,6 +2760,53 @@ test('creates and edits persistent local Markdown annotations', async () => {
     view.destroy();
 });
 
+test('adds visible surrounding text to a new Markdown annotation', async () => {
+    const created = [];
+    let editorOptions;
+    const markdown = '**SUMMARY ANSWER:** Repeated result for this study.';
+    const from = markdown.indexOf('Repeated result');
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown,
+        annotationOverlay: { matched: [], unmatched: [] },
+        async onCreateMarkdownAnnotation(annotation) {
+            created.push(annotation);
+            return {
+                ...annotation,
+                id: 'mktero-local-1',
+                source: 'markdown',
+                type: 'highlight',
+                matchKind: 'local',
+                sortIndex: String(from).padStart(12, '0'),
+            };
+        },
+    });
+    const { view } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    await editorOptions.createMarkdownAnnotation({
+        text: 'Repeated result',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from, to: from + 'Repeated result'.length }],
+    });
+
+    assert.deepEqual(created[0].textQuote, {
+        prefix: 'SUMMARY ANSWER: ',
+        suffix: ' for this study.',
+    });
+    view.destroy();
+});
+
 test('rejects Markdown annotations created from the translation view', async () => {
     const created = [];
     let editorOptions;

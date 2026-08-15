@@ -590,6 +590,156 @@ test('does not guess between repeated text on the hinted page', async () => {
     locator.dispose();
 });
 
+test('extracts context for the PDF occurrence encoded by its sort index', async () => {
+    const target = 'repeated result';
+    const prefix = 'Opening context before the chosen ';
+    const pageText = prefix + target
+        + ' and unique first suffix. Later context before the other '
+        + target + ' and other suffix.';
+    const locator = await createSyntheticLocator([[
+        createTextItem(pageText),
+    ]]);
+    const sourceOffset = pageText.indexOf(target);
+
+    const textQuote = await locator.locateTextQuote(42, target, {
+        pdfPageIndexHint: 0,
+        sortIndex: `00000|${String(sourceOffset).padStart(6, '0')}|00000`,
+    });
+
+    assert.equal(textQuote.prefix, prefix);
+    assert.match(textQuote.suffix, /^ and unique first suffix\./u);
+    assert.ok([...textQuote.suffix].length <= 80);
+    locator.dispose();
+});
+
+test('bounds extracted PDF context by Unicode code points', async () => {
+    const target = 'repeated result';
+    const expectedPrefix = '😀'.repeat(80);
+    const pageText = `Discarded prefix ${expectedPrefix}${target}`;
+    const locator = await createSyntheticLocator([[
+        createTextItem(pageText),
+    ]]);
+    const sourceOffset = pageText.indexOf(target);
+
+    const textQuote = await locator.locateTextQuote(42, target, {
+        pdfPageIndexHint: 0,
+        sortIndex: `00000|${String(sourceOffset).padStart(6, '0')}|00000`,
+    });
+
+    assert.equal(textQuote.prefix, expectedPrefix);
+    assert.equal([...textQuote.prefix].length, 80);
+    locator.dispose();
+});
+
+test('rejects malformed or mismatched sort indexes for PDF context', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('Opening context repeated result closing context.'),
+    ]]);
+    const invalidOptions = [
+        { pdfPageIndexHint: 0, sortIndex: '' },
+        { pdfPageIndexHint: 0, sortIndex: '00000|000016' },
+        { pdfPageIndexHint: 0, sortIndex: '00000|000016|0000' },
+        { pdfPageIndexHint: 0, sortIndex: '00000|000016|000000' },
+        { pdfPageIndexHint: 1, sortIndex: '00000|000016|00000' },
+        { pdfPageIndexHint: 0, sortIndex: '00000|000017|00000' },
+    ];
+
+    for (const options of invalidOptions) {
+        assert.equal(
+            await locator.locateTextQuote(42, 'repeated result', options),
+            null
+        );
+    }
+    locator.dispose();
+});
+
+test('returns no PDF context when the local text index is unavailable', async () => {
+    const locator = new PDFAnnotationLocator({
+        engine: {
+            profile: 'test-profile',
+            extract: async () => assert.fail('PDF extraction must not start'),
+        },
+        createSourceHash: async () => 'a'.repeat(64),
+    });
+
+    const textQuote = await locator.locateTextQuote(42, 'repeated result', {
+        pdfPageIndexHint: 0,
+        sortIndex: '00000|000000|00000',
+    });
+
+    assert.equal(textQuote, null);
+    locator.dispose();
+});
+
+test('uses surrounding text to disambiguate repeated text on one page', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('BACKGROUND: Repeated result in prior work.', {
+            y: 700,
+            hasEOL: true,
+        }),
+        createTextItem('SUMMARY ANSWER: Repeated result for this study.', {
+            y: 680,
+        }),
+    ]]);
+
+    const located = await locator.locate(42, 'Repeated result', {
+        pdfPageIndexHint: 0,
+        textQuote: {
+            prefix: 'SUMMARY ANSWER: ',
+            suffix: ' for this study.',
+        },
+    });
+
+    assert.equal(located.position.pageIndex, 0);
+    assertRectCloseTo(
+        located.position.rects[0],
+        [232, 677.6, 382, 689.6]
+    );
+    locator.dispose();
+});
+
+test('does not guess when repeated text has the same surroundings', async () => {
+    const repeated = 'SUMMARY ANSWER: Repeated result for this study.';
+    const locator = await createSyntheticLocator([[
+        createTextItem(repeated, { y: 700, hasEOL: true }),
+        createTextItem(repeated, { y: 680 }),
+    ]]);
+
+    await assert.rejects(
+        locator.locate(42, 'Repeated result', {
+            pdfPageIndexHint: 0,
+            textQuote: {
+                prefix: 'SUMMARY ANSWER: ',
+                suffix: ' for this study.',
+            },
+        }),
+        error => error?.code === 'MKTERO_PDF_TEXT_AMBIGUOUS'
+    );
+    locator.dispose();
+});
+
+test('does not guess from a partially matching surrounding quote', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('SUMMARY ANSWER: Repeated result for another study.', {
+            y: 700,
+            hasEOL: true,
+        }),
+        createTextItem('BACKGROUND: Repeated result in prior work.', { y: 680 }),
+    ]]);
+
+    await assert.rejects(
+        locator.locate(42, 'Repeated result', {
+            pdfPageIndexHint: 0,
+            textQuote: {
+                prefix: 'SUMMARY ANSWER: ',
+                suffix: ' for this study.',
+            },
+        }),
+        error => error?.code === 'MKTERO_PDF_TEXT_AMBIGUOUS'
+    );
+    locator.dispose();
+});
+
 test('creates exact rectangles for partial and multi-line TextItems', async () => {
     const locator = await createSyntheticLocator([[
         createTextItem('prefix Selected suffix', {
@@ -1094,6 +1244,25 @@ test('matches a LaTeX signed number against a compact PDF symbol', async () => {
         { pdfPageIndexHint: 0 }
     );
 
+    assert.equal(located.position.pageIndex, 0);
+    assert.equal(located.position.rects.length, 1);
+    locator.dispose();
+});
+
+test('matches a LaTeX temperature threshold against a misencoded PDF degree', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem(
+            'cycles with>=0.2\uFFFDC wrist temperature signal.'
+        ),
+    ]]);
+    const selectedText = 'cycles with \\geq0.2^{\\circ}\\mathrm{C} wrist '
+        + 'temperature signal.';
+
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
     assert.equal(located.position.pageIndex, 0);
     assert.equal(located.position.rects.length, 1);
     locator.dispose();

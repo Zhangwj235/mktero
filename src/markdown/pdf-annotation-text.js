@@ -14,14 +14,21 @@ const SENTENCE_FOOTNOTE_SUPERSCRIPT = /\$\^\{([0-9]{1,4})\}\$/gu;
 const STATISTICAL_NUMERIC_EXPONENT = /\^\{\s*([0-9]{1,4})\s*\}(?=\s*(?:<=|>=|!=|[=<>≤≥≠]))/gu;
 const SENTENCE_END = /[.!?。！？]/u;
 const RELATIONAL_OPERATOR_PATTERN = /([\p{L}\p{N})\]}])(\s*)(<=|>=|!=|[=<>≤≥≠])(\s*)(?=[\p{L}\p{N}([{\-+−±.])/gu;
+const LATEX_RELATIONAL_OPERATOR_PATTERN = /([\p{L}\p{N})\]}])(\s*)(\\(?:geq|ge|leq|le|neq|ne))(?![A-Za-z])(\s*)(?=[\p{L}\p{N}([{\-+−±.])/gu;
 const OPENING_DELIMITER_SIGNED_NUMBER_WHITESPACE_PATTERN = /[([{](\s+)(?=(?:[+\-−±]|(?<!\\)\\pm)\s*\d)/gu;
 const SIGNED_NUMBER_WHITESPACE_PATTERN = /(?:[+\-−±]|(?<!\\)\\pm)(\s+)(?=\d)/gu;
 const DEGREE_SYMBOL_WHITESPACE_PATTERN = /([\p{N})\]}])(\s+)(?=°)/gu;
 const DEGREE_SYMBOL_UNIT_WHITESPACE_PATTERN = /°(\s+)(?=\p{L})/gu;
 const LATEX_TEXT_UNIT_PATTERN = /(?<!\\)\\mathrm\{([A-Za-z]{1,32})\}/gu;
-const LATEX_SYMBOL_REPLACEMENTS = [
+const PDF_ANNOTATION_SYMBOL_REPLACEMENTS = [
     { pattern: /(?<![\\;])(?:\\;)?\^\{\\circ\}/gu, text: '°' },
     { pattern: /(?<!\\)\\pm(?![A-Za-z])/gu, text: '±' },
+    { pattern: /(?<!\\)\\(?:geq|ge)(?![A-Za-z])/gu, text: '≥' },
+    { pattern: /(?<!\\)\\(?:leq|le)(?![A-Za-z])/gu, text: '≤' },
+    { pattern: /(?<!\\)\\(?:neq|ne)(?![A-Za-z])/gu, text: '≠' },
+    { pattern: />=/gu, text: '≥' },
+    { pattern: /<=/gu, text: '≤' },
+    { pattern: /!=/gu, text: '≠' },
 ];
 
 export function normalizePdfAnnotationText(text) {
@@ -166,13 +173,18 @@ function normalizePdfAnnotationCharacter(
     if (SINGLE_QUOTES.has(character)) return "'";
     if (DOUBLE_QUOTES.has(character)) return '"';
     if (HYPHENS.has(character)) return '-';
+    if (character === '\uFFFD'
+        && /^\p{N}$/u.test(source[offset - 1] || '')
+        && /^[CF](?![\p{L}\p{N}])/u.test(source.slice(offset + 1))) {
+        return '°';
+    }
     return character.normalize('NFKC');
 }
 
 function collectNormalizationMarkup(text) {
     const ignoredOffsets = new Set();
     const replacements = new Map();
-    markLatexSymbols(text, ignoredOffsets, replacements);
+    markAnnotationSymbols(text, ignoredOffsets, replacements);
     markStatisticalNumericExponents(text, ignoredOffsets, replacements);
     markMathematicalWhitespace(text, ignoredOffsets);
     for (const match of text.matchAll(CITATION_WRAPPER)) {
@@ -296,8 +308,8 @@ function markStatisticalNumericExponents(
     }
 }
 
-function markLatexSymbols(text, ignoredOffsets, replacements) {
-    for (const replacement of LATEX_SYMBOL_REPLACEMENTS) {
+function markAnnotationSymbols(text, ignoredOffsets, replacements) {
+    for (const replacement of PDF_ANNOTATION_SYMBOL_REPLACEMENTS) {
         for (const match of text.matchAll(replacement.pattern)) {
             replacements.set(match.index, {
                 from: match.index,
@@ -326,18 +338,11 @@ function markLatexSymbols(text, ignoredOffsets, replacements) {
 }
 
 function markMathematicalWhitespace(text, ignoredOffsets) {
-    for (const match of text.matchAll(RELATIONAL_OPERATOR_PATTERN)) {
-        const leftLength = match[1].length;
-        markOffsetRange(
-            ignoredOffsets,
-            match.index + leftLength,
-            match[2].length
-        );
-        markOffsetRange(
-            ignoredOffsets,
-            match.index + leftLength + match[2].length + match[3].length,
-            match[4].length
-        );
+    for (const pattern of [
+        RELATIONAL_OPERATOR_PATTERN,
+        LATEX_RELATIONAL_OPERATOR_PATTERN,
+    ]) {
+        markRelationalOperatorWhitespace(text, pattern, ignoredOffsets);
     }
     for (const match of text.matchAll(
         OPENING_DELIMITER_SIGNED_NUMBER_WHITESPACE_PATTERN
@@ -369,6 +374,22 @@ function markMathematicalWhitespace(text, ignoredOffsets) {
             ignoredOffsets,
             match.index + 1,
             match[1].length
+        );
+    }
+}
+
+function markRelationalOperatorWhitespace(text, pattern, ignoredOffsets) {
+    for (const match of text.matchAll(pattern)) {
+        const leftLength = match[1].length;
+        markOffsetRange(
+            ignoredOffsets,
+            match.index + leftLength,
+            match[2].length
+        );
+        markOffsetRange(
+            ignoredOffsets,
+            match.index + leftLength + match[2].length + match[3].length,
+            match[4].length
         );
     }
 }

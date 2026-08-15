@@ -1,6 +1,11 @@
 import {
     isZoteroAnnotationColor,
+    leadingCodePoints,
     MAX_PDF_ANNOTATION_TEXT_LENGTH,
+    MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
+    MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_LENGTH,
+    normalizePDFAnnotationTextQuote,
+    trailingCodePoints,
 } from './pdf-annotation.js';
 import { createVisibleMarkdownTextIndex } from '../markdown/markdown-visible-text.js';
 import { findTextOccurrences } from '../markdown/text-normalization.js';
@@ -11,8 +16,13 @@ import {
 import { resolvePDFPageIndexHint } from './markdown-source-map.js';
 
 const DEFAULT_ANNOTATION_COLOR = '#ffd400';
+const MARKDOWN_ANNOTATION_CONTEXT_CODE_POINTS
+    = MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS;
 const MAX_LOCAL_ANNOTATIONS = 5_000;
 const MAX_TOTAL_ANNOTATION_TEXT_LENGTH = 2_000_000;
+const MAX_TOTAL_ANNOTATION_CONTEXT_LENGTH = MAX_LOCAL_ANNOTATIONS
+    * MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_LENGTH
+    * 2;
 const MAX_MATCH_CANDIDATES = 10_000;
 const MAX_MATCHABLE_MARKDOWN_LENGTH = 8 * 1024 * 1024;
 const MAX_TOTAL_SOURCE_RANGE_LENGTH = 8 * 1024 * 1024;
@@ -49,6 +59,7 @@ export class MarkdownLocalAnnotations {
         this.synchronizationContexts = new Map();
         this.synchronizationTasks = new Map();
         this.synchronizationFailures = new Map();
+        this.blockedSynchronizations = new Map();
         this.active = true;
     }
 
@@ -59,15 +70,19 @@ export class MarkdownLocalAnnotations {
         if (typeof markdown !== 'string') {
             throw new TypeError('Markdown must be a string');
         }
-        let result = await this.#withOperation(itemID, () => (
+        const resolution = await this.#withOperation(itemID, () => (
             this.#resolve(itemID, markdown, sourceMap)
         ));
+        let { result } = resolution;
         const failures = this.synchronizationFailures.get(itemID);
         result = applySynchronizationStates(result, failures);
         const matchedIDs = result.matched.map(annotation => annotation.id);
-        const retryIDs = retryFailed
+        let retryIDs = retryFailed
             ? matchedIDs
             : matchedIDs.filter(id => !failures?.has(id));
+        retryIDs = retryIDs.filter(id => (
+            !resolution.blockedSynchronizationIDs.has(id)
+        ));
         this.#requestSynchronization(itemID, retryIDs);
         if ([...result.matched, ...result.unmatched]
             .some(annotation => failures?.has(annotation.id))) {
@@ -77,41 +92,65 @@ export class MarkdownLocalAnnotations {
     }
 
     async #resolve(itemID, markdown, sourceMap) {
+        let annotations;
+        let resolved;
         try {
-            const annotations = normalizeCollection(await this.store.get(itemID));
-            const resolved = resolveAnnotations(markdown, annotations);
-            const refreshed = refreshPDFPageIndexHints(
-                annotations,
-                resolved.matched,
-                sourceMap,
-                markdown.length
-            );
-            if (!refreshed.changed) return resolved;
-            await this.store.put(itemID, refreshed.annotations);
-            return {
-                ...resolved,
-                matched: resolved.matched.map(annotation => {
-                    const current = refreshed.byID.get(annotation.id);
-                    const withoutHint = annotationWithoutPDFPageIndexHint(
-                        annotation
-                    );
-                    return current?.pdfPageIndexHint === undefined
-                        ? withoutHint
-                        : {
-                            ...withoutHint,
-                            pdfPageIndexHint: current.pdfPageIndexHint,
-                        };
-                }),
-            };
+            annotations = normalizeCollection(await this.store.get(itemID));
+            resolved = resolveAnnotations(markdown, annotations);
         }
         catch (error) {
             this.#reportError(error);
             return {
-                matched: [],
-                unmatched: [],
-                warning: 'Local Markdown annotations could not be loaded.',
+                result: {
+                    matched: [],
+                    unmatched: [],
+                    warning: 'Local Markdown annotations could not be loaded.',
+                },
+                blockedSynchronizationIDs: new Set(),
             };
         }
+        const refreshed = refreshAnnotationAnchors(
+            annotations,
+            resolved.matched,
+            sourceMap,
+            markdown
+        );
+        const matchedIDs = resolved.matched.map(annotation => annotation.id);
+        if (!refreshed.changed) {
+            this.#clearSynchronizationBlocks(itemID, matchedIDs);
+            return {
+                result: resolved,
+                blockedSynchronizationIDs: new Set(),
+            };
+        }
+        const refreshedResult = {
+            ...resolved,
+            matched: resolved.matched.map(annotation => {
+                const current = refreshed.byID.get(annotation.id);
+                return applyRefreshedAnnotationAnchors(annotation, current);
+            }),
+        };
+        try {
+            validateAggregateBudget(refreshed.annotations);
+            await this.store.put(itemID, refreshed.annotations);
+        }
+        catch (error) {
+            this.#reportError(error);
+            this.#clearSynchronizationBlocks(
+                itemID,
+                matchedIDs.filter(id => !refreshed.changedIDs.has(id))
+            );
+            this.#blockSynchronization(itemID, refreshed.changedIDs);
+            return {
+                result: refreshedResult,
+                blockedSynchronizationIDs: refreshed.changedIDs,
+            };
+        }
+        this.#clearSynchronizationBlocks(itemID, matchedIDs);
+        return {
+            result: refreshedResult,
+            blockedSynchronizationIDs: new Set(),
+        };
     }
 
     async create(itemID, draft) {
@@ -131,6 +170,7 @@ export class MarkdownLocalAnnotations {
             return resolvedAnnotation(annotation, annotation.ranges[0]);
         });
         this.#clearSynchronizationFailure(itemID, created.id);
+        this.#clearSynchronizationBlocks(itemID, [created.id]);
         this.#requestSynchronization(itemID, [created.id]);
         return created;
     }
@@ -158,6 +198,7 @@ export class MarkdownLocalAnnotations {
             return resolvedAnnotation(annotation, annotation.ranges[0]);
         });
         this.#clearSynchronizationFailure(itemID, updated.id);
+        this.#clearSynchronizationBlocks(itemID, [updated.id]);
         this.#requestSynchronization(itemID, [updated.id]);
         return updated;
     }
@@ -177,6 +218,7 @@ export class MarkdownLocalAnnotations {
             await this.store.put(itemID, updated);
         });
         this.#clearSynchronizationFailure(itemID, targetID);
+        this.#clearSynchronizationBlocks(itemID, [targetID]);
     }
 
     async synchronizePending(itemID, context = null) {
@@ -207,6 +249,7 @@ export class MarkdownLocalAnnotations {
         this.active = false;
         this.synchronizationRequests.clear();
         this.synchronizationContexts.clear();
+        this.blockedSynchronizations.clear();
     }
 
     #requestSynchronization(itemID, annotationIDs, context = null) {
@@ -214,13 +257,16 @@ export class MarkdownLocalAnnotations {
             || typeof this.createPDFAnnotation !== 'function') {
             return;
         }
-        if (annotationIDs.length) {
+        const allowedIDs = annotationIDs.filter(annotationID => (
+            !this.#isSynchronizationBlocked(itemID, annotationID)
+        ));
+        if (allowedIDs.length) {
             let requested = this.synchronizationRequests.get(itemID);
             if (!requested) {
                 requested = new Set();
                 this.synchronizationRequests.set(itemID, requested);
             }
-            for (const annotationID of annotationIDs) {
+            for (const annotationID of allowedIDs) {
                 requested.add(annotationID);
             }
             if (context !== null) {
@@ -257,6 +303,9 @@ export class MarkdownLocalAnnotations {
             ));
             for (const annotation of annotations) {
                 if (!this.active) return;
+                if (this.#isSynchronizationBlocked(itemID, annotation.id)) {
+                    continue;
+                }
                 await this.#synchronizeAnnotation(itemID, annotation, context);
             }
         }
@@ -272,6 +321,9 @@ export class MarkdownLocalAnnotations {
                 ...(annotation.pdfPageIndexHint === undefined
                     ? {}
                     : { pdfPageIndexHint: annotation.pdfPageIndexHint }),
+                ...(annotation.textQuote
+                    ? { textQuote: annotation.textQuote }
+                    : {}),
             }, context);
             if (saved?.deferred) return;
             const status = await this.#withOperation(itemID, async () => {
@@ -291,6 +343,7 @@ export class MarkdownLocalAnnotations {
             });
             this.#clearSynchronizationFailure(itemID, annotation.id);
             if (status === 'removed') {
+                this.#clearSynchronizationBlocks(itemID, [annotation.id]);
                 this.#notifySynchronizationChange(itemID);
             }
             else if (status === 'changed') {
@@ -328,6 +381,34 @@ export class MarkdownLocalAnnotations {
         const failures = this.synchronizationFailures.get(itemID);
         failures?.delete(annotationID);
         if (!failures?.size) this.synchronizationFailures.delete(itemID);
+    }
+
+    #blockSynchronization(itemID, annotationIDs) {
+        if (!annotationIDs.size) return;
+        let blocked = this.blockedSynchronizations.get(itemID);
+        if (!blocked) {
+            blocked = new Set();
+            this.blockedSynchronizations.set(itemID, blocked);
+        }
+        const requested = this.synchronizationRequests.get(itemID);
+        for (const annotationID of annotationIDs) {
+            blocked.add(annotationID);
+            requested?.delete(annotationID);
+        }
+        if (!requested?.size) this.synchronizationRequests.delete(itemID);
+    }
+
+    #clearSynchronizationBlocks(itemID, annotationIDs) {
+        const blocked = this.blockedSynchronizations.get(itemID);
+        for (const annotationID of annotationIDs) {
+            blocked?.delete(annotationID);
+        }
+        if (!blocked?.size) this.blockedSynchronizations.delete(itemID);
+    }
+
+    #isSynchronizationBlocked(itemID, annotationID) {
+        return this.blockedSynchronizations.get(itemID)?.has(annotationID)
+            || false;
     }
 
     #notifySynchronizationChange(itemID) {
@@ -450,6 +531,31 @@ export function markdownAnnotationRangeMatchesSource(markdown, range, text) {
     return normalizeVisibleText(visible) === normalizeVisibleText(text);
 }
 
+export function createMarkdownAnnotationTextQuote(markdown, range) {
+    const source = String(markdown || '');
+    if (!validRange(range, source.length)) return null;
+    const visible = createVisibleMarkdownTextIndex(source);
+    return createTextQuoteFromVisibleIndex(range, visible);
+}
+
+function createTextQuoteFromVisibleIndex(range, visible) {
+    const visibleFrom = visible.visibleOffsetAt(range.from);
+    const visibleTo = visible.visibleOffsetAt(range.to);
+    const textQuote = normalizePDFAnnotationTextQuote({
+        prefix: trailingCodePoints(
+            visible.text,
+            MARKDOWN_ANNOTATION_CONTEXT_CODE_POINTS,
+            visibleFrom
+        ),
+        suffix: leadingCodePoints(
+            visible.text,
+            MARKDOWN_ANNOTATION_CONTEXT_CODE_POINTS,
+            visibleTo
+        ),
+    });
+    return textQuote;
+}
+
 function resolvedAnnotation(annotation, range) {
     return {
         ...annotation,
@@ -487,8 +593,13 @@ function sameAnnotation(left, right) {
         && left.comment === right.comment
         && left.color === right.color
         && left.pdfPageIndexHint === right.pdfPageIndexHint
+        && sameTextQuote(left.textQuote, right.textQuote)
         && left.ranges[0].from === right.ranges[0].from
         && left.ranges[0].to === right.ranges[0].to;
+}
+
+function sameTextQuote(left, right) {
+    return left?.prefix === right?.prefix && left?.suffix === right?.suffix;
 }
 
 function normalizeCollection(value) {
@@ -507,6 +618,13 @@ function normalizeAnnotation(value) {
     const color = String(value?.color || DEFAULT_ANNOTATION_COLOR).toLowerCase();
     const range = value?.ranges?.[0];
     const pdfPageIndexHint = value?.pdfPageIndexHint;
+    let textQuote;
+    try {
+        textQuote = normalizePDFAnnotationTextQuote(value?.textQuote);
+    }
+    catch {
+        throw new Error('Invalid Markdown annotation');
+    }
     if (!LOCAL_ANNOTATION_ID.test(id)
         || value?.source !== 'markdown'
         || value?.type !== 'highlight'
@@ -529,62 +647,97 @@ function normalizeAnnotation(value) {
         color,
         ranges: [{ from: range.from, to: range.to }],
         ...(pdfPageIndexHint === undefined ? {} : { pdfPageIndexHint }),
+        ...(textQuote ? { textQuote } : {}),
     };
 }
 
-function refreshPDFPageIndexHints(
+function refreshAnnotationAnchors(
     annotations,
     matched,
     sourceMap,
-    documentLength
+    markdown
 ) {
-    const byID = new Map(annotations.map(annotation => (
-        [annotation.id, annotation]
-    )));
-    if (!Array.isArray(sourceMap)) {
-        return { annotations, byID, changed: false };
-    }
     const matchedRanges = new Map(matched.map(annotation => (
         [annotation.id, annotation.ranges[0]]
     )));
+    const visible = matchedRanges.size
+        ? createVisibleMarkdownTextIndex(markdown)
+        : null;
     let remainingWork = MAX_SOURCE_MAP_PAGE_HINT_WORK;
     let changed = false;
+    const changedIDs = new Set();
     const updated = annotations.map(annotation => {
         const range = matchedRanges.get(annotation.id);
         if (!range) return annotation;
-        if (remainingWork < sourceMap.length) {
-            if (annotation.pdfPageIndexHint === undefined) return annotation;
+        let refreshed = refreshAnnotationTextQuote(
+            annotation,
+            range,
+            visible
+        );
+        if (!sameTextQuote(annotation.textQuote, refreshed.textQuote)) {
             changed = true;
-            const refreshed = annotationWithoutPDFPageIndexHint(annotation);
-            byID.set(annotation.id, refreshed);
-            return refreshed;
+            changedIDs.add(annotation.id);
+        }
+        if (!Array.isArray(sourceMap)) return refreshed;
+        if (remainingWork < sourceMap.length) {
+            if (refreshed.pdfPageIndexHint === undefined) return refreshed;
+            changed = true;
+            changedIDs.add(annotation.id);
+            return annotationWithoutPDFPageIndexHint(refreshed);
         }
         remainingWork -= sourceMap.length;
         const pdfPageIndexHint = resolvePDFPageIndexHint(
             sourceMap,
             range,
-            documentLength
+            markdown.length
         );
-        const currentHint = annotation.pdfPageIndexHint ?? null;
-        if (pdfPageIndexHint === currentHint) return annotation;
+        const currentHint = refreshed.pdfPageIndexHint ?? null;
+        if (pdfPageIndexHint === currentHint) return refreshed;
         changed = true;
-        const withoutHint = annotationWithoutPDFPageIndexHint(annotation);
-        const refreshed = pdfPageIndexHint === null
+        changedIDs.add(annotation.id);
+        const withoutHint = annotationWithoutPDFPageIndexHint(refreshed);
+        refreshed = pdfPageIndexHint === null
             ? withoutHint
             : { ...withoutHint, pdfPageIndexHint };
-        byID.set(annotation.id, refreshed);
         return refreshed;
     });
     return {
         annotations: updated,
-        byID,
+        byID: new Map(updated.map(annotation => (
+            [annotation.id, annotation]
+        ))),
         changed,
+        changedIDs,
+    };
+}
+
+function refreshAnnotationTextQuote(annotation, range, visible) {
+    const withoutQuote = annotationWithoutTextQuote(annotation);
+    const textQuote = createTextQuoteFromVisibleIndex(range, visible);
+    return textQuote ? { ...withoutQuote, textQuote } : withoutQuote;
+}
+
+function applyRefreshedAnnotationAnchors(annotation, current) {
+    const withoutAnchors = annotationWithoutTextQuote(
+        annotationWithoutPDFPageIndexHint(annotation)
+    );
+    return {
+        ...withoutAnchors,
+        ...(current?.pdfPageIndexHint === undefined
+            ? {}
+            : { pdfPageIndexHint: current.pdfPageIndexHint }),
+        ...(current?.textQuote ? { textQuote: current.textQuote } : {}),
     };
 }
 
 function annotationWithoutPDFPageIndexHint(annotation) {
     const { pdfPageIndexHint: _staleHint, ...withoutHint } = annotation;
     return withoutHint;
+}
+
+function annotationWithoutTextQuote(annotation) {
+    const { textQuote: _staleQuote, ...withoutQuote } = annotation;
+    return withoutQuote;
 }
 
 function validRange(range, documentLength = Number.MAX_SAFE_INTEGER) {
@@ -597,10 +750,20 @@ function validRange(range, documentLength = Number.MAX_SAFE_INTEGER) {
 
 function validateAggregateBudget(annotations) {
     const total = annotations.reduce((length, annotation) => (
-        length + annotation.text.length + annotation.comment.length
+        length
+        + annotation.text.length
+        + annotation.comment.length
     ), 0);
     if (total > MAX_TOTAL_ANNOTATION_TEXT_LENGTH) {
         throw new Error('Markdown annotation text exceeds the safety limit');
+    }
+    const contextLength = annotations.reduce((length, annotation) => (
+        length
+        + (annotation.textQuote?.prefix.length || 0)
+        + (annotation.textQuote?.suffix.length || 0)
+    ), 0);
+    if (contextLength > MAX_TOTAL_ANNOTATION_CONTEXT_LENGTH) {
+        throw new Error('Markdown annotation context exceeds the safety limit');
     }
     const sourceLength = annotations.reduce((length, annotation) => (
         length + annotation.ranges[0].to - annotation.ranges[0].from

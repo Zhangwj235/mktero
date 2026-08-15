@@ -69,6 +69,22 @@ test('extracts visible text from a Markdown source range', () => {
     );
 });
 
+test('maps Markdown source offsets to visible text offsets', () => {
+    const markdown = '**SUMMARY ANSWER:** [Repeated](https://example.com) result.';
+    const index = createVisibleMarkdownTextIndex(markdown);
+    const repeatedFrom = markdown.indexOf('Repeated');
+    const urlFrom = markdown.indexOf('https://');
+
+    assert.equal(index.visibleOffsetAt(0), 0);
+    assert.equal(index.visibleOffsetAt(2), 0);
+    assert.equal(index.visibleOffsetAt(repeatedFrom), 'SUMMARY ANSWER: '.length);
+    assert.equal(
+        index.visibleOffsetAt(urlFrom),
+        'SUMMARY ANSWER: Repeated'.length
+    );
+    assert.equal(index.visibleOffsetAt(markdown.length), index.text.length);
+});
+
 test('preserves unresolved bracketed text while hiding resolved link syntax', () => {
     const plain = createVisibleMarkdownTextIndex(
         'Estimate [95% CI 0.17–1.12] and [plain label].'

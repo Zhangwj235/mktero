@@ -1,6 +1,7 @@
 import {
     isZoteroAnnotationColor,
     MAX_PDF_ANNOTATION_TEXT_LENGTH,
+    normalizePDFAnnotationTextQuote,
 } from '../core/pdf-annotation.js';
 import {
     createDehyphenatedPdfAnnotationTextIndex,
@@ -54,6 +55,9 @@ export function createZoteroAnnotationActions(zotero, {
             const comment = String(draft?.comment || '');
             const color = String(draft?.color || '').toLowerCase();
             const pdfPageIndexHint = draft?.pdfPageIndexHint;
+            const textQuote = normalizePDFAnnotationTextQuote(
+                draft?.textQuote
+            );
             if (!text.trim()
                 || text.length > MAX_PDF_ANNOTATION_TEXT_LENGTH
                 || comment.length > MAX_PDF_ANNOTATION_TEXT_LENGTH) {
@@ -74,6 +78,7 @@ export function createZoteroAnnotationActions(zotero, {
             const locatedText = await textLocator(itemID, text, {
                 reader,
                 pdfPageIndexHint,
+                textQuote,
                 signal,
             });
             throwIfAborted(signal);

@@ -4,7 +4,9 @@ import {
     createZoteroAnnotationActions,
 } from '../src/platform/zotero-annotation-actions.js';
 import {
+    MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
     MAX_PDF_ANNOTATION_TEXT_LENGTH,
+    normalizePDFAnnotationTextQuote,
 } from '../src/core/pdf-annotation.js';
 
 const LONG_STRESS_RECOVERY_PASSAGE = 'Previous research support for the notion '
@@ -68,6 +70,10 @@ test('creates a Zotero PDF highlight from located Markdown text', async () => {
     };
     let savedJSON;
     let committedQueue;
+    const textQuote = {
+        prefix: 'SUMMARY ANSWER: ',
+        suffix: ' for this study.',
+    };
     const zotero = {
         Items: {
             get: id => id === 42 ? attachment : null,
@@ -108,6 +114,7 @@ test('creates a Zotero PDF highlight from located Markdown text', async () => {
             assert.equal(itemID, 42);
             assert.equal(text, selectedText);
             assert.equal(options.pdfPageIndexHint, 0);
+            assert.deepEqual(options.textQuote, textQuote);
             return {
                 text,
                 pageLabel: '1',
@@ -126,6 +133,7 @@ test('creates a Zotero PDF highlight from located Markdown text', async () => {
         color: '#ffd400',
         ranges: [{ from: 0, to: selectedText.length }],
         pdfPageIndexHint: 0,
+        textQuote,
     });
 
     assert.deepEqual(savedJSON, {
@@ -171,6 +179,52 @@ test('rejects an invalid PDF page hint before locating text', async () => {
         /Invalid PDF annotation page hint/
     );
     assert.equal(locateCalls, 0);
+});
+
+test('rejects oversized PDF text quote context before locating text', async () => {
+    const attachment = {
+        id: 42,
+        isPDFAttachment: () => true,
+    };
+    let locateCalls = 0;
+    const actions = createZoteroAnnotationActions({
+        Items: { get: () => attachment },
+    }, {
+        async locateText() {
+            locateCalls++;
+        },
+    });
+
+    await assert.rejects(
+        actions.createFromText(42, {
+            text: 'Selected paper title',
+            comment: '',
+            color: '#ffd400',
+            textQuote: {
+                prefix: 'a'.repeat(
+                    MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS + 1
+                ),
+                suffix: '',
+            },
+        }),
+        /Invalid PDF annotation text quote/
+    );
+    assert.equal(locateCalls, 0);
+});
+
+test('bounds PDF text quote context by Unicode code points', () => {
+    const prefix = '😀'.repeat(
+        MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS
+    );
+
+    assert.deepEqual(normalizePDFAnnotationTextQuote({ prefix }), {
+        prefix,
+        suffix: '',
+    });
+    assert.throws(
+        () => normalizePDFAnnotationTextQuote({ prefix: `${prefix}😀` }),
+        /Invalid PDF annotation text quote/
+    );
 });
 
 test('does not save a located annotation after synchronization is aborted', async () => {
