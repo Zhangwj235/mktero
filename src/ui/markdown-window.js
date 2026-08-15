@@ -225,6 +225,7 @@ class MarkdownTabView {
         this.warningToastTimer = null;
         this.correctionUndoTimer = null;
         this.correctionUndoBlockID = null;
+        this.navigationBackAvailable = false;
         this.responsiveResizeObserver = null;
         this.documentActionsOpen = false;
         this.readerFontOptionsOpen = false;
@@ -305,6 +306,10 @@ class MarkdownTabView {
             ),
             onSourceNavigationError: error => this.zotero?.logError?.(error),
             onViewportChange: offset => this.syncActiveNavigation(offset),
+            onNavigationBackChange: available => {
+                this.navigationBackAvailable = Boolean(available);
+                this.syncNavigationBack();
+            },
             onCommitCorrection: correction => (
                 this.commitCorrection(correction)
             ),
@@ -1086,6 +1091,7 @@ class MarkdownTabView {
             correctionUndoMessage,
             correctionUndoButton,
             editorActions: documentActions.toolbar,
+            navigationBack: documentActions.navigationBack,
             editorSection,
             actionToggle: documentActions.toggle,
             actionMenu: documentActions.menu,
@@ -1137,6 +1143,22 @@ class MarkdownTabView {
     }
 
     createDocumentActions() {
+        const navigationBack = this.createElement('button', {
+            id: 'mktero-navigation-back',
+            class: 'markdown-reader-action markdown-reader-navigation-back',
+            type: 'button',
+            'aria-label': this.t('viewer.returnToCitation'),
+            title: this.t('viewer.returnToCitation'),
+            disabled: 'true',
+        });
+        navigationBack.appendChild(createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.arrowLeft,
+            {
+                className: 'markdown-reader-action-icon',
+                size: 18,
+            }
+        ));
         const toggle = this.createElement('button', {
             id: 'mktero-document-actions',
             class: 'markdown-reader-action markdown-reader-action--primary',
@@ -1534,6 +1556,7 @@ class MarkdownTabView {
         });
         appendChildren(
             editorActions,
+            navigationBack,
             readerControls,
             translationControls,
             status,
@@ -1542,6 +1565,7 @@ class MarkdownTabView {
         );
         return {
             toolbar: editorActions,
+            navigationBack,
             toggle,
             menu,
             reparse,
@@ -1628,6 +1652,9 @@ class MarkdownTabView {
     }
 
     bindActions() {
+        this.listen(this.elements.navigationBack, 'click', () => {
+            this.editor.returnToCitation?.();
+        });
         this.listen(this.elements.actionToggle, 'click', () => {
             if (this.elements.actionToggle.disabled) return;
             this.setReaderFontOptionsOpen(false);
@@ -2715,6 +2742,10 @@ class MarkdownTabView {
         this.elements.workspace.hidden = !visible;
     }
 
+    syncNavigationBack() {
+        this.elements.navigationBack.disabled = !this.navigationBackAvailable;
+    }
+
     syncLocalization() {
         this.host.setAttribute('aria-label', this.t('viewer.label'));
         this.elements.progressHeadingLabel.textContent = this.t('loading.progress');
@@ -2725,6 +2756,14 @@ class MarkdownTabView {
         this.elements.editorActions.setAttribute(
             'aria-label',
             this.t('viewer.toolbar')
+        );
+        this.elements.navigationBack.setAttribute(
+            'aria-label',
+            this.t('viewer.returnToCitation')
+        );
+        this.elements.navigationBack.setAttribute(
+            'title',
+            this.t('viewer.returnToCitation')
         );
         this.elements.actionMenu.setAttribute(
             'aria-label',
@@ -2970,6 +3009,7 @@ class MarkdownTabView {
         this.elements.actionToggle.hidden = !documentActionsAvailable;
         this.elements.readerFontSize.hidden = !readerControlsAvailable;
         this.elements.readerFontFamily.hidden = !readerControlsAvailable;
+        this.syncNavigationBack();
         this.elements.reparse.disabled = !reparseAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);

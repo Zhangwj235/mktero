@@ -1264,6 +1264,10 @@ main {
     white-space: nowrap;
 }
 
+.markdown-reader-navigation-back {
+    flex: 0 0 auto;
+}
+
 .markdown-reader-action-menu .markdown-reader-action {
     width: 100%;
     min-height: 38px;

@@ -91,6 +91,8 @@ visible text is sufficient.
    progress. A valid cache entry skips the remote conversion.
 3. Use the outline, citation and figure previews, source links, and Zotero notes
    panel to navigate the document.
+   When a citation jumps to its full reference, use the left-arrow button in the
+   toolbar or `Alt+Left` (`Command+[` on macOS) to return to the citation.
 4. Use the fixed toolbar above the Markdown body to change text size and font,
    select a reading mode, or translate the article. Self-describing size and
    font controls omit redundant visible labels, while retaining accessible

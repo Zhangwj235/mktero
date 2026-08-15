@@ -1875,7 +1875,11 @@ function openCitationPopup(citation, view, context, focusFirst = false) {
             : 'citation.details'),
         focusFirst,
         onActivate(target) {
-            context.activateCitation?.(view, target);
+            context.activateCitation?.(
+                view,
+                target,
+                citationOrigin(citation)
+            );
         },
     });
 }
@@ -1884,8 +1888,16 @@ function activateCitationElement(citation, view, context) {
     const target = targetsForCitation(citation, context)[0];
     if (!target) return false;
     context.citationPopup?.close();
-    context.activateCitation?.(view, target);
+    context.activateCitation?.(view, target, citationOrigin(citation));
     return true;
+}
+
+function citationOrigin(citation) {
+    const from = Number(citation.getAttribute('data-citation-from'));
+    const to = Number(citation.getAttribute('data-citation-to'));
+    return Number.isSafeInteger(from) && Number.isSafeInteger(to)
+        ? { from, to }
+        : null;
 }
 
 function decorateSyntaxNode(node, state, decorations, context) {
@@ -2525,6 +2537,8 @@ function citationAttributes(citation, translate) {
         'aria-label': citationLabel(citation.references, citation.kind, translate),
         'data-citation-ids': citation.referenceIds.join(' '),
         'data-citation-kind': citation.kind,
+        'data-citation-from': String(citation.from),
+        'data-citation-to': String(citation.to),
     };
 }
 

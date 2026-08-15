@@ -1829,6 +1829,44 @@ test('keeps reading controls in a toolbar above the Markdown body', () => {
     }
 });
 
+test('enables the citation return button from editor navigation state', () => {
+    let editorOptions;
+    let returnCalls = 0;
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper\n\nReadable text.',
+        sourceKind: 'markdown',
+    }), {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            const editor = createTestInlineEditor(options);
+            editor.returnToCitation = () => {
+                returnCalls++;
+                editorOptions.onNavigationBackChange(false);
+                return true;
+            };
+            return editor;
+        },
+    });
+
+    const button = shadow.querySelector('#mktero-navigation-back');
+    try {
+        assert.equal(button.disabled, true);
+        assert.equal(button.getAttribute('aria-label'), 'Return to citation');
+
+        editorOptions.onNavigationBackChange(true);
+        assert.equal(button.disabled, false);
+        button.click();
+
+        assert.equal(returnCalls, 1);
+        assert.equal(button.disabled, true);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('adjusts the persisted reader font size from the top toolbar', () => {
     const persistedSizes = [];
     const { view, shadow } = createView(createModel({

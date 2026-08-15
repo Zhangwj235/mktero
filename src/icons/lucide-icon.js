@@ -1,4 +1,5 @@
 import {
+    ArrowLeft,
     Check,
     ChevronDown,
     ChevronLeft,
@@ -36,6 +37,10 @@ const DEFAULT_ATTRIBUTES = Object.freeze({
 });
 
 export const LUCIDE_ICONS = Object.freeze({
+    arrowLeft: Object.freeze({
+        name: 'arrow-left',
+        nodes: ArrowLeft,
+    }),
     check: Object.freeze({
         name: 'check',
         nodes: Check,
