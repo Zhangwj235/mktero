@@ -21,7 +21,7 @@ const MAX_PAGE_TEXT_LENGTH = 1_000_000;
 const MAX_TOTAL_TEXT_LENGTH = 10_000_000;
 const MAX_TEXT_ITEMS = 250_000;
 
-export const PDF_TEXT_INDEX_PROFILE = `pdfjs-${PDFJS_VERSION}|text-v5`;
+export const PDF_TEXT_INDEX_PROFILE = `pdfjs-${PDFJS_VERSION}|text-v6`;
 
 // Zotero's DOM-free plugin sandbox cannot dynamically import the packaged
 // worker URL when PDF.js falls back to its in-process worker implementation.
@@ -97,9 +97,15 @@ export function createPDFJSTextEngine({
                         disableNormalization: true,
                         includeMarkedContent: false,
                     });
+                    const contentItems = Array.isArray(content?.items)
+                        ? content.items
+                        : [];
+                    if (contentItems.length > MAX_TEXT_ITEMS - totalItems) {
+                        throw new Error('PDF text index exceeds the safety limit');
+                    }
+                    totalItems += contentItems.length;
                     const indexed = indexPageText(content);
                     totalTextLength += indexed.rawText.length;
-                    totalItems += indexed.items.length;
                     if (indexed.rawText.length > MAX_PAGE_TEXT_LENGTH
                         || totalTextLength > MAX_TOTAL_TEXT_LENGTH
                         || totalItems > MAX_TEXT_ITEMS) {
@@ -145,7 +151,7 @@ function indexPageText(content) {
     const items = [];
     let sourceLength = 0;
     let previous = null;
-    for (const value of content?.items || []) {
+    for (const value of orderPDFTextItems(content?.items || [])) {
         if (typeof value?.str !== 'string') continue;
         const text = value.str;
         const normalized = normalizeTextItem(value, 0, 0);
@@ -180,6 +186,260 @@ function indexPageText(content) {
         normalizedText: createDehyphenatedPdfAnnotationTextIndex(rawText).text,
         items,
     };
+}
+
+function orderPDFTextItems(values) {
+    const ordered = [];
+    let line = [];
+    for (const value of values) {
+        if (typeof value?.str !== 'string') continue;
+        line.push(value);
+        if (value.hasEOL === true) {
+            appendPDFTextItems(ordered, orderPDFTextLine(line));
+            line = [];
+        }
+    }
+    if (line.length) appendPDFTextItems(ordered, orderPDFTextLine(line));
+    return ordered;
+}
+
+function orderPDFTextLine(values) {
+    const hasEOL = values.some(value => value.hasEOL === true);
+    let visibleCount = 0;
+    let candidateValue = null;
+    for (const value of values) {
+        if (!value.str.trim()) continue;
+        visibleCount++;
+        candidateValue = value;
+    }
+    if (!hasEOL
+        || visibleCount < 3
+        || !isMisplacedInlineCandidate(candidateValue.str)) {
+        return values;
+    }
+    const entries = values.map((value, index) => ({
+        value,
+        index,
+        normalized: normalizeTextItem(value, 0, 0),
+    }));
+    const visible = entries.filter(entry => entry.normalized.text.trim());
+    const normalized = visible.map(entry => entry.normalized);
+    if (!normalized.every(item => item.direction === 'ltr')) return values;
+    const direction = textDirection(normalized[0].transform);
+    const fontHeight = maximumTextItemFontHeight(normalized);
+    if (!direction
+        || !itemsShareVisualLine(normalized, direction, fontHeight)) {
+        return values;
+    }
+    const candidate = visible.at(-1);
+    const orderedVisible = visible.slice(0, -1);
+    if (!itemsFollowContinuousInlineOrder(
+        orderedVisible,
+        direction,
+        fontHeight
+    )) {
+        return values;
+    }
+    const insertionIndex = orderedVisible.findIndex(entry => (
+        inlineTextItemPosition(entry.normalized, direction)
+            > inlineTextItemPosition(candidate.normalized, direction)
+    ));
+    if (insertionIndex < 1
+        || !candidateFillsExpectedGap(
+            orderedVisible[insertionIndex - 1].normalized,
+            candidate.normalized,
+            orderedVisible[insertionIndex].normalized,
+            direction,
+            fontHeight
+        )) {
+        return values;
+    }
+    const left = orderedVisible[insertionIndex - 1];
+    const right = orderedVisible[insertionIndex];
+    const placeholders = entries.slice(left.index + 1, right.index);
+    if (!placeholders.every(entry => isMisplacedWhitespacePlaceholder(
+        entry.normalized,
+        candidate.normalized,
+        direction,
+        fontHeight
+    ))) {
+        return values;
+    }
+    const placeholderSet = new Set(placeholders);
+    const reordered = entries.filter(entry => (
+        entry !== candidate && !placeholderSet.has(entry)
+    ));
+    const targetIndex = reordered.indexOf(right);
+    reordered.splice(targetIndex, 0, candidate);
+    return reordered.map((entry, index) => ({
+        ...entry.value,
+        hasEOL: hasEOL && index === reordered.length - 1,
+    }));
+}
+
+function appendPDFTextItems(target, values) {
+    for (const value of values) target.push(value);
+}
+
+function itemsShareVisualLine(items, direction, fontHeight) {
+    const origin = items[0].transform;
+    return items.every(item => {
+        const itemDirection = textDirection(item.transform);
+        if (!itemDirection || direction[0] * itemDirection[0]
+            + direction[1] * itemDirection[1] < 0.995) {
+            return false;
+        }
+        const deltaX = item.transform[4] - origin[4];
+        const deltaY = item.transform[5] - origin[5];
+        const across = Math.abs(
+            -deltaX * direction[1] + deltaY * direction[0]
+        );
+        return across <= fontHeight * 0.5;
+    });
+}
+
+function itemsFollowContinuousInlineOrder(entries, direction, fontHeight) {
+    return entries.slice(1).every((entry, index) => {
+        const previous = entries[index];
+        const position = inlineTextItemPosition(entry.normalized, direction);
+        const previousPosition = inlineTextItemPosition(
+            previous.normalized,
+            direction
+        );
+        return position >= previousPosition
+            && position - previousPosition - previous.normalized.width
+                <= fontHeight * 1.25;
+    });
+}
+
+function candidateFillsExpectedGap(
+    left,
+    candidate,
+    right,
+    direction,
+    fontHeight
+) {
+    if (isStandaloneLigature(candidate.text)) {
+        return ligatureFillsWordGap(
+            left,
+            candidate,
+            right,
+            direction,
+            fontHeight
+        );
+    }
+    return numericPrefixFillsGap(
+        left,
+        candidate,
+        right,
+        direction,
+        fontHeight
+    );
+}
+
+function ligatureFillsWordGap(left, candidate, right, direction, fontHeight) {
+    if (!isWordCharacter(left.text.at(-1))
+        || !isWordCharacter(right.text[0])) {
+        return false;
+    }
+    const metrics = inlineCandidateGapMetrics(
+        left,
+        candidate,
+        right,
+        direction,
+        fontHeight
+    );
+    return Boolean(metrics
+        && Math.abs(metrics.candidateStart - metrics.leftEnd)
+            <= metrics.tolerance
+        && Math.abs(metrics.rightStart - metrics.candidateEnd)
+            <= metrics.tolerance);
+}
+
+function numericPrefixFillsGap(left, candidate, right, direction, fontHeight) {
+    if (!isNumericPrefixSymbol(candidate.text)
+        || !isWordCharacter(left.text.at(-1))
+        || !/^\d$/u.test(right.text[0])) {
+        return false;
+    }
+    const metrics = inlineCandidateGapMetrics(
+        left,
+        candidate,
+        right,
+        direction,
+        fontHeight
+    );
+    return Boolean(metrics
+        && metrics.candidateStart >= metrics.leftEnd
+        && metrics.candidateStart - metrics.leftEnd <= metrics.tolerance
+        && Math.abs(metrics.rightStart - metrics.candidateEnd)
+            <= metrics.tolerance);
+}
+
+function inlineCandidateGapMetrics(
+    left,
+    candidate,
+    right,
+    direction,
+    fontHeight
+) {
+    if (candidate.width <= 0) return null;
+    const candidateStart = inlineTextItemPosition(candidate, direction);
+    return {
+        candidateEnd: candidateStart + candidate.width,
+        candidateStart,
+        leftEnd: inlineTextItemPosition(left, direction) + left.width,
+        rightStart: inlineTextItemPosition(right, direction),
+        tolerance: Math.max(1, fontHeight * 0.5),
+    };
+}
+
+function inlineTextItemPosition(item, direction) {
+    return item.transform[4] * direction[0]
+        + item.transform[5] * direction[1];
+}
+
+function isMisplacedWhitespacePlaceholder(
+    item,
+    candidate,
+    direction,
+    fontHeight
+) {
+    return !item.text.trim()
+        && item.width > fontHeight * 2
+        && Math.abs(
+            inlineTextItemPosition(item, direction)
+                - inlineTextItemPosition(candidate, direction)
+        ) <= fontHeight * 0.5;
+}
+
+function isStandaloneLigature(text) {
+    return /^[\uFB00-\uFB06]$/u.test(text);
+}
+
+function isNumericPrefixSymbol(text) {
+    return /^[§±<>≤≥]$/u.test(text);
+}
+
+function isMisplacedInlineCandidate(text) {
+    return isStandaloneLigature(text) || isNumericPrefixSymbol(text);
+}
+
+function isWordCharacter(character) {
+    return Boolean(character)
+        && !isCJKCharacter(character)
+        && /^[\p{L}\p{N}]$/u.test(character);
+}
+
+function maximumTextItemFontHeight(items) {
+    let maximum = 0;
+    for (const item of items) {
+        maximum = Math.max(maximum, Math.hypot(
+            item.transform[2],
+            item.transform[3]
+        ));
+    }
+    return maximum;
 }
 
 function shouldInsertTextItemSpace(previous, current) {
@@ -297,7 +557,8 @@ function isSpacedWordEdge(previous, current) {
         return false;
     }
     return /^[\p{L}\p{N}]$/u.test(previous)
-        && /^[\p{L}\p{N}]$/u.test(current);
+        && (/^[\p{L}\p{N}]$/u.test(current)
+            || /^[§±<>≤≥]$/u.test(current));
 }
 
 function isCJKCharacter(character) {

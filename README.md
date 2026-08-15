@@ -289,8 +289,10 @@ or note immediately. Mktero then uses a local PDF.js text index to create the
 matching Zotero annotation only when the text can be located reliably. Failed
 or ambiguous matches stay visible locally and can be retried; Mktero does not
 guess a PDF position. Matching tolerates common extraction differences in
-citation superscripts, statistical exponents, and words split across PDF
-lines.
+citation superscripts, statistical exponents, words split across PDF lines,
+and misplaced ligatures or numeric prefix symbols within a visual line.
+Misencoded plus-minus signs are handled only in long, uniquely matched
+selections.
 
 Reliable MinerU content mappings also enable source navigation and
 source-aware copying. Page hints narrow annotation matching to the correct

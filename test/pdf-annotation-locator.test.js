@@ -633,6 +633,102 @@ test('recovers a visual word space between adjacent PDF.js TextItems', async () 
     locator.dispose();
 });
 
+test('reorders misplaced ligatures within a visual PDF line', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('Result speci', { x: 72, width: 110 }),
+        createTextItem(' ', { x: 182, width: 30, height: 0 }),
+        createTextItem('city improved.', { x: 192, width: 140 }),
+        createTextItem('ﬁ', { x: 182, width: 10 }),
+        createTextItem('', { x: 72, y: 680, width: 0, hasEOL: true }),
+    ]]);
+
+    const located = await locator.locate(42, 'Result specificity improved.', {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.position.pageIndex, 0);
+    assert.ok(located.position.rects.length > 0);
+    locator.dispose();
+});
+
+test('does not reorder text across a wide multi-column gap', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('Right column', { x: 350, width: 100 }),
+        createTextItem('Left column', {
+            x: 72,
+            width: 100,
+            hasEOL: true,
+        }),
+    ]]);
+
+    const located = await locator.locate(42, 'Right columnLeft column', {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.position.pageIndex, 0);
+    locator.dispose();
+});
+
+test('does not reorder text across a narrow multi-column gap', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('Right column', { x: 350, width: 100 }),
+        createTextItem('Left column', {
+            x: 72,
+            width: 260,
+            hasEOL: true,
+        }),
+    ]]);
+
+    const located = await locator.locate(42, 'Right columnLeft column', {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.position.pageIndex, 0);
+    locator.dispose();
+});
+
+test('does not move a trailing ligature across a narrow column gap', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('speci', { x: 72, width: 40 }),
+        createTextItem(' ', { x: 112, width: 30, height: 0 }),
+        createTextItem('city', { x: 122, width: 30 }),
+        createTextItem('Right column', { x: 170, width: 100 }),
+        createTextItem('ﬁ', { x: 112, width: 10 }),
+        createTextItem('', { x: 72, y: 680, width: 0, hasEOL: true }),
+    ]]);
+
+    const located = await locator.locate(
+        42,
+        'speci city Right columnﬁ',
+        { pdfPageIndexHint: 0 }
+    );
+
+    assert.equal(located.position.pageIndex, 0);
+    locator.dispose();
+});
+
+test('reorders a misplaced comparison operator before its number', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('Excluded for', { x: 72, width: 100 }),
+        createTextItem(' ', { x: 172, width: 50, height: 0 }),
+        createTextItem('80% of the required duration', {
+            x: 182,
+            width: 250,
+        }),
+        createTextItem('<', { x: 176, width: 6 }),
+        createTextItem('', { x: 72, y: 680, width: 0, hasEOL: true }),
+    ]]);
+
+    const located = await locator.locate(
+        42,
+        'Excluded for <80% of the required duration',
+        { pdfPageIndexHint: 0 }
+    );
+
+    assert.equal(located.position.pageIndex, 0);
+    locator.dispose();
+});
+
 test('does not invent spaces inside contiguous or CJK TextItems', async () => {
     const locator = await createSyntheticLocator([[
         createTextItem('hello', { x: 72, width: 50 }),
@@ -662,6 +758,70 @@ test('rejects untrusted non-finite PDF.js TextItem geometry', async () => {
         ]]),
         /PDF text item geometry is invalid/
     );
+    await assert.rejects(
+        createSyntheticLocator([[
+            createTextItem('Selected', { x: 72, width: 80 }),
+            createTextItem(' ', { x: 152, width: Infinity, height: 0 }),
+            createTextItem('text', { x: 160, width: 40, hasEOL: true }),
+        ]]),
+        /PDF text item geometry is invalid/
+    );
+});
+
+test('indexes a maximum-size PDF.js line without argument expansion', async () => {
+    const item = createTextItem('', { width: 0, height: 0 });
+    const engine = createTestPDFEngine({
+        loadDocument() {
+            return createSyntheticPDFDocument([
+                Array(250_000).fill(item),
+            ]);
+        },
+    });
+
+    const index = await engine.extract(new Uint8Array([1]));
+
+    assert.equal(index.pages[0].items.length, 250_000);
+    await engine.dispose();
+});
+
+test('reorders a maximum-size PDF.js line in linear time', async () => {
+    const placeholder = createTextItem(' ', {
+        x: 112,
+        width: 30,
+        height: 0,
+    });
+    const pageItems = [
+        createTextItem('speci', { x: 72, width: 40 }),
+        ...Array(249_996).fill(placeholder),
+        createTextItem('city', { x: 122, width: 30 }),
+        createTextItem('ﬁ', { x: 112, width: 10 }),
+        createTextItem('', { x: 72, y: 680, width: 0, hasEOL: true }),
+    ];
+    const engine = createTestPDFEngine({
+        loadDocument: () => createSyntheticPDFDocument([pageItems]),
+    });
+
+    const index = await engine.extract(new Uint8Array([1]));
+
+    assert.equal(pageItems.length, 250_000);
+    assert.equal(index.pages[0].rawText, 'speciﬁcity\n');
+    await engine.dispose();
+});
+
+test('rejects aggregate source TextItems beyond the index limit', async () => {
+    const ignoredItem = { str: null };
+    const engine = createTestPDFEngine({
+        loadDocument: () => createSyntheticPDFDocument([
+            Array(250_000).fill(ignoredItem),
+            [createTextItem('overflow')],
+        ]),
+    });
+
+    await assert.rejects(
+        engine.extract(new Uint8Array([1])),
+        /PDF text index exceeds the safety limit/
+    );
+    await engine.dispose();
 });
 
 test('matches PDF whitespace, signed numbers, dehyphenation, and CJK text', async () => {
@@ -939,6 +1099,43 @@ test('matches a LaTeX signed number against a compact PDF symbol', async () => {
     locator.dispose();
 });
 
+test('matches a long signed-number passage against a misencoded PDF glyph', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('If the labelled day falls within', {
+            x: 72,
+            width: 300,
+        }),
+        createTextItem(' ', { x: 372, width: 40, height: 0 }),
+        createTextItem('2 days of the actual start, it is deemed accurate.', {
+            x: 382,
+            width: 400,
+        }),
+        createTextItem('§', { x: 374, width: 8, hasEOL: true }),
+    ]]);
+    const selectedText = 'If the labelled day falls within ±2 days of the '
+        + 'actual start, it is deemed accurate.';
+
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
+    assert.equal(located.position.pageIndex, 0);
+    locator.dispose();
+});
+
+test('does not treat a short section reference as a plus-minus value', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem('See §2 for details.'),
+    ]]);
+
+    await assert.rejects(
+        locator.locate(42, '±2', { pdfPageIndexHint: 0 }),
+        error => error?.code === 'MKTERO_PDF_TEXT_NOT_FOUND'
+    );
+    locator.dispose();
+});
+
 test('reports text-less PDFs as not found', async () => {
     const locator = await createSyntheticLocator([[]]);
 
@@ -1032,42 +1229,7 @@ async function createSyntheticLocator(pageItems, {
 } = {}) {
     const engine = createTestPDFEngine({
         loadDocument() {
-            return {
-                promise: Promise.resolve({
-                    numPages: pageItems.length,
-                    async getPageLabels() {
-                        return pageItems.map((_items, index) => (
-                            String(index + 1)
-                        ));
-                    },
-                    async getPage(pageNumber) {
-                        return {
-                            getViewport() {
-                                return {
-                                    transform: [1, 0, 0, -1, 0, 792],
-                                    width: 612,
-                                    height: 792,
-                                };
-                            },
-                            async getTextContent() {
-                                return {
-                                    items: pageItems[pageNumber - 1],
-                                    styles: {
-                                        F1: {
-                                            fontFamily: 'sans-serif',
-                                            ascent: 0.8,
-                                            descent: -0.2,
-                                            vertical: false,
-                                        },
-                                    },
-                                };
-                            },
-                            cleanup() {},
-                        };
-                    },
-                }),
-                destroy: async () => {},
-            };
+            return createSyntheticPDFDocument(pageItems);
         },
     });
     const locator = new PDFAnnotationLocator({
@@ -1080,6 +1242,43 @@ async function createSyntheticLocator(pageItems, {
     });
     await locator.prepare(42, { fileData: new Uint8Array([1]) });
     return locator;
+}
+
+function createSyntheticPDFDocument(pageItems) {
+    return {
+        promise: Promise.resolve({
+            numPages: pageItems.length,
+            async getPageLabels() {
+                return pageItems.map((_items, index) => String(index + 1));
+            },
+            async getPage(pageNumber) {
+                return {
+                    getViewport() {
+                        return {
+                            transform: [1, 0, 0, -1, 0, 792],
+                            width: 612,
+                            height: 792,
+                        };
+                    },
+                    async getTextContent() {
+                        return {
+                            items: pageItems[pageNumber - 1],
+                            styles: {
+                                F1: {
+                                    fontFamily: 'sans-serif',
+                                    ascent: 0.8,
+                                    descent: -0.2,
+                                    vertical: false,
+                                },
+                            },
+                        };
+                    },
+                    cleanup() {},
+                };
+            },
+        }),
+        destroy: async () => {},
+    };
 }
 
 function createTextItem(text, {

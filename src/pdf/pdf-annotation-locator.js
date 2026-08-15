@@ -7,6 +7,9 @@ import { findTextOccurrences } from '../markdown/text-normalization.js';
 import { sha256Hex } from '../core/sha256.js';
 
 const MAX_MATCHES = 10_000;
+const MIN_GLYPH_FALLBACK_TEXT_LENGTH = 32;
+const MISENCODED_PLUS_MINUS = /§(?=\d)/gu;
+const PLUS_MINUS_NUMBER = /±(?=\d)/u;
 
 export class PDFAnnotationLocator {
     constructor({
@@ -251,23 +254,21 @@ function locateInIndex(index, text, {
     const pages = pdfPageIndexHint === undefined
         ? index.pages
         : index.pages.filter(page => page.pageIndex === pdfPageIndexHint);
-    let match = findUniqueIndexMatch(
-        pages,
-        target,
-        page => page.normalizedText
-    );
-    let createSourceIndex = createDehyphenatedPdfAnnotationTextIndex;
-    if (!match) {
-        match = findUniqueIndexMatch(
+    let located = findMatchWithTextStrategies(pages, target);
+    if (!located
+        && target.length >= MIN_GLYPH_FALLBACK_TEXT_LENGTH
+        && PLUS_MINUS_NUMBER.test(target)) {
+        located = findMatchWithTextStrategies(
             pages,
             target,
-            page => createHyphenPreservingPdfAnnotationTextIndex(
-                page.rawText
-            ).text
+            normalizedText => normalizedText.replace(
+                MISENCODED_PLUS_MINUS,
+                '±'
+            )
         );
-        createSourceIndex = createHyphenPreservingPdfAnnotationTextIndex;
     }
-    if (!match) throw notFoundError();
+    if (!located) throw notFoundError();
+    const { match, createSourceIndex } = located;
     const normalized = createSourceIndex(match.page.rawText);
     const sourceRange = normalized.sourceRange(
         match.normalizedFrom,
@@ -292,6 +293,41 @@ function locateInIndex(index, text, {
             rects,
         },
     };
+}
+
+function findMatchWithTextStrategies(
+    pages,
+    target,
+    transformText = value => value
+) {
+    const strategies = [
+        {
+            createSourceIndex: createDehyphenatedPdfAnnotationTextIndex,
+            normalizedTextForPage: page => page.normalizedText,
+        },
+        {
+            createSourceIndex: createHyphenPreservingPdfAnnotationTextIndex,
+            normalizedTextForPage: page => (
+                createHyphenPreservingPdfAnnotationTextIndex(
+                    page.rawText
+                ).text
+            ),
+        },
+    ];
+    for (const strategy of strategies) {
+        const match = findUniqueIndexMatch(
+            pages,
+            target,
+            page => transformText(strategy.normalizedTextForPage(page))
+        );
+        if (match) {
+            return {
+                match,
+                createSourceIndex: strategy.createSourceIndex,
+            };
+        }
+    }
+    return null;
 }
 
 function findUniqueIndexMatch(pages, target, normalizedTextForPage) {
