@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     createDehyphenatedPdfAnnotationTextIndex,
+    createHyphenFoldedPdfAnnotationTextIndex,
     createHyphenPreservingPdfAnnotationTextIndex,
     createPdfAnnotationTextIndex,
     normalizePdfAnnotationText,
@@ -152,6 +153,24 @@ test('normalizes LaTeX relational operators while preserving source ranges', () 
     );
 });
 
+test('normalizes escaped Markdown percentages while preserving source ranges', () => {
+    const markdown = 'Responses were 82\\% and 50\\%.';
+    const index = createPdfAnnotationTextIndex(markdown);
+    const target = '82%';
+    const range = index.sourceRange(
+        index.text.indexOf(target),
+        target.length
+    );
+
+    assert.equal(index.text, 'Responses were 82% and 50%.');
+    assert.equal(markdown.slice(range.from, range.to), '82\\%');
+    assert.equal(normalizePdfAnnotationText('literal \\\\%'), 'literal \\\\%');
+    assert.equal(
+        normalizePdfAnnotationText('command \\percent'),
+        'command \\percent'
+    );
+});
+
 test('normalizes relational operators after opening delimiters', () => {
     const markdown = 'PA encompasses any body movement that results in energy '
         + 'expenditure ( \\geq 1.5 MET).';
@@ -270,4 +289,18 @@ test('preserves a lexical hyphen split across a PDF line', () => {
         'According to these authors 16, state-space models.'
     );
     assert.equal(source.slice(range.from, range.to), 'state-\nspace');
+});
+
+test('folds hyphen variants without losing their original source range', () => {
+    const source = 'pre-\nexercise and evidence-based outcomes';
+    const index = createHyphenFoldedPdfAnnotationTextIndex(source);
+    const target = 'preexercise and evidencebased';
+    const from = index.text.indexOf(target);
+    const range = index.sourceRange(from, target.length);
+
+    assert.equal(index.text, 'preexercise and evidencebased outcomes');
+    assert.equal(
+        source.slice(range.from, range.to),
+        'pre-\nexercise and evidence-based'
+    );
 });

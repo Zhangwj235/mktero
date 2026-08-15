@@ -299,8 +299,10 @@ unavailable, the Zotero Reader fallback keeps repeated selections ambiguous
 instead of expanding the PDF highlight. Matching tolerates common extraction
 differences in citation superscripts, statistical exponents, LaTeX relational
 operators including those immediately after an opening delimiter, misdecoded
-temperature degree signs, words split across PDF lines, and misplaced ligatures
-or numeric prefix symbols within a visual line.
+temperature degree signs, escaped Markdown percentages, and words split across
+PDF lines. Lexical hyphens and discretionary line-end hyphens can be resolved
+independently within one selection. Misplaced ligatures or numeric prefix
+symbols within a visual line are also normalized.
 Misencoded plus-minus signs are handled only in long, uniquely matched
 selections.
 

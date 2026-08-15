@@ -209,6 +209,40 @@ test('uses PDF text context to disambiguate repeated text on one page', async ()
     assert.deepEqual(result.unmatched, []);
 });
 
+test('uses folded PDF hyphen context to disambiguate Markdown text', async () => {
+    const target = 'repeated result';
+    const first = `self-esteem context before ${target}.`;
+    const second = `other context before ${target}.`;
+    const markdown = [first, '', second].join('\n');
+    const annotation = {
+        id: 'CONTEXT6',
+        type: 'highlight',
+        text: target,
+        comment: '',
+        color: '#ffd400',
+        pageLabel: '1',
+        pageIndex: 0,
+        sortIndex: '00000|000120|00042',
+    };
+    const overlay = new MarkdownAnnotationOverlay({
+        extractor: { extract: async () => [annotation] },
+        locateTextQuote: async () => ({
+            prefix: 'selfesteem context before ',
+            suffix: '.',
+        }),
+    });
+
+    const result = await overlay.resolve(42, markdown);
+    const targetFrom = first.indexOf(target);
+
+    assert.deepEqual(result.matched, [{
+        ...annotation,
+        matchKind: 'exact',
+        ranges: [{ from: targetFrom, to: targetFrom + target.length }],
+    }]);
+    assert.deepEqual(result.unmatched, []);
+});
+
 test('uses PDF text context after annotation text normalization', async () => {
     const target = "participant's response";
     const first = `Earlier evidence described the ${target} in detail.`;

@@ -21,6 +21,7 @@ const DEGREE_SYMBOL_WHITESPACE_PATTERN = /([\p{N})\]}])(\s+)(?=°)/gu;
 const DEGREE_SYMBOL_UNIT_WHITESPACE_PATTERN = /°(\s+)(?=\p{L})/gu;
 const LATEX_TEXT_UNIT_PATTERN = /(?<!\\)\\mathrm\{([A-Za-z]{1,32})\}/gu;
 const PDF_ANNOTATION_SYMBOL_REPLACEMENTS = [
+    { pattern: /(?<!\\)\\%/gu, text: '%' },
     { pattern: /(?<![\\;])(?:\\;)?\^\{\\circ\}/gu, text: '°' },
     { pattern: /(?<!\\)\\pm(?![A-Za-z])/gu, text: '±' },
     { pattern: /(?<!\\)\\(?:geq|ge)(?![A-Za-z])/gu, text: '≥' },
@@ -78,7 +79,15 @@ export function createHyphenPreservingPdfAnnotationTextIndex(text) {
     return createLineWrappedPdfAnnotationTextIndex(text, true);
 }
 
-function createLineWrappedPdfAnnotationTextIndex(text, preserveHyphen) {
+export function createHyphenFoldedPdfAnnotationTextIndex(text) {
+    return createLineWrappedPdfAnnotationTextIndex(text, false, true);
+}
+
+function createLineWrappedPdfAnnotationTextIndex(
+    text,
+    preserveHyphen,
+    foldLexicalHyphens = false
+) {
     const normalized = createPdfAnnotationTextIndex(String(text));
     const output = [];
     const sourceStarts = [];
@@ -91,11 +100,11 @@ function createLineWrappedPdfAnnotationTextIndex(text, preserveHyphen) {
         const hasWhitespace = character === '-'
             && normalized.text[nextOffset] === ' ';
         const afterWhitespace = nextOffset + (hasWhitespace ? 1 : 0);
-        if (character === '-'
+        const betweenLetters = character === '-'
             && isLetterBefore(normalized.text, offset)
-            && isLetterAt(normalized.text, afterWhitespace)
-            && hasWhitespace) {
-            if (preserveHyphen) {
+            && isLetterAt(normalized.text, afterWhitespace);
+        if (betweenLetters && (hasWhitespace || foldLexicalHyphens)) {
+            if (preserveHyphen && hasWhitespace) {
                 output.push(character);
                 sourceStarts.push(offset);
                 sourceEnds.push(nextOffset);
@@ -123,14 +132,19 @@ function createLineWrappedPdfAnnotationTextIndex(text, preserveHyphen) {
     };
 }
 
+function previousCodePointOffset(text, offset) {
+    let previous = offset - 1;
+    if (previous > 0
+        && isLowSurrogate(text.charCodeAt(previous))
+        && isHighSurrogate(text.charCodeAt(previous - 1))) {
+        previous--;
+    }
+    return previous;
+}
+
 function isLetterBefore(text, offset) {
     if (offset <= 0) return false;
-    let previousOffset = offset - 1;
-    if (previousOffset > 0
-        && isLowSurrogate(text.charCodeAt(previousOffset))
-        && isHighSurrogate(text.charCodeAt(previousOffset - 1))) {
-        previousOffset--;
-    }
+    const previousOffset = previousCodePointOffset(text, offset);
     const character = String.fromCodePoint(text.codePointAt(previousOffset));
     return /^\p{L}$/u.test(character);
 }

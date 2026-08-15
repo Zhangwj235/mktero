@@ -1,6 +1,8 @@
 import {
     createDehyphenatedPdfAnnotationTextIndex,
+    createHyphenFoldedPdfAnnotationTextIndex,
     createHyphenPreservingPdfAnnotationTextIndex,
+    createPdfAnnotationTextIndex,
     normalizePdfAnnotationText,
 } from '../markdown/pdf-annotation-text.js';
 import { findTextOccurrences } from '../markdown/text-normalization.js';
@@ -312,12 +314,7 @@ function locateInIndex(index, text, {
         );
     }
     if (!located) throw notFoundError();
-    const { match, createSourceIndex } = located;
-    const normalized = createSourceIndex(match.page.rawText);
-    const sourceRange = normalized.sourceRange(
-        match.normalizedFrom,
-        target.length
-    );
+    const { match, sourceRange } = located;
     const rects = locateSourceRange(
         match.page,
         sourceRange,
@@ -345,7 +342,7 @@ function findMatchWithTextStrategies(
     textQuote,
     transformText = value => value
 ) {
-    for (const strategy of textMatchStrategies()) {
+    for (const strategy of basicTextMatchStrategies()) {
         const normalizedTextQuote = mapTextQuote(textQuote, value => (
             transformText(strategy.createSourceIndex(value).text.trim())
         ));
@@ -356,13 +353,22 @@ function findMatchWithTextStrategies(
             normalizedTextQuote
         );
         if (match) {
+            const sourceIndex = strategy.createSourceIndex(match.page.rawText);
             return {
                 match,
-                createSourceIndex: strategy.createSourceIndex,
+                sourceRange: sourceIndex.sourceRange(
+                    match.normalizedFrom,
+                    target.length
+                ),
             };
         }
     }
-    return null;
+    return findLineEndHyphenVariantMatch(
+        pages,
+        target,
+        textQuote,
+        transformText
+    );
 }
 
 function locateTextQuoteInIndex(index, text, {
@@ -375,7 +381,7 @@ function locateTextQuoteInIndex(index, text, {
         candidate.pageIndex === pdfPageIndexHint
     ));
     if (!page) return null;
-    for (const strategy of textMatchStrategies()) {
+    for (const strategy of basicTextMatchStrategies()) {
         const normalizedText = strategy.normalizedTextForPage(page);
         const occurrences = findTextOccurrences(
             normalizedText,
@@ -403,10 +409,38 @@ function locateTextQuoteInIndex(index, text, {
             ),
         });
     }
-    return null;
+    let variants;
+    try {
+        variants = collectLineEndHyphenVariantMatches(
+            [page],
+            target,
+            value => value
+        );
+    }
+    catch (error) {
+        if (error?.code === 'MKTERO_PDF_TEXT_AMBIGUOUS') return null;
+        throw error;
+    }
+    const matching = variants.matches.filter(match => (
+        match.sourceRange.from === sourceOffset
+    ));
+    if (matching.length !== 1) return null;
+    const match = matching[0];
+    return normalizePDFAnnotationTextQuote({
+        prefix: trailingCodePoints(
+            match.normalizedText,
+            MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
+            match.normalizedFrom
+        ),
+        suffix: leadingCodePoints(
+            match.normalizedText,
+            MAX_PDF_ANNOTATION_TEXT_QUOTE_CONTEXT_CODE_POINTS,
+            match.normalizedFrom + variants.targetLength
+        ),
+    });
 }
 
-function textMatchStrategies() {
+function basicTextMatchStrategies() {
     return [
         {
             createSourceIndex: createDehyphenatedPdfAnnotationTextIndex,
@@ -421,6 +455,137 @@ function textMatchStrategies() {
             ),
         },
     ];
+}
+
+function findLineEndHyphenVariantMatch(
+    pages,
+    target,
+    textQuote,
+    transformText
+) {
+    const foldedTextQuote = mapTextQuote(textQuote, value => (
+        transformText(
+            createHyphenFoldedPdfAnnotationTextIndex(value).text.trim()
+        )
+    ));
+    const variants = collectLineEndHyphenVariantMatches(
+        pages,
+        target,
+        transformText
+    );
+    if (!variants.targetLength) return null;
+    const match = selectUniqueIndexMatch(
+        variants.matches,
+        variants.targetLength,
+        foldedTextQuote
+    );
+    return match ? { match, sourceRange: match.sourceRange } : null;
+}
+
+function collectLineEndHyphenVariantMatches(
+    pages,
+    target,
+    transformText
+) {
+    // Folding finds candidates; exact alignment below keeps ordinary hyphens
+    // significant and resolves each PDF line-end hyphen independently.
+    const foldedTarget = createHyphenFoldedPdfAnnotationTextIndex(target).text;
+    if (!foldedTarget) return { matches: [], targetLength: 0 };
+    const matches = [];
+    for (const page of pages) {
+        const sourceIndex = createHyphenFoldedPdfAnnotationTextIndex(
+            page.rawText
+        );
+        const normalizedSourceIndex = createPdfAnnotationTextIndex(
+            page.rawText
+        );
+        const normalizedText = transformText(sourceIndex.text);
+        const occurrences = findTextOccurrences(
+            normalizedText,
+            foldedTarget,
+            MAX_MATCHES
+        );
+        if (occurrences.truncated) throw ambiguousError();
+        for (const normalizedFrom of occurrences.offsets) {
+            const sourceRange = sourceIndex.sourceRange(
+                normalizedFrom,
+                foldedTarget.length
+            );
+            if (!matchesLineEndHyphenVariants(
+                normalizedSourceIndex,
+                sourceRange,
+                target,
+                transformText
+            )) {
+                continue;
+            }
+            matches.push({
+                page,
+                normalizedFrom,
+                normalizedText,
+                sourceRange,
+            });
+            if (matches.length > MAX_MATCHES) throw ambiguousError();
+        }
+    }
+    return {
+        matches,
+        targetLength: foldedTarget.length,
+    };
+}
+
+function matchesLineEndHyphenVariants(
+    sourceIndex,
+    sourceRange,
+    target,
+    transformText
+) {
+    const normalizedRange = sourceIndex.normalizedRangeForSourceRange(
+        sourceRange.from,
+        sourceRange.to
+    );
+    const source = transformText(sourceIndex.text.slice(
+        normalizedRange.from,
+        normalizedRange.to
+    ));
+    let sourceOffset = 0;
+    let targetOffset = 0;
+    while (sourceOffset < source.length && targetOffset < target.length) {
+        if (isLineEndHyphenAt(source, sourceOffset)) {
+            if (target[targetOffset] === '-') targetOffset++;
+            sourceOffset += 2;
+            continue;
+        }
+        if (source[sourceOffset] !== target[targetOffset]) return false;
+        sourceOffset++;
+        targetOffset++;
+    }
+    return sourceOffset === source.length && targetOffset === target.length;
+}
+
+function isLineEndHyphenAt(text, offset) {
+    return text[offset] === '-'
+        && text[offset + 1] === ' '
+        && isLetterCodePoint(codePointBefore(text, offset))
+        && isLetterCodePoint(codePointAt(text, offset + 2));
+}
+
+function codePointBefore(text, offset) {
+    if (offset <= 0) return '';
+    const low = text.charCodeAt(offset - 1);
+    const from = offset > 1 && low >= 0xDC00 && low <= 0xDFFF
+        ? offset - 2
+        : offset - 1;
+    return codePointAt(text, from);
+}
+
+function codePointAt(text, offset) {
+    if (offset < 0 || offset >= text.length) return '';
+    return String.fromCodePoint(text.codePointAt(offset));
+}
+
+function isLetterCodePoint(character) {
+    return /^\p{L}$/u.test(character);
 }
 
 function findUniqueIndexMatch(
@@ -447,10 +612,14 @@ function findUniqueIndexMatch(
             if (matches.length > MAX_MATCHES) throw ambiguousError();
         }
     }
+    return selectUniqueIndexMatch(matches, target.length, textQuote);
+}
+
+function selectUniqueIndexMatch(matches, targetLength, textQuote) {
     if (matches.length <= 1) return matches[0] || null;
     const contextualMatch = findUniqueContextualMatch(
         matches,
-        target.length,
+        targetLength,
         textQuote
     );
     if (!contextualMatch) throw ambiguousError();
