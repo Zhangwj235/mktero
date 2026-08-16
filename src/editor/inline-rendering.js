@@ -52,6 +52,7 @@ import { MAX_PDF_ANNOTATION_TEXT_LENGTH } from '../core/pdf-annotation.js';
 import { createVisibleMarkdownTextIndex } from '../markdown/markdown-visible-text.js';
 import {
     findTextOccurrences,
+    isNumericCitationContent,
     normalizeText,
 } from '../markdown/text-normalization.js';
 import {
@@ -2180,9 +2181,9 @@ function hasSuperscriptCitationMarkup(state, context, from, to) {
 }
 
 function isBracketedNumericCitation(source) {
-    return /^\[\s*\d+(?:\s*(?:[,;，；]\s*\d+|[-–—]\s*\d+))*\s*\]$/.test(
-        source
-    );
+    return source.startsWith('[')
+        && source.endsWith(']')
+        && isNumericCitationContent(source.slice(1, -1).trim());
 }
 
 function dollarWrappedNumericCitationContent(source) {

@@ -159,10 +159,12 @@ standalone formulas, link definitions, raw HTML, URLs, inline code, and
 interactive citations, superscripts, figure references, table references, and
 their target labels are replaced with protected placeholders before each
 request and restored only after the response passes structural validation.
-Caption descriptions and surrounding prose remain translatable. Translation
-is always an explicit action and never rewrites the source Markdown or becomes
-part of a saved snapshot. Streaming is enabled by default for provider
-transport. While translation is running, the toolbar
+Restored numeric citations and inline formulas remain rendered when adjacent
+to translated CJK prose. Caption descriptions and surrounding prose remain
+translatable.
+Translation is always an explicit action and never rewrites the source Markdown
+or becomes part of a saved snapshot. Streaming is enabled by default for
+provider transport. While translation is running, the toolbar
 action shows a loading spinner, target language, translated block count, and
 percentage. Before any complete translation exists, the action remains
 available as `Cancel translation`; after one exists, cancellation moves into

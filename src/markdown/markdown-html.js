@@ -11,6 +11,7 @@ import {
     normalizeMisassignedAcademicCaptions,
     parseAcademicFigureCaption,
 } from './markdown-figures.js';
+import { isNumericCitationContent } from './text-normalization.js';
 
 const MAX_MATH_EXPRESSIONS = 1000;
 const MAX_MATH_OUTPUT_LENGTH = 250_000;
@@ -837,7 +838,12 @@ export function findInlineMathMatches(source) {
             dollarOpener = index;
             continue;
         }
-        const match = createInlineMathMatch(
+        const citationMatch = createDollarWrappedNumericCitationMatch(
+            source,
+            dollarOpener,
+            index
+        );
+        const match = citationMatch || createInlineMathMatch(
             source,
             dollarOpener,
             index,
@@ -858,6 +864,27 @@ export function findInlineMathMatches(source) {
     }
 
     return selectNonOverlappingRanges(dollarMatches, parenthesisMatches);
+}
+
+function createDollarWrappedNumericCitationMatch(
+    source,
+    openerIndex,
+    closerIndex
+) {
+    const content = source.slice(openerIndex + 1, closerIndex).trim();
+    if (!content.startsWith('[')
+        || !content.endsWith(']')
+        || !isNumericCitationContent(content.slice(1, -1).trim())) {
+        return null;
+    }
+    return createInlineMathMatch(
+        source,
+        openerIndex,
+        closerIndex,
+        '$',
+        '$',
+        { rejectClosingBeforeDigit: true }
+    );
 }
 
 function toMathRange(match, start) {
@@ -894,15 +921,28 @@ function createInlineMathMatch(source, openerIndex, closerIndex, opener, closer,
     if (closerIsPadded !== openerIsPadded) return null;
     const text = source.slice(contentStart, closerIndex).trim();
     if (!text) return null;
+    const trailingCharacter = source[closerIndex + closer.length] || '';
+    const canTouchCJKProse = isCJKCharacter(trailingCharacter)
+        && !resemblesDollarWrappedNumericCitation(text);
     if (options.rejectSpacedContentBeforeAlphanumeric
         && /\s/.test(text)
-        && /[\p{L}\p{N}]/u.test(source[closerIndex + closer.length] || '')) {
+        && /[\p{L}\p{N}]/u.test(trailingCharacter)
+        && !canTouchCJKProse) {
         return null;
     }
     return {
         raw: source.slice(openerIndex, closerIndex + closer.length),
         text,
     };
+}
+
+function isCJKCharacter(character) {
+    return /^(?:\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul})$/u
+        .test(character);
+}
+
+function resemblesDollarWrappedNumericCitation(text) {
+    return /^\[\s*\d[\s\S]*\]$/.test(text);
 }
 
 function inlineTokensToText(tokens) {
