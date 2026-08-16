@@ -203,6 +203,25 @@ test('does not let currency text consume a later formula delimiter', () => {
     assert.match(html, /application\/x-tex">z<\/annotation>/);
 });
 
+test('recognizes inline math followed immediately by CJK prose', () => {
+    const markdown = [
+        '观察到的基线MADRS评分为$23.6 \\pm 8.3$分，',
+        '干预后评分降至$10.2 \\pm 4.8$分。',
+    ].join('');
+
+    assert.deepEqual(
+        findInlineMathMatches(markdown).map(match => match.raw),
+        ['$23.6 \\pm 8.3$', '$10.2 \\pm 4.8$']
+    );
+});
+
+test('keeps ambiguous dollar pairing before ASCII prose literal', () => {
+    const markdown = 'Price $5 and tax$USD';
+
+    assert.deepEqual(findInlineMathMatches(markdown), []);
+    assert.doesNotMatch(renderMarkdownHTML(markdown), /class="math-inline"/);
+});
+
 test('keeps dollar-wrapped numeric citations paired beside CJK prose', () => {
     const markdown = [
         '结果$[55, 56, 58]$和结论$[56, 60, 77]$，',

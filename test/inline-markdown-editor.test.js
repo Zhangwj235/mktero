@@ -1813,6 +1813,34 @@ test('renders inactive Markdown formatting and formulas without rewriting source
     dom.window.close();
 });
 
+test('renders inline math followed immediately by CJK prose', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '观察到的基线MADRS评分为$23.6 \\pm 8.3$分，',
+        '干预后评分降至$10.2 \\pm 4.8$分。',
+    ].join('');
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+    const inlineMath = [...document.querySelectorAll('.cm-mktero-math')];
+
+    assert.equal(inlineMath.length, 2);
+    assert.ok(inlineMath.every(widget => widget.querySelector('math')));
+    assert.deepEqual(
+        inlineMath.map(widget => widget.querySelector('annotation').textContent),
+        ['23.6 \\pm 8.3', '10.2 \\pm 4.8']
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('keeps Markdown escape slashes hidden in the read-only view', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
