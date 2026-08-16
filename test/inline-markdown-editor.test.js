@@ -3994,6 +3994,51 @@ test('renders dollar-wrapped numeric citations emitted by the PDF converter', ()
     dom.window.close();
 });
 
+test('renders CJK prose beside dollar-wrapped numeric citations', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# 论文',
+        '',
+        '结果$[55, 56, 58]$和结论$[56, 60, 77]$，仍见$[130]$。',
+        '',
+        '## 参考文献',
+        '',
+        '[55] 第五十五项研究。',
+        '[56] 第五十六项研究。',
+        '[58] 第五十八项研究。',
+        '[60] 第六十项研究。',
+        '[77] 第七十七项研究。',
+        '[130] 第一百三十项研究。',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    assert.ok(renderedLineTexts(document).includes(
+        '结果[55, 56, 58]和结论[56, 60, 77]，仍见[130]。'
+    ));
+    const citations = [...document.querySelectorAll('.cm-mktero-citation')];
+    assert.deepEqual(
+        citations.map(citation => citation.textContent),
+        ['55', '56', '58', '56', '60', '77', '130']
+    );
+    assert.equal(document.querySelector('.cm-mktero-math'), null);
+    citations[0].dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-citation-popup')?.textContent || '',
+        /第五十五项研究。/
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('renders citations recovered after a misplaced references heading', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

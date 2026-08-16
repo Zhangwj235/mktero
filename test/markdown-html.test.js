@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { translateMessage } from '../src/i18n/localization.js';
-import { renderMarkdownHTML } from '../src/markdown/markdown-html.js';
+import {
+    findInlineMathMatches,
+    renderMarkdownHTML,
+} from '../src/markdown/markdown-html.js';
 
 test('renders the Markdown subset used by the PDF converter', () => {
     const markdown = [
@@ -198,6 +201,30 @@ test('does not let currency text consume a later formula delimiter', () => {
     assert.equal((html.match(/class="math-inline"/g) || []).length, 2);
     assert.match(html, /application\/x-tex">x<\/annotation>/);
     assert.match(html, /application\/x-tex">z<\/annotation>/);
+});
+
+test('keeps dollar-wrapped numeric citations paired beside CJK prose', () => {
+    const markdown = [
+        '结果$[55, 56, 58]$和结论$[56, 60, 77]$，',
+        '仍见$[130]$。',
+    ].join('');
+
+    assert.deepEqual(
+        findInlineMathMatches(markdown).map(match => match.raw),
+        ['$[55, 56, 58]$', '$[56, 60, 77]$', '$[130]$']
+    );
+});
+
+test('does not relax dollar pairing for malformed numeric citations', () => {
+    const malformed = [
+        '结果$ [55]$和结论',
+        '结果$[55]$2',
+        '结果$[55, 56<script>]$和结论',
+    ];
+
+    for (const markdown of malformed) {
+        assert.deepEqual(findInlineMathMatches(markdown), [], markdown);
+    }
 });
 
 test('handles many rejected dollar candidates in linear time', () => {

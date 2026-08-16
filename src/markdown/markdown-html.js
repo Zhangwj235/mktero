@@ -11,6 +11,7 @@ import {
     normalizeMisassignedAcademicCaptions,
     parseAcademicFigureCaption,
 } from './markdown-figures.js';
+import { isNumericCitationContent } from './text-normalization.js';
 
 const MAX_MATH_EXPRESSIONS = 1000;
 const MAX_MATH_OUTPUT_LENGTH = 250_000;
@@ -837,7 +838,12 @@ export function findInlineMathMatches(source) {
             dollarOpener = index;
             continue;
         }
-        const match = createInlineMathMatch(
+        const citationMatch = createDollarWrappedNumericCitationMatch(
+            source,
+            dollarOpener,
+            index
+        );
+        const match = citationMatch || createInlineMathMatch(
             source,
             dollarOpener,
             index,
@@ -858,6 +864,27 @@ export function findInlineMathMatches(source) {
     }
 
     return selectNonOverlappingRanges(dollarMatches, parenthesisMatches);
+}
+
+function createDollarWrappedNumericCitationMatch(
+    source,
+    openerIndex,
+    closerIndex
+) {
+    const content = source.slice(openerIndex + 1, closerIndex).trim();
+    if (!content.startsWith('[')
+        || !content.endsWith(']')
+        || !isNumericCitationContent(content.slice(1, -1).trim())) {
+        return null;
+    }
+    return createInlineMathMatch(
+        source,
+        openerIndex,
+        closerIndex,
+        '$',
+        '$',
+        { rejectClosingBeforeDigit: true }
+    );
 }
 
 function toMathRange(match, start) {
