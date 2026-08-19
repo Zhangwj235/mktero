@@ -1327,6 +1327,96 @@ test('matches parenthetical and narrative author-year citations', () => {
     );
 });
 
+test('matches initials-first author-year references with trailing years', () => {
+    const markdown = [
+        '# TradingAgents',
+        '',
+        'Systems solve tasks (Havrilla et al., 2024; Park et al., 2023; '
+            + 'Talebirad and Nadiri, 2023; Tang et al., 2024).',
+        '',
+        '## References',
+        '',
+        'A. Havrilla, Y. Du, and R. Raileanu. Teaching large language '
+            + 'models to reason with reinforcement learning, 2024.',
+        '',
+        "J. S. Park, J. C. O'Brien, and M. S. Bernstein. Generative agents: "
+            + 'Interactive simulacra of human behavior, 2023.',
+        '',
+        'Y. Talebirad and A. Nadiri. Multi-agent collaboration: Harnessing '
+            + 'the power of intelligent llm agents, 2023.',
+        '',
+        'X. Tang, A. Zou, and M. Gerstein. Medagents: Large language models '
+            + 'as collaborators for zero-shot medical reasoning, 2024.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.equal(result.citations.length, 1);
+    assert.deepEqual(
+        result.citations[0].referenceIds,
+        ['reference:1', 'reference:2', 'reference:3', 'reference:4']
+    );
+});
+
+test('matches only leading authors in initials-first references', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'The relevant result was reported earlier (Brown, 2020).',
+        '',
+        '## References',
+        '',
+        'J. Smith. Brown adipose tissue, 2020.',
+        '',
+        'B. Brown. Relevant result, 2020.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.equal(result.citations.length, 1);
+    assert.equal(result.citations[0].references.length, 1);
+    assert.equal(
+        result.citations[0].references[0].text,
+        'B. Brown. Relevant result, 2020.'
+    );
+});
+
+test('does not extend a truncated initials-only author into the title', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'The relevant result was reported earlier (Brown, 2020).',
+        '',
+        '## References',
+        '',
+        'A. Brown adipose tissue, 2020.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.equal(result.references.length, 1);
+    assert.deepEqual(result.citations, []);
+});
+
+test('keeps hyphenated initials within initials-first author fields', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'A self-reflective model followed (Chua, 2024).',
+        '',
+        '## References',
+        '',
+        'K. J. Koa, Y. Ma, R. Ng, and T.-S. Chua. Learning to generate '
+            + 'explainable stock predictions, May 2024.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.equal(result.citations.length, 1);
+    assert.equal(result.citations[0].references.length, 1);
+    assert.equal(result.citations[0].references[0], result.references[0]);
+});
+
 test('supports Chinese reference headings and numbered list entries', () => {
     const markdown = [
         '# 论文',
