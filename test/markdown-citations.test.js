@@ -1358,6 +1358,44 @@ test('matches initials-first author-year references with trailing years', () => 
     );
 });
 
+test('matches et al citations only to leading initials-first authors', () => {
+    const citation = '(Li et al., 2023a; Wang et al., 2024c; Yu et al., 2024)';
+    const markdown = [
+        '# TradingAgents',
+        '',
+        `Systems provide transparent reasoning ${citation}.`,
+        '',
+        '## References',
+        '',
+        'Y. Li, Y. Yu, H. Li, Z. Chen, and K. Khashanah. Tradinggpt, 2023a.',
+        '',
+        'A. Yang, B. Wang, F. Li, Y. Wang, and Y. Li. Baichuan 2, 2023a.',
+        '',
+        'S. Wang, H. Yuan, L. M. Ni, and J. Guo. Quantagent, 2024c.',
+        '',
+        'A. Havrilla, Y. Du, J. Dwivedi-Yu, and R. Raileanu. Reasoning, 2024.',
+        '',
+        'S. Wu, J. Wu, K. Yu, and B. Zoph. Gpt-4 report, 2024.',
+        '',
+        'Y. Yu, Z. Yao, H. Li, Z. Deng, et al. Fincon, 2024.',
+        '',
+        'T. Zhong, Z. Liu, Y. Li, J. Wang, and J. Yu. Evaluation, 2024.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.equal(result.citations.length, 1);
+    assert.equal(
+        markdown.slice(result.citations[0].from, result.citations[0].to),
+        citation
+    );
+    assert.deepEqual(result.citations[0].referenceIds, [
+        'reference:1',
+        'reference:3',
+        'reference:6',
+    ]);
+});
+
 test('matches only leading authors in initials-first references', () => {
     const markdown = [
         '# Paper',

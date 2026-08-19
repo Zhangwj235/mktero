@@ -968,10 +968,28 @@ function matchAuthorReferences(referencesByYear, authors, year) {
     const keys = normalizeAuthorKeys(authors);
     if (!keys.length) return [];
     const normalizedYear = String(year).toLowerCase();
+    const leadingAuthorOnly = /\bet\s+al\.?/iu.test(authors);
     return (referencesByYear.get(normalizedYear) || []).filter(reference => {
+        if (leadingAuthorOnly) {
+            return keys.length === 1
+                && referenceFirstAuthorKey(reference) === keys[0];
+        }
         const searchable = ` ${reference.authorSearchText} `;
         return keys.every(key => searchable.includes(` ${key} `));
     });
+}
+
+function referenceFirstAuthorKey(reference) {
+    const authors = referenceAuthorText(reference.text, reference.year);
+    const firstAuthor = authors.split(
+        /\s*(?:[,，&＆]|\band\b)\s*/iu,
+        1
+    )[0].trim();
+    const withoutInitials = firstAuthor.replace(
+        /^(?:(?:\p{L}\.(?:-\p{L}\.)*)[ \t]*)+/u,
+        ''
+    ).trim();
+    return normalizeSearchText(withoutInitials || firstAuthor);
 }
 
 function normalizeAuthorKeys(authors) {
