@@ -5,14 +5,17 @@ import {
     collectMarkdownTranslationBlocks,
     collectMarkdownTranslationBatchResponse,
     collectMarkdownTranslationSections,
+    collectProtectedTextTranslationResponse,
     collectDocumentTranslations,
     createComparisonMarkdown,
     createDocumentTranslationViews,
     createMarkdownTranslationBatches,
     createMarkdownTranslationRequest,
+    createProtectedTextTranslationPayload,
     createTranslationReadingPositionAnchor,
     mapSourceRangeToComparison,
     resolveTranslationReadingPosition,
+    TRANSLATION_PROTECTED_CONTENT_CHANGED,
     validateTranslatedBlock,
 } from '../src/markdown/markdown-translation-blocks.js';
 import {
@@ -722,6 +725,106 @@ test('rejects reordered protected placeholders', () => {
         () => validateTranslatedBlock(block, reordered),
         /protected/i
     );
+});
+
+test('identifies protected content changes with a stable error code', () => {
+    const [block] = collectMarkdownTranslationBlocks(
+        'Compare $x$ with the baseline.'
+    );
+
+    assert.throws(() => validateTranslatedBlock(
+        block,
+        block.requestMarkdown.replace(block.protectedFragments[0].placeholder, '')
+    ), error => error?.code === TRANSLATION_PROTECTED_CONTENT_CHANGED);
+});
+
+test('translates only ordinary text segments around protected content', () => {
+    const [block] = collectMarkdownTranslationBlocks(
+        'Compare $X_{c}^{\\top}X_{c}$ and $Y_{c}Y_{c}^{\\top}$.'
+    );
+
+    const payload = JSON.parse(createProtectedTextTranslationPayload(block));
+
+    assert.deepEqual(payload, [{
+        id: 'segment-0',
+        sourceText: 'Compare',
+    }, {
+        id: 'segment-1',
+        sourceText: 'and',
+    }]);
+    assert.doesNotMatch(
+        JSON.stringify(payload),
+        /MKTEROPROTECTED|X_\{c\}|Y_\{c\}/
+    );
+
+    const translation = collectProtectedTextTranslationResponse(
+        block,
+        JSON.stringify([{
+            id: 'segment-1',
+            translatedText: '和',
+        }, {
+            id: 'segment-0',
+            translatedText: '比较',
+        }])
+    );
+
+    assert.equal(translation.id, block.id);
+    assert.equal(
+        validateTranslatedBlock(block, translation.markdown),
+        '比较 $X_{c}^{\\top}X_{c}$ 和 $Y_{c}Y_{c}^{\\top}$.'
+    );
+});
+
+test('rejects incomplete or ambiguous protected text segment responses', () => {
+    const [block] = collectMarkdownTranslationBlocks(
+        'Compare $x$ and $y$.'
+    );
+
+    assert.throws(() => collectProtectedTextTranslationResponse(
+        block,
+        JSON.stringify([{
+            id: 'segment-0',
+            translatedText: '比较',
+        }])
+    ), /omitted.*segment/i);
+    assert.throws(() => collectProtectedTextTranslationResponse(
+        block,
+        JSON.stringify([{
+            id: 'segment-0',
+            translatedText: '比较',
+        }, {
+            id: 'segment-0',
+            translatedText: '对比',
+        }, {
+            id: 'segment-1',
+            translatedText: '和',
+        }])
+    ), /duplicate.*segment/i);
+    assert.throws(() => collectProtectedTextTranslationResponse(
+        block,
+        JSON.stringify([{
+            id: 'segment-0',
+            translatedText: '比较',
+        }, {
+            id: 'segment-1',
+            translatedText: '和',
+        }, {
+            id: 'unknown-segment',
+            translatedText: '注入内容',
+        }])
+    ), /unknown.*segment/i);
+    assert.throws(() => collectProtectedTextTranslationResponse(
+        block,
+        JSON.stringify([{
+            id: 'segment-0',
+            translatedText: '比较',
+        }, {
+            id: 'segment-1',
+            translatedText: '和',
+        }, {
+            translatedText: '无标识注入内容',
+        }])
+    ), /segment without an ID/i);
 });
 
 test('assembles a complete translated article while preserving document spacing', () => {

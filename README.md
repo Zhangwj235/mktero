@@ -28,7 +28,8 @@ and return to the original PDF whenever you need to verify the evidence.
 > [Privacy and data handling](#privacy-and-data-handling) before using Mktero
 > with sensitive documents. AI translation separately sends protected Markdown
 > batches to the provider you configure, with up to five requests active at
-> once.
+> once. After repeated placeholder-integrity failures, one final request sends
+> only the affected block's ordinary text segments.
 
 ## Quick start
 
@@ -153,6 +154,12 @@ Markdown document at top-level H1 headings, divides each group into batches of
 up to eight blocks and about 2,000 estimated source tokens, and keeps up to five
 batch requests active. Responses are matched by block ID and merged in source
 order. Missing or invalid blocks are retried individually up to two times.
+If the final retry changes protected placeholders, Mktero makes one fallback
+request containing only the affected block's ordinary text segments, keyed by
+stable segment IDs. Formulas, citations, figure and table labels, and internal
+placeholder tokens are not included in that request. Mktero then reassembles
+the translated segments with the original protected content locally and runs
+the same structural, ordering, and output-size validation before accepting it.
 Blocks that still fail keep their source text and leave the translation in a
 retryable partial state. Reference sections are kept unchanged. Code, images,
 standalone formulas, link definitions, raw HTML, URLs, inline code, and
@@ -328,7 +335,7 @@ navigation, not as guessed annotation rectangles.
 | Complete PDF on a cache miss | Uploaded to MinerU | Not by Mktero |
 | API Token | Active Zotero profile, unencrypted | No |
 | AI API Key | Active Zotero profile, unencrypted | No |
-| Protected translatable Markdown batches selected for full translation | Configured AI provider | Not by Mktero |
+| Protected translatable Markdown batches, plus ordinary text segments used only after repeated placeholder-integrity failures | Configured AI provider | Not by Mktero |
 | Cached Markdown, figures, source maps, and PDF text indexes | Active Zotero profile, unencrypted | No |
 | Cached AI translations | Active Zotero profile, unencrypted | No |
 | Pending MinerU task IDs and timestamps | Active Zotero profile, unencrypted | No |
@@ -340,8 +347,10 @@ navigation, not as guessed annotation rectangles.
 The local cache does not contain API Tokens, AI API Keys, or PDF annotation
 comments. PDF annotations and local PDF.js indexes are not sent to MinerU or
 the AI provider. Translation sends protected Markdown batches and translation
-instructions to the configured AI provider, with at most five requests active at
-once. Source-aware copy reads
+instructions to the configured AI provider, with at most five requests active
+at once. If a block repeatedly fails placeholder-integrity validation, a final
+request sends only that block's ordinary text segments; protected formulas,
+citations, reference labels, and placeholder tokens remain local. Source-aware copy reads
 local item metadata and writes only the generated result to the system clipboard.
 
 Correction data is kept outside the normal conversion cache under the active
