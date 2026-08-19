@@ -1753,6 +1753,268 @@ test('retries only a missing block from an otherwise valid batch', async () => {
     assert.equal(result.translatedMarkdown, '# 论文\n\n译文。');
 });
 
+test('falls back to translating only text segments after protected content retries fail', async () => {
+    const paragraph = [
+        'As analyzed in Sec. S5, the proposed NARI and NARF are induced jointly',
+        'by the structures of model and human neural representations. We visualize',
+        'such structures (the Gram matrices $X_{c}^{\\top}X_{c}$ and',
+        '$Y_{c}Y_{c}^{\\top}$ of centered data as described in Sec. S5) for',
+        'different models and human subjects in Fig. S3, considering 34 transitive',
+        'reasoning problems. Results show that the structures vary among different',
+        'models, layers of the same models, and different human subjects. Therefore,',
+        'the joint effect of them in NARI/NARF would be sample-specific, motivating',
+        'our multi-subject integration approach to capture robust improvement signals.',
+    ].join(' ');
+    const figure = '![Figure S3. Neural structures.](images/s3.png)';
+    const markdown = `${paragraph}\n\n${figure}`;
+    const requests = [];
+    const writes = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                const entries = parseTranslationRequest(
+                    request.messages[1].content
+                );
+                requests.push(entries);
+                if ('sourceText' in entries[0]) {
+                    return {
+                        text: JSON.stringify(entries.map(entry => ({
+                            id: entry.id,
+                            translatedText: `译${entry.id}`,
+                        }))),
+                    };
+                }
+                return {
+                    text: JSON.stringify(entries.map(entry => ({
+                        id: entry.id,
+                        translatedMarkdown: entry.sourceMarkdown.includes(
+                            'Gram matrices'
+                        )
+                            ? entry.sourceMarkdown.replace(
+                                /MKTEROPROTECTED\d+PLACEHOLDER/,
+                                ''
+                            )
+                            : entry.sourceMarkdown,
+                    }))),
+                };
+            },
+        },
+        cache: {
+            getTranslation: async () => null,
+            putTranslation: async (...args) => writes.push(args),
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'c'.repeat(64),
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown,
+    });
+
+    assert.equal(requests.length, 4);
+    assert.equal(requests[0].length, 2);
+    assert.deepEqual(requests.slice(1, 3).map(entries => entries.length), [1, 1]);
+    assert.ok(requests[3].every(entry => 'sourceText' in entry));
+    assert.doesNotMatch(
+        JSON.stringify(requests[3]),
+        /MKTEROPROTECTED|X_\{c\}|Y_\{c\}|Fig\. S3/
+    );
+    assert.equal(result.partial, false);
+    assert.deepEqual(result.failedBlocks, []);
+    assert.equal(result.translatedMarkdown.match(/\$X_\{c\}/g)?.length, 1);
+    assert.equal(result.translatedMarkdown.match(/\$Y_\{c\}/g)?.length, 1);
+    assert.equal(result.translatedMarkdown.match(/Fig\. S3/g)?.length, 1);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0][2].partial, false);
+    assert.deepEqual(writes[0][2].failedBlocks, []);
+});
+
+for (const { name, fallbackResponse, messagePattern } of [{
+    name: 'missing',
+    fallbackResponse: entries => [{
+        id: entries[0].id,
+        translatedText: '比较',
+    }],
+    messagePattern: /omitted.*segment/i,
+}, {
+    name: 'duplicate',
+    fallbackResponse: entries => [{
+        id: entries[0].id,
+        translatedText: '比较',
+    }, {
+        id: entries[0].id,
+        translatedText: '对比',
+    }, {
+        id: entries[1].id,
+        translatedText: '和',
+    }],
+    messagePattern: /duplicate.*segment/i,
+}, {
+    name: 'unknown',
+    fallbackResponse: entries => [...entries.map(entry => ({
+        id: entry.id,
+        translatedText: '译文',
+    })), {
+        id: 'unknown-segment',
+        translatedText: '注入内容',
+    }],
+    messagePattern: /unknown.*segment/i,
+}]) {
+    test(`keeps the source after a ${name} protected text segment response`, async () => {
+        let calls = 0;
+        const source = 'Compare $x$ and $y$.';
+        const service = new MarkdownTranslationService({
+            aiGateway: {
+                async generateText(request) {
+                    calls++;
+                    const entries = parseTranslationRequest(
+                        request.messages[1].content
+                    );
+                    if ('sourceText' in entries[0]) {
+                        return { text: JSON.stringify(fallbackResponse(entries)) };
+                    }
+                    return {
+                        text: JSON.stringify(entries.map(entry => ({
+                            id: entry.id,
+                            translatedMarkdown: entry.sourceMarkdown.replace(
+                                /MKTEROPROTECTED\d+PLACEHOLDER/,
+                                ''
+                            ),
+                        }))),
+                    };
+                },
+            },
+            getSettings: () => ({ ...SETTINGS, streaming: false }),
+            createCacheKey: async () => null,
+        });
+
+        const result = await service.translateDocument({
+            documentKey: 'a'.repeat(64),
+            markdown: source,
+        });
+
+        assert.equal(calls, 4);
+        assert.equal(result.translatedMarkdown, source);
+        assert.equal(result.partial, true);
+        assert.match(result.failedBlocks[0].message, messagePattern);
+    });
+}
+
+test('keeps the source when the protected text fallback reaches its output limit', async () => {
+    let calls = 0;
+    const source = 'Compare $x$ and $y$.';
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                calls++;
+                const entries = parseTranslationRequest(
+                    request.messages[1].content
+                );
+                if ('sourceText' in entries[0]) {
+                    return {
+                        text: JSON.stringify(entries.map(entry => ({
+                            id: entry.id,
+                            translatedText: '译文',
+                        }))),
+                        finishReason: 'length',
+                    };
+                }
+                return {
+                    text: JSON.stringify(entries.map(entry => ({
+                        id: entry.id,
+                        translatedMarkdown: entry.sourceMarkdown.replace(
+                            /MKTEROPROTECTED\d+PLACEHOLDER/,
+                            ''
+                        ),
+                    }))),
+                };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => null,
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: source,
+    });
+
+    assert.equal(calls, 4);
+    assert.equal(result.translatedMarkdown, source);
+    assert.equal(result.partial, true);
+    assert.match(result.failedBlocks[0].message, /output token limit/i);
+});
+
+test('propagates cancellation from the protected text fallback', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                calls++;
+                const entries = parseTranslationRequest(
+                    request.messages[1].content
+                );
+                if ('sourceText' in entries[0]) {
+                    controller.abort();
+                    return { text: '[]' };
+                }
+                return {
+                    text: JSON.stringify(entries.map(entry => ({
+                        id: entry.id,
+                        translatedMarkdown: entry.sourceMarkdown.replace(
+                            /MKTEROPROTECTED\d+PLACEHOLDER/,
+                            ''
+                        ),
+                    }))),
+                };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => null,
+    });
+
+    await assert.rejects(() => service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: 'Compare $x$ and $y$.',
+        signal: controller.signal,
+    }), error => error?.name === 'AbortError');
+    assert.equal(calls, 4);
+});
+
+test('does not use the protected text fallback for ordinary structure errors', async () => {
+    const requests = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                const entries = parseTranslationRequest(
+                    request.messages[1].content
+                );
+                requests.push(entries);
+                return {
+                    text: JSON.stringify(entries.map(entry => ({
+                        id: entry.id,
+                        translatedMarkdown: '# Wrong structure',
+                    }))),
+                };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => null,
+    });
+
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: 'One paragraph.',
+    });
+
+    assert.equal(requests.length, 3);
+    assert.ok(requests.flat().every(entry => 'sourceMarkdown' in entry));
+    assert.equal(result.partial, true);
+    assert.equal(result.translatedMarkdown, 'One paragraph.');
+});
+
 test('retries every block after the initial batch request fails', async () => {
     let calls = 0;
     const service = new MarkdownTranslationService({

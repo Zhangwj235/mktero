@@ -968,10 +968,28 @@ function matchAuthorReferences(referencesByYear, authors, year) {
     const keys = normalizeAuthorKeys(authors);
     if (!keys.length) return [];
     const normalizedYear = String(year).toLowerCase();
+    const leadingAuthorOnly = /\bet\s+al\.?/iu.test(authors);
     return (referencesByYear.get(normalizedYear) || []).filter(reference => {
+        if (leadingAuthorOnly) {
+            return keys.length === 1
+                && referenceFirstAuthorKey(reference) === keys[0];
+        }
         const searchable = ` ${reference.authorSearchText} `;
         return keys.every(key => searchable.includes(` ${key} `));
     });
+}
+
+function referenceFirstAuthorKey(reference) {
+    const authors = referenceAuthorText(reference.text, reference.year);
+    const firstAuthor = authors.split(
+        /\s*(?:[,，&＆]|\band\b)\s*/iu,
+        1
+    )[0].trim();
+    const withoutInitials = firstAuthor.replace(
+        /^(?:(?:\p{L}\.(?:-\p{L}\.)*)[ \t]*)+/u,
+        ''
+    ).trim();
+    return normalizeSearchText(withoutInitials || firstAuthor);
 }
 
 function normalizeAuthorKeys(authors) {
@@ -1037,10 +1055,22 @@ function referenceAuthorText(text, year) {
     const parentheticalYear = new RegExp(`[（(]\\s*${escapedYear}\\s*[)）]`, 'i')
         .exec(text);
     if (parentheticalYear) return text.slice(0, parentheticalYear.index);
-    const sentenceEnd = /[.。]\s+(?=\p{L})/u.exec(text);
-    if (sentenceEnd) return text.slice(0, sentenceEnd.index);
     const yearIndex = text.toLowerCase().indexOf(year);
-    return yearIndex < 0 ? text : text.slice(0, yearIndex);
+    const beforeYear = yearIndex < 0 ? text : text.slice(0, yearIndex);
+    let firstSentenceEnd = null;
+    for (const sentenceEnd of beforeYear.matchAll(/[.。]\s+(?=\p{L})/gu)) {
+        firstSentenceEnd ||= sentenceEnd;
+        if (isInitialPeriod(beforeYear, sentenceEnd.index)) continue;
+        return beforeYear.slice(0, sentenceEnd.index);
+    }
+    return firstSentenceEnd
+        ? beforeYear.slice(0, firstSentenceEnd.index)
+        : beforeYear;
+}
+
+function isInitialPeriod(text, periodIndex) {
+    const beforePeriod = text.slice(0, periodIndex);
+    return /(?:^|[\s,;(（-])\p{L}$/u.test(beforePeriod);
 }
 
 function trimRangeEnd(markdown, from, to) {

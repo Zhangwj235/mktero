@@ -35,6 +35,8 @@ const REFERENCE_HEADING_PATTERN = /^(?:references?|bibliography|works cited|lite
 const NUMERIC_CITATION_PATTERN = /\[(?:\d{1,4}[a-z]?(?:[ \t]*[-–—,，;；][ \t]*\d{1,4}[a-z]?)*)(?:[ \t]*,[ \t]*)?\]/giu;
 export const BILINGUAL_LIST_BOUNDARY =
     '<!-- mktero-bilingual-list-boundary -->';
+export const TRANSLATION_PROTECTED_CONTENT_CHANGED =
+    'TRANSLATION_PROTECTED_CONTENT_CHANGED';
 export const MAX_TRANSLATION_BATCH_BLOCKS = 8;
 export const MAX_TRANSLATION_BATCH_SOURCE_TOKENS = 2_000;
 
@@ -197,6 +199,62 @@ export function createMarkdownTranslationBatchPayload(blocks) {
     }] : []));
 }
 
+export function createProtectedTextTranslationPayload(block) {
+    return JSON.stringify(protectedTextTranslationParts(block).flatMap(part => (
+        part.type === 'text' ? [{
+            id: part.id,
+            sourceText: part.sourceText,
+        }] : []
+    )));
+}
+
+export function collectProtectedTextTranslationResponse(block, response) {
+    const parts = protectedTextTranslationParts(block);
+    const expectedSegments = parts.filter(part => part.type === 'text');
+    const expectedIDs = new Set(expectedSegments.map(segment => segment.id));
+    const parsed = parseTranslationResponse(response);
+    if (!Array.isArray(parsed)) {
+        throw new Error('The translated text segments must be a JSON array');
+    }
+    const responsesByID = new Map();
+    for (const entry of parsed) {
+        const id = String(entry?.id || '');
+        if (!id) {
+            throw new Error('The AI returned a text segment without an ID');
+        }
+        if (!expectedIDs.has(id)) {
+            throw new Error('The AI returned an unknown text segment ID');
+        }
+        const entries = responsesByID.get(id) || [];
+        entries.push(entry);
+        responsesByID.set(id, entries);
+    }
+    const translationsByID = new Map();
+    for (const segment of expectedSegments) {
+        const entries = responsesByID.get(segment.id) || [];
+        if (entries.length !== 1
+            || typeof entries[0].translatedText !== 'string') {
+            throw new Error(entries.length > 1
+                ? 'The AI returned a duplicate text segment translation'
+                : 'The AI omitted a text segment translation');
+        }
+        translationsByID.set(
+            segment.id,
+            entries[0].translatedText.trim()
+        );
+    }
+    const markdown = parts.map(part => part.type === 'text'
+        ? part.leadingWhitespace
+            + translationsByID.get(part.id)
+            + part.trailingWhitespace
+        : part.value).join('');
+    validateTranslatedBlock(block, markdown);
+    return {
+        id: block.id,
+        markdown,
+    };
+}
+
 export function collectMarkdownTranslationBatchResponse(blocks, response) {
     if (!Array.isArray(blocks)) {
         throw new TypeError('Markdown translation blocks are required');
@@ -243,6 +301,7 @@ export function collectMarkdownTranslationBatchResponse(blocks, response) {
             failures.push({
                 id: block.id,
                 message: error?.message || 'The translated Markdown block is invalid',
+                ...(error?.code ? { code: error.code } : {}),
             });
         }
     }
@@ -933,7 +992,11 @@ function validateProtectedPlaceholders(block, translated) {
     const actual = translated.match(PROTECTED_PLACEHOLDER_PATTERN) || [];
     if (actual.length !== expected.length
         || actual.some((placeholder, index) => placeholder !== expected[index])) {
-        throw new Error('The translated Markdown block changed protected content');
+        const error = new Error(
+            'The translated Markdown block changed protected content'
+        );
+        error.code = TRANSLATION_PROTECTED_CONTENT_CHANGED;
+        throw error;
     }
     const originalTree = MARKDOWN_PARSER.parse(block.requestMarkdown);
     const translatedTree = MARKDOWN_PARSER.parse(translated);
@@ -945,6 +1008,47 @@ function validateProtectedPlaceholders(block, translated) {
             );
         }
     }
+}
+
+function protectedTextTranslationParts(block) {
+    if (!block?.translatable) {
+        throw new TypeError(
+            'Only translatable Markdown blocks can use protected text translation'
+        );
+    }
+    const source = String(block.requestMarkdown || '');
+    const parts = [];
+    let cursor = 0;
+    let segmentIndex = 0;
+    const appendText = value => {
+        if (!value) return;
+        const leadingWhitespace = value.match(/^\s*/u)?.[0] || '';
+        const withoutLeading = value.slice(leadingWhitespace.length);
+        const trailingWhitespace = withoutLeading.match(/\s*$/u)?.[0] || '';
+        const sourceText = withoutLeading.slice(
+            0,
+            withoutLeading.length - trailingWhitespace.length
+        );
+        if (!hasTranslatableContent(sourceText)) {
+            parts.push({ type: 'literal', value });
+            return;
+        }
+        parts.push({
+            type: 'text',
+            id: `segment-${segmentIndex}`,
+            sourceText,
+            leadingWhitespace,
+            trailingWhitespace,
+        });
+        segmentIndex++;
+    };
+    for (const match of source.matchAll(PROTECTED_PLACEHOLDER_PATTERN)) {
+        appendText(source.slice(cursor, match.index));
+        parts.push({ type: 'protected', value: match[0] });
+        cursor = match.index + match[0].length;
+    }
+    appendText(source.slice(cursor));
+    return parts;
 }
 
 function placeholderNodePath(tree, source, placeholder) {
