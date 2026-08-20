@@ -211,6 +211,35 @@ test('recenters the selected paper after force layout settles', () => {
     assert.equal(view.transform.y, 300 - selected.y);
 });
 
+test('keeps the focused paper centered while layout is still moving', () => {
+    const harness = createHarness();
+    const view = harness.createView();
+    view.render(createSnapshot({ status: 'refreshing' }));
+    const selected = view.selectedNode();
+    selected.x = 640;
+    selected.y = 480;
+
+    harness.simulation.tickListener();
+
+    assert.equal(view.transform.x, 400 - selected.x);
+    assert.equal(view.transform.y, 300 - selected.y);
+});
+
+test('does not override manual zoom while force layout is moving', () => {
+    const harness = createHarness();
+    const view = harness.createView();
+    view.render(createSnapshot({ status: 'refreshing' }));
+    view.zoomBy(1.25, { x: 300, y: 200 });
+    const transform = { ...view.transform };
+    const selected = view.selectedNode();
+    selected.x = 640;
+    selected.y = 480;
+
+    harness.simulation.tickListener();
+
+    assert.deepEqual(view.transform, transform);
+});
+
 test('search and connected filtering provide keyboard-accessible node controls', () => {
     const harness = createHarness();
     const view = harness.createView();

@@ -98,6 +98,7 @@ class CitationGraphView {
         this.pointer = null;
         this.listeners = [];
         this.navigationError = '';
+        this.keepFocusedNodeCentered = false;
         this.motionQuery = this.ownerWindow.matchMedia?.(
             '(prefers-reduced-motion: reduce)'
         ) || null;
@@ -123,6 +124,7 @@ class CitationGraphView {
         if (this.nodes.length
             && (this.cssWidth !== previousWidth
                 || this.cssHeight !== previousHeight)) {
+            this.keepFocusedNodeCentered = Boolean(this.selectedNode());
             this.startSimulation();
             this.centerNode(this.selectedNode());
         }
@@ -366,7 +368,10 @@ class CitationGraphView {
         ));
         if (!node) return false;
         this.selectedItemID = node.itemID;
-        if (center) this.centerNode(node);
+        if (center) {
+            this.keepFocusedNodeCentered = true;
+            this.centerNode(node);
+        }
         this.renderDetails();
         this.scheduleDraw();
         return true;
@@ -400,13 +405,22 @@ class CitationGraphView {
             this.simulation?.stop?.();
             this.simulation?.tick?.(240);
             this.centerNode(this.selectedNode());
+            this.keepFocusedNodeCentered = false;
             this.scheduleDraw();
             return;
         }
-        this.simulation?.on?.('tick', () => this.scheduleDraw());
+        this.simulation?.on?.('tick', () => {
+            if (this.keepFocusedNodeCentered) {
+                this.centerNode(this.selectedNode());
+            }
+            this.scheduleDraw();
+        });
         this.simulation?.on?.('end', () => {
             if (this.destroyed) return;
-            this.centerNode(this.selectedNode());
+            if (this.keepFocusedNodeCentered) {
+                this.centerNode(this.selectedNode());
+                this.keepFocusedNodeCentered = false;
+            }
             this.scheduleDraw();
         });
     }
@@ -789,11 +803,15 @@ class CitationGraphView {
     resetView() {
         this.transform = { x: 0, y: 0, scale: 1 };
         const node = this.selectedNode();
-        if (node) this.centerNode(node);
+        if (node) {
+            this.keepFocusedNodeCentered = true;
+            this.centerNode(node);
+        }
         this.scheduleDraw();
     }
 
     zoomBy(factor, point = null) {
+        this.keepFocusedNodeCentered = false;
         const nextScale = clamp(
             this.transform.scale * factor,
             MIN_SCALE,
@@ -828,6 +846,7 @@ class CitationGraphView {
     }
 
     handlePointerDown(event) {
+        this.keepFocusedNodeCentered = false;
         this.hideHoverDetails();
         const point = this.eventPoint(event);
         const node = this.hitTest(event);
