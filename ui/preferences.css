@@ -177,6 +177,10 @@
     outline-offset: 0;
 }
 
+#mktero-semantic-scholar-api-key {
+    font-variant-ligatures: none;
+}
+
 .mktero-field-meta {
     display: flex;
     align-items: baseline;

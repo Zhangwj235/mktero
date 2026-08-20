@@ -3,12 +3,14 @@ import { isSavedMarkdownNote as isMarkedSavedMarkdownNote } from '../core/saved-
 
 const ITEM_MENU_ID = 'zotero-itemmenu';
 const MENU_ITEM_ID = 'mktero-read-as-markdown';
+const GRAPH_MENU_ITEM_ID = 'mktero-open-citation-graph';
 
 export function registerItemContextMenu({
     zotero,
     window,
     rootURI,
     onOpen,
+    onOpenCitationGraph = null,
     onOpenSavedNote = null,
     isSavedMarkdownNote = defaultIsSavedMarkdownNote,
     onError,
@@ -19,6 +21,7 @@ export function registerItemContextMenu({
     if (!menu) return null;
 
     document.getElementById(MENU_ITEM_ID)?.remove();
+    document.getElementById(GRAPH_MENU_ITEM_ID)?.remove();
 
     const menuItem = document.createXULElement?.('menuitem')
         || document.createElement('menuitem');
@@ -27,6 +30,16 @@ export function registerItemContextMenu({
     menuItem.setAttribute('label', translate('menu.readAsMarkdown'));
     menuItem.setAttribute('class', 'menuitem-iconic');
     menuItem.setAttribute('image', `${rootURI}ui/icons/mktero.svg`);
+    const graphMenuItem = document.createXULElement?.('menuitem')
+        || document.createElement('menuitem');
+    graphMenuItem.id = GRAPH_MENU_ITEM_ID;
+    graphMenuItem.hidden = true;
+    graphMenuItem.setAttribute(
+        'label',
+        translate('menu.openCitationGraph')
+    );
+    graphMenuItem.setAttribute('class', 'menuitem-iconic');
+    graphMenuItem.setAttribute('image', `${rootURI}ui/icons/mktero.svg`);
 
     const handlePopupShowing = event => {
         if (event.target !== menu) return;
@@ -44,6 +57,8 @@ export function registerItemContextMenu({
                 ? 'menu.openSavedMarkdown'
                 : 'menu.readAsMarkdown')
         );
+        graphMenuItem.hidden = typeof onOpenCitationGraph !== 'function'
+            || !resolveSelectedGraphItem(window);
     };
     const handleCommand = () => {
         const selected = resolveSelectedItem(
@@ -58,10 +73,18 @@ export function registerItemContextMenu({
                 : onOpen(selected.item.id))
             .catch(onError);
     };
+    const handleGraphCommand = () => {
+        const selected = resolveSelectedGraphItem(window);
+        if (!selected || typeof onOpenCitationGraph !== 'function') return;
+        Promise.resolve()
+            .then(() => onOpenCitationGraph(selected.id))
+            .catch(onError);
+    };
 
     menu.addEventListener('popupshowing', handlePopupShowing);
     menuItem.addEventListener('command', handleCommand);
-    menu.append(menuItem);
+    graphMenuItem.addEventListener('command', handleGraphCommand);
+    menu.append(menuItem, graphMenuItem);
 
     let active = true;
     return () => {
@@ -69,8 +92,17 @@ export function registerItemContextMenu({
         active = false;
         menu.removeEventListener('popupshowing', handlePopupShowing);
         menuItem.removeEventListener('command', handleCommand);
+        graphMenuItem.removeEventListener('command', handleGraphCommand);
         menuItem.remove();
+        graphMenuItem.remove();
     };
+}
+
+function resolveSelectedGraphItem(window) {
+    const selectedItems = window?.ZoteroPane?.getSelectedItems?.();
+    if (!Array.isArray(selectedItems) || selectedItems.length !== 1) return null;
+    const item = selectedItems[0];
+    return item?.isPDFAttachment?.() || item?.isRegularItem?.() ? item : null;
 }
 
 function resolveSelectedItem(zotero, window, isSavedMarkdownNote) {

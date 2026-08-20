@@ -14,6 +14,10 @@ import {
 import { createLocalization } from '../i18n/localization.js';
 import { createMarkdownTabView } from './markdown-window.js';
 import { createEmptyTranslationState } from './markdown-tab-state.js';
+import {
+    installMkteroSessionStateFilter,
+    removeStaleMkteroSessionTabs,
+} from './mktero-session-tabs.js';
 
 const TAB_TYPE = 'mktero';
 const TAB_ICON = 'markdown';
@@ -48,7 +52,8 @@ export class MarkdownTabPresenter {
             zotero,
             size => this.applyReaderFontSize(size)
         );
-        this.sessionStatePatch = null;
+        this.sessionStateTabs = null;
+        this.disposeSessionStateFilter = null;
         this.tabIconStyle = null;
         this.removeStaleSessionTabs();
         this.ensureSessionStateFilter();
@@ -418,26 +423,17 @@ export class MarkdownTabPresenter {
         const owner = this.zotero.getMainWindow?.();
         const tabs = owner?.Zotero_Tabs;
         if (!tabs?.getState) return;
-        if (this.sessionStatePatch?.tabs === tabs) return;
+        if (this.sessionStateTabs === tabs) return;
 
         this.restoreSessionStateFilter();
-        const originalGetState = tabs.getState;
-        const filteredGetState = function filteredGetState() {
-            const state = originalGetState.call(this);
-            if (!Array.isArray(state)) return state;
-            return state.filter(tab => !isMkteroSessionTab(tab));
-        };
-        tabs.getState = filteredGetState;
-        this.sessionStatePatch = { tabs, originalGetState, filteredGetState };
+        this.disposeSessionStateFilter = installMkteroSessionStateFilter(tabs);
+        this.sessionStateTabs = tabs;
     }
 
     restoreSessionStateFilter() {
-        const patch = this.sessionStatePatch;
-        if (!patch) return;
-        if (patch.tabs.getState === patch.filteredGetState) {
-            patch.tabs.getState = patch.originalGetState;
-        }
-        this.sessionStatePatch = null;
+        this.disposeSessionStateFilter?.();
+        this.disposeSessionStateFilter = null;
+        this.sessionStateTabs = null;
     }
 
     debug(message) {
@@ -445,18 +441,8 @@ export class MarkdownTabPresenter {
     }
 
     removeStaleSessionTabs() {
-        const windows = this.zotero.Session?.state?.windows;
-        if (!Array.isArray(windows)) return;
-
-        for (const windowState of windows) {
-            if (!Array.isArray(windowState.tabs)) continue;
-            windowState.tabs = windowState.tabs.filter(tab => !isMkteroSessionTab(tab));
-        }
+        removeStaleMkteroSessionTabs(this.zotero);
     }
-}
-
-function isMkteroSessionTab(tab) {
-    return tab?.type === TAB_TYPE && tab.data?.mkteroItemID !== undefined;
 }
 
 function createInitialModel(

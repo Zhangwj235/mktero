@@ -20,10 +20,18 @@ const markdownStyles = await readFile(
     path.join(projectRoot, 'ui/markdown.css'),
     'utf8'
 );
+const citationGraphStyles = await readFile(
+    path.join(projectRoot, 'ui/citation-graph.css'),
+    'utf8'
+);
 const xpiName = `mktero-${manifest.version}.xpi`;
 const xpiPath = path.join(buildRoot, xpiName);
 const requiredPackageFiles = [
     'bootstrap.js',
+    'licenses/d3-dispatch.txt',
+    'licenses/d3-force.txt',
+    'licenses/d3-quadtree.txt',
+    'licenses/d3-timer.txt',
     'licenses/lucide.txt',
     'licenses/pdfjs.txt',
     'licenses/shiki.txt',
@@ -58,6 +66,9 @@ await Promise.all([
         legalComments: 'none',
         define: {
             __MKTERO_MARKDOWN_STYLES__: JSON.stringify(markdownStyles),
+            __MKTERO_CITATION_GRAPH_STYLES__: JSON.stringify(
+                citationGraphStyles
+            ),
             process: 'undefined',
             Buffer: 'undefined',
         },
@@ -92,6 +103,10 @@ await Promise.all([
     copyText('ui/preferences.xhtml', 'ui/preferences.xhtml'),
     copyText('ui/preferences.css', 'ui/preferences.css'),
     copyText('ui/icons/mktero.svg', 'ui/icons/mktero.svg'),
+    copyText('node_modules/d3-dispatch/LICENSE', 'licenses/d3-dispatch.txt'),
+    copyText('node_modules/d3-force/LICENSE', 'licenses/d3-force.txt'),
+    copyText('node_modules/d3-quadtree/LICENSE', 'licenses/d3-quadtree.txt'),
+    copyText('node_modules/d3-timer/LICENSE', 'licenses/d3-timer.txt'),
     copyText('node_modules/lucide/LICENSE', 'licenses/lucide.txt'),
     copyText('node_modules/pdfjs-dist/LICENSE', 'licenses/pdfjs.txt'),
     copyText('node_modules/shiki/LICENSE', 'licenses/shiki.txt'),

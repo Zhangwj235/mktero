@@ -4,13 +4,16 @@ import {
     LUCIDE_ICONS,
 } from '../icons/lucide-icon.js';
 
-const BUTTON_SELECTOR = '.mktero-markdown-button';
+const MARKDOWN_BUTTON_SELECTOR = '.mktero-markdown-button';
+const GRAPH_BUTTON_SELECTOR = '.mktero-citation-graph-button';
+const BUTTON_SELECTOR = `${MARKDOWN_BUTTON_SELECTOR}, ${GRAPH_BUTTON_SELECTOR}`;
 const CUSTOM_SECTIONS_SELECTOR = '.toolbar .end .custom-sections';
 
 export function registerReaderToolbar({
     zotero,
     pluginID,
     onOpen,
+    onOpenCitationGraph = null,
     onPDFReaderAvailable = null,
     onError = defaultErrorHandler,
     translate = translateEnglish,
@@ -41,22 +44,31 @@ export function registerReaderToolbar({
     }) => {
         if (!active || reader?.type !== 'pdf') return;
         if (!suppressAvailableNotification) notifyPDFReaderAvailable(reader);
-        if (doc.querySelector?.(BUTTON_SELECTOR)) return;
-
-        const button = doc.createElement('button');
-        button.type = 'button';
-        button.className = 'toolbar-button mktero-markdown-button';
-        button.appendChild(createLucideIcon(doc, LUCIDE_ICONS.fileText, {
-            className: 'mktero-reader-toolbar-icon',
-            size: 16,
-        }));
-        button.title = translate('toolbar.openMarkdown');
-        button.dataset.mkteroItemID = String(reader.itemID);
-        button.setAttribute?.('aria-label', translate('toolbar.openMarkdownAria'));
-        button.addEventListener('click', () => {
-            Promise.resolve(onOpen(reader)).catch(error => onError(error, reader));
-        });
-        append(button);
+        if (!doc.querySelector?.(MARKDOWN_BUTTON_SELECTOR)) {
+            append(createToolbarButton({
+                doc,
+                reader,
+                className: 'mktero-markdown-button',
+                icon: LUCIDE_ICONS.fileText,
+                title: translate('toolbar.openMarkdown'),
+                ariaLabel: translate('toolbar.openMarkdownAria'),
+                onClick: () => onOpen(reader),
+                onError,
+            }));
+        }
+        if (typeof onOpenCitationGraph === 'function'
+            && !doc.querySelector?.(GRAPH_BUTTON_SELECTOR)) {
+            append(createToolbarButton({
+                doc,
+                reader,
+                className: 'mktero-citation-graph-button',
+                icon: LUCIDE_ICONS.network,
+                title: translate('toolbar.openCitationGraph'),
+                ariaLabel: translate('toolbar.openCitationGraphAria'),
+                onClick: () => onOpenCitationGraph(reader),
+                onError,
+            }));
+        }
     };
 
     zotero.Reader.registerEventListener('renderToolbar', handler, pluginID);
@@ -73,6 +85,32 @@ export function registerReaderToolbar({
         }
         zotero.Reader.unregisterEventListener?.('renderToolbar', handler);
     };
+}
+
+function createToolbarButton({
+    doc,
+    reader,
+    className,
+    icon,
+    title,
+    ariaLabel,
+    onClick,
+    onError,
+}) {
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.className = `toolbar-button ${className}`;
+    button.appendChild(createLucideIcon(doc, icon, {
+        className: 'mktero-reader-toolbar-icon',
+        size: 16,
+    }));
+    button.title = title;
+    button.dataset.mkteroItemID = String(reader.itemID);
+    button.setAttribute?.('aria-label', ariaLabel);
+    button.addEventListener('click', () => {
+        Promise.resolve(onClick()).catch(error => onError(error, reader));
+    });
+    return button;
 }
 
 function injectOpenReaderToolbars(zotero, handler, notifyPDFReaderAvailable) {

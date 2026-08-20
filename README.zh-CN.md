@@ -52,6 +52,7 @@ Mktero 是一个适用于 Zotero 7、8 和 9 的来源关联重排阅读器。�
 | 设置 | 默认值 | 作用 |
 | --- | --- | --- |
 | API Token | 空 | 本地没有可用转换结果时必填 |
+| Semantic Scholar API Key | 空 | 可选；留空时仍可匿名获取引用图谱数据 |
 | Body text font | 系统衬线字体 | 可选系统衬线、Georgia、Cambria 或 Times New Roman |
 | Body text size | 18 px | 在 16–22 px 间调整 Markdown 和快照字号，同时保持宽且稳定的阅读版心 |
 | Reuse conversion results | 开启 | 复用相同 PDF 内容和解析配置对应的结果 |
@@ -62,7 +63,7 @@ Mktero 是一个适用于 Zotero 7、8 和 9 的来源关联重排阅读器。�
 | 请求超时 | 600,000 毫秒 | 单个 Markdown 批次请求最长可等待一小时 |
 | 最大输出 Token 数 | 自动（0） | 默认由 Provider 决定；所选模型支持时最高可设为 262,144 |
 
-MinerU API Token 和 AI API Key 都会作为普通首选项未加密地保存在当前 Zotero
+MinerU API Token、Semantic Scholar API Key 和 AI API Key 都会作为普通首选项未加密地保存在当前 Zotero
 配置文件中。开始翻译前，可使用“测试连接”验证当前 AI 地址、Key、模型厂商、协议和模型。
 该探测只要求 Provider 成功返回响应；只有 reasoning、没有可见正文的响应也会判定为成功。
 
@@ -87,6 +88,20 @@ MinerU API Token 和 AI API Key 都会作为普通首选项未加密地保存在
 
 重新解析会再次上传 PDF，并可能消耗 MinerU 额度。新结果准备完成前，当前 Markdown
 仍可继续阅读。Mktero 标签页仅在当前会话存在，重启 Zotero 后不会自动恢复。
+
+### 浏览文库引用图谱
+
+右键单个 Zotero 文献条目或 PDF 附件并选择 `打开引用图谱`，也可以点击 PDF 阅读器
+工具栏中的网络图标。Mktero 为每个文库只打开一个当前会话有效的图谱标签页，并自动聚焦
+所选论文。当前文库中的每个普通文献条目都会保留为节点；没有可靠 DOI 或 arXiv 标识符的
+论文会保留为孤立节点。有向边表示来源论文引用目标论文，并且只有两篇论文都已存在于当前
+Zotero 文库时才会显示该边。
+
+引用数据仅来自 Semantic Scholar。Mktero 只发送 DOI 和 arXiv 标识符，不发送 PDF、
+Markdown、笔记、标注、本地路径、Zotero key 或完整条目记录。界面会先显示本地缓存，
+再逐条刷新缺失或过期的数据。搜索、全部/有关联筛选，以及可通过键盘操作的参考文献/引用本文
+列表都可以聚焦论文；双击节点或点击 `在 Zotero 中打开` 会优先打开 PDF，没有 PDF 时选择
+对应的 Zotero 条目。清空 Mktero 本地缓存也会删除引用记录缓存。
 
 ### 校对识别错误
 
@@ -188,6 +203,7 @@ PDF 不能保存快照。
 - 在 Markdown 中显示 Zotero PDF 高亮和下划线，并支持新建、改色、评论和删除标注。
 - 来源可靠时，复制内容可附带论文标题、PDF 物理页码和 Zotero 回链。
 - 使用内容寻址的本地缓存，并可恢复最近上传的 MinerU 任务，避免重复上传同一 PDF。
+- 只展示当前 Zotero 文库内部的有向引用关系，并以缓存优先方式刷新 Semantic Scholar 数据。
 - 英文和简体中文界面自动跟随 Zotero 显示语言，其他语言回退为英文。
 
 ## 工作原理
@@ -238,20 +254,24 @@ PDF 物理页；区域坐标只用于来源跳转，不会被当作猜测的标�
 | 缓存未命中时的完整 PDF | 上传到 MinerU | Mktero 不同步 |
 | API Token | 当前 Zotero 配置文件，未加密 | 否 |
 | AI API Key | 当前 Zotero 配置文件，未加密 | 否 |
+| Semantic Scholar API Key | 当前 Zotero 配置文件，未加密 | 否 |
+| 引用图谱使用的 DOI 和 arXiv 标识符 | Semantic Scholar | Mktero 不同步 |
 | 用户选择全文翻译后拆分的受保护 Markdown 批次，以及仅在占位符完整性连续失败后使用的普通文本片段 | 配置的 AI Provider | Mktero 不同步 |
 | 缓存的 Markdown、图片、来源映射和 PDF 文字索引 | 当前 Zotero 配置文件，未加密 | 否 |
 | 缓存的 AI 译文 | 当前 Zotero 配置文件，未加密 | 否 |
+| 缓存的 Semantic Scholar 引用元数据 | 当前 Zotero 配置文件，未加密 | 否 |
 | 待完成 MinerU 任务的 ID 和时间戳 | 当前 Zotero 配置文件，未加密 | 否 |
 | 待同步的 Markdown 标注记录（包括用于匹配的有界前后文） | 当前 Zotero 配置文件，同步前未加密保存 | 否 |
 | 校对后的 Markdown 内容块及其基础图片和来源映射 | 当前 Zotero 配置文件，未加密 | 否 |
 | 已同步的 PDF 标注 | 本地 Zotero 文库 | 取决于 Zotero 设置 |
 | 保存的快照 Note、HTML、Markdown、来源映射和图片 | Zotero 条目和附件，未加密 | 取决于 Zotero 设置 |
 
-本地缓存不包含 API Token、AI API Key 或 PDF 标注评论。PDF 标注和本地 PDF.js 索引
+本地缓存不包含 API Token、Semantic Scholar API Key、AI API Key 或 PDF 标注评论。PDF 标注和本地 PDF.js 索引
 不会发送给 MinerU 或 AI Provider。全文翻译会向配置的 AI Provider 并发发送最多 5 个
 经过保护的 Markdown 批次和翻译指令。若某个内容块的占位符完整性连续校验失败，最后一次请求
 只发送该块的普通文本片段，受保护公式、引用、图表编号和占位符仍保留在本地。“复制并附带来源”只读取本地条目元数据，并将生成的结果
-写入系统剪贴板。
+写入系统剪贴板。引用图谱请求只向 Semantic Scholar 发送规范化后的 DOI 和 arXiv 标识符；
+引用元数据缓存保存在本地、未加密且不会由 Zotero 同步，外部 Semantic Scholar 论文不会成为图谱节点。
 
 校对数据保存在当前 Zotero 配置文件中，并独立于普通转换缓存；清理缓存不会清理校对。
 校对默认只保存在当前设备，除非用户将其保存到 Zotero 快照。包含校对的快照会明确显示

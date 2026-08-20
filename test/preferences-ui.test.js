@@ -34,14 +34,18 @@ test('combines every local cache usage and clears every store', async () => {
     }, {
         getStats: async () => ({ entries: 4, sizeBytes: 4096 }),
         clear: async () => { cleared.push('translations'); },
+    }, {
+        getStats: async () => ({ entries: 5, sizeBytes: 1024 }),
+        clear: async () => { cleared.push('citations'); },
     }]);
 
     assert.deepEqual(await cache.getStats(), {
-        entries: 9,
-        sizeBytes: 8192,
+        entries: 14,
+        sizeBytes: 9216,
     });
     await cache.clear();
     assert.deepEqual(cleared.sort(), [
+        'citations',
         'markdown',
         'pdf-index',
         'translations',
@@ -235,6 +239,7 @@ test('tests the current AI SDK settings without exposing the key', async () => {
             </select>
             <input id="mktero-ai-request-timeout" value="600000">
             <input id="mktero-ai-max-output-tokens" value="0">
+            <input id="mktero-semantic-scholar-api-key" value="">
             <input id="mktero-ai-streaming" type="checkbox" checked>
             <button id="mktero-ai-test"></button>
             <span id="mktero-ai-test-status"></span>
@@ -278,6 +283,11 @@ test('tests the current AI SDK settings without exposing the key', async () => {
     assert.equal(
         dom.window.document.getElementById('mktero-ai-max-output-tokens').max,
         '262144'
+    );
+    assert.equal(
+        dom.window.document.getElementById('mktero-semantic-scholar-api-key')
+            .maxLength,
+        4096
     );
     assert.equal(testedSettings.streaming, true);
     assert.equal(
