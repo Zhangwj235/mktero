@@ -2225,6 +2225,12 @@ function renderedRange(node, state, display, context) {
                 annotationSource: state.sliceDoc(node.from, node.to),
                 annotationSourceFrom: node.from,
                 caption: node.caption,
+                citations: renderedCitationDescriptors(
+                    state,
+                    context,
+                    node.from,
+                    node.to
+                ),
                 highlighted: tableIsHighlighted,
                 annotations,
                 correctionBlock,
@@ -2250,6 +2256,8 @@ function renderedRange(node, state, display, context) {
             display,
             from: node.from,
             citations: display === 'image'
+                || (display === 'html-block'
+                    && /^\s*<table\b/i.test(source))
                 ? renderedCitationDescriptors(
                     state,
                     context,

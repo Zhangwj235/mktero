@@ -2,6 +2,7 @@ import { WidgetType } from '@codemirror/view';
 import { parseGFMTableRow } from '../markdown/markdown-tables.js';
 import {
     appendRenderedMarkdown,
+    installRenderedCitations,
     installRenderedImagePreview,
     openRenderedLink,
 } from './rendered-markdown-dom.js';
@@ -25,6 +26,7 @@ export class RenderedTableWidget extends WidgetType {
         openLink,
         openImagePreview,
         renderVersion,
+        citations = [],
         highlighted = false,
         annotations = [],
         correctionBlock = null,
@@ -46,6 +48,8 @@ export class RenderedTableWidget extends WidgetType {
         this.openLink = openLink;
         this.openImagePreview = openImagePreview;
         this.renderVersion = renderVersion;
+        this.citations = citations;
+        this.citationKey = citations.map(citation => citation.key).join('|');
         this.highlighted = highlighted;
         this.annotations = annotations;
         this.annotationKey = JSON.stringify(annotations);
@@ -71,6 +75,7 @@ export class RenderedTableWidget extends WidgetType {
             && this.annotationSourceFrom === other.annotationSourceFrom
             && this.caption?.text === other.caption?.text
             && this.renderVersion === other.renderVersion
+            && this.citationKey === other.citationKey
             && this.highlighted === other.highlighted
             && this.annotationKey === other.annotationKey
             && this.correctionBlock?.id === other.correctionBlock?.id
@@ -110,6 +115,7 @@ export class RenderedTableWidget extends WidgetType {
         if (table && this.caption) {
             table.prepend(createTableCaption(document, this.caption));
         }
+        installRenderedCitations(container, this.citations);
         this.#configureCells(container);
         installRenderedAnnotations(
             container,
