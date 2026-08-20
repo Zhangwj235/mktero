@@ -159,6 +159,88 @@ test('maps a reference to one composite image with a trailing panel label', () =
     )), ['Figure 3']);
 });
 
+test('maps localized figure labels and Unicode spacing in translated prose', () => {
+    const markdown = [
+        '尽管PPG和ABP信号具有相似的形状，如图1所示，',
+        '但直接评估SBP和DBP值并非易事；另见Fig.\u00a01。',
+        '',
+        '![图 1. PPG和ABP信号](images/figure.png)',
+    ].join('\n');
+
+    const result = analyzeMarkdownFigureReferences(markdown);
+
+    assert.deepEqual(result.targets.map(target => ({
+        id: target.id,
+        label: target.label,
+    })), [{
+        id: 'figure:1',
+        label: '图 1.',
+    }]);
+    assert.deepEqual(result.references.map(reference => ({
+        text: markdown.slice(reference.from, reference.to),
+        targetId: reference.targetId,
+    })), [{
+        text: '图1',
+        targetId: 'figure:1',
+    }, {
+        text: 'Fig.\u00a01',
+        targetId: 'figure:1',
+    }]);
+});
+
+test('keeps split Figure 1 targets in translated and bilingual paper views', () => {
+    const firstPanel = 'images/75036a1c04fe5b273b8dae9f4d121fa16efdc33d04dc66f46b71b575d22daf61.jpg';
+    const secondPanel = 'images/0c74f3058b21ed0e804b59e8cfa7f9438e364f637e7546c0f4751085aa522fde.jpg';
+    const source = [
+        'The right side of Fig. 1 shows an example ABP waveform.',
+        '',
+        'Although the PPG and ABP signals share a similar shape, as shown in Fig. 1.',
+        '',
+        `![](${firstPanel})  `,
+        'Time (s)',
+        '',
+        `![](${secondPanel})  `,
+        'Time (s)  ',
+        'Fig. 1. SBP and DBP estimation from PPG (left) and ABP (right) signals.',
+    ].join('\n');
+    const translated = [
+        'Fig. 1 的右侧展示了一个动脉血压波形示例。',
+        '',
+        '尽管PPG和ABP信号具有相似的形状，如Fig. 1所示。',
+        '',
+        `![](${firstPanel})  `,
+        '时间（秒）',
+        '',
+        `![](${secondPanel})  `,
+        '时间 (秒)  ',
+        'Fig. 1. 基于PPG（左）和ABP（右）信号的SBP与DBP估计。',
+    ].join('\n');
+    const bilingual = [
+        'The right side of Fig. 1 shows an example ABP waveform.',
+        '',
+        'Fig. 1 的右侧展示了一个动脉血压波形示例。',
+        '',
+        `![](${firstPanel})  `,
+        'Time (s)',
+        '',
+        '时间（秒）',
+        '',
+        `![](${secondPanel})  `,
+        'Time (s)  ',
+        'Fig. 1. SBP and DBP estimation from PPG (left) and ABP (right) signals.',
+        '时间 (秒)  ',
+        'Fig. 1. 基于PPG（左）和ABP（右）信号的SBP与DBP估计。',
+    ].join('\n');
+
+    for (const markdown of [source, translated, bilingual]) {
+        const result = analyzeMarkdownFigureReferences(markdown);
+        assert.deepEqual(result.targets.map(target => target.id), ['figure:1']);
+        assert.ok(result.references.some(reference => (
+            markdown.slice(reference.from, reference.to).includes('Fig. 1')
+        )));
+    }
+});
+
 test('ignores figure references in code and links and rejects duplicate labels', () => {
     const markdown = [
         '`Figure 3` is an example token.',

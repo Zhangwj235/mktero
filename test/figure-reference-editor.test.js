@@ -114,6 +114,43 @@ test('previews every panel in a referenced shared-caption figure', () => {
     dom.window.close();
 });
 
+test('keeps localized figure references interactive in translated and bilingual views', () => {
+    const translated = [
+        '尽管PPG和ABP信号具有相似的形状，如图1所示。',
+        '',
+        '![图1. PPG和ABP信号](images/figure.png)',
+    ].join('\n');
+    const bilingual = [
+        'Although the PPG and ABP signals are similar, as shown in Fig. 1.',
+        '',
+        '尽管PPG和ABP信号具有相似的形状，如图1所示。',
+        '',
+        '![Figure 1. PPG and ABP signals](images/figure.png)',
+    ].join('\n');
+
+    for (const [markdown, expected] of [
+        [translated, 1],
+        [bilingual, 2],
+    ]) {
+        const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+            pretendToBeVisual: true,
+        });
+        const { document } = dom.window;
+        const editor = createInlineMarkdownEditor({
+            parent: document.querySelector('#editor'),
+            initialMarkdown: markdown,
+            resolveImageURL: path => `blob:mktero-${path}`,
+        });
+
+        assert.equal(
+            document.querySelectorAll('.cm-mktero-figure-reference').length,
+            expected
+        );
+        editor.destroy();
+        dom.window.close();
+    }
+});
+
 test('jumps to and highlights a clicked figure reference for three seconds', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
