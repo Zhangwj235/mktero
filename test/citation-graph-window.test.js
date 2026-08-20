@@ -174,6 +174,26 @@ test('renders a stable canvas and focuses the requested paper', () => {
     );
 });
 
+test('recalculates the mounted canvas size and recenters the selected paper', () => {
+    const harness = createHarness();
+    let dimensions = { width: 800, height: 600 };
+    const view = harness.createView({
+        measure: () => dimensions,
+    });
+    view.render(createSnapshot());
+    const selected = view.selectedNode();
+    selected.x = 120;
+    selected.y = 100;
+
+    dimensions = { width: 1_000, height: 700 };
+    view.resize();
+
+    assert.equal(view.cssWidth, 1_000);
+    assert.equal(view.cssHeight, 700);
+    assert.equal(view.transform.x, 500 - selected.x);
+    assert.equal(view.transform.y, 350 - selected.y);
+});
+
 test('search and connected filtering provide keyboard-accessible node controls', () => {
     const harness = createHarness();
     const view = harness.createView();

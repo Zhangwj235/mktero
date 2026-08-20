@@ -115,6 +115,20 @@ class CitationGraphView {
         this.resizeCanvas();
     }
 
+    resize() {
+        if (this.destroyed) return;
+        const previousWidth = this.cssWidth;
+        const previousHeight = this.cssHeight;
+        this.resizeCanvas();
+        if (this.nodes.length
+            && (this.cssWidth !== previousWidth
+                || this.cssHeight !== previousHeight)) {
+            this.startSimulation();
+            this.centerNode(this.selectedNode());
+        }
+        this.scheduleDraw();
+    }
+
     buildInterface() {
         const shell = this.element('div', 'citation-graph-shell');
         const toolbar = this.element('header', 'citation-graph-toolbar');
@@ -393,12 +407,12 @@ class CitationGraphView {
 
     createObserver(factory) {
         if (typeof factory === 'function') {
-            return factory(() => this.resizeCanvas());
+            return factory(() => this.resize());
         }
         const Observer = this.ownerWindow.ResizeObserver
             || globalThis.ResizeObserver;
         return typeof Observer === 'function'
-            ? new Observer(() => this.resizeCanvas())
+            ? new Observer(() => this.resize())
             : null;
     }
 

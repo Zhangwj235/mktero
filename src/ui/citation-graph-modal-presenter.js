@@ -11,6 +11,13 @@ const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const MODAL_HOST_CLASS = 'mktero-citation-graph-modal-host';
 
 const MODAL_STYLES = `
+:host,
+:host *,
+:host *::before,
+:host *::after {
+    box-sizing: border-box;
+}
+
 :host {
     position: fixed;
     inset: 0;
@@ -31,8 +38,8 @@ const MODAL_STYLES = `
 
 .citation-graph-modal-dialog {
     display: flex;
-    width: min(1280px, 100%);
-    height: min(860px, 100%);
+    width: min(1120px, 100%);
+    height: min(720px, 100%);
     min-width: 0;
     min-height: 0;
     flex-direction: column;
@@ -219,6 +226,7 @@ export class CitationGraphModalPresenter {
             closed: false,
         };
         this.presentation = presentation;
+        view.resize?.();
         const close = () => this.close();
         closeButton.addEventListener('click', close);
         backdrop.addEventListener('click', event => {
