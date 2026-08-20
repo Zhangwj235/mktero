@@ -1,6 +1,37 @@
 import { parseGFMTableRow } from './markdown-tables.js';
 
-const ACADEMIC_FIGURE_CAPTION_PATTERN = /^((?:(?:algorithm|chart|fig\.?|figure|scheme|table)[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?)[.:]|fig\.[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?)))[ \t]+(\S[\s\S]*)$/iu;
+const ACADEMIC_REFERENCE_SPACE_SOURCE = '[\\p{Zs}\\t]';
+const ACADEMIC_REFERENCE_IDENTIFIER_SOURCE =
+    '(?:s?\\d+[a-z]?|[ivxlcdm]+[a-z]?)';
+const ACADEMIC_FIGURE_CAPTION_PATTERNS = [
+    new RegExp(
+        `^((?:(?:algorithm|chart|fig\\.?|figure|scheme|table)`
+            + `${ACADEMIC_REFERENCE_SPACE_SOURCE}+`
+            + `${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE}[.:：。]`
+            + `|fig[.．]${ACADEMIC_REFERENCE_SPACE_SOURCE}+`
+            + `${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE}[.:：。]?))`
+            + `${ACADEMIC_REFERENCE_SPACE_SOURCE}+(\\S[\\s\\S]*)$`,
+        'iu'
+    ),
+    new RegExp(
+        `^((?:图表|图)${ACADEMIC_REFERENCE_SPACE_SOURCE}*`
+            + `${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE}[.:：。])`
+            + `${ACADEMIC_REFERENCE_SPACE_SOURCE}*(\\S[\\s\\S]*)$`,
+        'iu'
+    ),
+    new RegExp(
+        `^((?:fig[.．]${ACADEMIC_REFERENCE_SPACE_SOURCE}*`
+            + `${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE}[.:：。]?))`
+            + `${ACADEMIC_REFERENCE_SPACE_SOURCE}*(\\S[\\s\\S]*)$`,
+        'iu'
+    ),
+    new RegExp(
+        `^((?:图表|图)${ACADEMIC_REFERENCE_SPACE_SOURCE}*`
+            + `${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE})`
+            + `${ACADEMIC_REFERENCE_SPACE_SOURCE}+(\\S[\\s\\S]*)$`,
+        'iu'
+    ),
+];
 const ACADEMIC_TABLE_CAPTION_PATTERN = /^(table[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?))([.:])?[ \t]+(\S[\s\S]*)$/iu;
 const ACADEMIC_TABLE_HEADING_PATTERN = /^ {0,3}#{1,6}[ \t]+(table[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?))([.:])?(?:[ \t]+#+)?[ \t]*$/iu;
 const ACADEMIC_TABLE_PLAIN_HEADING_PATTERN = /^ {0,3}(table[ \t]+(?:s?\d+[a-z]?|[ivxlcdm]+[a-z]?))([.:])?[ \t]*$/iu;
@@ -17,7 +48,9 @@ const MAX_PANEL_LABEL_LENGTH = 80;
 
 export function parseAcademicFigureCaption(value) {
     const text = String(value || '').trim();
-    const match = ACADEMIC_FIGURE_CAPTION_PATTERN.exec(text);
+    const match = ACADEMIC_FIGURE_CAPTION_PATTERNS
+        .map(pattern => pattern.exec(text))
+        .find(Boolean);
     if (!match) return null;
     return {
         text,
@@ -651,6 +684,13 @@ function trailingSharedPanelLabelGroup(lines, startIndex, blockedLines) {
         });
 
         index = nearbyLineIndex(lines, labelIndex + 1);
+        // Bilingual comparison inserts the translated axis label between panels.
+        while (index < lines.length && !blockedLines.has(index)
+            && !isMarkdownImageLine(lines[index].raw)) {
+            const repeatedPanelLabel = extractedPanelLabel(lines[index]);
+            if (!panelLabelsMayRepeat(panelLabel, repeatedPanelLabel)) break;
+            index = nearbyLineIndex(lines, index + 1);
+        }
         if (index < lines.length
             && !blockedLines.has(index)
             && isMarkdownImageLine(lines[index].raw)) {
@@ -671,7 +711,10 @@ function trailingSharedPanelLabelGroup(lines, startIndex, blockedLines) {
         return null;
     }
     const sharedLabel = images[0].panelLabel;
-    if (images.some(image => image.panelLabel !== sharedLabel)) return null;
+    if (images.some(image => !panelLabelsMatch(
+        image.panelLabel,
+        sharedLabel
+    ))) return null;
 
     return {
         from: lines[startIndex].from,
@@ -695,6 +738,34 @@ function extractedPanelLabel(line) {
         return null;
     }
     return text;
+}
+
+function panelLabelsMatch(left, right) {
+    const normalizedLeft = normalizePanelLabel(left);
+    return normalizedLeft !== ''
+        && normalizedLeft === normalizePanelLabel(right);
+}
+
+function panelLabelsMayRepeat(left, right) {
+    if (!right) return false;
+    if (panelLabelsMatch(left, right)) return true;
+    const candidate = String(right || '');
+    return hasNonASCIIWord(left) !== hasNonASCIIWord(candidate)
+        && !/[.!?。！？]$/u.test(candidate);
+}
+
+function hasNonASCIIWord(value) {
+    return [...String(value || '')].some(character => (
+        /\p{L}/u.test(character)
+        && character.codePointAt(0) > 0x7f
+    ));
+}
+
+function normalizePanelLabel(value) {
+    return String(value || '')
+        .normalize('NFKC')
+        .replace(/\s+/gu, '')
+        .toLowerCase();
 }
 
 function nearbyLineIndex(lines, index) {
