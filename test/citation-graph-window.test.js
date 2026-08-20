@@ -80,8 +80,10 @@ function createHarness() {
         stopped: false,
         tickCalls: [],
         tickListener: null,
+        endListener: null,
         on(name, listener) {
             if (name === 'tick') this.tickListener = listener;
+            if (name === 'end') this.endListener = listener;
             return this;
         },
         stop() {
@@ -192,6 +194,21 @@ test('recalculates the mounted canvas size and recenters the selected paper', ()
     assert.equal(view.cssHeight, 700);
     assert.equal(view.transform.x, 500 - selected.x);
     assert.equal(view.transform.y, 350 - selected.y);
+});
+
+test('recenters the selected paper after force layout settles', () => {
+    const harness = createHarness();
+    const view = harness.createView();
+    view.render(createSnapshot());
+    const selected = view.selectedNode();
+    selected.x = 640;
+    selected.y = 480;
+    view.transform = { x: 0, y: 0, scale: 1 };
+
+    harness.simulation.endListener();
+
+    assert.equal(view.transform.x, 400 - selected.x);
+    assert.equal(view.transform.y, 300 - selected.y);
 });
 
 test('search and connected filtering provide keyboard-accessible node controls', () => {

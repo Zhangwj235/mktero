@@ -399,10 +399,16 @@ class CitationGraphView {
         if (this.prefersReducedMotion()) {
             this.simulation?.stop?.();
             this.simulation?.tick?.(240);
+            this.centerNode(this.selectedNode());
             this.scheduleDraw();
             return;
         }
         this.simulation?.on?.('tick', () => this.scheduleDraw());
+        this.simulation?.on?.('end', () => {
+            if (this.destroyed) return;
+            this.centerNode(this.selectedNode());
+            this.scheduleDraw();
+        });
     }
 
     createObserver(factory) {
@@ -806,7 +812,9 @@ class CitationGraphView {
     }
 
     centerNode(node) {
-        if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
+        if (!node
+            || !Number.isFinite(node.x)
+            || !Number.isFinite(node.y)) return;
         this.transform.x = (this.cssWidth || DEFAULT_WIDTH) / 2
             - node.x * this.transform.scale;
         this.transform.y = (this.cssHeight || DEFAULT_HEIGHT) / 2
