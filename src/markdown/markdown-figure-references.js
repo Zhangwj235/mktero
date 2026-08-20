@@ -6,12 +6,28 @@ import {
     normalizeReferenceIdentifier,
 } from './markdown-reference-analysis.js';
 
+const REFERENCE_SPACE_SOURCE = '[\\p{Zs}\\t]';
+const FIGURE_ENGLISH_LABEL_PREFIX_SOURCE = [
+    `fig[.．]${REFERENCE_SPACE_SOURCE}*`,
+    `fig${REFERENCE_SPACE_SOURCE}+`,
+    `figure${REFERENCE_SPACE_SOURCE}+`,
+].join('|');
+const FIGURE_LOCALIZED_LABEL_PREFIX_SOURCE =
+    `(?:图表|图)${REFERENCE_SPACE_SOURCE}*`;
+const FIGURE_LABEL_PREFIX_SOURCE = [
+    FIGURE_ENGLISH_LABEL_PREFIX_SOURCE,
+    FIGURE_LOCALIZED_LABEL_PREFIX_SOURCE,
+].join('|');
 const FIGURE_LABEL_PATTERN = new RegExp(
-    `^(?:fig\\.?|figure)[ \\t]+(${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE})`,
+    `^(?:${FIGURE_LABEL_PREFIX_SOURCE})`
+        + `(${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE})`,
     'iu'
 );
 const FIGURE_REFERENCE_PATTERN = new RegExp(
-    `\\b(?:fig\\.?|figure)[ \\t]+(${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE})\\b`,
+    `(?:\\b(?:${FIGURE_ENGLISH_LABEL_PREFIX_SOURCE})`
+        + `|${FIGURE_LOCALIZED_LABEL_PREFIX_SOURCE})`
+        + `(${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE})`
+        + `(?![A-Za-z0-9_])`,
     'giu'
 );
 
