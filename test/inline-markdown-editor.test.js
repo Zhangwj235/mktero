@@ -3276,6 +3276,97 @@ test('renders a MinerU HTML table and its preceding caption as one table', () =>
     dom.window.close();
 });
 
+test('renders citations inside rendered tables as interactive references', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        '| Model |',
+        '| --- |',
+        '| Zhang et al. [16] |',
+        '',
+        '<table><tr><td>Kong et al. [41]</td></tr></table>',
+        '',
+        '## References',
+        '',
+        '[16] H. Zhang. Pedal estimation. 2025.',
+        '[41] Q. Kong. Piano transcription. 2021.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        document,
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    const markdownCitation = document.querySelector(
+        '.cm-mktero-table .cm-mktero-citation'
+    );
+    const htmlCitation = document.querySelector(
+        '.cm-mktero-html-table .cm-mktero-citation'
+    );
+    assert.equal(markdownCitation?.textContent, '16');
+    assert.equal(htmlCitation?.textContent, '41');
+    htmlCitation?.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-citation-popup')?.textContent || '',
+        /Q\. Kong\. Piano transcription\. 2021\./
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('renders table citations in bilingual documents with numbered references', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# MUSIC-JEPA',
+        '',
+        '## 4. RESULTS',
+        '',
+        '<table><tr><td>Kong et al. [41]</td></tr></table>',
+        '',
+        '## 6. REFERENCES',
+        '',
+        '## 6. 参考文献',
+        '',
+        '[41] Q. Kong. Piano transcription. 2021.',
+        '',
+        '[41] Q. Kong。钢琴转录。2021。',
+        '',
+        '[42] Y. Yan. Automatic transcription. 2024.',
+        '',
+        '[42] Y. Yan。自动转录。2024。',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    const citation = document.querySelector(
+        '.cm-mktero-html-table .cm-mktero-citation'
+    );
+    assert.equal(citation?.textContent, '41');
+    citation?.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-citation-popup')?.textContent || '',
+        /Q\. Kong/
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('attaches a trailing MinerU table caption as the table header', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -4266,6 +4357,43 @@ test('keeps LaTeX superscript citations interactive instead of rendering math', 
         3
     );
     assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('hovers LaTeX superscript citations with bare numbered references', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '# Paper',
+        '',
+        '## INTRODUCTION',
+        '',
+        'WHO published guidance for 2018-2030 $^{1}$ and later evidence $^{2}$.',
+        '',
+        '## REFERENCES',
+        '',
+        '1 World Health Organization. Global action plan. 2018.',
+        '',
+        '2 World Health Organization. Global recommendations. 2020.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+    });
+
+    const citation = document.querySelector('.cm-mktero-citation');
+    assert.equal(citation?.textContent, '1');
+    citation?.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.match(
+        document.querySelector('.mktero-citation-popup')?.textContent || '',
+        /World Health Organization\. Global action plan\. 2018\./
+    );
 
     editor.destroy();
     dom.window.close();

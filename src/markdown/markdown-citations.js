@@ -2,7 +2,8 @@ import {
     isLikelyNumericSuperscriptExponent,
 } from './text-normalization.js';
 
-const REFERENCE_HEADING_PATTERN = /^(?:(#{1,6})[ \t]+)?(?:\*{1,2}|_{1,2})?(?:references?|bibliography|works[ \t]+cited|literature[ \t]+cited|参考文献|参考资料|参考书目)(?:\*{1,2}|_{1,2})?[ \t]*[:：]?[ \t]*#*[ \t]*$/gim;
+const REFERENCE_HEADING_PATTERN = /^(?:(#{1,6})[ \t]+)?(?:\*{1,2}|_{1,2})?(?:(?:\d+(?:\.\d+)*)[.)]?[ \t]+)?(?:references?|bibliography|works[ \t]+cited|literature[ \t]+cited|参考文献|参考资料|参考书目)(?:\*{1,2}|_{1,2})?[ \t]*[:：]?[ \t]*#*[ \t]*$/gim;
+const AUTHOR_AFFILIATIONS_HEADING_PATTERN = /^#{1,6}[ \t]+(?:author[ \t]+affiliations?|作者单位|作者机构)[ \t]*#*[ \t]*$/gim;
 const MAIN_CONTENT_HEADING_PATTERN = /^(?:(?:#{1,6})[ \t]+)?(?:\*{1,2}|_{1,2})?(?:(?:\d+(?:\.\d+)*)[.)]?[ \t]+)?(?:abstract|summary|background|introduction|materials?[ \t]+and[ \t]+methods|methods?|results?|摘要|背景|引言|绪论|材料与方法|方法|结果)(?:\*{1,2}|_{1,2})?[ \t]*[:：]?[ \t]*#*[ \t]*$/gim;
 const FRONT_MATTER_HEADING_PATTERN = /^(?:authors?(?:[ \t]+(?:details?|information))?|affiliations?|institutional[ \t]+affiliations?|institutions?|departments?|correspond(?:ence|ing[ \t]+authors?)|contact[ \t]+information|keywords?|作者|作者信息|作者单位|机构|所属机构|通讯作者|关键词)$/i;
 const MARKDOWN_HEADING_PATTERN = /^(#{1,6})[ \t]+.+$/gm;
@@ -37,18 +38,23 @@ export function analyzeMarkdownCitations(markdown) {
     const references = section ? parseReferences(source, section) : [];
     const bodyEnd = section?.from ?? source.length;
     const frontMatter = analyzeFrontMatter(source, bodyEnd);
+    const citationBodyEnd = findAuthorAffiliationsStart(
+        source,
+        frontMatter.bodyFrom,
+        bodyEnd
+    ) ?? bodyEnd;
     const citations = [
         ...frontMatter.citations,
         ...findNumericCitations(
             source,
             frontMatter.bodyFrom,
-            bodyEnd,
+            citationBodyEnd,
             references
         ),
         ...findAuthorYearCitations(
             source,
             frontMatter.bodyFrom,
-            bodyEnd,
+            citationBodyEnd,
             references
         ),
     ].sort((left, right) => left.from - right.from || left.to - right.to);
@@ -58,6 +64,13 @@ export function analyzeMarkdownCitations(markdown) {
         affiliations: frontMatter.affiliations,
         citations: removeOverlappingCitations(citations),
     };
+}
+
+function findAuthorAffiliationsStart(markdown, from, to) {
+    const source = markdown.slice(from, to);
+    const heading = new RegExp(AUTHOR_AFFILIATIONS_HEADING_PATTERN)
+        .exec(source);
+    return heading ? from + heading.index : null;
 }
 
 function analyzeFrontMatter(markdown, bodyEnd) {
@@ -105,21 +118,28 @@ function analyzeFrontMatter(markdown, bodyEnd) {
 
 function findAuthorAreaStart(markdown, authorAreaEnd) {
     const source = markdown.slice(0, authorAreaEnd);
+    let authorAreaStart = 0;
+    let foundTitle = false;
     for (const heading of source.matchAll(new RegExp(MARKDOWN_HEADING_PATTERN))) {
         if (heading[1].length !== 1) continue;
+        if (foundTitle
+            && markdown.slice(authorAreaStart, heading.index).trim()) {
+            break;
+        }
         let from = heading.index + heading[0].length;
         if (markdown[from] === '\r') from++;
         if (markdown[from] === '\n') from++;
-        return from;
+        authorAreaStart = from;
+        foundTitle = true;
     }
-    return 0;
+    return authorAreaStart;
 }
 
 function findImplicitBodyStart(markdown, frontMatterEnd) {
-    const [paragraph] = paragraphRanges(markdown, {
+    const paragraph = paragraphRanges(markdown, {
         from: findAuthorAreaStart(markdown, frontMatterEnd),
         to: frontMatterEnd,
-    });
+    }).find(range => frontMatterParagraphHasProse(markdown, range));
     if (!paragraph) return null;
     const markers = findSuperscriptMarkers(
         markdown,
@@ -134,6 +154,12 @@ function findImplicitBodyStart(markdown, frontMatterEnd) {
         && paragraphLooksLikeByline(markdown, paragraph, markers)
         ? paragraph.to
         : paragraph.from;
+}
+
+function frontMatterParagraphHasProse(markdown, paragraph) {
+    const source = markdown.slice(paragraph.from, paragraph.to)
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ');
+    return /\p{L}/u.test(plainReferenceText(source));
 }
 
 function paragraphLooksLikeByline(markdown, paragraph, markers) {
@@ -158,14 +184,20 @@ function findMainContentStart(markdown, bodyEnd) {
     if (recognized) candidates.push(recognized.index);
 
     const headings = [...source.matchAll(new RegExp(MARKDOWN_HEADING_PATTERN))];
-    for (const [index, heading] of headings.entries()) {
+    let titleAreaEnd = null;
+    for (const heading of headings) {
         const level = heading[1].length;
         const label = heading[0]
             .slice(level)
             .replace(/[ \t]+#+[ \t]*$/, '')
             .trim();
-        if (index === 0 && level === 1
-            && !new RegExp(MAIN_CONTENT_HEADING_PATTERN).test(heading[0])) {
+        const isMainContent = new RegExp(MAIN_CONTENT_HEADING_PATTERN)
+            .test(heading[0]);
+        const followsOnlyTitles = titleAreaEnd === null
+            ? heading.index === 0
+            : !source.slice(titleAreaEnd, heading.index).trim();
+        if (level === 1 && !isMainContent && followsOnlyTitles) {
+            titleAreaEnd = heading.index + heading[0].length;
             continue;
         }
         if (FRONT_MATTER_HEADING_PATTERN.test(label)) continue;
@@ -473,6 +505,12 @@ function parseReferences(markdown, section) {
         }).filter(reference => reference.text);
     }
 
+    const bareNumberedReferences = parseBareNumberedReferences(
+        markdown,
+        section
+    );
+    if (bareNumberedReferences.length) return bareNumberedReferences;
+
     return unnumberedReferenceRanges(markdown, section)
         .map(({ from, to }, index) => createReference({
             id: `reference:${index + 1}`,
@@ -482,6 +520,42 @@ function parseReferences(markdown, section) {
             to,
         }))
         .filter(reference => reference.text && reference.year);
+}
+
+function parseBareNumberedReferences(markdown, section) {
+    const entries = paragraphRanges(markdown, section).map(range => {
+        const source = markdown.slice(range.from, range.to);
+        const marker = /^(\d{1,4})[ \t]+/.exec(source);
+        if (!marker) return null;
+        return {
+            number: Number(marker[1]),
+            from: range.from,
+            contentFrom: range.from + marker[0].length,
+            to: range.to,
+        };
+    });
+    if (!entries.length || entries.some(entry => !entry)) return [];
+
+    let previousNumber = 0;
+    for (const entry of entries) {
+        if (entry.number !== previousNumber
+            && entry.number !== previousNumber + 1) {
+            return [];
+        }
+        previousNumber = entry.number;
+    }
+    if (entries[0].number !== 1) return [];
+
+    return entries.map(entry => createReference({
+        id: `number:${entry.number}`,
+        number: entry.number,
+        text: plainReferenceText(markdown.slice(
+            entry.contentFrom,
+            entry.to
+        )),
+        from: entry.from,
+        to: entry.to,
+    })).filter(reference => reference.text);
 }
 
 function unnumberedReferenceRanges(markdown, section) {
@@ -592,7 +666,12 @@ function findNumericCitations(markdown, bodyFrom, bodyEnd, references) {
 
     const superscriptCitations = [];
     let superscriptCitationContainers = 0;
-    for (const marker of findSuperscriptMarkers(markdown, bodyFrom, bodyEnd)) {
+    for (const marker of findSuperscriptMarkers(
+        markdown,
+        bodyFrom,
+        bodyEnd,
+        { includeYearAdjacentMarkers: true }
+    )) {
         const matched = numericCitationsInText(
             marker.value,
             marker.from,
@@ -718,7 +797,10 @@ function findSuperscriptMarkers(
     markdown,
     from,
     to,
-    { includeLikelyExponents = false } = {}
+    {
+        includeLikelyExponents = false,
+        includeYearAdjacentMarkers = false,
+    } = {}
 ) {
     const source = markdown.slice(from, to);
     const markers = [];
@@ -731,7 +813,9 @@ function findSuperscriptMarkers(
                     markdown,
                     wrapperFrom,
                     value
-                )) {
+                )
+                && (!includeYearAdjacentMarkers
+                    || !superscriptFollowsYear(markdown, wrapperFrom))) {
                 continue;
             }
             const contentFrom = wrapperFrom + match[0].indexOf(match[1]);
@@ -761,7 +845,9 @@ function findSuperscriptMarkers(
                     markdown,
                     wrapperFrom,
                     value
-                ))) {
+                )
+                && (!includeYearAdjacentMarkers
+                    || !superscriptFollowsYear(markdown, wrapperFrom)))) {
             continue;
         }
         markers.push({
@@ -789,6 +875,12 @@ function findSuperscriptMarkers(
         occupiedUntil = marker.markup.wrapperTo;
     }
     return nonOverlapping;
+}
+
+function superscriptFollowsYear(markdown, from) {
+    const preceding = markdown.slice(Math.max(0, from - 32), from);
+    return /(?:18|19|20)\d{2}(?:\s*[-–—]\s*(?:18|19|20)?\d{2})?[ \t]+$/u
+        .test(preceding);
 }
 
 function normalizeSuperscriptCharacters(value) {

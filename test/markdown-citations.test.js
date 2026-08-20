@@ -50,6 +50,147 @@ test('maps numeric citation tags and ranges to numbered references', () => {
     )));
 });
 
+test('maps superscript citations to bare numbered references', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        '## INTRODUCTION',
+        '',
+        'WHO published guidance for 2018-2030 $^{1}$ and later evidence $^{2}$.',
+        '',
+        '## REFERENCES',
+        '',
+        '1 World Health Organization. Global action plan. 2018.',
+        '',
+        '2 World Health Organization. Global recommendations. 2020.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.references.map(reference => ({
+            id: reference.id,
+            number: reference.number,
+            text: reference.text,
+        })),
+        [{
+            id: 'number:1',
+            number: 1,
+            text: 'World Health Organization. Global action plan. 2018.',
+        }, {
+            id: 'number:2',
+            number: 2,
+            text: 'World Health Organization. Global recommendations. 2020.',
+        }]
+    );
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            referenceIds: citation.referenceIds,
+        })),
+        [{ label: '1', referenceIds: ['number:1'] }, {
+            label: '2',
+            referenceIds: ['number:2'],
+        }]
+    );
+});
+
+test('skips a leading image before separating byline markers from citations', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        '# Translated Paper',
+        '',
+        '![](cover.jpg)',
+        '',
+        'Alice Author $^{1,2}$, Bob Author $^{2}$',
+        '',
+        'For numbered affiliations see end of article.',
+        '',
+        '## ABSTRACT',
+        '',
+        'Summary without references.',
+        '',
+        '## INTRODUCTION',
+        '',
+        'WHO published the guidance $^{1}$.',
+        '',
+        '## Author affiliations',
+        '',
+        '$^{1}$ First Research Lab',
+        '',
+        '$^{2}$ Second Research Lab',
+        '',
+        '## REFERENCES',
+        '',
+        '1 World Health Organization. Global action plan. 2018.',
+        '',
+        '2 World Health Organization. Global recommendations. 2020.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => (
+            markdown.slice(citation.from, citation.to)
+        )),
+        ['1']
+    );
+    assert.ok(result.citations[0].from > markdown.indexOf('## INTRODUCTION'));
+});
+
+test('keeps year-leading reference paragraphs unnumbered', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'The reports describe the result.',
+        '',
+        '## References',
+        '',
+        '2020 report from the first working group.',
+        '',
+        '2021 follow-up from the second working group.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.references.map(reference => reference.number),
+        [null, null]
+    );
+    assert.deepEqual(result.citations, []);
+});
+
+test('maps citations with numbered bilingual reference headings', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Prior work established the result [1].',
+        '',
+        '## 6. REFERENCES',
+        '',
+        '## 6. 参考文献',
+        '',
+        '[1] Alpha A. First paper. 2020.',
+        '',
+        '[1] Alpha A. 第一项研究。2020。',
+        '',
+        '[2] Beta B. Second paper. 2021.',
+        '',
+        '[2] Beta B. 第二项研究。2021。',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.deepEqual(
+        result.citations.map(citation => ({
+            label: markdown.slice(citation.from, citation.to),
+            referenceIds: citation.referenceIds,
+        })),
+        [{ label: '1', referenceIds: ['number:1'] }]
+    );
+});
+
 test('maps HTML superscript citation numbers and ranges to references', () => {
     const markdown = [
         '# Paper',

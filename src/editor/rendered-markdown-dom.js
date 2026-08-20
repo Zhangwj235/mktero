@@ -67,16 +67,16 @@ export function installRenderedImagePreview(
 }
 
 export function installRenderedCitations(container, citations = []) {
-    const caption = container.querySelector('figcaption');
-    if (!caption || !citations.length) return;
+    const target = container.querySelector('figcaption, table') || container;
+    if (!target || !citations.length) return;
 
-    const captionText = caption.textContent || '';
+    const targetText = target.textContent || '';
     let markerSearchFrom = 0;
     let previousMarkerFrom = null;
     let markerIndex = -1;
     for (const citation of citations) {
         if (citation.markerFrom !== previousMarkerFrom) {
-            markerIndex = captionText.indexOf(
+            markerIndex = targetText.indexOf(
                 citation.marker,
                 markerSearchFrom
             );
@@ -85,8 +85,8 @@ export function installRenderedCitations(container, citations = []) {
             previousMarkerFrom = citation.markerFrom;
         }
         if (markerIndex < 0) continue;
-        wrapCaptionText(
-            caption,
+        wrapRenderedText(
+            target,
             markerIndex + citation.targetOffset,
             citation.targetLength,
             citation
@@ -94,11 +94,11 @@ export function installRenderedCitations(container, citations = []) {
     }
 }
 
-function wrapCaptionText(caption, from, length, citation) {
-    const document = caption.ownerDocument;
+function wrapRenderedText(target, from, length, citation) {
+    const document = target.ownerDocument;
     const nodeFilter = document.defaultView.NodeFilter;
     const walker = document.createTreeWalker(
-        caption,
+        target,
         nodeFilter.SHOW_TEXT
     );
     let offset = 0;
