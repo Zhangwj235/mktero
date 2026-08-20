@@ -13,6 +13,14 @@ function jsonResponse(value, status = 200, headers = {}) {
     });
 }
 
+test('supports focused papers with either DOI or arXiv identifiers', () => {
+    const client = new SemanticScholarClient({ fetch: async () => jsonResponse({}) });
+
+    assert.equal(client.supports({ doi: '10.1000/a' }), true);
+    assert.equal(client.supports({ arxivID: '2401.12345' }), true);
+    assert.equal(client.supports({ title: 'Title only' }), false);
+});
+
 test('resolves DOI and arXiv identifiers in batches of at most 500', async () => {
     const requests = [];
     const client = new SemanticScholarClient({

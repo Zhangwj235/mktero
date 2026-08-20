@@ -15,7 +15,11 @@ function snapshot() {
             node(9, '1:C', 'C', { doi: '10.1000/c', paperID: 's2-c' }),
         ],
         edges: [
-            { source: '1:A', target: '1:B' },
+            {
+                source: '1:A',
+                target: '1:B',
+                sources: ['semantic-scholar'],
+            },
             { source: '1:C', target: '1:A' },
         ],
         selectedItemID: 7,
@@ -48,7 +52,11 @@ test('keeps only the current paper and its direct in-library references', () => 
     const scoped = scopeCitationGraphSnapshot(snapshot(), 7);
 
     assert.deepEqual(scoped.nodes.map(node => node.itemID), [7, 8]);
-    assert.deepEqual(scoped.edges, [{ source: '1:A', target: '1:B' }]);
+    assert.deepEqual(scoped.edges, [{
+        source: '1:A',
+        target: '1:B',
+        sources: ['semantic-scholar'],
+    }]);
     assert.equal(scoped.nodes[0].outDegree, 1);
     assert.equal(scoped.nodes[0].inDegree, 0);
     assert.equal(scoped.nodes[1].inDegree, 1);

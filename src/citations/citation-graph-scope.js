@@ -16,10 +16,7 @@ export function scopeCitationGraphSnapshot(snapshot, focusItemID) {
 
     const nodeByID = new Map(allNodes.map(node => [node?.id, node]));
     const edges = (Array.isArray(source.edges) ? source.edges : [])
-        .map(edge => ({
-            source: edge?.source,
-            target: edge?.target,
-        }))
+        .map(edge => scopedEdge(edge))
         .filter(edge => edge.source === focus.id && nodeByID.has(edge.target));
     const nodeIDs = new Set([focus.id, ...edges.map(edge => edge.target)]);
     const nodes = allNodes
@@ -51,6 +48,18 @@ export function scopeCitationGraphSnapshot(snapshot, focusItemID) {
     };
 }
 
+function scopedEdge(edge) {
+    const scoped = {
+        source: edge?.source,
+        target: edge?.target,
+    };
+    const sources = Array.isArray(edge?.sources)
+        ? edge.sources.filter(value => typeof value === 'string')
+        : [];
+    if (sources.length) scoped.sources = [...sources];
+    return scoped;
+}
+
 function scopeWarnings(warnings, nodes, focusItemID) {
     const scoped = (Array.isArray(warnings) ? warnings : []).filter(warning => (
         warning?.itemID === null
@@ -63,7 +72,7 @@ function scopeWarnings(warnings, nodes, focusItemID) {
     ]);
     const preserved = scoped.filter(warning => !replaceable.has(warning?.code));
     const missing = nodes.filter(node => (
-        !node.paperID && !node.doi && !node.arxivID
+        !node.doi && !node.arxivID
     )).length;
     if (missing) preserved.push({ code: 'missing-identifiers', count: missing });
     const unresolved = nodes.filter(node => !node.paperID).length;

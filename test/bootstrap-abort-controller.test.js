@@ -81,7 +81,9 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
     };
     const items = new Map([[7, parent], [42, attachment]]);
     const preferences = new Map([
-        ['extensions.mktero.semanticScholarApiKey', 'citation-secret'],
+        ['extensions.mktero.semanticScholarApiKey', 'semantic-secret'],
+        ['extensions.mktero.openAlexApiKey', 'openalex-secret'],
+        ['extensions.mktero.openCitationsAccessToken', 'open-citations-secret'],
         ['extensions.mktero.cacheEnabled', true],
     ]);
     const zotero = {
@@ -130,16 +132,7 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
     );
     globalThis.fetch = async (url, options = {}) => {
         requests.push({ url: String(url), options });
-        if (String(url).includes('/paper/batch?')) {
-            const body = JSON.parse(options.body);
-            return new Response(JSON.stringify(body.ids.map(() => ({
-                paperId: 'semantic-paper',
-                title: 'Library paper',
-                year: 2026,
-                externalIds: { DOI: '10.1000/library-paper' },
-            }))), { status: 200 });
-        }
-        if (String(url).includes('/references?')) {
+        if (isCitationProviderURL(url)) {
             referenceSignals.push(options.signal);
             return new Promise((_, reject) => {
                 const abort = () => reject(
@@ -177,22 +170,24 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
     const firstHost = await waitFor(() => mainWindow.document.querySelector(
         '.mktero-citation-graph-modal-host'
     ));
-    const firstSignal = await waitFor(() => referenceSignals[0]);
     const firstShadow = firstHost.shadowRoot
         .querySelector('.citation-graph-host').shadowRoot;
     assert.match(
         firstShadow.querySelector('.citation-graph-title').textContent,
         /My Library/
     );
+    await waitFor(() => referenceSignals.length >= 3);
+    const firstSignals = referenceSignals.slice(0, 3);
 
     firstShadow.querySelector('[data-action="refresh"]').dispatchEvent(
         new mainWindow.document.defaultView.Event('click', { bubbles: true })
     );
-    await waitFor(() => firstSignal.aborted);
-    const secondSignal = await waitFor(() => referenceSignals[1]);
+    await waitFor(() => firstSignals.every(signal => signal.aborted));
+    await waitFor(() => referenceSignals.length >= 6);
+    const secondSignals = referenceSignals.slice(3, 6);
 
     globalThis.onMainWindowUnload({ window: mainWindow });
-    await waitFor(() => secondSignal.aborted);
+    await waitFor(() => secondSignals.every(signal => signal.aborted));
     assert.equal(
         mainWindow.document.querySelector('.mktero-citation-graph-modal-host'),
         null
@@ -202,32 +197,40 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
     await waitFor(() => mainWindow.document.querySelector(
         '.mktero-citation-graph-modal-host'
     ));
-    const shutdownSignal = await waitFor(() => referenceSignals[2]);
+    await waitFor(() => referenceSignals.length >= 9);
+    const shutdownSignals = referenceSignals.slice(6, 9);
     globalThis.shutdown();
-    await waitFor(() => shutdownSignal.aborted);
+    await waitFor(() => shutdownSignals.every(signal => signal.aborted));
     assert.equal(
         mainWindow.document.querySelector('.mktero-citation-graph-modal-host'),
         null
     );
 
-    const batchBodies = requests.filter(request => request.url.includes(
-        '/paper/batch?'
-    )).map(request => JSON.parse(request.options.body));
-    assert.ok(batchBodies.length >= 3);
-    assert.ok(batchBodies.every(body => (
-        body.ids.length === 1
-        && body.ids[0] === 'DOI:10.1000/library-paper'
-    )));
+    const requestsByProvider = Object.groupBy(requests, request => (
+        citationProviderID(request.url)
+    ));
+    assert.equal(requestsByProvider['semantic-scholar'].length, 3);
+    assert.equal(requestsByProvider['open-citations'].length, 3);
+    assert.equal(requestsByProvider.openalex.length, 3);
     assert.ok(requests.every(request => (
         !request.url.includes('LOCAL-ITEM-KEY')
         && !request.url.includes('libraryID')
+        && !request.url.includes('Library%20paper')
         && !String(request.options.body || '').includes('LOCAL-ITEM-KEY')
     )));
-    assert.ok(requests.every(request => (
-        request.options.headers['x-api-key'] === 'citation-secret'
+    assert.ok(requestsByProvider['semantic-scholar'].every(request => (
+        request.options.headers['x-api-key'] === 'semantic-secret'
+    )));
+    assert.ok(requestsByProvider['open-citations'].every(request => (
+        request.options.headers.authorization === 'open-citations-secret'
+    )));
+    assert.ok(requestsByProvider.openalex.every(request => (
+        new URL(request.url).searchParams.get('api_key') === 'openalex-secret'
     )));
     assert.ok(errors.every(error => (
-        !String(error?.message || error).includes('citation-secret')
+        !String(error?.message || error).includes('semantic-secret')
+        && !String(error?.message || error).includes('openalex-secret')
+        && !String(error?.message || error).includes('open-citations-secret')
     )));
 });
 
@@ -901,6 +904,18 @@ test('uses the Zotero window AbortController when the plugin sandbox has none', 
     assert.ok(debugLogs.some(message => message.includes('conversion failed for item 42')));
     assert.deepEqual(actionsTagsEvents, []);
 });
+
+function isCitationProviderURL(value) {
+    return Boolean(citationProviderID(value));
+}
+
+function citationProviderID(value) {
+    const hostname = new URL(String(value)).hostname;
+    if (hostname === 'api.semanticscholar.org') return 'semantic-scholar';
+    if (hostname === 'api.opencitations.net') return 'open-citations';
+    if (hostname === 'api.openalex.org') return 'openalex';
+    return '';
+}
 
 function createMainWindow(AbortController, alerts) {
     const { document } = new JSDOM(

@@ -27,9 +27,13 @@ import {
     observeAITargetLanguage,
 } from './config/ai-preferences.js';
 import {
+    getOpenAlexAPIKey,
+    getOpenCitationsAccessToken,
     getSemanticScholarAPIKey,
 } from './config/citation-preferences.js';
 import { CitationGraph } from './citations/citation-graph.js';
+import { OpenAlexClient } from './citations/openalex-client.js';
+import { OpenCitationsClient } from './citations/open-citations-client.js';
 import {
     SemanticScholarClient,
 } from './citations/semantic-scholar-client.js';
@@ -1747,11 +1751,30 @@ function initializeCitationGraph(localization) {
         const citationLibrary = createZoteroCitationLibrary(Zotero);
         const citationGraph = new CitationGraph({
             library: citationLibrary,
-            client: new SemanticScholarClient({
-                createAbortController: createZoteroAbortController,
-            }),
+            providers: [{
+                id: 'semantic-scholar',
+                client: new SemanticScholarClient({
+                    createAbortController: createZoteroAbortController,
+                    requestTimeoutMs: 6_000,
+                    maxRetryAttempts: 2,
+                }),
+                getAPIKey: () => getSemanticScholarAPIKey(Zotero),
+            }, {
+                id: 'open-citations',
+                client: new OpenCitationsClient({
+                    createAbortController: createZoteroAbortController,
+                    maxRetryAttempts: 2,
+                }),
+                getAPIKey: () => getOpenCitationsAccessToken(Zotero),
+            }, {
+                id: 'openalex',
+                client: new OpenAlexClient({
+                    createAbortController: createZoteroAbortController,
+                    maxRetryAttempts: 2,
+                }),
+                getAPIKey: () => getOpenAlexAPIKey(Zotero),
+            }],
             cache: citationCache,
-            getAPIKey: () => getSemanticScholarAPIKey(Zotero),
             createCacheKey: createCitationCacheKey,
             onCacheError: error => Zotero.logError?.(error),
         });

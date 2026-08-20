@@ -27,6 +27,11 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
         prefs,
         /pref\("extensions\.mktero\.semanticScholarApiKey", ""\)/
     );
+    assert.match(prefs, /pref\("extensions\.mktero\.openAlexApiKey", ""\)/);
+    assert.match(
+        prefs,
+        /pref\("extensions\.mktero\.openCitationsAccessToken", ""\)/
+    );
     assert.match(prefs, /pref\("extensions\.mktero\.readerFontSize", 18\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiEnabled", false\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiProvider", "openai"\)/);
@@ -52,6 +57,11 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(
         pane,
         /preference="extensions\.mktero\.semanticScholarApiKey"/
+    );
+    assert.match(pane, /preference="extensions\.mktero\.openAlexApiKey"/);
+    assert.match(
+        pane,
+        /preference="extensions\.mktero\.openCitationsAccessToken"/
     );
     assert.match(pane, /preference="extensions\.mktero\.readerFontSize"/);
     assert.match(pane, /preference="extensions\.mktero\.readerFont"/);
@@ -131,6 +141,10 @@ test('ships responsive settings cards and a cache switch', async () => {
     assert.match(
         styles,
         /#mktero-semantic-scholar-api-key\s*\{[\s\S]*?font-variant-ligatures:\s*none/s
+    );
+    assert.match(
+        styles,
+        /#mktero-openalex-api-key,[\s\S]*?#mktero-open-citations-access-token[\s\S]*?font-variant-ligatures:\s*none/s
     );
     assert.match(styles, /@media\s*\(max-width:/);
 });
@@ -218,13 +232,13 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
         (pane.match(
             /class="mktero-setting-row mktero-(?:field|reader-font)-row"/g
         ) || []).length,
-        12
+        14
     );
     assert.equal(
         (pane.match(
             /<html:div class="mktero-(?:field|reader-font)-control(?: [^"]+)?">/g
         ) || []).length,
-        12
+        14
     );
 });
 
