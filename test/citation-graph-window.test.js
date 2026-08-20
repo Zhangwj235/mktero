@@ -198,6 +198,31 @@ test('search and connected filtering provide keyboard-accessible node controls',
     assert.equal(root.querySelector('.citation-graph-visible-count').textContent, '2');
 });
 
+test('renders untrusted paper titles as inert text across graph controls', () => {
+    const harness = createHarness();
+    const title = '<img src=x onerror=alert(1)><script>alert(2)</script>';
+    const view = harness.createView();
+    view.render(createSnapshot({
+        nodes: [{
+            ...createSnapshot().nodes[0],
+            title,
+        }],
+        edges: [],
+    }));
+    const root = view.root.shadowRoot;
+    const search = root.querySelector('.citation-graph-search');
+
+    search.value = 'script';
+    search.dispatchEvent(new harness.window.Event('input'));
+
+    assert.equal(root.querySelector('.citation-graph-paper-title').textContent, title);
+    assert.equal(
+        root.querySelector('.citation-graph-search-results button').textContent,
+        title
+    );
+    assert.equal(root.querySelectorAll('img, script').length, 0);
+});
+
 test('incremental snapshots preserve a user selection and view transform', () => {
     const harness = createHarness();
     const view = harness.createView();

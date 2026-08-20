@@ -25,6 +25,201 @@ import {
     TRANSLATION_PROMPT_VERSION,
 } from '../src/ai/markdown-translation-service.js';
 
+test('owns citation graph requests across refresh, window unload, and shutdown', {
+    timeout: 15_000,
+}, async t => {
+    const previousGlobals = captureGlobals([
+        'Zotero',
+        'IOUtils',
+        'PathUtils',
+        'fetch',
+        'startup',
+        'shutdown',
+        'onMainWindowUnload',
+        'Services',
+        '__MKTERO_MARKDOWN_STYLES__',
+        '__MKTERO_CITATION_GRAPH_STYLES__',
+    ]);
+    const profilePath = await mkdtemp(path.join(
+        os.tmpdir(),
+        'mktero-citation-bootstrap-'
+    ));
+    const ioUtils = createNodeIOUtils();
+    const pathUtils = {
+        join: path.join,
+        parent: path.dirname,
+        filename: path.basename,
+        tempDir: path.join(profilePath, 'tmp'),
+    };
+    const errors = [];
+    const requests = [];
+    const referenceSignals = [];
+    let toolbarHandler;
+    const mainWindow = createMainWindow(AbortController, []);
+    mainWindow.document.defaultView.HTMLCanvasElement.prototype.getContext
+        = () => createCanvasContext();
+    const parent = {
+        id: 7,
+        key: 'LOCAL-ITEM-KEY',
+        libraryID: 1,
+        deleted: false,
+        isRegularItem: () => true,
+        getField(name) {
+            if (name === 'DOI') return '10.1000/library-paper';
+            if (name === 'title') return 'Library paper';
+            if (name === 'date') return '2026';
+            return '';
+        },
+        getDisplayTitle: () => 'Library paper',
+        getAttachments: () => [42],
+    };
+    const attachment = {
+        id: 42,
+        libraryID: 1,
+        parentItem: parent,
+        isPDFAttachment: () => true,
+    };
+    const items = new Map([[7, parent], [42, attachment]]);
+    const preferences = new Map([
+        ['extensions.mktero.semanticScholarApiKey', 'citation-secret'],
+        ['extensions.mktero.cacheEnabled', true],
+    ]);
+    const zotero = {
+        version: '9.0.6',
+        locale: 'en-US',
+        uiReadyPromise: Promise.resolve(),
+        Profile: { dir: profilePath },
+        Session: { state: { windows: [] } },
+        Prefs: { get: key => preferences.get(key) ?? '' },
+        Search: class Search {
+            addCondition() {}
+            async search() { return [7]; }
+        },
+        Items: {
+            getAsync: async value => Array.isArray(value)
+                ? value.map(id => items.get(id)).filter(Boolean)
+                : items.get(value) || null,
+            loadDataTypes: async () => {},
+        },
+        Libraries: { get: () => ({ name: 'My Library' }) },
+        PreferencePanes: {
+            register: async options => options.id,
+            unregister() {},
+        },
+        Reader: {
+            registerEventListener(_type, handler) {
+                toolbarHandler = handler;
+            },
+            open: async () => {},
+        },
+        getMainWindow: () => mainWindow,
+        debug() {},
+        logError(error) { errors.push(error); },
+    };
+    globalThis.Zotero = zotero;
+    globalThis.IOUtils = ioUtils;
+    globalThis.PathUtils = pathUtils;
+    globalThis.Services = { obs: createObserverService() };
+    globalThis.__MKTERO_MARKDOWN_STYLES__ = readFileSync(
+        new URL('../ui/markdown.css', import.meta.url),
+        'utf8'
+    );
+    globalThis.__MKTERO_CITATION_GRAPH_STYLES__ = readFileSync(
+        new URL('../ui/citation-graph.css', import.meta.url),
+        'utf8'
+    );
+    globalThis.fetch = async (url, options = {}) => {
+        requests.push({ url: String(url), options });
+        if (String(url).includes('/paper/batch?')) {
+            const body = JSON.parse(options.body);
+            return new Response(JSON.stringify(body.ids.map(() => ({
+                paperId: 'semantic-paper',
+                title: 'Library paper',
+                year: 2026,
+                externalIds: { DOI: '10.1000/library-paper' },
+            }))), { status: 200 });
+        }
+        if (String(url).includes('/references?')) {
+            referenceSignals.push(options.signal);
+            return new Promise((_, reject) => {
+                const abort = () => reject(
+                    options.signal.reason
+                    || new DOMException('Aborted', 'AbortError')
+                );
+                if (options.signal.aborted) abort();
+                else options.signal.addEventListener('abort', abort, { once: true });
+            });
+        }
+        throw new Error('Unexpected citation transport');
+    };
+
+    t.after(async () => {
+        globalThis.shutdown?.();
+        mainWindow.document.defaultView.close();
+        restoreGlobals(previousGlobals);
+        await rm(profilePath, { recursive: true, force: true });
+    });
+
+    await import('../src/bootstrap.js?citation-graph-lifecycle-regression');
+    await globalThis.startup({
+        id: 'mktero@tenglvjun.github.io',
+        rootURI: 'resource://mktero/',
+    });
+    const toolbarButtons = [];
+    toolbarHandler({
+        reader: { type: 'pdf', itemID: 42 },
+        doc: createToolbarDocument(),
+        append: button => toolbarButtons.push(button),
+    });
+
+    assert.equal(toolbarButtons.length, 2);
+    toolbarButtons[1].click();
+    const firstRoot = await waitFor(() => mainWindow.tabRoot('tab-1'));
+    const firstSignal = await waitFor(() => referenceSignals[0]);
+    const firstShadow = firstRoot.shadowRoot;
+    assert.match(
+        firstShadow.querySelector('.citation-graph-title').textContent,
+        /My Library/
+    );
+
+    firstShadow.querySelector('[data-action="refresh"]').dispatchEvent(
+        new mainWindow.document.defaultView.Event('click', { bubbles: true })
+    );
+    await waitFor(() => firstSignal.aborted);
+    const secondSignal = await waitFor(() => referenceSignals[1]);
+
+    globalThis.onMainWindowUnload({ window: mainWindow });
+    await waitFor(() => secondSignal.aborted);
+    assert.equal(mainWindow.tabRoot('tab-1'), null);
+
+    toolbarButtons[1].click();
+    await waitFor(() => mainWindow.tabRoot('tab-2'));
+    const shutdownSignal = await waitFor(() => referenceSignals[2]);
+    globalThis.shutdown();
+    await waitFor(() => shutdownSignal.aborted);
+    assert.equal(mainWindow.tabRoot('tab-2'), null);
+
+    const batchBodies = requests.filter(request => request.url.includes(
+        '/paper/batch?'
+    )).map(request => JSON.parse(request.options.body));
+    assert.ok(batchBodies.length >= 3);
+    assert.ok(batchBodies.every(body => (
+        body.ids.length === 1
+        && body.ids[0] === 'DOI:10.1000/library-paper'
+    )));
+    assert.ok(requests.every(request => (
+        !request.url.includes('LOCAL-ITEM-KEY')
+        && !request.url.includes('libraryID')
+        && !String(request.options.body || '').includes('LOCAL-ITEM-KEY')
+    )));
+    assert.ok(requests.every(request => (
+        request.options.headers['x-api-key'] === 'citation-secret'
+    )));
+    assert.ok(errors.every(error => (
+        !String(error?.message || error).includes('citation-secret')
+    )));
+});
+
 test('aborts live AI SDK requests across bootstrap translation lifecycles', {
     timeout: 15_000,
 }, async t => {
@@ -885,4 +1080,27 @@ function createToolbarDocument() {
             return this.createElement(tagName);
         },
     };
+}
+
+function createCanvasContext() {
+    const context = {};
+    for (const method of [
+        'arc',
+        'beginPath',
+        'clearRect',
+        'closePath',
+        'fill',
+        'fillText',
+        'lineTo',
+        'moveTo',
+        'restore',
+        'save',
+        'scale',
+        'setTransform',
+        'stroke',
+        'translate',
+    ]) {
+        context[method] = () => {};
+    }
+    return context;
 }

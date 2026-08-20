@@ -122,6 +122,28 @@ test('fetches references by DOI then falls back to arXiv after a 404', async () 
     assert.equal(result.truncated, false);
 });
 
+test('treats a final 404 and a successful empty result as unindexed', async () => {
+    const responses = [jsonResponse({}, 404), jsonResponse({ data: [], next: null })];
+    const client = new SemanticScholarClient({
+        fetch: async () => responses.shift(),
+        now: () => 4_000,
+    });
+
+    assert.deepEqual(
+        await client.fetchReferences({ doi: '10.1000/missing' }),
+        {
+            status: 'unindexed',
+            references: [],
+            truncated: false,
+            fetchedAt: 4_000,
+        }
+    );
+    assert.equal(
+        (await client.fetchReferences({ doi: '10.1000/empty' })).status,
+        'unindexed'
+    );
+});
+
 test('caps references at 1000 and marks a remaining page as truncated', async () => {
     const client = new SemanticScholarClient({
         fetch: async () => jsonResponse({
@@ -174,6 +196,85 @@ test('retries rate limits with bounded Retry-After and does not expose secrets',
         retryAfterMs: 2_000,
     }]);
     assert.equal(attempts, 3);
+});
+
+test('retries transient network and server failures with exponential backoff', async () => {
+    const delays = [];
+    let attempts = 0;
+    const client = new SemanticScholarClient({
+        fetch: async () => {
+            attempts++;
+            if (attempts === 1) throw new TypeError('transport details');
+            if (attempts === 2) return jsonResponse({}, 503);
+            return jsonResponse({ data: [], next: null });
+        },
+        sleep: async milliseconds => delays.push(milliseconds),
+        retryBaseDelayMs: 25,
+    });
+
+    const result = await client.fetchReferences({ doi: '10.1000/source' });
+
+    assert.equal(result.status, 'unindexed');
+    assert.equal(attempts, 3);
+    assert.deepEqual(delays, [25, 50]);
+});
+
+test('aborts while waiting for a retry backoff', async () => {
+    const controller = new AbortController();
+    let notifySleepStarted;
+    const sleepStarted = new Promise(resolve => { notifySleepStarted = resolve; });
+    let attempts = 0;
+    const client = new SemanticScholarClient({
+        fetch: async () => {
+            attempts++;
+            return jsonResponse({}, 503);
+        },
+        sleep: async () => {
+            notifySleepStarted();
+            return new Promise(() => {});
+        },
+    });
+    const pending = client.fetchReferences({
+        doi: '10.1000/source',
+        signal: controller.signal,
+    });
+    await sleepStarted;
+
+    controller.abort();
+
+    await assert.rejects(pending, error => error.name === 'AbortError');
+    assert.equal(attempts, 1);
+});
+
+test('rejects malformed JSON and keeps provider errors free of secrets', async () => {
+    const malformed = new SemanticScholarClient({
+        fetch: async () => new Response('{bad json', { status: 200 }),
+        maxRetryAttempts: 1,
+    });
+    await assert.rejects(
+        () => malformed.fetchReferences({ doi: '10.1000/source' }),
+        error => error.code === 'S2_INVALID_RESPONSE'
+    );
+
+    const denied = new SemanticScholarClient({
+        fetch: async () => jsonResponse({ secret: 'raw-response' }, 401),
+        maxRetryAttempts: 1,
+    });
+    await assert.rejects(
+        () => denied.fetchReferences({
+            doi: '10.1000/private-identifier',
+            apiKey: 'private-api-key',
+        }),
+        error => {
+            const exposed = `${error.message}\n${error.stack || ''}`;
+            assert.equal(error.code, 'S2_HTTP_ERROR');
+            assert.equal(error.status, 401);
+            assert.doesNotMatch(exposed, /private-identifier/);
+            assert.doesNotMatch(exposed, /private-api-key/);
+            assert.doesNotMatch(exposed, /raw-response/);
+            return true;
+        }
+    );
 });
 
 test('rejects an oversized response before parsing it', async () => {

@@ -25,6 +25,10 @@ test('changes cache keys when source identifiers change', async () => {
         await createCitationCacheKey(base),
         await createCitationCacheKey({ ...base, doi: '10.1000/second' })
     );
+    assert.notEqual(
+        await createCitationCacheKey(base),
+        await createCitationCacheKey({ ...base, libraryID: 2 })
+    );
     assert.equal((await createCitationCacheKey(base)).length, 64);
 });
 
@@ -56,11 +60,17 @@ test('removes corrupt and expired citation records', async t => {
     });
     const corruptKey = 'c'.repeat(64);
     const expiredKey = 'd'.repeat(64);
+    const wrongSchemaKey = '4'.repeat(64);
     await fixture.cache.put(corruptKey, record('fetched', timestamp));
     await fixture.cache.put(expiredKey, record('fetched', timestamp));
     await writeFile(path.join(fixture.rootPath, `${corruptKey}.json`), '{bad');
+    await writeFile(
+        path.join(fixture.rootPath, `${wrongSchemaKey}.json`),
+        JSON.stringify({ schemaVersion: 99, cacheKey: wrongSchemaKey })
+    );
 
     assert.equal(await fixture.cache.get(corruptKey), null);
+    assert.equal(await fixture.cache.get(wrongSchemaKey), null);
     timestamp = 2_100;
     assert.equal(await fixture.cache.get(expiredKey), null);
     assert.deepEqual(await fixture.cache.getStats(), { entries: 0, sizeBytes: 0 });
@@ -111,6 +121,34 @@ test('removes interrupted writes and clears all citation cache usage', async t =
     assert.deepEqual(await fixture.cache.getStats(), { entries: 0, sizeBytes: 0 });
 });
 
+test('serializes operations after a failed atomic write', async t => {
+    const ioUtils = createNodeIOUtils();
+    const writeUTF8 = ioUtils.writeUTF8;
+    const temporaryPaths = [];
+    let failNextWrite = true;
+    ioUtils.writeUTF8 = async (filePath, data, options = {}) => {
+        temporaryPaths.push(options.tmpPath);
+        if (failNextWrite) {
+            failNextWrite = false;
+            throw new Error('write failed');
+        }
+        return writeUTF8(filePath, data, options);
+    };
+    const fixture = await createCacheFixture(t, { ioUtils });
+    const failedKey = '5'.repeat(64);
+    const successKey = '6'.repeat(64);
+
+    await assert.rejects(
+        () => fixture.cache.put(failedKey, record('fetched', 1_000)),
+        /write failed/
+    );
+    await fixture.cache.put(successKey, record('fetched', 2_000));
+
+    assert.equal(await fixture.cache.get(failedKey), null);
+    assert.ok(await fixture.cache.get(successKey));
+    assert.ok(temporaryPaths.every(filePath => filePath?.endsWith('.json.tmp')));
+});
+
 function record(status, fetchedAt) {
     return {
         status,
@@ -131,17 +169,21 @@ function record(status, fetchedAt) {
 async function createCacheFixture(t, options = {}) {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-citations-'));
     t.after(() => rm(rootPath, { recursive: true, force: true }));
+    const {
+        ioUtils = createNodeIOUtils(),
+        ...cacheOptions
+    } = options;
     return {
         rootPath,
         cache: new CitationGraphCache({
             rootPath,
-            ioUtils: createNodeIOUtils(),
+            ioUtils,
             pathUtils: {
                 join: path.join,
                 filename: path.basename,
                 parent: path.dirname,
             },
-            ...options,
+            ...cacheOptions,
         }),
     };
 }

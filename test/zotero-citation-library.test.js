@@ -46,6 +46,23 @@ test('lists deterministic regular-item projections from the requested library', 
     }]);
 });
 
+test('keeps user and group library projections isolated', async () => {
+    const items = new Map([
+        [1, regularItem(1, 'USER', 1)],
+        [2, regularItem(2, 'GROUP', 23)],
+        [3, regularItem(3, 'OTHER-GROUP', 24)],
+    ]);
+    const zotero = createZotero(items, [1, 2, 3]);
+    const adapter = createZoteroCitationLibrary(zotero);
+
+    const userPapers = await adapter.listPapers(1);
+    const groupPapers = await adapter.listPapers(23);
+
+    assert.deepEqual(userPapers.map(paper => paper.id), ['1:USER']);
+    assert.deepEqual(groupPapers.map(paper => paper.id), ['23:GROUP']);
+    assert.equal(zotero.lastSearch.libraryID, 23);
+});
+
 test('resolves regular items and attached PDFs to a graph origin', async () => {
     const parent = regularItem(7, 'PARENT', 1);
     const attached = {
