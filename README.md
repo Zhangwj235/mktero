@@ -119,22 +119,21 @@ session-only and are not restored after Zotero restarts.
 
 ### Explore the library citation graph
 
-Right-click one regular Zotero item or PDF attachment and choose
-`Open citation graph`, or use the network button in the PDF reader toolbar.
-Mktero opens one session-only graph tab per library and focuses the selected
-paper. Every regular item in that library remains a node; papers without a
-reliable DOI or arXiv identifier remain isolated. A directed edge means the
-source paper cites the target paper, and edges are shown only when both papers
-already exist in the current Zotero library.
+Open a paper's Markdown reader and click the floating network button, or use
+the network button in the PDF reader toolbar. The citation graph opens in a
+modal dialog and focuses the current paper. It contains only that paper and
+the papers it directly references when those references can be matched to
+items in the current Zotero library. Papers that cite the current paper are
+not included yet, and no other library papers are shown.
 
 Citation data comes only from Semantic Scholar. Mktero sends DOI and arXiv
 identifiers, never PDFs, Markdown, notes, annotations, local paths, Zotero keys,
 or complete item records. Cached citation data appears first, followed by an
 incremental refresh of missing or stale records. Search, the All/Connected
-filter, and the accessible References/Cited by lists can focus a paper; double
-clicking a node or choosing `Open in Zotero` opens its PDF when available and
-otherwise selects the Zotero item. Clearing Mktero's local cache also removes
-cached citation records.
+filter, and the accessible References list can focus a paper; double-clicking
+a node or choosing `Open in Zotero` opens its PDF when available and otherwise
+selects the Zotero item. Clearing Mktero's local cache also removes cached
+citation records.
 
 ### Correct recognition errors
 

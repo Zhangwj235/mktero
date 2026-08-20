@@ -939,6 +939,18 @@ class MarkdownTabView {
             class: 'markdown-reading-layout',
         });
         readingLayout.appendChild(primaryPane);
+        const citationGraphButton = this.createElement('button', {
+            id: 'mktero-citation-graph',
+            class: 'markdown-citation-graph-button',
+            type: 'button',
+            'aria-label': this.t('viewer.openCitationGraph'),
+            title: this.t('viewer.openCitationGraph'),
+        });
+        citationGraphButton.appendChild(createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.network,
+            { className: 'markdown-citation-graph-icon', size: 19 }
+        ));
         const snapshotHost = this.createElement('div', {
             id: 'mktero-snapshot',
             class: 'markdown-snapshot-host',
@@ -979,6 +991,7 @@ class MarkdownTabView {
             editorSection,
             documentActions.toolbar,
             readingLayout,
+            citationGraphButton,
             correctionUndo,
             snapshotHost
         );
@@ -1098,6 +1111,7 @@ class MarkdownTabView {
             correctionUndoMessage,
             correctionUndoButton,
             editorActions: documentActions.toolbar,
+            citationGraphButton,
             navigationBack: documentActions.navigationBack,
             editorSection,
             actionToggle: documentActions.toggle,
@@ -1754,6 +1768,9 @@ class MarkdownTabView {
         this.listen(this.elements.saveSnapshot, 'click', () => {
             this.runDocumentAction('saveSnapshot', 'onSaveSnapshot');
         });
+        this.listen(this.elements.citationGraphButton, 'click', () => {
+            this.openCitationGraph();
+        });
         this.listen(this.elements.readerFontDecrease, 'click', () => {
             this.changeReaderFontSize(-1);
         });
@@ -2020,6 +2037,34 @@ class MarkdownTabView {
                     this.model,
                     createLoadingPresentation(this.model, this.t)
                 );
+            });
+    }
+
+    openCitationGraph() {
+        const button = this.elements.citationGraphButton;
+        if (button.disabled || typeof this.model.onOpenCitationGraph !== 'function') {
+            return;
+        }
+        button.disabled = true;
+        let operation;
+        try {
+            operation = this.model.onOpenCitationGraph(
+                this.model.sourceItemID ?? this.model.itemID
+            );
+        }
+        catch (error) {
+            this.zotero?.logError?.(error);
+        }
+        Promise.resolve(operation)
+            .catch(error => this.zotero?.logError?.(error))
+            .finally(() => {
+                if (button.parentNode) {
+                    button.disabled = false;
+                    this.syncDocumentActions(
+                        this.model,
+                        createLoadingPresentation(this.model, this.t)
+                    );
+                }
             });
     }
 
@@ -2784,6 +2829,14 @@ class MarkdownTabView {
             'title',
             this.t('viewer.documentActionsToggle')
         );
+        this.elements.citationGraphButton.setAttribute(
+            'aria-label',
+            this.t('viewer.openCitationGraph')
+        );
+        this.elements.citationGraphButton.setAttribute(
+            'title',
+            this.t('viewer.openCitationGraph')
+        );
         this.elements.reparse.setAttribute('aria-label', this.t('viewer.reparse'));
         this.elements.reparse.setAttribute('title', this.t('viewer.reparse'));
         this.elements.saveSnapshot.setAttribute(
@@ -2983,6 +3036,8 @@ class MarkdownTabView {
         const translationAvailable = model.status === 'ready'
             && model.renderMode !== 'html'
             && typeof model.onTranslateDocument === 'function';
+        const citationGraphAvailable = model.status === 'ready'
+            && typeof model.onOpenCitationGraph === 'function';
         const documentActionsAvailable = reparseAvailable
             || saveAvailable
             || correctionAvailable
@@ -2991,7 +3046,8 @@ class MarkdownTabView {
         const readerControlsAvailable = model.status === 'ready'
             || loadingView.preserveContent;
         const toolbarAvailable = documentActionsAvailable
-            || readerControlsAvailable;
+            || readerControlsAvailable
+            || citationGraphAvailable;
         const reparsing = loadingView.visible && loadingView.preserveContent;
         const activeElement = this.mount.activeElement;
         const readerControlHadFocus = Boolean(activeElement)
@@ -3014,6 +3070,9 @@ class MarkdownTabView {
         this.elements.translationControls.hidden = !translationAvailable;
         this.elements.restoreCorrections.hidden = !restoreAvailable;
         this.elements.actionToggle.hidden = !documentActionsAvailable;
+        this.elements.citationGraphButton.hidden = !citationGraphAvailable;
+        this.elements.citationGraphButton.disabled = !citationGraphAvailable
+            || Boolean(this.documentActionBusy);
         this.elements.readerFontSize.hidden = !readerControlsAvailable;
         this.elements.readerFontFamily.hidden = !readerControlsAvailable;
         this.syncNavigationBack();

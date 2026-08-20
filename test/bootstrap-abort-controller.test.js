@@ -174,9 +174,12 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
 
     assert.equal(toolbarButtons.length, 2);
     toolbarButtons[1].click();
-    const firstRoot = await waitFor(() => mainWindow.tabRoot('tab-1'));
+    const firstHost = await waitFor(() => mainWindow.document.querySelector(
+        '.mktero-citation-graph-modal-host'
+    ));
     const firstSignal = await waitFor(() => referenceSignals[0]);
-    const firstShadow = firstRoot.shadowRoot;
+    const firstShadow = firstHost.shadowRoot
+        .querySelector('.citation-graph-host').shadowRoot;
     assert.match(
         firstShadow.querySelector('.citation-graph-title').textContent,
         /My Library/
@@ -190,14 +193,22 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
 
     globalThis.onMainWindowUnload({ window: mainWindow });
     await waitFor(() => secondSignal.aborted);
-    assert.equal(mainWindow.tabRoot('tab-1'), null);
+    assert.equal(
+        mainWindow.document.querySelector('.mktero-citation-graph-modal-host'),
+        null
+    );
 
     toolbarButtons[1].click();
-    await waitFor(() => mainWindow.tabRoot('tab-2'));
+    await waitFor(() => mainWindow.document.querySelector(
+        '.mktero-citation-graph-modal-host'
+    ));
     const shutdownSignal = await waitFor(() => referenceSignals[2]);
     globalThis.shutdown();
     await waitFor(() => shutdownSignal.aborted);
-    assert.equal(mainWindow.tabRoot('tab-2'), null);
+    assert.equal(
+        mainWindow.document.querySelector('.mktero-citation-graph-modal-host'),
+        null
+    );
 
     const batchBodies = requests.filter(request => request.url.includes(
         '/paper/batch?'

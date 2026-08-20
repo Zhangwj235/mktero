@@ -151,6 +151,32 @@ test('shows Markdown without editing controls', () => {
     }
 });
 
+test('shows the current-paper citation graph button in the reader', async () => {
+    const opened = [];
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        onOpenCitationGraph: itemID => opened.push(itemID),
+    }));
+
+    try {
+        const button = shadow.querySelector('#mktero-citation-graph');
+        assert.equal(button.hidden, false);
+        assert.equal(
+            button.querySelector('[data-lucide]').dataset.lucide,
+            'network'
+        );
+        button.click();
+        await Promise.resolve();
+        assert.deepEqual(opened, [42]);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('toggles block correction mode and restores all saved corrections', async () => {
     const modeChanges = [];
     const editorStates = [];

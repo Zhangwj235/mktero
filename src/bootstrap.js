@@ -127,8 +127,8 @@ import {
     MarkdownTabPresenter,
 } from './ui/markdown-tab-presenter.js';
 import {
-    CitationGraphTabPresenter,
-} from './ui/citation-graph-tab-presenter.js';
+    CitationGraphModalPresenter,
+} from './ui/citation-graph-modal-presenter.js';
 import {
     createAnnotationOverlayRefresher,
 } from './ui/annotation-overlay-refresher.js';
@@ -216,7 +216,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
         pathUtils: PathUtils,
     });
     runtime.cache = cache;
-    initializeCitationGraph(rootURI, localization);
+    initializeCitationGraph(localization);
     runtime.translationService = new MarkdownTranslationService({
         aiGateway: new AISDKGateway({
             createAbortController: createZoteroAbortController,
@@ -480,8 +480,10 @@ async function openCitationGraph(itemID, { forceRefresh = false } = {}) {
         throw new Error(runtimeTranslate('graph.loadFailed'));
     }
     const origin = await runtime.citationLibrary.resolveGraphOrigin(itemID);
-    return runtime.citationPresenter.open(origin.libraryID, {
+    return runtime.citationPresenter.open({
+        libraryID: origin.libraryID,
         focusItemID: origin.itemID,
+        sourceItemID: itemID,
         forceRefresh,
     });
 }
@@ -495,6 +497,7 @@ async function openItemAsMarkdown(itemID, {
         onClose: ({ reason = MARKDOWN_TAB_CLOSE_REASONS.USER } = {}) => {
             abortConversion(itemID);
             abortDocumentTranslations(itemID);
+            runtime.citationPresenter?.closeForItem(itemID);
             void closeRevisionSession(itemID);
             void runtime.actionsTags?.closeMarkdownSession({
                 sessionID: itemID,
@@ -503,6 +506,9 @@ async function openItemAsMarkdown(itemID, {
             });
         },
         onReparse: () => requestItemReparse(itemID, entryPoint),
+        onOpenCitationGraph: sourceItemID => (
+            openCitationGraph(sourceItemID || itemID)
+        ),
         onOpenSettings: () => openMinerUPreferences(Zotero),
         onSaveSnapshot: () => saveSnapshotForItem(itemID),
         onSetCorrectionMode: enabled => setCorrectionMode(itemID, enabled),
@@ -674,6 +680,9 @@ async function openSavedMarkdownNote(noteID) {
     }
     const presentation = runtime.presenter.open(noteID, {
         sourceItemID: sourceItem?.id ?? null,
+        onClose: () => {
+            runtime.citationPresenter?.closeForItem(sourceItem?.id);
+        },
         ...createSavedMarkdownActions(noteID, sourceItem),
     });
     try {
@@ -716,6 +725,9 @@ function createSavedMarkdownActions(noteID, sourceItem) {
         return callback(sourceItemID, ...args);
     };
     return {
+        onOpenCitationGraph: sourceItem
+            ? () => openCitationGraph(sourceItem.id)
+            : null,
         onReparse: sourceItem
             ? () => requestItemReparse(sourceItem.id, 'saved-note')
             : null,
@@ -1613,9 +1625,6 @@ function registerMainWindowContextMenu(window) {
         window,
         rootURI: runtime.rootURI,
         onOpen: openItemAsMarkdown,
-        onOpenCitationGraph: runtime.citationPresenter
-            ? openCitationGraph
-            : null,
         onOpenSavedNote: openSavedMarkdownNote,
         isSavedMarkdownNote: item => (
             runtime.savedMarkdownStore?.isSavedMarkdownNote(item) || false
@@ -1727,7 +1736,7 @@ function userFacingError(error) {
     return localizeConversionError(error, runtimeTranslate);
 }
 
-function initializeCitationGraph(rootURI, localization) {
+function initializeCitationGraph(localization) {
     if (typeof Zotero.Search !== 'function') return;
     try {
         const citationCache = createZoteroCitationGraphCache({
@@ -1749,9 +1758,8 @@ function initializeCitationGraph(rootURI, localization) {
         runtime.citationCache = citationCache;
         runtime.citationLibrary = citationLibrary;
         runtime.citationGraph = citationGraph;
-        runtime.citationPresenter = new CitationGraphTabPresenter({
+        runtime.citationPresenter = new CitationGraphModalPresenter({
             zotero: Zotero,
-            rootURI,
             graph: citationGraph,
             library: citationLibrary,
             getLibraryName: libraryID => (
