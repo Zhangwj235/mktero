@@ -1,0 +1,363 @@
+:host {
+    color: var(--fill-primary, #202124);
+    color-scheme: light dark;
+    display: block;
+    font: menu;
+    height: 100%;
+    min-height: 0;
+    width: 100%;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+button,
+input {
+    color: inherit;
+    font: inherit;
+    letter-spacing: 0;
+}
+
+button {
+    cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible {
+    outline: 2px solid var(--accent-blue, #2f6f9f);
+    outline-offset: 2px;
+}
+
+.citation-graph-shell {
+    background: var(--material-background, #f6f7f8);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+}
+
+.citation-graph-toolbar {
+    align-items: center;
+    background: var(--material-toolbar, #fff);
+    border-bottom: 1px solid var(--fill-quinary, #d7d9dc);
+    display: grid;
+    gap: 10px;
+    grid-template-columns: minmax(150px, 1fr) minmax(180px, 320px) auto auto;
+    min-height: 48px;
+    padding: 6px 10px;
+    position: relative;
+    z-index: 2;
+}
+
+.citation-graph-identity {
+    min-width: 0;
+}
+
+.citation-graph-title {
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.25;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.citation-graph-counts {
+    color: var(--fill-secondary, #62666d);
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+.citation-graph-search-wrap {
+    position: relative;
+}
+
+.citation-graph-search {
+    background: var(--material-background, #f6f7f8);
+    border: 1px solid var(--fill-quaternary, #c9ccd1);
+    border-radius: 5px;
+    height: 30px;
+    padding: 4px 9px;
+    width: 100%;
+}
+
+.citation-graph-search-results {
+    background: var(--material-menu, #fff);
+    border: 1px solid var(--fill-quaternary, #c9ccd1);
+    border-radius: 5px;
+    box-shadow: 0 4px 12px rgb(0 0 0 / 14%);
+    left: 0;
+    max-height: min(320px, 45vh);
+    overflow: auto;
+    padding: 4px;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+}
+
+.citation-graph-search-result {
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    display: block;
+    min-height: 30px;
+    overflow: hidden;
+    padding: 5px 7px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+}
+
+.citation-graph-search-result:hover,
+.citation-graph-relation-button:hover {
+    background: var(--material-hover, rgb(47 111 159 / 10%));
+}
+
+.citation-graph-search-empty {
+    color: var(--fill-secondary, #62666d);
+    font-size: 12px;
+    padding: 8px;
+}
+
+.citation-graph-filters,
+.citation-graph-actions {
+    align-items: center;
+    display: flex;
+    gap: 4px;
+}
+
+.citation-graph-filters {
+    background: var(--material-background, #f6f7f8);
+    border: 1px solid var(--fill-quaternary, #c9ccd1);
+    border-radius: 5px;
+    padding: 2px;
+}
+
+.citation-graph-filter {
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    min-height: 25px;
+    padding: 3px 9px;
+}
+
+.citation-graph-filter[aria-pressed="true"] {
+    background: var(--material-selected, #fff);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 14%);
+    font-weight: 600;
+}
+
+.citation-graph-icon-button {
+    align-items: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    display: inline-flex;
+    height: 30px;
+    justify-content: center;
+    padding: 0;
+    width: 30px;
+}
+
+.citation-graph-icon-button:hover:not(:disabled) {
+    background: var(--material-hover, rgb(47 111 159 / 10%));
+    border-color: var(--fill-quinary, #d7d9dc);
+}
+
+.citation-graph-icon-button:disabled {
+    cursor: progress;
+    opacity: 0.55;
+}
+
+.citation-graph-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 310px);
+    min-height: 0;
+}
+
+.citation-graph-canvas-wrap {
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.citation-graph-canvas {
+    display: block;
+    height: 100%;
+    touch-action: none;
+    width: 100%;
+}
+
+.citation-graph-canvas[data-hover="node"] {
+    cursor: pointer;
+}
+
+.citation-graph-hover {
+    background: var(--material-menu, #fff);
+    border: 1px solid var(--fill-quaternary, #c9ccd1);
+    border-radius: 5px;
+    box-shadow: 0 4px 12px rgb(0 0 0 / 16%);
+    display: grid;
+    gap: 3px;
+    max-width: 240px;
+    padding: 7px 9px;
+    pointer-events: none;
+    position: absolute;
+    z-index: 1;
+}
+
+.citation-graph-hover[hidden] {
+    display: none;
+}
+
+.citation-graph-hover-title {
+    font-size: 12px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.citation-graph-hover-meta {
+    color: var(--fill-secondary, #62666d);
+    font-size: 11px;
+}
+
+.citation-graph-status {
+    background: var(--material-background, rgb(246 247 248 / 92%));
+    bottom: 8px;
+    color: var(--fill-secondary, #62666d);
+    font-size: 11px;
+    left: 10px;
+    max-width: calc(100% - 20px);
+    padding: 3px 6px;
+    position: absolute;
+}
+
+.citation-graph-status:empty {
+    display: none;
+}
+
+.citation-graph-empty {
+    color: var(--fill-secondary, #62666d);
+    left: 50%;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.citation-graph-details {
+    background: var(--material-sidebar, #fff);
+    border-left: 1px solid var(--fill-quinary, #d7d9dc);
+    min-height: 0;
+    overflow: auto;
+    padding: 14px;
+}
+
+.citation-graph-paper-title {
+    font-size: 15px;
+    line-height: 1.35;
+    margin: 0 0 12px;
+    overflow-wrap: anywhere;
+}
+
+.citation-graph-metadata {
+    display: grid;
+    font-size: 12px;
+    gap: 5px 10px;
+    grid-template-columns: minmax(82px, auto) minmax(0, 1fr);
+    margin: 0 0 12px;
+}
+
+.citation-graph-metadata dt {
+    color: var(--fill-secondary, #62666d);
+}
+
+.citation-graph-metadata dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.citation-graph-open-paper {
+    align-items: center;
+    background: var(--accent-blue, #2f6f9f);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #fff;
+    display: inline-flex;
+    flex-direction: row-reverse;
+    gap: 6px;
+    justify-content: center;
+    min-height: 30px;
+    padding: 4px 9px;
+}
+
+.citation-graph-relations {
+    border-top: 1px solid var(--fill-quinary, #d7d9dc);
+    margin-top: 14px;
+    padding-top: 12px;
+}
+
+.citation-graph-relations h3 {
+    font-size: 12px;
+    margin: 0 0 5px;
+}
+
+.citation-graph-relation-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.citation-graph-relation-button {
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    display: block;
+    font-size: 12px;
+    line-height: 1.35;
+    padding: 5px;
+    text-align: left;
+    width: 100%;
+}
+
+.citation-graph-relation-empty,
+.citation-graph-details-empty {
+    color: var(--fill-secondary, #62666d);
+    font-size: 12px;
+}
+
+.sr-only {
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    width: 1px;
+    clip: rect(0, 0, 0, 0);
+}
+
+@media (max-width: 760px) {
+    .citation-graph-toolbar {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .citation-graph-search-wrap {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+
+    .citation-graph-content {
+        grid-template-columns: minmax(0, 1fr) minmax(210px, 42%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+    }
+}

@@ -23,6 +23,10 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
 
     assert.match(prefs, /pref\("extensions\.mktero\.mineruApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.cacheEnabled", true\)/);
+    assert.match(
+        prefs,
+        /pref\("extensions\.mktero\.semanticScholarApiKey", ""\)/
+    );
     assert.match(prefs, /pref\("extensions\.mktero\.readerFontSize", 18\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiEnabled", false\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiProvider", "openai"\)/);
@@ -45,6 +49,10 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.doesNotMatch(pane, /preference="extensions\.mktero\.language"/);
     assert.match(pane, /preference="extensions\.mktero\.mineruApiKey"/);
     assert.match(pane, /preference="extensions\.mktero\.cacheEnabled"/);
+    assert.match(
+        pane,
+        /preference="extensions\.mktero\.semanticScholarApiKey"/
+    );
     assert.match(pane, /preference="extensions\.mktero\.readerFontSize"/);
     assert.match(pane, /preference="extensions\.mktero\.readerFont"/);
     assert.match(pane, /preference="extensions\.mktero\.aiEnabled"/);
@@ -80,6 +88,7 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(script, /createZoteroMarkdownCache/);
     assert.match(script, /createZoteroPDFTextIndexCache/);
     assert.match(script, /createZoteroTranslationCache/);
+    assert.match(script, /createZoteroCitationGraphCache/);
     assert.match(script, /AISDKGateway/);
     assert.match(script, /createCombinedLocalCache/);
     assert.doesNotMatch(script, /setMkteroLanguagePreference/);
@@ -99,6 +108,8 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(buildScript, /ui\/preferences\.js/);
     assert.match(buildScript, /ui\/icons\/mktero\.svg/);
     assert.match(buildScript, /__MKTERO_MARKDOWN_STYLES__/);
+    assert.match(buildScript, /__MKTERO_CITATION_GRAPH_STYLES__/);
+    assert.match(buildScript, /licenses\/d3-force\.txt/);
     assert.doesNotMatch(buildScript, /copyText\('ui\/markdown\.css'/);
 });
 
@@ -117,6 +128,10 @@ test('ships responsive settings cards and a cache switch', async () => {
     assert.match(styles, /\.mktero-settings-card\s*\{[\s\S]*border-radius:/);
     assert.match(styles, /\.mktero-switch-input:checked\s*\+\s*\.mktero-switch/);
     assert.match(styles, /\.mktero-switch::before/);
+    assert.match(
+        styles,
+        /#mktero-semantic-scholar-api-key\s*\{[\s\S]*?font-variant-ligatures:\s*none/s
+    );
     assert.match(styles, /@media\s*\(max-width:/);
 });
 
@@ -203,13 +218,13 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
         (pane.match(
             /class="mktero-setting-row mktero-(?:field|reader-font)-row"/g
         ) || []).length,
-        11
+        12
     );
     assert.equal(
         (pane.match(
             /<html:div class="mktero-(?:field|reader-font)-control(?: [^"]+)?">/g
         ) || []).length,
-        11
+        12
     );
 });
 
@@ -257,8 +272,8 @@ test('presents every preference group as one cohesive settings card', async () =
         readFile(new URL('../ui/preferences.css', import.meta.url), 'utf8'),
     ]);
 
-    assert.equal((pane.match(/class="mktero-settings-card"/g) || []).length, 4);
-    assert.equal((pane.match(/class="mktero-preferences-section"/g) || []).length, 4);
+    assert.equal((pane.match(/class="mktero-settings-card"/g) || []).length, 5);
+    assert.equal((pane.match(/class="mktero-preferences-section"/g) || []).length, 5);
     assert.match(
         pane,
         /id="mktero-mineru-api-key"[\s\S]*aria-describedby="mktero-token-help mktero-token-storage-note"/

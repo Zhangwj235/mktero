@@ -34,6 +34,39 @@
         </html:div>
     </groupbox>
 
+    <groupbox id="mktero-citation-section"
+              class="mktero-preferences-section"
+              aria-labelledby="mktero-citation-title">
+        <html:div class="mktero-section-heading">
+            <html:h2 id="mktero-citation-title"
+                     data-i18n="preferences.citations.title"></html:h2>
+            <html:p data-i18n="preferences.citations.description"></html:p>
+        </html:div>
+
+        <html:div class="mktero-settings-card">
+            <html:div class="mktero-setting-row mktero-field-row">
+                <html:div class="mktero-setting-copy">
+                    <html:label for="mktero-semantic-scholar-api-key"><html:strong data-i18n="preferences.citations.apiKeyLabel"></html:strong></html:label>
+                    <html:small id="mktero-semantic-scholar-api-key-help"
+                                data-i18n="preferences.citations.apiKeyHelp"></html:small>
+                </html:div>
+                <html:div class="mktero-field-control">
+                    <html:input id="mktero-semantic-scholar-api-key"
+                                type="password"
+                                preference="extensions.mktero.semanticScholarApiKey"
+                                aria-describedby="mktero-semantic-scholar-api-key-help mktero-semantic-scholar-api-key-storage"
+                                maxlength="4096"
+                                autocomplete="off"
+                                spellcheck="false" />
+                    <html:small id="mktero-semantic-scholar-api-key-storage"
+                                data-i18n="preferences.citations.apiKeyStorage"></html:small>
+                </html:div>
+            </html:div>
+            <html:small class="mktero-card-note"
+                        data-i18n="preferences.citations.note"></html:small>
+        </html:div>
+    </groupbox>
+
     <groupbox id="mktero-ai-section"
               class="mktero-preferences-section"
               aria-labelledby="mktero-ai-title">

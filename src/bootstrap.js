@@ -9,6 +9,10 @@ import {
     createMinerUCacheKey,
     createZoteroMarkdownCache,
 } from './cache/markdown-cache.js';
+import {
+    createCitationCacheKey,
+    createZoteroCitationGraphCache,
+} from './cache/citation-graph-cache.js';
 import { observeLocalCacheCleared } from './cache/cache-events.js';
 import {
     createZoteroPDFTextIndexCache,
@@ -22,6 +26,13 @@ import {
     isSupportedAITargetLanguage,
     observeAITargetLanguage,
 } from './config/ai-preferences.js';
+import {
+    getSemanticScholarAPIKey,
+} from './config/citation-preferences.js';
+import { CitationGraph } from './citations/citation-graph.js';
+import {
+    SemanticScholarClient,
+} from './citations/semantic-scholar-client.js';
 import { AISDKGateway } from './ai/ai-sdk-gateway.js';
 import {
     MarkdownTranslationService,
@@ -96,6 +107,9 @@ import {
     createZoteroEvidenceReference,
 } from './platform/zotero-evidence-reference.js';
 import {
+    createZoteroCitationLibrary,
+} from './platform/zotero-citation-library.js';
+import {
     registerZoteroAnnotationObserver,
 } from './platform/zotero-annotation-observer.js';
 import {
@@ -113,6 +127,9 @@ import {
     MarkdownTabPresenter,
 } from './ui/markdown-tab-presenter.js';
 import {
+    CitationGraphTabPresenter,
+} from './ui/citation-graph-tab-presenter.js';
+import {
     createAnnotationOverlayRefresher,
 } from './ui/annotation-overlay-refresher.js';
 import {
@@ -129,6 +146,10 @@ const runtime = {
     id: null,
     service: null,
     presenter: null,
+    citationPresenter: null,
+    citationGraph: null,
+    citationLibrary: null,
+    citationCache: null,
     cache: null,
     translationService: null,
     revisionStore: null,
@@ -195,6 +216,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
         pathUtils: PathUtils,
     });
     runtime.cache = cache;
+    initializeCitationGraph(rootURI, localization);
     runtime.translationService = new MarkdownTranslationService({
         aiGateway: new AISDKGateway({
             createAbortController: createZoteroAbortController,
@@ -362,6 +384,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
         }
     );
     cache.prune().catch(error => Zotero.logError(error));
+    runtime.citationCache?.prune().catch(error => Zotero.logError(error));
     pdfTextIndexCache.prune().catch(error => Zotero.logError(error));
     pendingTasks.prune().catch(error => Zotero.logError(error));
     presenter.ensureSessionStateFilter();
@@ -395,12 +418,17 @@ globalThis.shutdown = function shutdown() {
     runtime.disposeToolbar?.();
     disposeAllContextMenus();
     runtime.actionsTags?.dispose();
+    runtime.citationPresenter?.dispose();
     runtime.presenter?.dispose();
     if (runtime.preferencePaneID) {
         Zotero.PreferencePanes.unregister?.(runtime.preferencePaneID);
     }
     runtime.disposeToolbar = null;
     runtime.presenter = null;
+    runtime.citationPresenter = null;
+    runtime.citationGraph = null;
+    runtime.citationLibrary = null;
+    runtime.citationCache = null;
     runtime.service = null;
     runtime.cache = null;
     runtime.translationService = null;
@@ -433,12 +461,28 @@ globalThis.onMainWindowLoad = function onMainWindowLoad({ window }) {
 };
 globalThis.onMainWindowUnload = function onMainWindowUnload({ window }) {
     disposeMainWindowContextMenu(window);
+    runtime.citationPresenter?.closeForWindow(window);
 };
 
 async function openReaderAsMarkdown(reader, { forceRefresh = false } = {}) {
     return openItemAsMarkdown(reader.itemID, {
         forceRefresh,
         entryPoint: 'reader-toolbar',
+    });
+}
+
+async function openReaderCitationGraph(reader, { forceRefresh = false } = {}) {
+    return openCitationGraph(reader.itemID, { forceRefresh });
+}
+
+async function openCitationGraph(itemID, { forceRefresh = false } = {}) {
+    if (!runtime.citationLibrary || !runtime.citationPresenter) {
+        throw new Error(runtimeTranslate('graph.loadFailed'));
+    }
+    const origin = await runtime.citationLibrary.resolveGraphOrigin(itemID);
+    return runtime.citationPresenter.open(origin.libraryID, {
+        focusItemID: origin.itemID,
+        forceRefresh,
     });
 }
 
@@ -1569,6 +1613,9 @@ function registerMainWindowContextMenu(window) {
         window,
         rootURI: runtime.rootURI,
         onOpen: openItemAsMarkdown,
+        onOpenCitationGraph: runtime.citationPresenter
+            ? openCitationGraph
+            : null,
         onOpenSavedNote: openSavedMarkdownNote,
         isSavedMarkdownNote: item => (
             runtime.savedMarkdownStore?.isSavedMarkdownNote(item) || false
@@ -1651,6 +1698,9 @@ function registerReaderToolbarAction() {
         zotero: Zotero,
         pluginID: runtime.id,
         onOpen: openReaderAsMarkdown,
+        onOpenCitationGraph: runtime.citationPresenter
+            ? openReaderCitationGraph
+            : null,
         onPDFReaderAvailable: reader => (
             runtime.localAnnotations?.synchronizePending(
                 reader.itemID,
@@ -1668,8 +1718,55 @@ function runtimeTranslate(key, variables) {
 }
 
 function userFacingError(error) {
+    if (error?.code === 'CITATION_PARENT_REQUIRED') {
+        return runtimeTranslate('error.citationParentRequired');
+    }
     if (error instanceof MinerUConfigurationError) {
         return runtimeTranslate('error.apiTokenMissing');
     }
     return localizeConversionError(error, runtimeTranslate);
+}
+
+function initializeCitationGraph(rootURI, localization) {
+    if (typeof Zotero.Search !== 'function') return;
+    try {
+        const citationCache = createZoteroCitationGraphCache({
+            zotero: Zotero,
+            ioUtils: IOUtils,
+            pathUtils: PathUtils,
+        });
+        const citationLibrary = createZoteroCitationLibrary(Zotero);
+        const citationGraph = new CitationGraph({
+            library: citationLibrary,
+            client: new SemanticScholarClient({
+                createAbortController: createZoteroAbortController,
+            }),
+            cache: citationCache,
+            getAPIKey: () => getSemanticScholarAPIKey(Zotero),
+            createCacheKey: createCitationCacheKey,
+            onCacheError: error => Zotero.logError?.(error),
+        });
+        runtime.citationCache = citationCache;
+        runtime.citationLibrary = citationLibrary;
+        runtime.citationGraph = citationGraph;
+        runtime.citationPresenter = new CitationGraphTabPresenter({
+            zotero: Zotero,
+            rootURI,
+            graph: citationGraph,
+            library: citationLibrary,
+            getLibraryName: libraryID => (
+                Zotero.Libraries?.get?.(libraryID)?.name
+                || runtimeTranslate('graph.title')
+            ),
+            createAbortController: createZoteroAbortController,
+            localization,
+        });
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        runtime.citationCache = null;
+        runtime.citationLibrary = null;
+        runtime.citationGraph = null;
+        runtime.citationPresenter = null;
+    }
 }

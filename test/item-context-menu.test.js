@@ -294,3 +294,54 @@ test('keeps context-menu registrations isolated across Zotero windows', async ()
     assert.ok(second.document.querySelector('#mktero-read-as-markdown'));
     disposeSecond();
 });
+
+test('adds an independent citation graph action for regular items without PDFs', async () => {
+    const parent = regularItem(10, []);
+    const harness = createMenuHarness([parent]);
+    const opened = [];
+    const dispose = registerItemContextMenu({
+        zotero: { Items: { get: () => null } },
+        window: harness.window,
+        rootURI: 'resource://mktero/',
+        onOpen: () => assert.fail('an item without a PDF cannot open Markdown'),
+        onOpenCitationGraph: itemID => opened.push(itemID),
+        onError: assert.fail,
+    });
+
+    showMenu(harness.document);
+    const markdown = harness.document.querySelector('#mktero-read-as-markdown');
+    const graph = harness.document.querySelector('#mktero-open-citation-graph');
+    assert.equal(markdown.hidden, true);
+    assert.equal(graph.hidden, false);
+    assert.equal(graph.getAttribute('label'), 'Open citation graph');
+
+    graph.dispatchEvent(new harness.document.defaultView.Event('command'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(opened, [10]);
+
+    dispose();
+    assert.equal(
+        harness.document.querySelector('#mktero-open-citation-graph'),
+        null
+    );
+});
+
+test('opens the citation graph from a directly selected PDF', async () => {
+    const harness = createMenuHarness([pdfItem(42)]);
+    const opened = [];
+    registerItemContextMenu({
+        zotero: { Items: { get: () => null } },
+        window: harness.window,
+        rootURI: 'resource://mktero/',
+        onOpen: () => {},
+        onOpenCitationGraph: itemID => opened.push(itemID),
+        onError: assert.fail,
+    });
+
+    showMenu(harness.document);
+    const graph = harness.document.querySelector('#mktero-open-citation-graph');
+    graph.dispatchEvent(new harness.document.defaultView.Event('command'));
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(opened, [42]);
+});

@@ -42,6 +42,10 @@ test('builds reproducible release assets and Zotero update metadata', async () =
     const packageNames = Object.keys(packageEntries).sort();
     for (const required of [
         'bootstrap.js',
+        'licenses/d3-dispatch.txt',
+        'licenses/d3-force.txt',
+        'licenses/d3-quadtree.txt',
+        'licenses/d3-timer.txt',
         'licenses/lucide.txt',
         'licenses/pdfjs.txt',
         'licenses/shiki.txt',
@@ -64,6 +68,17 @@ test('builds reproducible release assets and Zotero update metadata', async () =
         strFromU8(packageEntries['licenses/lucide.txt']),
         /Copyright \(c\) 2026 Lucide Icons and Contributors/
     );
+    for (const name of [
+        'd3-dispatch',
+        'd3-force',
+        'd3-quadtree',
+        'd3-timer',
+    ]) {
+        assert.match(
+            strFromU8(packageEntries[`licenses/${name}.txt`]),
+            /Copyright 2010-2021 Mike Bostock/
+        );
+    }
     assert.match(
         strFromU8(packageEntries['licenses/pdfjs.txt']),
         /Apache License/

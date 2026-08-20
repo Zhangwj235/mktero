@@ -8,6 +8,9 @@ import {
 } from '../cache/pdf-text-index-cache.js';
 import { createZoteroTranslationCache } from '../cache/translation-cache.js';
 import {
+    createZoteroCitationGraphCache,
+} from '../cache/citation-graph-cache.js';
+import {
     AI_PROTOCOL_PREF,
     getAIProtocolsForProvider,
     getAISettings,
@@ -105,6 +108,9 @@ export function createPreferencesController({
     const aiMaxOutputTokensInput = document.getElementById(
         'mktero-ai-max-output-tokens'
     );
+    const semanticScholarAPIKeyInput = document.getElementById(
+        'mktero-semantic-scholar-api-key'
+    );
     const t = (key, variables) => localization.t(key, variables);
     let initialized = false;
     let aiTestController = null;
@@ -175,7 +181,7 @@ export function createPreferencesController({
         aiProviderInput.addEventListener('change', updateAIProtocolOptions);
     }
 
-    function initializeAINumericControls() {
+    function initializePreferenceControlLimits() {
         if (aiRequestTimeoutInput) {
             aiRequestTimeoutInput.max = String(
                 PREFERENCE_CONTROL_LIMITS.aiRequestTimeoutMs
@@ -185,6 +191,10 @@ export function createPreferencesController({
             aiMaxOutputTokensInput.max = String(
                 PREFERENCE_CONTROL_LIMITS.aiMaxOutputTokens
             );
+        }
+        if (semanticScholarAPIKeyInput) {
+            semanticScholarAPIKeyInput.maxLength
+                = PREFERENCE_CONTROL_LIMITS.semanticScholarAPIKeyLength;
         }
     }
 
@@ -259,7 +269,7 @@ export function createPreferencesController({
             aiTestButton?.addEventListener('click', testAI);
             localize();
             initializeAIProvider();
-            initializeAINumericControls();
+            initializePreferenceControlLimits();
             initializeReaderFont();
             initializeReaderFontSize();
             await refresh();
@@ -414,6 +424,11 @@ globalThis.MkteroPreferences = {
                 pathUtils: PathUtils,
             }),
             createZoteroTranslationCache({
+                zotero: Zotero,
+                ioUtils: IOUtils,
+                pathUtils: PathUtils,
+            }),
+            createZoteroCitationGraphCache({
                 zotero: Zotero,
                 ioUtils: IOUtils,
                 pathUtils: PathUtils,
