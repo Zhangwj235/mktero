@@ -240,6 +240,8 @@ test('tests the current AI SDK settings without exposing the key', async () => {
             <input id="mktero-ai-request-timeout" value="600000">
             <input id="mktero-ai-max-output-tokens" value="0">
             <input id="mktero-semantic-scholar-api-key" value="">
+            <input id="mktero-openalex-api-key" value="">
+            <input id="mktero-open-citations-access-token" value="">
             <input id="mktero-ai-streaming" type="checkbox" checked>
             <button id="mktero-ai-test"></button>
             <span id="mktero-ai-test-status"></span>
@@ -284,11 +286,13 @@ test('tests the current AI SDK settings without exposing the key', async () => {
         dom.window.document.getElementById('mktero-ai-max-output-tokens').max,
         '262144'
     );
-    assert.equal(
-        dom.window.document.getElementById('mktero-semantic-scholar-api-key')
-            .maxLength,
-        4096
-    );
+    for (const id of [
+        'mktero-semantic-scholar-api-key',
+        'mktero-openalex-api-key',
+        'mktero-open-citations-access-token',
+    ]) {
+        assert.equal(dom.window.document.getElementById(id).maxLength, 4096);
+    }
     assert.equal(testedSettings.streaming, true);
     assert.equal(
         dom.window.document.getElementById('mktero-ai-test-status').textContent,

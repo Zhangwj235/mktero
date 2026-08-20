@@ -4,6 +4,7 @@ import {
     AI_MAX_REQUEST_TIMEOUT_MS,
 } from './ai-preferences.js';
 import {
+    CITATION_PROVIDER_MAX_CREDENTIAL_LENGTH,
     SEMANTIC_SCHOLAR_MAX_API_KEY_LENGTH,
 } from './citation-preferences.js';
 
@@ -14,6 +15,7 @@ export const MINERU_PREFERENCE_PANE_ID = 'mktero-preferences';
 export const PREFERENCE_CONTROL_LIMITS = Object.freeze({
     aiRequestTimeoutMs: AI_MAX_REQUEST_TIMEOUT_MS,
     aiMaxOutputTokens: AI_MAX_OUTPUT_TOKENS,
+    citationProviderCredentialLength: CITATION_PROVIDER_MAX_CREDENTIAL_LENGTH,
     semanticScholarAPIKeyLength: SEMANTIC_SCHOLAR_MAX_API_KEY_LENGTH,
 });
 

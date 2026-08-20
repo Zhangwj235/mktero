@@ -687,6 +687,41 @@ main {
     background: var(--reader-background);
 }
 
+.markdown-citation-graph-button {
+    position: absolute;
+    z-index: 5;
+    inset-block-end: 18px;
+    inset-inline-end: 18px;
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+    border-radius: 50%;
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+    box-shadow: var(--shadow-float);
+    cursor: pointer;
+}
+
+.markdown-citation-graph-button:hover,
+.markdown-citation-graph-button:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent-contrast);
+    background: var(--accent);
+}
+
+.markdown-citation-graph-button:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 58%, transparent);
+    outline-offset: 2px;
+}
+
+.markdown-citation-graph-button:disabled {
+    cursor: progress;
+    opacity: 0.55;
+}
+
 .markdown-reading-pane {
     display: flex;
     width: 100%;

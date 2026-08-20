@@ -1,7 +1,7 @@
 import { sha256Hex } from '../core/sha256.js';
 
-const CACHE_SCHEMA_VERSION = 1;
-const QUERY_PROFILE = 'semantic-scholar-references-v1';
+const CACHE_SCHEMA_VERSION = 2;
+const QUERY_PROFILE = 'citation-provider-references-v1';
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_ENTRIES = 5_000;
 const DEFAULT_MAX_ENTRY_BYTES = 2 * 1024 * 1024;
@@ -14,14 +14,21 @@ const MAX_REFERENCES = 1_000;
 export async function createCitationCacheKey(paper, {
     crypto = globalThis.crypto,
     queryProfile = QUERY_PROFILE,
+    providerID = 'semantic-scholar',
+    scopeIdentifiers = [],
 } = {}) {
+    const normalizedScope = (Array.isArray(scopeIdentifiers)
+        ? scopeIdentifiers
+        : []).map(value => String(value || '').trim()).filter(Boolean).sort();
     const descriptor = [
         `cache-schema:${CACHE_SCHEMA_VERSION}`,
         `query-profile:${String(queryProfile || '')}`,
+        `provider:${String(providerID || '')}`,
         `library-id:${String(paper?.libraryID ?? '')}`,
         `item-key:${String(paper?.key ?? '')}`,
         `doi:${String(paper?.doi || '')}`,
         `arxiv:${String(paper?.arxivID || '')}`,
+        ...normalizedScope.map(value => `scope:${JSON.stringify(value)}`),
     ].join('\n');
     return sha256Hex(new TextEncoder().encode(descriptor), { crypto });
 }
@@ -36,7 +43,7 @@ export function createZoteroCitationGraphCache({
         throw new Error('The Zotero profile directory is unavailable');
     }
     return new CitationGraphCache({
-        rootPath: pathUtils.join(profilePath, 'mktero-citations', 'v1'),
+        rootPath: pathUtils.join(profilePath, 'mktero-citations', 'v2'),
         ioUtils,
         pathUtils,
     });
@@ -319,7 +326,14 @@ function validateReference(reference) {
         || reference.authors.length > 100
         || reference.authors.some(author => (
             typeof author !== 'string' || author.length > 512
-        ))) {
+        ))
+        || (reference.sources !== undefined
+            && (!Array.isArray(reference.sources)
+                || reference.sources.length > 16
+                || reference.sources.some(source => (
+                    typeof source !== 'string'
+                    || !/^[a-z][a-z0-9-]{0,63}$/.test(source)
+                ))))) {
         throw new TypeError('Invalid cached citation reference');
     }
 }
@@ -328,17 +342,25 @@ function citationRecord(record) {
     return {
         status: record.status,
         paperID: record.paperID,
-        references: record.references.map(reference => ({
-            paperID: reference.paperID,
-            title: reference.title,
-            year: reference.year,
-            doi: reference.doi,
-            arxivID: reference.arxivID,
-            authors: [...reference.authors],
-        })),
+        references: record.references.map(reference => citationReference(reference)),
         truncated: record.truncated,
         fetchedAt: record.fetchedAt,
     };
+}
+
+function citationReference(reference) {
+    const copied = {
+        paperID: reference.paperID,
+        title: reference.title,
+        year: reference.year,
+        doi: reference.doi,
+        arxivID: reference.arxivID,
+        authors: [...reference.authors],
+    };
+    if (Array.isArray(reference.sources) && reference.sources.length) {
+        copied.sources = [...reference.sources];
+    }
+    return copied;
 }
 
 function validateFileInfo(fileInfo, maximum) {

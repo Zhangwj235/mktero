@@ -80,8 +80,10 @@ function createHarness() {
         stopped: false,
         tickCalls: [],
         tickListener: null,
+        endListener: null,
         on(name, listener) {
             if (name === 'tick') this.tickListener = listener;
+            if (name === 'end') this.endListener = listener;
             return this;
         },
         stop() {
@@ -172,6 +174,70 @@ test('renders a stable canvas and focuses the requested paper', () => {
             .length,
         1
     );
+});
+
+test('recalculates the mounted canvas size and recenters the selected paper', () => {
+    const harness = createHarness();
+    let dimensions = { width: 800, height: 600 };
+    const view = harness.createView({
+        measure: () => dimensions,
+    });
+    view.render(createSnapshot());
+    const selected = view.selectedNode();
+    selected.x = 120;
+    selected.y = 100;
+
+    dimensions = { width: 1_000, height: 700 };
+    view.resize();
+
+    assert.equal(view.cssWidth, 1_000);
+    assert.equal(view.cssHeight, 700);
+    assert.equal(view.transform.x, 500 - selected.x);
+    assert.equal(view.transform.y, 350 - selected.y);
+});
+
+test('recenters the selected paper after force layout settles', () => {
+    const harness = createHarness();
+    const view = harness.createView();
+    view.render(createSnapshot());
+    const selected = view.selectedNode();
+    selected.x = 640;
+    selected.y = 480;
+    view.transform = { x: 0, y: 0, scale: 1 };
+
+    harness.simulation.endListener();
+
+    assert.equal(view.transform.x, 400 - selected.x);
+    assert.equal(view.transform.y, 300 - selected.y);
+});
+
+test('keeps the focused paper centered while layout is still moving', () => {
+    const harness = createHarness();
+    const view = harness.createView();
+    view.render(createSnapshot({ status: 'refreshing' }));
+    const selected = view.selectedNode();
+    selected.x = 640;
+    selected.y = 480;
+
+    harness.simulation.tickListener();
+
+    assert.equal(view.transform.x, 400 - selected.x);
+    assert.equal(view.transform.y, 300 - selected.y);
+});
+
+test('does not override manual zoom while force layout is moving', () => {
+    const harness = createHarness();
+    const view = harness.createView();
+    view.render(createSnapshot({ status: 'refreshing' }));
+    view.zoomBy(1.25, { x: 300, y: 200 });
+    const transform = { ...view.transform };
+    const selected = view.selectedNode();
+    selected.x = 640;
+    selected.y = 480;
+
+    harness.simulation.tickListener();
+
+    assert.deepEqual(view.transform, transform);
 });
 
 test('search and connected filtering provide keyboard-accessible node controls', () => {

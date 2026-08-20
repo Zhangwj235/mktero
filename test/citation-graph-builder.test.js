@@ -20,12 +20,19 @@ function paper(itemID, key, values = {}) {
     };
 }
 
-test('creates directed in-library edges and degree counts by canonical paper ID', () => {
-    const papers = [paper(1, 'A'), paper(2, 'B')];
+test('creates directed in-library edges and degree counts by DOI', () => {
+    const papers = [
+        paper(1, 'A', { doi: '10.1000/a' }),
+        paper(2, 'B', { doi: '10.1000/b' }),
+    ];
     const records = new Map([
         ['1:A', {
             paperID: 's2-a',
-            references: [{ paperID: 's2-b', doi: '', arxivID: '' }],
+            references: [{
+                paperID: 's2-b',
+                doi: '10.1000/b',
+                arxivID: '',
+            }],
         }],
         ['1:B', { paperID: 's2-b', references: [] }],
     ]);
@@ -66,10 +73,42 @@ test('falls back to DOI and arXiv identifiers when canonical IDs are unavailable
     ]);
 });
 
-test('skips ambiguous targets, self citations, duplicate edges, and title-only matches', () => {
+test('merges provider provenance when duplicate references form one edge', () => {
     const papers = [
         paper(1, 'A', { doi: '10.1000/a' }),
-        paper(2, 'B', { doi: '10.1000/shared' }),
+        paper(2, 'B', { doi: '10.1000/b' }),
+    ];
+    const graph = buildCitationGraph({
+        papers,
+        records: new Map([['1:A', {
+            references: [{
+                paperID: '',
+                doi: '10.1000/b',
+                arxivID: '',
+                sources: ['semantic-scholar'],
+            }, {
+                paperID: '',
+                doi: '10.1000/b',
+                arxivID: '',
+                sources: ['open-citations', 'semantic-scholar'],
+            }],
+        }]]),
+    });
+
+    assert.deepEqual(graph.edges, [{
+        source: '1:A',
+        target: '1:B',
+        sources: ['open-citations', 'semantic-scholar'],
+    }]);
+});
+
+test('skips ambiguous targets, self citations, provider IDs, and title matches', () => {
+    const papers = [
+        paper(1, 'A', { doi: '10.1000/a' }),
+        paper(2, 'B', {
+            doi: '10.1000/shared',
+            arxivID: '2401.00002',
+        }),
         paper(3, 'C', { doi: '10.1000/shared' }),
         paper(4, 'D', { title: 'Only a matching title' }),
     ];
@@ -81,7 +120,8 @@ test('skips ambiguous targets, self citations, duplicate edges, and title-only m
                 { paperID: '', doi: '10.1000/shared', arxivID: '' },
                 { paperID: '', doi: '', arxivID: '', title: 'Only a matching title' },
                 { paperID: 's2-b', doi: '', arxivID: '' },
-                { paperID: 's2-b', doi: '', arxivID: '' },
+                { paperID: '', doi: '', arxivID: '2401.00002' },
+                { paperID: '', doi: '', arxivID: '2401.00002' },
             ],
         }], ['1:B', { paperID: 's2-b', references: [] }]]),
     });
@@ -95,7 +135,13 @@ test('skips ambiguous targets, self citations, duplicate edges, and title-only m
 
 test('keeps papers without identifiers as isolated nodes', () => {
     const papers = [paper(1, 'A')];
-    const graph = buildCitationGraph({ papers, records: new Map() });
+    const graph = buildCitationGraph({
+        papers,
+        records: new Map([['1:A', {
+            paperID: 'provider-only-id',
+            references: [],
+        }]]),
+    });
 
     assert.equal(citationPaperNodeID(papers[0]), '1:A');
     assert.equal(graph.nodes.length, 1);

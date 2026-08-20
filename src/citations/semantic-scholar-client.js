@@ -72,6 +72,10 @@ export class SemanticScholarClient {
         );
     }
 
+    supports(paper) {
+        return Boolean(normalizeDOI(paper?.doi) || normalizeArxivID(paper?.arxivID));
+    }
+
     async resolvePapers({
         papers,
         apiKey = '',

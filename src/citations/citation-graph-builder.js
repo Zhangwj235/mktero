@@ -31,13 +31,12 @@ export function buildCitationGraph({
     }));
     const graphWarnings = [...(Array.isArray(warnings) ? warnings : [])];
     const indexes = {
-        paperID: createUniqueIndex(nodes, node => node.paperID),
         doi: createUniqueIndex(nodes, node => node.doi),
         arxivID: createUniqueIndex(nodes, node => node.arxivID),
     };
     appendAmbiguityWarnings(graphWarnings, indexes);
     const byID = new Map(nodes.map(node => [node.id, node]));
-    const seen = new Set();
+    const edgeByKey = new Map();
     const edges = [];
     for (const source of nodes) {
         const record = recordMap.get(source.id);
@@ -47,13 +46,19 @@ export function buildCitationGraph({
             const targetID = matchReference(reference, indexes);
             if (!targetID || targetID === source.id) continue;
             const edgeKey = `${source.id}\u0000${targetID}`;
-            if (seen.has(edgeKey)) continue;
+            const existing = edgeByKey.get(edgeKey);
+            if (existing) {
+                appendEdgeSources(existing, reference?.sources);
+                continue;
+            }
             const target = byID.get(targetID);
             if (!target) continue;
-            seen.add(edgeKey);
+            const edge = { source: source.id, target: targetID };
+            appendEdgeSources(edge, reference?.sources);
+            edgeByKey.set(edgeKey, edge);
             source.outDegree++;
             target.inDegree++;
-            edges.push({ source: source.id, target: targetID });
+            edges.push(edge);
         }
     }
     for (const node of nodes) node.degree = node.inDegree + node.outDegree;
@@ -62,7 +67,7 @@ export function buildCitationGraph({
         || left.target.localeCompare(right.target)
     ));
     const missingIdentifiers = nodes.filter(node => (
-        !node.paperID && !node.doi && !node.arxivID
+        !node.doi && !node.arxivID
     )).length;
     if (missingIdentifiers) {
         graphWarnings.push({
@@ -89,6 +94,16 @@ export function buildCitationGraph({
         selectedItemID: selectedExists ? selectedItemID : null,
         warnings: graphWarnings,
     };
+}
+
+function appendEdgeSources(edge, values) {
+    const sources = [...new Set([
+        ...(Array.isArray(edge.sources) ? edge.sources : []),
+        ...(Array.isArray(values) ? values : []),
+    ].map(value => typeof value === 'string'
+        ? value.trim().toLowerCase().slice(0, 64)
+        : '').filter(value => /^[a-z][a-z0-9-]{0,63}$/.test(value)))].sort();
+    if (sources.length) edge.sources = sources;
 }
 
 function createUniqueIndex(nodes, readValue) {
@@ -123,7 +138,6 @@ function appendAmbiguityWarnings(warnings, indexes) {
 
 function matchReference(reference, indexes) {
     for (const [identifierType, value] of [
-        ['paperID', reference?.paperID],
         ['doi', reference?.doi],
         ['arxivID', reference?.arxivID],
     ]) {

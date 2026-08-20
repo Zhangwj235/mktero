@@ -63,6 +63,8 @@ Open `Settings -> Mktero` after installation.
 | --- | --- | --- |
 | API Token | Empty | Required when a conversion is not available locally |
 | Semantic Scholar API Key | Empty | Optional; anonymous citation graph requests remain supported |
+| OpenAlex API Key | Empty | Optional; anonymous citation graph requests remain supported |
+| OpenCitations Access Token | Empty | Optional; anonymous citation graph requests remain supported |
 | Body text font | System serif | Choose System serif, Georgia, Cambria, or Times New Roman |
 | Body text size | 18 px | Adjust Markdown and snapshot text from 16 to 22 px while keeping a wide, stable reading column |
 | Reuse conversion results | On | Reuse results for the same PDF content and parser profile |
@@ -78,11 +80,11 @@ controls, keeps Zotero's native select affordance, and uses explicit
 contrasting controls so configured values remain legible in Zotero's light and
 dark themes.
 
-The MinerU API Token, Semantic Scholar API Key, and AI API Key are stored unencrypted as normal
-preferences in the active Zotero profile. Use `Test connection` to validate
-the current AI endpoint, key, and model before translating. This probe only
-requires a successful provider response; a reasoning-only response without
-visible text is sufficient.
+The MinerU API Token, citation provider credentials, and AI API Key are stored
+unencrypted as normal preferences in the active Zotero profile. Use
+`Test connection` to validate the current AI endpoint, key, and model before
+translating. This probe only requires a successful provider response; a
+reasoning-only response without visible text is sufficient.
 
 ### Open and read a PDF
 
@@ -119,22 +121,32 @@ session-only and are not restored after Zotero restarts.
 
 ### Explore the library citation graph
 
-Right-click one regular Zotero item or PDF attachment and choose
-`Open citation graph`, or use the network button in the PDF reader toolbar.
-Mktero opens one session-only graph tab per library and focuses the selected
-paper. Every regular item in that library remains a node; papers without a
-reliable DOI or arXiv identifier remain isolated. A directed edge means the
-source paper cites the target paper, and edges are shown only when both papers
-already exist in the current Zotero library.
+Open a paper's Markdown reader and click the floating network button, or use
+the network button in the PDF reader toolbar. The citation graph opens in a
+modal dialog and focuses the current paper. It contains only that paper and
+the papers it directly references when those references can be matched to
+items in the current Zotero library. Papers that cite the current paper are
+not included yet, and no other library papers are shown.
 
-Citation data comes only from Semantic Scholar. Mktero sends DOI and arXiv
-identifiers, never PDFs, Markdown, notes, annotations, local paths, Zotero keys,
-or complete item records. Cached citation data appears first, followed by an
-incremental refresh of missing or stale records. Search, the All/Connected
-filter, and the accessible References/Cited by lists can focus a paper; double
-clicking a node or choosing `Open in Zotero` opens its PDF when available and
-otherwise selects the Zotero item. Clearing Mktero's local cache also removes
-cached citation records.
+For a paper with a DOI, Mktero requests its references from Semantic Scholar,
+OpenCitations, and OpenAlex concurrently. For a paper that has only an arXiv
+identifier, Mktero uses Semantic Scholar. Cached provider results appear
+immediately, then each provider completion updates the graph independently.
+The refresh ends after six seconds; one failed provider does not discard data
+from the others, and a provider is paused for five minutes after two
+consecutive failed refreshes.
+
+Mktero sends only DOI and arXiv identifiers and optional provider credentials,
+never PDFs, Markdown, titles, notes, annotations, local paths, Zotero keys, or
+complete item records. OpenAlex receives DOI-only batches for the focused paper
+and local matching candidates; OpenAlex IDs returned by the service remain
+local. References are matched to Zotero papers only by a unique normalized DOI
+or arXiv identifier, never by title. Duplicate relationships are merged while
+retaining their provider provenance. Papers without a reliable identifier stay
+isolated. Search, the All/Connected filter, and the accessible References list
+can focus a paper; double-clicking a node or choosing `Open in Zotero` opens its
+PDF when available and otherwise selects the Zotero item. Clearing Mktero's
+local cache also removes cached citation records.
 
 ### Correct recognition errors
 
@@ -289,8 +301,9 @@ library item cannot save a snapshot.
   backlinks when reliable source information is available.
 - Keeps a content-addressed local cache and resumes recently uploaded MinerU
   tasks without uploading the same PDF again.
-- Shows directed citation relationships only among papers already in the
-  current Zotero library, with cache-first Semantic Scholar refreshes.
+- Shows the focused paper's directed reference relationships only among papers
+  already in the current Zotero library, with cache-first concurrent refreshes
+  from Semantic Scholar, OpenCitations, and OpenAlex when supported.
 - Follows Zotero's display language for English and Simplified Chinese; other
   locales fall back to English.
 
@@ -358,28 +371,34 @@ navigation, not as guessed annotation rectangles.
 | API Token | Active Zotero profile, unencrypted | No |
 | AI API Key | Active Zotero profile, unencrypted | No |
 | Semantic Scholar API Key | Active Zotero profile, unencrypted | No |
-| DOI and arXiv identifiers used for the citation graph | Semantic Scholar | Not by Mktero |
+| OpenAlex API Key | Active Zotero profile, unencrypted | No |
+| OpenCitations Access Token | Active Zotero profile, unencrypted | No |
+| Focused DOI or arXiv identifier | Semantic Scholar | Not by Mktero |
+| Focused DOI | OpenCitations | Not by Mktero |
+| Focused and local candidate DOI identifiers | OpenAlex | Not by Mktero |
 | Protected translatable Markdown batches, plus ordinary text segments used only after repeated placeholder-integrity failures | Configured AI provider | Not by Mktero |
 | Cached Markdown, figures, source maps, and PDF text indexes | Active Zotero profile, unencrypted | No |
 | Cached AI translations | Active Zotero profile, unencrypted | No |
-| Cached Semantic Scholar reference metadata | Active Zotero profile, unencrypted | No |
+| Cached provider reference metadata and provenance | Active Zotero profile, unencrypted | No |
 | Pending MinerU task IDs and timestamps | Active Zotero profile, unencrypted | No |
 | Pending Markdown annotation records, including bounded surrounding text used for matching | Active Zotero profile, unencrypted until synchronized | No |
 | Corrected Markdown blocks and their base figures/source maps | Active Zotero profile, unencrypted | No |
 | Synchronized PDF annotations | Local Zotero library | According to Zotero settings |
 | Saved snapshot Note, HTML, Markdown, source map, and figures | Zotero items and attachments, unencrypted | According to Zotero settings |
 
-The local cache does not contain API Tokens, Semantic Scholar API Keys, AI API
-Keys, or PDF annotation comments. PDF annotations and local PDF.js indexes are not sent to MinerU or
-the AI provider. Translation sends protected Markdown batches and translation
-instructions to the configured AI provider, with at most five requests active
-at once. If a block repeatedly fails placeholder-integrity validation, a final
-request sends only that block's ordinary text segments; protected formulas,
-citations, reference labels, and placeholder tokens remain local. Source-aware copy reads
-local item metadata and writes only the generated result to the system clipboard.
-Citation graph requests send only normalized DOI and arXiv identifiers to
-Semantic Scholar. Cached reference metadata is local, unencrypted, and not
-synced by Zotero; no external Semantic Scholar paper becomes a graph node.
+The local cache does not contain API Tokens, citation provider credentials, AI
+API Keys, or PDF annotation comments. PDF annotations and local PDF.js indexes
+are not sent to MinerU or the AI provider. Translation sends protected Markdown
+batches and translation instructions to the configured AI provider, with at
+most five requests active at once. If a block repeatedly fails
+placeholder-integrity validation, a final request sends only that block's
+ordinary text segments; protected formulas, citations, reference labels, and
+placeholder tokens remain local. Source-aware copy reads local item metadata
+and writes only the generated result to the system clipboard. Citation graph
+requests send only normalized DOI and arXiv identifiers plus the applicable
+credential to Semantic Scholar, OpenCitations, or OpenAlex. Cached reference
+metadata and provider provenance are local, unencrypted, and not synced by
+Zotero; no paper outside the current Zotero library becomes a graph node.
 
 Correction data is kept outside the normal conversion cache under the active
 Zotero profile. Clearing the cache does not clear corrections. Corrections are

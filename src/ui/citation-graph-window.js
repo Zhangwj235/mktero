@@ -98,6 +98,7 @@ class CitationGraphView {
         this.pointer = null;
         this.listeners = [];
         this.navigationError = '';
+        this.keepFocusedNodeCentered = false;
         this.motionQuery = this.ownerWindow.matchMedia?.(
             '(prefers-reduced-motion: reduce)'
         ) || null;
@@ -113,6 +114,21 @@ class CitationGraphView {
         this.resizeObserver = this.createObserver(createResizeObserver);
         this.resizeObserver?.observe?.(this.root);
         this.resizeCanvas();
+    }
+
+    resize() {
+        if (this.destroyed) return;
+        const previousWidth = this.cssWidth;
+        const previousHeight = this.cssHeight;
+        this.resizeCanvas();
+        if (this.nodes.length
+            && (this.cssWidth !== previousWidth
+                || this.cssHeight !== previousHeight)) {
+            this.keepFocusedNodeCentered = Boolean(this.selectedNode());
+            this.startSimulation();
+            this.centerNode(this.selectedNode());
+        }
+        this.scheduleDraw();
     }
 
     buildInterface() {
@@ -352,7 +368,10 @@ class CitationGraphView {
         ));
         if (!node) return false;
         this.selectedItemID = node.itemID;
-        if (center) this.centerNode(node);
+        if (center) {
+            this.keepFocusedNodeCentered = true;
+            this.centerNode(node);
+        }
         this.renderDetails();
         this.scheduleDraw();
         return true;
@@ -385,20 +404,35 @@ class CitationGraphView {
         if (this.prefersReducedMotion()) {
             this.simulation?.stop?.();
             this.simulation?.tick?.(240);
+            this.centerNode(this.selectedNode());
+            this.keepFocusedNodeCentered = false;
             this.scheduleDraw();
             return;
         }
-        this.simulation?.on?.('tick', () => this.scheduleDraw());
+        this.simulation?.on?.('tick', () => {
+            if (this.keepFocusedNodeCentered) {
+                this.centerNode(this.selectedNode());
+            }
+            this.scheduleDraw();
+        });
+        this.simulation?.on?.('end', () => {
+            if (this.destroyed) return;
+            if (this.keepFocusedNodeCentered) {
+                this.centerNode(this.selectedNode());
+                this.keepFocusedNodeCentered = false;
+            }
+            this.scheduleDraw();
+        });
     }
 
     createObserver(factory) {
         if (typeof factory === 'function') {
-            return factory(() => this.resizeCanvas());
+            return factory(() => this.resize());
         }
         const Observer = this.ownerWindow.ResizeObserver
             || globalThis.ResizeObserver;
         return typeof Observer === 'function'
-            ? new Observer(() => this.resizeCanvas())
+            ? new Observer(() => this.resize())
             : null;
     }
 
@@ -769,11 +803,15 @@ class CitationGraphView {
     resetView() {
         this.transform = { x: 0, y: 0, scale: 1 };
         const node = this.selectedNode();
-        if (node) this.centerNode(node);
+        if (node) {
+            this.keepFocusedNodeCentered = true;
+            this.centerNode(node);
+        }
         this.scheduleDraw();
     }
 
     zoomBy(factor, point = null) {
+        this.keepFocusedNodeCentered = false;
         const nextScale = clamp(
             this.transform.scale * factor,
             MIN_SCALE,
@@ -792,7 +830,9 @@ class CitationGraphView {
     }
 
     centerNode(node) {
-        if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
+        if (!node
+            || !Number.isFinite(node.x)
+            || !Number.isFinite(node.y)) return;
         this.transform.x = (this.cssWidth || DEFAULT_WIDTH) / 2
             - node.x * this.transform.scale;
         this.transform.y = (this.cssHeight || DEFAULT_HEIGHT) / 2
@@ -806,6 +846,7 @@ class CitationGraphView {
     }
 
     handlePointerDown(event) {
+        this.keepFocusedNodeCentered = false;
         this.hideHoverDetails();
         const point = this.eventPoint(event);
         const node = this.hitTest(event);

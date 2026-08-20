@@ -29,7 +29,64 @@ test('changes cache keys when source identifiers change', async () => {
         await createCitationCacheKey(base),
         await createCitationCacheKey({ ...base, libraryID: 2 })
     );
+    assert.notEqual(
+        await createCitationCacheKey(base, { providerID: 'semantic-scholar' }),
+        await createCitationCacheKey(base, { providerID: 'openalex' })
+    );
+    assert.notEqual(
+        await createCitationCacheKey(base, {
+            providerID: 'openalex',
+            scopeIdentifiers: ['doi:10.1000/candidate-a'],
+        }),
+        await createCitationCacheKey(base, {
+            providerID: 'openalex',
+            scopeIdentifiers: ['doi:10.1000/candidate-b'],
+        })
+    );
+    assert.equal(
+        await createCitationCacheKey(base, {
+            providerID: 'openalex',
+            scopeIdentifiers: [
+                'doi:10.1000/candidate-b',
+                'doi:10.1000/candidate-a',
+            ],
+        }),
+        await createCitationCacheKey(base, {
+            providerID: 'openalex',
+            scopeIdentifiers: [
+                'doi:10.1000/candidate-a',
+                'doi:10.1000/candidate-b',
+            ],
+        })
+    );
+    assert.notEqual(
+        await createCitationCacheKey(base, {
+            providerID: 'openalex',
+            scopeIdentifiers: ['doi:10.1000/candidate-a'],
+        }),
+        await createCitationCacheKey(base, {
+            providerID: 'openalex',
+            scopeIdentifiers: [
+                'doi:10.1000/candidate-a',
+                'doi:10.1000/candidate-a',
+            ],
+        })
+    );
     assert.equal((await createCitationCacheKey(base)).length, 64);
+});
+
+test('preserves bounded citation provider provenance', async t => {
+    const fixture = await createCacheFixture(t);
+    const key = '7'.repeat(64);
+    const value = record('fetched', 1_000);
+    value.references[0].sources = ['semantic-scholar', 'open-citations'];
+
+    await fixture.cache.put(key, value);
+
+    assert.deepEqual(
+        (await fixture.cache.get(key)).record.references[0].sources,
+        ['semantic-scholar', 'open-citations']
+    );
 });
 
 test('persists records and reports stale positive and negative entries', async t => {

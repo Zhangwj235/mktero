@@ -136,6 +136,18 @@ test('opens Markdown directly in a Zotero tab and reuses it for the same PDF', (
     ]);
 });
 
+test('passes the citation graph action to the Markdown reader model', () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness);
+    const onOpenCitationGraph = () => {};
+
+    const presentation = presenter.open(42, { onOpenCitationGraph });
+
+    assert.equal(presentation.model.onOpenCitationGraph, onOpenCitationGraph);
+    presenter.dispose();
+});
+
 test('installs the custom Markdown tab icon stylesheet in the Zotero window', () => {
     const { document } = parseHTML('<html><body></body></html>');
     const mainWindow = createMainWindow(document);

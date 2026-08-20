@@ -63,6 +63,7 @@ export class MarkdownTabPresenter {
         sourceItemID = documentID,
         onClose,
         onReparse,
+        onOpenCitationGraph,
         onOpenSettings,
         onSaveSnapshot,
         onSetCorrectionMode,
@@ -105,6 +106,9 @@ export class MarkdownTabPresenter {
             if (onClose) existing.onClose = onClose;
             if (onReparse !== undefined) {
                 existing.model.onReparse = onReparse;
+            }
+            if (onOpenCitationGraph !== undefined) {
+                existing.model.onOpenCitationGraph = onOpenCitationGraph;
             }
             if (onOpenSettings !== undefined) {
                 existing.model.onOpenSettings = onOpenSettings;
@@ -186,6 +190,7 @@ export class MarkdownTabPresenter {
             sourceItemID,
             {
                 onReparse,
+                onOpenCitationGraph,
                 onOpenSettings,
                 onSaveSnapshot,
                 onSetCorrectionMode,
