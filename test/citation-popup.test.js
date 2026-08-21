@@ -80,7 +80,7 @@ test('renders XHTML controls and closes after opening a Zotero match', async () 
     dom.window.close();
 });
 
-test('keeps row navigation separate from the import action', async () => {
+test('keeps row navigation separate from the batch import action', async () => {
     const { dom, document, parent, anchor } = createHarness();
     let activated = 0;
     let imported = 0;
@@ -112,9 +112,24 @@ test('keeps row navigation separate from the import action', async () => {
 
     const row = document.querySelector('.mktero-citation-popup-item');
     const action = document.querySelector('.mktero-citation-popup-action');
-    assert.equal(row.querySelectorAll('button').length, 2);
+    const selectAll = document.querySelector(
+        '.mktero-citation-popup-select-all'
+    );
+    const importButton = document.querySelector(
+        '.mktero-citation-popup-batch-import'
+    );
+    assert.equal(row.querySelectorAll('button:not([hidden])').length, 1);
     assert.equal(row.querySelector('button')?.parentElement, row);
-    action.click();
+    assert.equal(action.hidden, true);
+    assert.equal(
+        [...document.querySelector('.mktero-citation-popup-header').children]
+            .some(child => child.tagName === 'LABEL'),
+        false
+    );
+    assert.equal(selectAll.parentElement.textContent, '');
+    assert.equal(importButton.disabled, false);
+    assert.equal(importButton.textContent, '');
+    importButton.click();
     await nextTask();
     assert.equal(imported, 1);
     assert.equal(activated, 0);
@@ -581,7 +596,11 @@ test('aborts status work on close and ignores an old-library import result', asy
             if (String(targetLibraryID) === '2') {
                 return new Promise(resolve => { secondStatusResolve = resolve; });
             }
-            return { state: 'absent', canImport: true };
+            return {
+                state: 'present-other-library',
+                otherMatches: [{ libraryName: 'Library 2' }],
+                canImport: true,
+            };
         },
         onImportReference: async () => new Promise(resolve => {
             importResolve = resolve;

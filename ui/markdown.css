@@ -2595,11 +2595,6 @@ main {
     font-size: 12px;
 }
 
-.mktero-citation-popup-header label {
-    flex: 0 0 auto;
-    color: color-mix(in srgb, var(--citation-popup-text) 72%, transparent);
-}
-
 .mktero-citation-popup-batch-controls {
     display: flex;
     flex: 0 0 auto;
@@ -2612,7 +2607,6 @@ main {
     display: inline-flex;
     min-height: 30px;
     align-items: center;
-    gap: 5px;
     color: color-mix(in srgb, var(--citation-popup-text) 72%, transparent);
     cursor: pointer;
     white-space: nowrap;

@@ -768,6 +768,10 @@ test('styles citation batch selection controls as a compact action bar', () => {
 
     assert.match(controls, /display:\s*flex/);
     assert.match(controls, /margin-left:\s*auto/);
+    assert.doesNotMatch(
+        MARKDOWN_STYLES,
+        /\.mktero-citation-popup-header\s+label/
+    );
     assert.match(importButton, /width:\s*30px/);
     assert.match(importButton, /height:\s*30px/);
     assert.match(importButton, /place-items:\s*center/);

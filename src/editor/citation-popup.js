@@ -183,22 +183,18 @@ export function createCitationPopup(parent, {
                 if (typeof onListReferenceLibraries === 'function') {
                     const header = createElement(document, 'div');
                     header.className = 'mktero-citation-popup-header';
-                    const labelElement = createElement(document, 'label');
-                    labelElement.textContent = t('reference.targetLibrary');
                     libraryPicker = createLibraryPicker(document, {
                         label: t('reference.targetLibrary'),
                         loadingLabel: t('reference.loadingLibraries'),
                         readOnlyLabel: t('reference.readOnly'),
                     });
                     destroyLibraryPicker = libraryPicker.destroy;
-                    labelElement.setAttribute('for', libraryPicker.trigger.id);
                     batchControls = createBatchControls(document, {
                         t,
                         onToggleAll: handleSelectAll,
                         onImport: importSelected,
                     });
                     header.append(
-                        labelElement,
                         libraryPicker.element,
                         batchControls.element
                     );
@@ -478,21 +474,6 @@ function applyStatus(row, result, {
             isCurrent
         );
     }
-    else if (state === 'absent'
-        && result?.canImport !== false
-        && typeof onImportReference === 'function') {
-        configureAction(
-            row.action,
-            t('reference.import'),
-            () => onImportReference(target, {
-                targetLibraryID: selectedLibraryID,
-                signal: controller.signal,
-            }),
-            'import',
-            generation,
-            isCurrent
-        );
-    }
     else if (state === 'failed'
         && result?.canImport !== false
         && typeof onImportReference === 'function') {
@@ -508,7 +489,11 @@ function applyStatus(row, result, {
             isCurrent
         );
     }
-    row.selectable = row.action._mkteroActionKind === 'import';
+    row.selectable = (
+        state === 'absent'
+        && result?.canImport !== false
+        && typeof onImportReference === 'function'
+    ) || row.action._mkteroActionKind === 'import';
     row.syncSelectionAvailability?.();
 }
 
@@ -640,9 +625,7 @@ function createBatchControls(document, {
     selectAll.addEventListener('change', () => {
         onToggleAll?.(selectAll.checked);
     });
-    const selectAllText = createElement(document, 'span');
-    selectAllText.textContent = t('reference.selectAll');
-    selectAllLabel.append(selectAll, selectAllText);
+    selectAllLabel.append(selectAll);
     const importButton = createElement(document, 'button');
     importButton.type = 'button';
     importButton.className = 'mktero-citation-popup-batch-import';
