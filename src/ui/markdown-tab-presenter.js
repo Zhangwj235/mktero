@@ -85,6 +85,11 @@ export class MarkdownTabPresenter {
         onUpdateMarkdownAnnotation,
         onDeleteMarkdownAnnotation,
         onRetryMarkdownAnnotationSynchronization,
+        onListReferenceLibraries,
+        onGetReferenceStatus,
+        onImportReference,
+        onOpenReferenceMatch,
+        onSubscribeReferenceUpdates,
     } = {}) {
         this.ensureSessionStateFilter();
         const owner = this.zotero.getMainWindow?.();
@@ -181,6 +186,21 @@ export class MarkdownTabPresenter {
                 existing.model.onRetryMarkdownAnnotationSynchronization
                     = onRetryMarkdownAnnotationSynchronization;
             }
+            if (onListReferenceLibraries !== undefined) {
+                existing.model.onListReferenceLibraries = onListReferenceLibraries;
+            }
+            if (onGetReferenceStatus !== undefined) {
+                existing.model.onGetReferenceStatus = onGetReferenceStatus;
+            }
+            if (onImportReference !== undefined) {
+                existing.model.onImportReference = onImportReference;
+            }
+            if (onOpenReferenceMatch !== undefined) {
+                existing.model.onOpenReferenceMatch = onOpenReferenceMatch;
+            }
+            if (onSubscribeReferenceUpdates !== undefined) {
+                existing.model.onSubscribeReferenceUpdates = onSubscribeReferenceUpdates;
+            }
             tabs.select(existing.tabID);
             return { ...existing, created: false };
         }
@@ -212,6 +232,11 @@ export class MarkdownTabPresenter {
                 onUpdateMarkdownAnnotation,
                 onDeleteMarkdownAnnotation,
                 onRetryMarkdownAnnotationSynchronization,
+                onListReferenceLibraries,
+                onGetReferenceStatus,
+                onImportReference,
+                onOpenReferenceMatch,
+                onSubscribeReferenceUpdates,
             },
             this.localization.t.bind(this.localization)
         );

@@ -30,6 +30,7 @@ Mktero 是适用于 Zotero 7、8 和 9 的无需重启扩展。需要时，它�
 - 将 OCR 结果、双栏正文、公式、表格、图片、列表和代码重排成连续的论文阅读文档。
 - 保留可靠的页码和区域映射，使正文、公式、表格和图片可以跳回 PDF 来源。
 - 在不丢失当前位置的情况下预览引用、作者单位、图片和表格。
+- 在 Markdown 引用弹窗中检查文献是否存在于可访问的 Zotero 文库；用户可以选择可写的个人库或群组库，显式复制其他文库中的文献，并导入缺失的元数据和公开 PDF。
 - 在 Markdown 中显示 Zotero PDF 高亮和下划线，并支持新建、编辑、改色、评论和删除标注。
 - 在不修改不可变 MinerU 结果的前提下，校对已有段落、标题和 GFM 表格单元格；校对内容可查看、恢复或删除。
 - 通过配置的 Vercel AI SDK Provider 翻译整篇文章，并在原文、译文和连续块级双语阅读之间切换。
@@ -109,6 +110,10 @@ AI 翻译始终需要用户主动触发，也不会重写原始 Markdown。Mkter
 
 引用图谱只包含当前论文，以及能匹配到当前 Zotero 文库条目的直接引用。支持时会并发查询 Semantic Scholar、OpenCitations 和 OpenAlex。匹配只使用唯一且规范化的 DOI 或 arXiv 标识符，不使用标题；Provider 返回的元数据保存在本地。
 
+### 从 Markdown 导入参考文献
+
+打开引用弹窗时，Mktero 会先只检查本地 Zotero，不会立即发起网络查询。弹窗会列出可访问的个人库和群组库，并允许选择导入目标。只读文库仍可被选择以检查状态，但导入操作会被禁用并显示权限说明。如果其他文库中已有匹配条目，Mktero 会提供明确的“复制到所选文库”操作，不会静默创建重复条目。具有可靠 DOI、arXiv ID 或 PMID 的缺失文献会通过 Zotero 原生 translator 导入；目标文库允许文件时，还会尝试导入 arXiv 或配置的公开 PDF。即使 PDF 下载失败，元数据也会保留，并可稍后重试。
+
 ### 保存便携快照
 
 `Save snapshot` 会在 PDF 所属条目下创建专用的 `Mktero Markdown Snapshot` Note。Note 保存便携 HTML，图片作为内嵌附件，原始 Markdown 和来源映射作为关联附件。用户修改过快照 Note 后，Mktero 不会静默覆盖。没有父级文库条目的独立 PDF 无法保存快照。
@@ -138,11 +143,13 @@ PDF、MinerU 结果、压缩包、图片路径、API 响应和首选项都会被
 | MinerU API Token 和 AI/Provider 凭据 | 当前 Zotero 配置文件，未加密 | 否 |
 | 缓存的 Markdown、图片、来源映射、PDF 索引、校对和译文 | 当前 Zotero 配置文件，未加密 | 否 |
 | 当前论文的 DOI/arXiv 标识符及 Provider 所需的候选 DOI | Semantic Scholar、OpenCitations 或 OpenAlex | Mktero 不同步 |
+| 用户点击“导入文献”后发送的规范化 DOI、arXiv ID 或 PMID，以及可选的公开 PDF 请求 | 选定的元数据/PDF Provider | Mktero 不同步 |
 | 受保护的 Markdown 翻译批次 | 你配置的 AI Provider | Mktero 不同步 |
 | Zotero PDF 标注 | 本地 Zotero 文库 | 取决于 Zotero 设置 |
 | 保存的快照 Note 和附件 | Zotero 条目和附件 | 取决于 Zotero 设置 |
+| 导入的文献元数据和 PDF 附件 | 当前 Zotero 配置文件，未加密 | 取决于 Zotero 设置 |
 
-Mktero 不会把 PDF 标注、本地 PDF.js 索引、Zotero 笔记、完整条目记录、本地路径或缓存 Markdown 发送给 MinerU 或引用 Provider。翻译请求包含受保护的 Markdown 和指令；如果占位符校验连续失败，最后一次重试只发送受影响内容块中的普通文本片段。日志不会写入 API Token、预签名地址、PDF 字节或带认证的响应。
+Mktero 不会把 PDF 标注、本地 PDF.js 索引、Zotero 笔记、完整条目记录、本地路径或缓存 Markdown 发送给文献/PDF Provider。文献导入请求默认只检查本地数据，并且只有用户明确点击导入后才会发送规范化标识符和配置的 Provider 凭据；不会发送引用全文、Zotero key 或 PDF 字节。翻译请求包含受保护的 Markdown 和指令；如果占位符校验连续失败，最后一次重试只发送受影响内容块中的普通文本片段。日志不会写入 API Token、预签名地址、PDF 字节或带认证的响应。
 
 请同时阅读 MinerU、AI Provider 和引用 Provider 的隐私政策。除非相关数据处理条款符合你的使用场景，否则不要处理机密 PDF。
 

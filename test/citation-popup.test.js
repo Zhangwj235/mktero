@@ -1,0 +1,173 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
+import { createCitationPopup } from '../src/editor/citation-popup.js';
+
+const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+
+function createHarness() {
+    const dom = new JSDOM(
+        '<!doctype html><div id="parent"><button id="anchor">cite</button></div>',
+        { pretendToBeVisual: true }
+    );
+    const { document } = dom.window;
+    const parent = document.querySelector('#parent');
+    const anchor = document.querySelector('#anchor');
+    anchor.getBoundingClientRect = () => ({
+        left: 20,
+        right: 60,
+        top: 20,
+        bottom: 40,
+        width: 40,
+        height: 20,
+    });
+    return { dom, document, parent, anchor };
+}
+
+function reference() {
+    return {
+        id: 'number:1',
+        number: 1,
+        text: 'Doe. Paper. doi:10.1000/test. 2024.',
+        identifiers: { doi: '10.1000/test' },
+    };
+}
+
+function nextTask() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+test('renders XHTML controls and closes after opening a Zotero match', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const opened = [];
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async () => ({
+            state: 'present',
+            match: { itemID: 7, libraryID: 1, hasPDF: true },
+        }),
+        onOpenReferenceMatch: async match => opened.push(match.itemID),
+    });
+    await nextTask();
+
+    const row = document.querySelector('.mktero-citation-popup-item');
+    const select = document.querySelector('.mktero-citation-popup-library-select');
+    const action = document.querySelector('.mktero-citation-popup-action');
+    assert.equal(row.namespaceURI, XHTML_NAMESPACE);
+    assert.equal(select.namespaceURI, XHTML_NAMESPACE);
+    assert.equal(action.textContent, 'Open in Zotero');
+
+    action.click();
+    await nextTask();
+    assert.deepEqual(opened, [7]);
+    assert.equal(document.querySelector('.mktero-citation-popup'), null);
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('keeps read-only libraries visible and disables their import action', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        targetLibraryID: 2,
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 2,
+                name: 'Shared',
+                type: 'group',
+                editable: false,
+                filesEditable: false,
+            }],
+            defaultLibraryID: 2,
+        }),
+        onGetReferenceStatus: async () => ({
+            state: 'absent',
+            canImport: false,
+            targetLibraryEditable: false,
+            targetLibraryFilesEditable: false,
+        }),
+        onImportReference: async () => ({ state: 'imported' }),
+    });
+    await nextTask();
+
+    const option = document.querySelector('option');
+    const action = document.querySelector('.mktero-citation-popup-action');
+    assert.match(option.textContent, /Shared.*Read-only/);
+    assert.equal(option.disabled, false);
+    assert.match(
+        document.querySelector('.mktero-citation-popup-status').textContent,
+        /Read-only/
+    );
+    assert.equal(action.hidden, true);
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('aborts status work on close and ignores an old-library import result', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    let importResolve;
+    let secondStatusResolve;
+    let observedSignal;
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onListReferenceLibraries: async ({ signal }) => {
+            observedSignal = signal;
+            return {
+                libraries: [1, 2].map(libraryID => ({
+                    libraryID,
+                    name: `Library ${libraryID}`,
+                    type: libraryID === 1 ? 'user' : 'group',
+                    editable: true,
+                    filesEditable: true,
+                })),
+                defaultLibraryID: 1,
+            };
+        },
+        onGetReferenceStatus: async (_target, { targetLibraryID }) => {
+            if (String(targetLibraryID) === '2') {
+                return new Promise(resolve => { secondStatusResolve = resolve; });
+            }
+            return { state: 'absent', canImport: true };
+        },
+        onImportReference: async () => new Promise(resolve => {
+            importResolve = resolve;
+        }),
+    });
+    await nextTask();
+
+    document.querySelector('.mktero-citation-popup-action').click();
+    const select = document.querySelector('.mktero-citation-popup-library-select');
+    select.value = '2';
+    select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    await nextTask();
+    importResolve({ state: 'imported', match: { itemID: 9 } });
+    await nextTask();
+    assert.equal(
+        document.querySelector('.mktero-citation-popup-status').dataset.state,
+        'checking'
+    );
+
+    popup.close();
+    assert.equal(observedSignal.aborted, true);
+    secondStatusResolve({ state: 'absent', canImport: true });
+    popup.destroy();
+    dom.window.close();
+});

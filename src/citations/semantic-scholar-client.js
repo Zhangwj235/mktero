@@ -15,6 +15,7 @@ const MAX_BATCH_SIZE = 500;
 const MAX_REFERENCES = 1_000;
 const REFERENCE_FIELDS = 'title,year,externalIds,authors';
 const RESOLUTION_FIELDS = 'paperId,title,year,externalIds';
+const OPEN_ACCESS_FIELDS = 'openAccessPdf,externalIds';
 
 export class SemanticScholarClient {
     constructor({
@@ -74,6 +75,37 @@ export class SemanticScholarClient {
 
     supports(paper) {
         return Boolean(normalizeDOI(paper?.doi) || normalizeArxivID(paper?.arxivID));
+    }
+
+    async resolveOpenAccessPDF({
+        doi = '',
+        arxivID = '',
+        apiKey = '',
+        signal,
+        onRetry = () => {},
+    } = {}) {
+        const normalizedDOI = normalizeDOI(doi);
+        const normalizedArxivID = normalizeArxivID(arxivID);
+        const queryID = normalizedDOI
+            ? `DOI:${normalizedDOI}`
+            : normalizedArxivID ? `ARXIV:${normalizedArxivID}` : '';
+        if (!queryID) return null;
+        try {
+            const payload = await this.#requestJSON(
+                `${this.apiBase}/paper/${encodeURIComponent(queryID)}`
+                    + `?fields=${encodeURIComponent(OPEN_ACCESS_FIELDS)}`,
+                { headers: requestHeaders(apiKey) },
+                signal,
+                onRetry
+            );
+            return normalizePublicURL(payload?.openAccessPdf?.url);
+        }
+        catch (error) {
+            if (error?.code === 'S2_HTTP_ERROR' && error.status === 404) {
+                return null;
+            }
+            throw error;
+        }
     }
 
     async resolvePapers({
@@ -462,4 +494,18 @@ function boundedInteger(value, minimum, maximum, fallback) {
     return Number.isSafeInteger(value)
         ? Math.max(minimum, Math.min(value, maximum))
         : fallback;
+}
+
+function normalizePublicURL(value) {
+    if (typeof value !== 'string' || value.length > 2_048) return '';
+    try {
+        const url = new URL(value);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+        if (url.username || url.password) return '';
+        url.hash = '';
+        return url.toString();
+    }
+    catch {
+        return '';
+    }
 }

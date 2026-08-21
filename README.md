@@ -36,6 +36,10 @@ Useful links: [Product page](https://tenglvjun.github.io/mktero/) ·
   can jump back to their PDF source.
 - Preview citations, author affiliations, figures, and tables without losing
   the current reading position.
+- See whether each Markdown reference already exists in any accessible Zotero
+  library. Choose a writable personal or group library, explicitly copy a
+  reference from another library, and import missing metadata from the citation
+  popup with an optional public PDF attachment.
 - Display Zotero PDF highlights and underlines in Markdown, and create,
   recolor, comment on, or delete annotations.
 - Correct recognition errors in existing paragraphs, headings, and GFM table
@@ -157,6 +161,19 @@ title, and provider metadata stays local. The graph details include a button
 labeled `Open with Mktero`. It opens the first local PDF attachment through the
 same Markdown reading workflow as `Read as Markdown with Mktero`.
 
+### Import references from Markdown
+
+Open a citation popup to see local Zotero presence before any network lookup is
+made. The popup lists accessible personal and group libraries and lets you
+choose the import target. A read-only library remains selectable for presence
+checks, while its import actions stay disabled with a permission explanation.
+If a matching item exists in another library, Mktero offers an
+explicit copy action rather than silently creating a duplicate. Missing
+references with a reliable DOI, arXiv ID, or PMID can be imported through
+Zotero's native translator. When the target library permits files, Mktero also
+tries an arXiv or configured open-access PDF; metadata remains available when
+the PDF download fails and can be retried.
+
 ### Save a portable snapshot
 
 `Save snapshot` creates a dedicated `Mktero Markdown Snapshot` Note under the
@@ -193,13 +210,18 @@ and raw HTML is escaped or sanitized before rendering.
 | MinerU API Token and AI/provider credentials | Active Zotero profile, unencrypted | No |
 | Cached Markdown, figures, source maps, PDF indexes, corrections, and translations | Active Zotero profile, unencrypted | No |
 | Focused DOI/arXiv identifiers and provider-specific candidate DOI identifiers | Semantic Scholar, OpenCitations, or OpenAlex | Not by Mktero |
+| A normalized DOI, arXiv ID, or PMID after the user clicks `Import reference`; optional open-access PDF request | The selected metadata/PDF provider | Not by Mktero |
 | Protected Markdown translation batches | AI provider configured by you | Not by Mktero |
 | Zotero PDF annotations | Local Zotero library | According to Zotero settings |
 | Saved snapshot Note and attachments | Zotero items and attachments | According to Zotero settings |
+| Imported reference metadata and PDF attachments | Active Zotero profile, unencrypted | According to Zotero settings |
 
 Mktero does not send PDF annotations, local PDF.js indexes, Zotero notes,
-complete item records, local paths, or cached Markdown to MinerU or citation
-providers. Translation requests contain protected Markdown and instructions; if
+complete item records, local paths, or cached Markdown to reference/PDF
+providers. Reference import requests are local-first and happen only after an
+explicit user action; they contain normalized identifiers and configured
+provider credentials, never reference text, Zotero keys, or PDF bytes.
+Translation requests contain protected Markdown and instructions; if
 placeholder validation repeatedly fails, the final retry contains only the
 affected block's ordinary text segments. API Tokens, presigned URLs, PDF bytes,
 and authenticated responses are not written to logs.

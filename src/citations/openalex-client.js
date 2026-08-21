@@ -29,6 +29,31 @@ export class OpenAlexClient {
         return Boolean(normalizeDOI(paper?.doi));
     }
 
+    async resolveOpenAccessPDF({
+        doi = '',
+        apiKey = '',
+        signal,
+        onRetry = () => {},
+    } = {}) {
+        const normalizedDOI = normalizeDOI(doi);
+        if (!normalizedDOI) return null;
+        const payload = await this.request.getJSON(this.#worksURL({
+            dois: [normalizedDOI],
+            select: 'best_oa_location,locations',
+            perPage: 1,
+            apiKey: boundedString(apiKey, 4_096).trim(),
+        }), { signal, onRetry });
+        const [work] = workResults(payload, this.request);
+        if (!work) return null;
+        const candidates = [
+            work.best_oa_location?.pdf_url,
+            ...(Array.isArray(work.locations)
+                ? work.locations.map(location => location?.pdf_url)
+                : []),
+        ];
+        return candidates.map(normalizePublicURL).find(Boolean) || null;
+    }
+
     cacheScopeIdentifiers(papers, focus) {
         const focusDOI = normalizeDOI(focus?.doi);
         return (Array.isArray(papers) ? papers : [])
@@ -236,4 +261,18 @@ function boundedString(value, maximum) {
 
 function collapseWhitespace(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizePublicURL(value) {
+    if (typeof value !== 'string' || value.length > 2_048) return '';
+    try {
+        const url = new URL(value);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+        if (url.username || url.password) return '';
+        url.hash = '';
+        return url.toString();
+    }
+    catch {
+        return '';
+    }
 }

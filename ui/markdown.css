@@ -2586,26 +2586,42 @@ main {
     scrollbar-width: thin;
 }
 
+.mktero-citation-popup-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px 8px;
+    border-bottom: 1px solid var(--citation-popup-border);
+    font-size: 12px;
+}
+
+.mktero-citation-popup-header label {
+    flex: 0 0 auto;
+    color: color-mix(in srgb, var(--citation-popup-text) 72%, transparent);
+}
+
+.mktero-citation-popup-library-select {
+    min-width: 0;
+    flex: 1 1 auto;
+    padding: 3px 6px;
+    color: inherit;
+    background: var(--citation-popup-surface);
+    border: 1px solid var(--citation-popup-border);
+    border-radius: 5px;
+    font: inherit;
+}
+
 .mktero-citation-popup-item {
     display: grid;
     width: 100%;
     min-width: 0;
     margin: 0;
     padding: 10px 12px;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
     gap: 8px;
-    border: 0;
     border-radius: 7px;
     color: inherit;
-    background: transparent;
-    appearance: none;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-    transition:
-        background-color 120ms ease,
-        box-shadow 120ms ease;
 }
 
 .mktero-citation-popup-item + .mktero-citation-popup-item {
@@ -2619,6 +2635,34 @@ main {
     outline: none;
 }
 
+.mktero-citation-popup-item:focus-visible,
+.mktero-citation-popup-primary:focus-visible,
+.mktero-citation-popup-action:focus-visible,
+.mktero-citation-popup-library-select:focus-visible {
+    outline: 2px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 35%,
+        transparent
+    );
+    outline-offset: -2px;
+}
+
+.mktero-citation-popup-primary {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
 .mktero-citation-popup-item:focus-visible {
     outline: 2px solid color-mix(
         in srgb,
@@ -2626,6 +2670,52 @@ main {
         transparent
     );
     outline-offset: -2px;
+}
+
+.mktero-citation-popup-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding-left: 3.4ch;
+}
+
+.mktero-citation-popup-status {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+    color: color-mix(in srgb, var(--citation-popup-text) 72%, transparent);
+    font-size: 12px;
+}
+
+.mktero-citation-popup-status[data-state="present"],
+.mktero-citation-popup-status[data-state="imported"] {
+    color: var(--success, #2e7d32);
+}
+
+.mktero-citation-popup-status[data-state="failed"] {
+    color: var(--error, #c62828);
+}
+
+.mktero-citation-popup-action {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    color: var(--citation-popup-accent);
+    background: transparent;
+    border: 1px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 40%,
+        var(--citation-popup-border)
+    );
+    border-radius: 5px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.mktero-citation-popup-action:disabled {
+    opacity: 0.6;
+    cursor: wait;
 }
 
 .mktero-citation-popup-number {
