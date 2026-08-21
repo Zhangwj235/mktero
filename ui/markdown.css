@@ -2600,6 +2600,69 @@ main {
     color: color-mix(in srgb, var(--citation-popup-text) 72%, transparent);
 }
 
+.mktero-citation-popup-batch-controls {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.mktero-citation-popup-select-all-label {
+    display: inline-flex;
+    min-height: 30px;
+    align-items: center;
+    gap: 5px;
+    color: color-mix(in srgb, var(--citation-popup-text) 72%, transparent);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.mktero-citation-popup-select-all-label input,
+.mktero-citation-popup-reference-checkbox {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--citation-popup-accent);
+}
+
+.mktero-citation-popup-batch-import {
+    display: inline-grid;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    place-items: center;
+    color: var(--citation-popup-accent);
+    background: transparent;
+    border: 1px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 40%,
+        var(--citation-popup-border)
+    );
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.mktero-citation-popup-batch-import:hover,
+.mktero-citation-popup-batch-import:focus-visible {
+    background: color-mix(
+        in srgb,
+        var(--citation-popup-accent) 10%,
+        var(--citation-popup-surface)
+    );
+    outline: 2px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 35%,
+        transparent
+    );
+    outline-offset: 1px;
+}
+
+.mktero-citation-popup-batch-import:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+
 .mktero-citation-popup-library-picker {
     position: relative;
     min-width: 0;
@@ -2762,11 +2825,21 @@ main {
     min-width: 0;
     margin: 0;
     padding: 10px 12px;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 18px minmax(0, 1fr);
     align-items: start;
     gap: 8px;
     border-radius: 7px;
     color: inherit;
+}
+
+.mktero-citation-popup-reference-checkbox {
+    grid-column: 1;
+    margin-top: 3px;
+}
+
+.mktero-citation-popup-primary,
+.mktero-citation-popup-actions {
+    grid-column: 2;
 }
 
 .mktero-citation-popup-item + .mktero-citation-popup-item {
@@ -2784,7 +2857,10 @@ main {
 .mktero-citation-popup-primary:focus-visible,
 .mktero-citation-popup-action:focus-visible,
 .mktero-citation-popup-library-select:focus-visible,
-.mktero-citation-popup-library-option:focus-visible {
+.mktero-citation-popup-library-option:focus-visible,
+.mktero-citation-popup-batch-import:focus-visible,
+.mktero-citation-popup-select-all:focus-visible,
+.mktero-citation-popup-reference-checkbox:focus-visible {
     outline: 2px solid color-mix(
         in srgb,
         var(--citation-popup-accent) 35%,

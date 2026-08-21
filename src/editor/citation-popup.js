@@ -56,6 +56,8 @@ export function createCitationPopup(parent, {
         let unsubscribeUpdates = null;
         let destroyLibraryPicker = null;
         let libraryPicker = null;
+        let batchControls = null;
+        let batchBusy = false;
 
         const isCurrent = expectedGeneration => (
             activeController === controller
@@ -81,6 +83,52 @@ export function createCitationPopup(parent, {
                     t,
                 });
             }
+            updateBatchControls(batchControls, rows, batchBusy, t);
+        };
+        const handleRowSelection = (target, checked) => {
+            const row = rows.find(candidate => candidate.target === target);
+            if (!row?.selectable || batchBusy) return;
+            row.selectionTouched = true;
+            row.selected = Boolean(checked);
+            row.checkbox.checked = row.selected;
+            updateBatchControls(batchControls, rows, batchBusy, t);
+        };
+        const handleSelectAll = checked => {
+            if (batchBusy) return;
+            for (const row of rows) {
+                if (!row.selectable) continue;
+                row.selectionTouched = true;
+                row.selected = Boolean(checked);
+                row.checkbox.checked = row.selected;
+            }
+            updateBatchControls(batchControls, rows, batchBusy, t);
+        };
+        const importSelected = async () => {
+            if (batchBusy) return;
+            const selectedRows = rows.filter(row => (
+                row.selectable && row.selected
+            ));
+            if (!selectedRows.length || typeof onImportReference !== 'function') {
+                return;
+            }
+            const batchLibraryID = selectedLibraryID;
+            batchBusy = true;
+            libraryPicker?.setDisabled?.(true);
+            updateBatchControls(batchControls, rows, batchBusy, t);
+            for (const row of selectedRows) row.checkbox.disabled = true;
+            await runBatchReferenceImports(selectedRows, {
+                selectedLibraryID: () => batchLibraryID,
+                onImportReference,
+                onOpenReferenceMatch,
+                controller,
+                t,
+            });
+            batchBusy = false;
+            libraryPicker?.setDisabled?.(false);
+            for (const row of rows) {
+                row.syncSelectionAvailability?.();
+            }
+            updateBatchControls(batchControls, rows, batchBusy, t);
         };
         const loadLibraries = async () => {
             if (typeof onListReferenceLibraries !== 'function') return;
@@ -144,7 +192,16 @@ export function createCitationPopup(parent, {
                     });
                     destroyLibraryPicker = libraryPicker.destroy;
                     labelElement.setAttribute('for', libraryPicker.trigger.id);
-                    header.append(labelElement, libraryPicker.element);
+                    batchControls = createBatchControls(document, {
+                        t,
+                        onToggleAll: handleSelectAll,
+                        onImport: importSelected,
+                    });
+                    header.append(
+                        labelElement,
+                        libraryPicker.element,
+                        batchControls.element
+                    );
                     contentRoot.appendChild(header);
                 }
                 rows = targets.map(target => createCitationItem({
@@ -152,6 +209,12 @@ export function createCitationPopup(parent, {
                     target,
                     close,
                     onActivate,
+                    onSelectionChange: handleRowSelection,
+                    isBatchBusy: () => batchBusy,
+                    onSelectionStateChange: () => (
+                        updateBatchControls(batchControls, rows, batchBusy, t)
+                    ),
+                    t,
                     rowOptions: {
                         selectedLibraryID: () => selectedLibraryID,
                         isCurrent,
@@ -164,6 +227,7 @@ export function createCitationPopup(parent, {
                     },
                 }));
                 for (const row of rows) contentRoot.appendChild(row.element);
+                updateBatchControls(batchControls, rows, batchBusy, t);
                 void loadLibraries();
                 if (typeof onGetReferenceStatus === 'function') refreshRows();
                 if (typeof onSubscribeReferenceUpdates === 'function') {
@@ -197,10 +261,25 @@ function createCitationItem({
     target,
     close,
     onActivate,
+    onSelectionChange,
+    isBatchBusy = () => false,
+    onSelectionStateChange,
+    t,
     rowOptions,
 }) {
     const element = createElement(document, 'div');
     element.className = 'mktero-citation-popup-item';
+    const checkbox = createElement(document, 'input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'mktero-citation-popup-reference-checkbox';
+    checkbox.disabled = true;
+    checkbox.setAttribute(
+        'aria-label',
+        t('reference.select', { text: target.text })
+    );
+    checkbox.addEventListener('change', () => {
+        onSelectionChange?.(target, checkbox.checked);
+    });
     const primary = createElement(document, 'button');
     primary.type = 'button';
     primary.className = 'mktero-citation-popup-primary';
@@ -231,17 +310,40 @@ function createCitationItem({
     action.type = 'button';
     action.className = 'mktero-citation-popup-action';
     action.hidden = true;
+    let row;
     action.addEventListener('click', event => {
         event.stopPropagation();
         void runReferenceAction({
             target,
-            row: { status, action, target },
+            row: row || { status, action, target },
             options: rowOptions,
         });
     });
     controls.append(status, action);
-    element.append(primary, controls);
-    return { element, target, status, action };
+    row = {
+        element,
+        target,
+        status,
+        action,
+        checkbox,
+        selectable: false,
+        selected: false,
+        selectionTouched: false,
+        syncSelectionAvailability() {
+            checkbox.disabled = !row.selectable || isBatchBusy();
+            if (!row.selectable) {
+                row.selected = false;
+                checkbox.checked = false;
+            }
+            else if (!row.selectionTouched) {
+                row.selected = true;
+                checkbox.checked = true;
+            }
+            onSelectionStateChange?.();
+        },
+    };
+    element.append(checkbox, primary, controls);
+    return row;
 }
 
 async function updateReferenceRow({
@@ -258,6 +360,8 @@ async function updateReferenceRow({
     t,
 }) {
     if (!row?.status || !isReferenceTarget(target)) return;
+    row.selectable = false;
+    row.syncSelectionAvailability?.();
     setStatus(row, 'checking', t);
     if (typeof onGetReferenceStatus !== 'function') {
         setStatus(row, 'unknown', t);
@@ -404,6 +508,8 @@ function applyStatus(row, result, {
             isCurrent
         );
     }
+    row.selectable = row.action._mkteroActionKind === 'import';
+    row.syncSelectionAvailability?.();
 }
 
 async function runReferenceAction({ target, row, options }) {
@@ -458,6 +564,119 @@ async function runReferenceAction({ target, row, options }) {
         row.status.textContent = errorLabel(error?.code, t);
         row.status.dataset.state = 'failed';
     }
+}
+
+async function runBatchReferenceImports(rows, {
+    selectedLibraryID,
+    onImportReference,
+    onOpenReferenceMatch,
+    controller,
+    t,
+}) {
+    const workerCount = Math.min(3, rows.length);
+    let nextIndex = 0;
+    const worker = async () => {
+        while (nextIndex < rows.length) {
+            const row = rows[nextIndex++];
+            if (controller.signal?.aborted) return;
+            row.status.textContent = t('reference.importing');
+            row.status.dataset.state = 'importing';
+            row.action.hidden = true;
+            try {
+                const result = await onImportReference(row.target, {
+                    targetLibraryID: selectedLibraryID(),
+                    signal: controller.signal,
+                });
+                if (controller.signal?.aborted) return;
+                applyStatus(row, result || { state: 'imported' }, {
+                    target: row.target,
+                    selectedLibraryID: selectedLibraryID(),
+                    onImportReference,
+                    onOpenReferenceMatch,
+                    close: () => {},
+                    controller,
+                    generation: null,
+                    isCurrent: () => !controller.signal?.aborted,
+                    t,
+                });
+            }
+            catch (error) {
+                if (error?.name === 'AbortError'
+                    || controller.signal?.aborted) return;
+                applyStatus(row, {
+                    state: 'failed',
+                    canImport: true,
+                    errorCode: error?.code,
+                }, {
+                    target: row.target,
+                    selectedLibraryID: selectedLibraryID(),
+                    onImportReference,
+                    onOpenReferenceMatch,
+                    close: () => {},
+                    controller,
+                    generation: null,
+                    isCurrent: () => !controller.signal?.aborted,
+                    t,
+                });
+            }
+        }
+    };
+    await Promise.all(Array.from({ length: workerCount }, worker));
+}
+
+function createBatchControls(document, {
+    t,
+    onToggleAll,
+    onImport,
+}) {
+    const element = createElement(document, 'div');
+    element.className = 'mktero-citation-popup-batch-controls';
+    const selectAllLabel = createElement(document, 'label');
+    selectAllLabel.className = 'mktero-citation-popup-select-all-label';
+    const selectAll = createElement(document, 'input');
+    selectAll.type = 'checkbox';
+    selectAll.className = 'mktero-citation-popup-select-all';
+    selectAll.setAttribute('aria-label', t('reference.selectAll'));
+    selectAll.addEventListener('change', () => {
+        onToggleAll?.(selectAll.checked);
+    });
+    const selectAllText = createElement(document, 'span');
+    selectAllText.textContent = t('reference.selectAll');
+    selectAllLabel.append(selectAll, selectAllText);
+    const importButton = createElement(document, 'button');
+    importButton.type = 'button';
+    importButton.className = 'mktero-citation-popup-batch-import';
+    importButton.disabled = true;
+    importButton.appendChild(createLucideIcon(
+        document,
+        LUCIDE_ICONS.download,
+        {
+            className: 'mktero-citation-popup-batch-import-icon',
+            size: 16,
+        }
+    ));
+    importButton.addEventListener('click', () => {
+        void onImport?.();
+    });
+    element.append(selectAllLabel, importButton);
+    return { element, selectAll, importButton };
+}
+
+function updateBatchControls(controls, rows, batchBusy, t) {
+    if (!controls) return;
+    const selectableRows = rows.filter(row => row.selectable);
+    const selectedRows = selectableRows.filter(row => row.selected);
+    const selectedCount = selectedRows.length;
+    controls.selectAll.disabled = !selectableRows.length || batchBusy;
+    controls.selectAll.checked = selectableRows.length > 0
+        && selectedCount === selectableRows.length;
+    controls.selectAll.indeterminate = selectedCount > 0
+        && selectedCount < selectableRows.length;
+    controls.importButton.disabled = selectedCount === 0 || batchBusy;
+    controls.importButton.setAttribute('aria-busy', String(batchBusy));
+    const label = t('reference.importSelected', { count: selectedCount });
+    controls.importButton.setAttribute('aria-label', label);
+    controls.importButton.title = label;
 }
 
 function configureAction(
@@ -560,6 +779,7 @@ function createLibraryPicker(document, {
     let selectedLibraryID = null;
     let onChange = null;
     let open = false;
+    let forceDisabled = false;
 
     const optionButtons = () => [...options.querySelectorAll(
         '.mktero-citation-popup-library-option'
@@ -602,6 +822,10 @@ function createLibraryPicker(document, {
         updateTrigger();
         if (visible) positionOptions();
         if (visible && focusLibraryID !== null) focusOption(focusLibraryID);
+    };
+    const syncDisabled = () => {
+        trigger.disabled = forceDisabled || !availableLibraries.length;
+        if (trigger.disabled) setOpen(false);
     };
 
     function positionOptions() {
@@ -738,7 +962,7 @@ function createLibraryPicker(document, {
                 t('reference.noLibraries'),
                 document
             );
-            trigger.disabled = true;
+            syncDisabled();
             trigger.setAttribute('aria-busy', 'false');
             current.textContent = t('reference.noLibraries');
             trigger.title = t('reference.noLibraries');
@@ -771,7 +995,7 @@ function createLibraryPicker(document, {
             );
             options.appendChild(option);
         }
-        trigger.disabled = false;
+        syncDisabled();
         trigger.setAttribute('aria-busy', 'false');
         trigger.title = '';
         updateTrigger();
@@ -781,7 +1005,7 @@ function createLibraryPicker(document, {
         selectedLibraryID = null;
         clearChildren(options);
         appendLibraryPlaceholder(options, message, document);
-        trigger.disabled = true;
+        syncDisabled();
         trigger.setAttribute('aria-busy', 'false');
         current.textContent = message;
         trigger.setAttribute('aria-label', `${label}: ${message}`);
@@ -810,7 +1034,19 @@ function createLibraryPicker(document, {
     document.defaultView?.addEventListener('resize', positionOptions);
     document.defaultView?.addEventListener('scroll', positionOptions, true);
 
-    return { element: picker, trigger, render, renderError, destroy };
+    const setDisabled = disabled => {
+        forceDisabled = Boolean(disabled);
+        syncDisabled();
+    };
+
+    return {
+        element: picker,
+        trigger,
+        render,
+        renderError,
+        setDisabled,
+        destroy,
+    };
 }
 
 function clearChildren(element) {

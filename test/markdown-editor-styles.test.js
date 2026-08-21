@@ -760,6 +760,22 @@ test('styles the citation library picker like the reader font picker', () => {
     );
 });
 
+test('styles citation batch selection controls as a compact action bar', () => {
+    const controls = ruleBody('.mktero-citation-popup-batch-controls');
+    const importButton = ruleBody('.mktero-citation-popup-batch-import');
+    const item = ruleBody('.mktero-citation-popup-item');
+    const checkbox = ruleBody('.mktero-citation-popup-reference-checkbox');
+
+    assert.match(controls, /display:\s*flex/);
+    assert.match(controls, /margin-left:\s*auto/);
+    assert.match(importButton, /width:\s*30px/);
+    assert.match(importButton, /height:\s*30px/);
+    assert.match(importButton, /place-items:\s*center/);
+    assert.match(importButton, /cursor:\s*pointer/);
+    assert.match(item, /grid-template-columns:\s*18px\s+minmax\(0,\s*1fr\)/);
+    assert.match(checkbox, /accent-color:\s*var\(--citation-popup-accent\)/);
+});
+
 test('styles Zotero-colored PDF annotations and their action popup', () => {
     const annotation = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation'

@@ -123,6 +123,138 @@ test('keeps row navigation separate from the import action', async () => {
     dom.window.close();
 });
 
+test('imports all selected references from the batch toolbar', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const imported = [];
+    let notifyUpdates;
+    const popup = createCitationPopup(parent);
+    const targets = [
+        { ...reference(), id: 'number:1', number: 1, text: 'First paper' },
+        { ...reference(), id: 'number:2', number: 2, text: 'Second paper' },
+    ];
+    popup.open({
+        anchor,
+        targets,
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async () => ({
+            state: 'absent',
+            canImport: true,
+        }),
+        onImportReference: async target => {
+            imported.push(target.text);
+            if (imported.length === 1) notifyUpdates?.();
+            return { state: 'imported' };
+        },
+        onSubscribeReferenceUpdates: listener => {
+            notifyUpdates = listener;
+            return () => {};
+        },
+    });
+    await nextTask();
+    await nextTask();
+
+    const selectAll = document.querySelector(
+        '.mktero-citation-popup-select-all'
+    );
+    const importButton = document.querySelector(
+        '.mktero-citation-popup-batch-import'
+    );
+    const checkboxes = [...document.querySelectorAll(
+        '.mktero-citation-popup-reference-checkbox'
+    )];
+    assert.equal(selectAll.checked, true);
+    assert.equal(selectAll.indeterminate, false);
+    assert.equal(importButton.disabled, false);
+    assert.equal(
+        importButton.querySelector('[data-lucide="download"]') !== null,
+        true
+    );
+    assert.equal(checkboxes.length, 2);
+    assert.deepEqual(checkboxes.map(checkbox => checkbox.checked), [true, true]);
+
+    checkboxes[0].click();
+    assert.equal(selectAll.checked, false);
+    assert.equal(selectAll.indeterminate, true);
+    assert.equal(importButton.getAttribute('aria-label'),
+        'Import selected references (1)');
+    selectAll.click();
+    assert.equal(selectAll.checked, true);
+    assert.equal(selectAll.indeterminate, false);
+
+    importButton.click();
+    await nextTask();
+    await nextTask();
+    assert.deepEqual(imported.sort(), ['First paper', 'Second paper']);
+    assert.equal(importButton.disabled, true);
+    assert.deepEqual(checkboxes.map(checkbox => checkbox.checked), [false, false]);
+    assert.deepEqual(
+        [...document.querySelectorAll('.mktero-citation-popup-status')]
+            .map(status => status.dataset.state),
+        ['imported', 'imported']
+    );
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('keeps failed batch imports selected for retry', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async () => ({
+            state: 'absent',
+            canImport: true,
+        }),
+        onImportReference: async () => {
+            throw Object.assign(new Error('network down'), {
+                code: 'REFERENCE_NETWORK_FAILED',
+            });
+        },
+    });
+    await nextTask();
+    await nextTask();
+
+    const importButton = document.querySelector(
+        '.mktero-citation-popup-batch-import'
+    );
+    const checkbox = document.querySelector(
+        '.mktero-citation-popup-reference-checkbox'
+    );
+    importButton.click();
+    await nextTask();
+    await nextTask();
+    assert.equal(checkbox.checked, true);
+    assert.equal(importButton.disabled, false);
+    assert.equal(
+        document.querySelector('.mktero-citation-popup-status').dataset.state,
+        'failed'
+    );
+
+    popup.destroy();
+    dom.window.close();
+});
+
 test('reports the matching group-library name and offers explicit copy', async () => {
     const { dom, document, parent, anchor } = createHarness();
     let copied = 0;
