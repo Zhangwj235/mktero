@@ -112,6 +112,7 @@ import {
 } from './platform/zotero-evidence-reference.js';
 import {
     createZoteroCitationLibrary,
+    findCitationPaperPDFAttachment,
 } from './platform/zotero-citation-library.js';
 import {
     registerZoteroAnnotationObserver,
@@ -490,6 +491,19 @@ async function openCitationGraph(itemID, { forceRefresh = false } = {}) {
         sourceItemID: itemID,
         forceRefresh,
     });
+}
+
+async function openCitationPaperWithMktero(node) {
+    const attachment = await findCitationPaperPDFAttachment(Zotero, node);
+    if (!attachment) {
+        const error = new Error(
+            'A PDF attachment is required to open a citation with Mktero'
+        );
+        error.code = 'CITATION_PDF_REQUIRED';
+        throw error;
+    }
+    runtime.citationPresenter?.close();
+    return openItemAsMarkdown(attachment.id);
 }
 
 async function openItemAsMarkdown(itemID, {
@@ -1785,6 +1799,7 @@ function initializeCitationGraph(localization) {
             zotero: Zotero,
             graph: citationGraph,
             library: citationLibrary,
+            onOpenPaper: openCitationPaperWithMktero,
             getLibraryName: libraryID => (
                 Zotero.Libraries?.get?.(libraryID)?.name
                 || runtimeTranslate('graph.title')

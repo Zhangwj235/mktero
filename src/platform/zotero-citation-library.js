@@ -43,16 +43,18 @@ export function createZoteroCitationLibrary(zotero) {
             if (!item?.isRegularItem?.()) {
                 throw new Error('The Zotero paper is unavailable');
             }
-            const attachmentIDs = Array.isArray(node?.attachmentIDs)
-                && node.attachmentIDs.length
-                ? node.attachmentIDs
-                : safeAttachments(item);
-            for (const attachmentID of attachmentIDs.slice(0, MAX_ATTACHMENTS)) {
-                const attachment = await zotero.Items.getAsync(attachmentID);
-                if (!attachment?.isPDFAttachment?.()) continue;
-                if (typeof zotero.Reader?.open !== 'function') break;
-                await zotero.Reader.open(attachment.id);
-                return { kind: 'pdf', itemID: attachment.id };
+            const attachment = await findCitationPaperPDFAttachment(zotero, {
+                ...node,
+                attachmentIDs: Array.isArray(node?.attachmentIDs)
+                    && node.attachmentIDs.length
+                    ? node.attachmentIDs
+                    : safeAttachments(item),
+            });
+            if (attachment) {
+                if (typeof zotero.Reader?.open === 'function') {
+                    await zotero.Reader.open(attachment.id);
+                    return { kind: 'pdf', itemID: attachment.id };
+                }
             }
             const pane = zotero.getMainWindow?.()?.ZoteroPane;
             if (typeof pane?.selectItem !== 'function') {
@@ -62,6 +64,17 @@ export function createZoteroCitationLibrary(zotero) {
             return { kind: 'item', itemID: item.id };
         },
     };
+}
+
+export async function findCitationPaperPDFAttachment(zotero, paper) {
+    const attachmentIDs = Array.isArray(paper?.attachmentIDs)
+        ? paper.attachmentIDs
+        : [];
+    for (const attachmentID of attachmentIDs.slice(0, MAX_ATTACHMENTS)) {
+        const attachment = await zotero?.Items?.getAsync?.(attachmentID);
+        if (attachment?.isPDFAttachment?.()) return attachment;
+    }
+    return null;
 }
 
 function projectPaper(item) {

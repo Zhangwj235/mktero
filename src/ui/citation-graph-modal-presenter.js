@@ -122,6 +122,7 @@ export class CitationGraphModalPresenter {
         zotero,
         graph,
         library,
+        onOpenPaper = null,
         getLibraryName = libraryID => String(libraryID),
         createView = createCitationGraphView,
         createAbortController = createRuntimeAbortController,
@@ -136,6 +137,9 @@ export class CitationGraphModalPresenter {
         this.zotero = zotero;
         this.graph = graph;
         this.library = library;
+        this.onOpenPaper = typeof onOpenPaper === 'function'
+            ? onOpenPaper
+            : node => this.library.openPaper(node);
         this.getLibraryName = getLibraryName;
         this.createView = createView;
         this.createAbortController = createAbortController;
@@ -199,7 +203,7 @@ export class CitationGraphModalPresenter {
                     );
                 }
             },
-            onOpenPaper: node => this.library.openPaper(node),
+            onOpenPaper: node => this.onOpenPaper(node),
             onError: error => this.zotero.logError?.(error),
         });
         body.appendChild(view.root);

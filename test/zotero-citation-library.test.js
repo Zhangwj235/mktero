@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createZoteroCitationLibrary } from '../src/platform/zotero-citation-library.js';
+import {
+    createZoteroCitationLibrary,
+    findCitationPaperPDFAttachment,
+} from '../src/platform/zotero-citation-library.js';
 
 test('lists deterministic regular-item projections from the requested library', async () => {
     const items = new Map([
@@ -119,6 +122,24 @@ test('opens the first PDF attachment and otherwise selects the Zotero item', asy
         itemID: 8,
     });
     assert.deepEqual(zotero.selectCalls, [8]);
+});
+
+test('finds the first PDF attachment for a citation paper', async () => {
+    const items = new Map([
+        [42, { id: 42, isPDFAttachment: () => false }],
+        [43, { id: 43, isPDFAttachment: () => true }],
+    ]);
+    const zotero = createZotero(items);
+
+    const attachment = await findCitationPaperPDFAttachment(zotero, {
+        attachmentIDs: [42, 43],
+    });
+
+    assert.equal(attachment.id, 43);
+    assert.equal(
+        await findCitationPaperPDFAttachment(zotero, { attachmentIDs: [] }),
+        null
+    );
 });
 
 test('bounds unsafe fields and skips items whose field access throws', async () => {

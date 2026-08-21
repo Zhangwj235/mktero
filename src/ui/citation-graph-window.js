@@ -692,7 +692,7 @@ class CitationGraphView {
             node.inDegree
         );
         const open = this.textButton(
-            this.message('graph.openInZotero'),
+            this.message('graph.openWithMktero'),
             'citation-graph-open-paper'
         );
         open.dataset.action = 'open-paper';
