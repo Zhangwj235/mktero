@@ -122,6 +122,18 @@ test('lists selectable libraries and rejects import into a read-only target', as
     assert.equal(library.calls.some(call => call[0] === 'translate'), false);
 });
 
+test('keeps the library list available when default-library lookup fails', async () => {
+    const library = createLibraryHarness();
+    library.getDefaultLibraryID = async () => {
+        throw new Error('source item is not available');
+    };
+    const service = createReferenceImportService({ library });
+
+    const result = await service.listTargetLibraries(999);
+    assert.deepEqual(result.libraries, library.libraries);
+    assert.equal(result.defaultLibraryID, 1);
+});
+
 test('reports unknown for title-only references and absent for reliable misses', async () => {
     const library = createLibraryHarness();
     let externalCalls = 0;

@@ -487,18 +487,44 @@ export class ZoteroReferenceLibrary {
 }
 
 export function discoverLibraries(zotero) {
-    const source = typeof zotero?.Libraries?.getAll === 'function'
-        ? zotero.Libraries.getAll()
-        : [];
-    const libraries = Array.isArray(source) ? source : [];
+    let source = [];
+    try {
+        source = typeof zotero?.Libraries?.getAll === 'function'
+            ? zotero.Libraries.getAll()
+            : [];
+    }
+    catch {
+        // A partially initialized Zotero library manager should not prevent
+        // the personal-library fallback from being shown in the popup.
+        source = [];
+    }
+    const libraries = Array.isArray(source)
+        ? source
+        : Array.isArray(source?.libraries) ? source.libraries : [];
     const userLibraryID = zotero?.Libraries?.userLibraryID;
-    const projections = libraries.map(library => projectLibrary(
-        library,
-        userLibraryID
-    )).filter(Boolean);
+    const projections = libraries.map(library => {
+        try {
+            return projectLibrary(library, userLibraryID);
+        }
+        catch {
+            return null;
+        }
+    }).filter(Boolean);
     if (!projections.some(library => library.type === 'user')) {
-        const user = zotero?.Libraries?.get?.(userLibraryID);
-        const projection = projectLibrary(user, userLibraryID);
+        let user = null;
+        try {
+            user = zotero?.Libraries?.get?.(userLibraryID);
+        }
+        catch {
+            user = null;
+        }
+        let projection = null;
+        try {
+            projection = projectLibrary(user, userLibraryID);
+        }
+        catch {
+            projection = null;
+        }
         if (projection) projections.unshift(projection);
     }
     return dedupeLibraries(projections);

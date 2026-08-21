@@ -96,6 +96,29 @@ test('discovers personal and group libraries while excluding feeds', async () =>
     ]);
 });
 
+test('falls back to the personal library when library enumeration is unavailable', async () => {
+    const runtime = createRuntime([]);
+    runtime.Libraries.getAll = () => {
+        throw new Error('library manager is not ready');
+    };
+    runtime.Libraries.get = libraryID => ({
+        libraryID,
+        name: 'Personal',
+        libraryType: 'user',
+        editable: true,
+        filesEditable: true,
+    });
+    const library = createZoteroReferenceLibrary(runtime);
+
+    assert.deepEqual(await library.listLibraries(), [{
+        libraryID: 1,
+        name: 'Personal',
+        type: 'user',
+        editable: true,
+        filesEditable: true,
+    }]);
+});
+
 test('defaults a read-only source group to the personal library', async () => {
     const source = item({ id: 90, libraryID: 2, title: 'Source' });
     const runtime = createRuntime([source]);

@@ -7,9 +7,9 @@ const MAX_REFERENCE_LENGTH = 16 * 1024;
 const MAX_IDENTIFIER_LENGTH = 4_096;
 const MAX_PDF_URL_LENGTH = 2_048;
 
-const DOI_TOKEN_PATTERN = /(?:^|[\s(<\[])(?:doi\s*:\s*|https?:\/\/(?:dx\.)?doi\.org\/)?(10\.\d{4,9}\/[!#$%&'*+./0-9:;<=>?@A-Z[\]^_`a-z{|}~-]+)/igu;
+const DOI_TOKEN_PATTERN = /(?:^|[\s(<\[])(?:doi\s*:\s*|https?:\/\/(?:dx\.)?doi\.org\/)?(10\.\d{4,9}\/)[ \t\r\n]*([!#$%&'*+./0-9:;<=>?@A-Z[\]^_`a-z{|}~-]+)/igu;
 const ARXIV_TOKEN_PATTERN = /(?:^|[\s(<\[])(?:arxiv(?:\s+id)?\s*:\s*|https?:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\/)([^\s)\]>},;]+)/igu;
-const PMID_TOKEN_PATTERN = /\b(?:pmid|pubmed\s+id)\s*[:#]?\s*(\d{1,12})\b/iu;
+const PMID_TOKEN_PATTERN = /\b(?:pmid|pubmed\s+id|medline)\s*[:#]?\s*(\d{1,12})\b/iu;
 const URL_PATTERN = /https?:\/\/[^\s<>"'`]+/igu;
 
 /**
@@ -22,7 +22,7 @@ export function extractReferenceIdentifiers(text) {
         return emptyIdentifiers();
     }
 
-    const doi = firstNormalized(source, DOI_TOKEN_PATTERN, normalizeDOI);
+    const doi = firstDOI(source);
     const arxivID = firstNormalized(
         source,
         ARXIV_TOKEN_PATTERN,
@@ -38,6 +38,16 @@ function firstNormalized(source, pattern, normalize) {
     for (const match of source.matchAll(pattern)) {
         const value = normalize(stripTrailingPunctuation(
             boundedString(match[1], MAX_IDENTIFIER_LENGTH)
+        ));
+        if (value) return value;
+    }
+    return '';
+}
+
+function firstDOI(source) {
+    for (const match of source.matchAll(DOI_TOKEN_PATTERN)) {
+        const value = normalizeDOI(stripTrailingPunctuation(
+            `${match[1]}${match[2]}`
         ));
         if (value) return value;
     }

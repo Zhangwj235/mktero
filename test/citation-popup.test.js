@@ -207,6 +207,80 @@ test('keeps read-only libraries visible and disables their import action', async
     dom.window.close();
 });
 
+test('populates the library selector and refreshes status after switching libraries', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const statusLibraryIDs = [];
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onListReferenceLibraries: async () => ({
+            libraries: [
+                {
+                    libraryID: 1,
+                    name: 'Personal',
+                    type: 'user',
+                    editable: true,
+                    filesEditable: true,
+                },
+                {
+                    libraryID: 8,
+                    name: 'Research Group',
+                    type: 'group',
+                    editable: true,
+                    filesEditable: true,
+                },
+            ],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async (_target, { targetLibraryID }) => {
+            statusLibraryIDs.push(String(targetLibraryID));
+            return { state: 'absent', canImport: true };
+        },
+    });
+    await nextTask();
+    await nextTask();
+
+    const select = document.querySelector('.mktero-citation-popup-library-select');
+    assert.equal(select.disabled, false);
+    assert.deepEqual(
+        [...select.options].map(option => option.textContent),
+        ['Personal', 'Research Group']
+    );
+    assert.equal(select.value, '1');
+
+    select.value = '8';
+    select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    await nextTask();
+    assert.ok(statusLibraryIDs.includes('8'));
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('shows a visible placeholder when library loading fails', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onListReferenceLibraries: async () => {
+            throw new Error('library service unavailable');
+        },
+    });
+    await nextTask();
+    await nextTask();
+
+    const select = document.querySelector('.mktero-citation-popup-library-select');
+    assert.equal(select.disabled, true);
+    assert.equal(select.options.length, 1);
+    assert.equal(select.options[0].textContent, 'Zotero libraries could not be loaded');
+    assert.equal(select.options[0].disabled, true);
+
+    popup.destroy();
+    dom.window.close();
+});
+
 test('aborts status work on close and ignores an old-library import result', async () => {
     const { dom, document, parent, anchor } = createHarness();
     let importResolve;

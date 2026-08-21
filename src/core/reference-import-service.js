@@ -58,13 +58,31 @@ export class ReferenceImportService {
         this.#assertActive();
         throwIfAborted(signal);
         const libraries = await this.library.listLibraries({ signal });
-        const defaultLibraryID = await this.library.getDefaultLibraryID(
-            sourceItemID,
-            { signal }
-        );
+        let defaultLibraryID = null;
+        try {
+            defaultLibraryID = await this.library.getDefaultLibraryID(
+                sourceItemID,
+                { signal }
+            );
+        }
+        catch (error) {
+            if (isAbortError(error) || signal?.aborted) throw error;
+            // Library enumeration is still useful when the source item has
+            // gone away (for example, after opening a saved Markdown tab).
+            // Let the caller choose a target instead of turning the selector
+            // into an empty disabled control.
+        }
         throwIfAborted(signal);
+        const availableLibraries = Array.isArray(libraries) ? libraries : [];
+        if (!availableLibraries.some(library => (
+            String(library.libraryID) === String(defaultLibraryID)
+        ))) {
+            defaultLibraryID = availableLibraries.find(
+                library => library.type === 'user'
+            )?.libraryID ?? availableLibraries[0]?.libraryID ?? null;
+        }
         return {
-            libraries: Array.isArray(libraries) ? libraries : [],
+            libraries: availableLibraries,
             defaultLibraryID,
         };
     }

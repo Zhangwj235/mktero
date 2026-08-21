@@ -73,6 +73,25 @@ test('attaches normalized identifiers to analyzed reference targets', () => {
     });
 });
 
+test('keeps identifiers when a PDF reference wraps a DOI across lines', () => {
+    const markdown = [
+        'Evidence [1].',
+        '',
+        '## References',
+        '',
+        '[1] Mesen TB. Progesterone and the luteal phase. [doi: 10.1016/',
+        'j.ogc.2014.10.003] [Medline: 25681845]',
+    ].join('\n');
+
+    const [reference] = analyzeMarkdownCitations(markdown).references;
+    assert.deepEqual(reference.identifiers, {
+        doi: '10.1016/j.ogc.2014.10.003',
+        arxivID: '',
+        pmid: '25681845',
+        pdfURL: '',
+    });
+});
+
 test('maps superscript citations to bare numbered references', () => {
     const markdown = [
         '# Paper',

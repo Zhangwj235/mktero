@@ -20,6 +20,20 @@ test('extracts normalized DOI, arXiv, explicit PMID, and PDF URL', () => {
     );
 });
 
+test('recognizes Medline IDs and DOI line wrapping from PDF references', () => {
+    assert.deepEqual(
+        extractReferenceIdentifiers(
+            '[doi: 10.1016/\n j.ogc.2014.10.003] [Medline: 25681845]'
+        ),
+        {
+            doi: '10.1016/j.ogc.2014.10.003',
+            arxivID: '',
+            pmid: '25681845',
+            pdfURL: '',
+        }
+    );
+});
+
 test('does not infer PMID from ordinary citation numbers', () => {
     assert.equal(
         extractReferenceIdentifiers(

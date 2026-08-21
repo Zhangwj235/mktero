@@ -84,12 +84,14 @@ export function createCitationPopup(parent, {
                 });
                 if (controller.signal?.aborted || activeAnchor !== anchor) return;
                 libraries = Array.isArray(result) ? result : result?.libraries || [];
-                if (selectedLibraryID === null || selectedLibraryID === undefined) {
-                    selectedLibraryID = result?.defaultLibraryID
-                        ?? libraries.find(library => library.type === 'user')?.libraryID
-                        ?? libraries[0]?.libraryID
-                        ?? null;
-                }
+                const preferredLibraryID = selectedLibraryID
+                    ?? result?.defaultLibraryID;
+                selectedLibraryID = libraries.find(library => (
+                    String(library.libraryID) === String(preferredLibraryID)
+                ))?.libraryID
+                    ?? libraries.find(library => library.type === 'user')?.libraryID
+                    ?? libraries[0]?.libraryID
+                    ?? null;
                 renderLibrarySelector(contentRoot, {
                     libraries,
                     selectedLibraryID,
@@ -129,7 +131,13 @@ export function createCitationPopup(parent, {
                     const select = createElement(document, 'select');
                     select.className = 'mktero-citation-popup-library-select';
                     select.disabled = true;
+                    select.setAttribute('aria-busy', 'true');
                     select.setAttribute('aria-label', t('reference.targetLibrary'));
+                    appendSelectPlaceholder(
+                        select,
+                        t('reference.loadingLibraries'),
+                        document
+                    );
                     header.append(labelElement, select);
                     contentRoot.appendChild(header);
                 }
@@ -511,8 +519,16 @@ function renderLibrarySelector(root, {
 }) {
     const select = root?.querySelector?.('.mktero-citation-popup-library-select');
     if (!select) return;
-    select.replaceChildren();
-    for (const library of libraries) {
+    clearChildren(select);
+    const availableLibraries = Array.isArray(libraries) ? libraries : [];
+    if (!availableLibraries.length) {
+        appendSelectPlaceholder(
+            select,
+            t('reference.noLibraries'),
+            root.ownerDocument
+        );
+    }
+    for (const library of availableLibraries) {
         const option = createElement(root.ownerDocument, 'option');
         option.value = String(library.libraryID);
         option.textContent = library.editable
@@ -526,10 +542,15 @@ function renderLibrarySelector(root, {
         }
         select.appendChild(option);
     }
-    if (selectedLibraryID !== null && selectedLibraryID !== undefined) {
-        select.value = String(selectedLibraryID);
+    if (availableLibraries.length) {
+        const selected = availableLibraries.find(library => (
+            String(library.libraryID) === String(selectedLibraryID)
+        )) || availableLibraries[0];
+        select.value = String(selected.libraryID);
     }
-    select.disabled = !libraries.length;
+    select.disabled = !availableLibraries.length;
+    select.setAttribute('aria-busy', 'false');
+    select.title = '';
     select.onchange = () => onChange(select.value);
     select.setAttribute('aria-label', t('reference.targetLibrary'));
 }
@@ -537,8 +558,24 @@ function renderLibrarySelector(root, {
 function renderLibraryError(root, message) {
     const select = root?.querySelector?.('.mktero-citation-popup-library-select');
     if (!select) return;
+    clearChildren(select);
+    appendSelectPlaceholder(select, message, root.ownerDocument);
     select.disabled = true;
+    select.setAttribute('aria-busy', 'false');
     select.title = message;
+}
+
+function clearChildren(element) {
+    while (element.firstChild) element.removeChild(element.firstChild);
+}
+
+function appendSelectPlaceholder(select, text, document) {
+    const option = createElement(document, 'option');
+    option.value = '';
+    option.textContent = text;
+    option.disabled = true;
+    option.selected = true;
+    select.appendChild(option);
 }
 
 function createElement(document, name) {
