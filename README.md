@@ -172,11 +172,12 @@ explicit copy action rather than silently creating a duplicate. Missing
 references with a reliable DOI, arXiv ID, or PMID can be imported through
 Zotero's native translator. When the target library permits files, Mktero also
 tries an arXiv or configured open-access PDF; metadata remains available when
-the PDF download fails and can be retried. Select one or more missing references
-with the row checkboxes, use `Select all` when needed, and click the toolbar
-import icon to import them in one batch. References that import successfully are
-cleared from the selection; failed references remain selected so they can be
-retried individually or in a later batch.
+the PDF download fails and can be retried. References start unselected. Select
+one or more missing references with the row checkboxes, use `Select all` when
+needed, and click the toolbar import icon to import them in one batch. The
+toolbar order is select-all, target library, then import. References that
+import successfully are cleared from the selection; failed references remain
+selected so they can be retried individually or in a later batch.
 
 ### Save a portable snapshot
 

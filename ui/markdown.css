@@ -2595,16 +2595,9 @@ main {
     font-size: 12px;
 }
 
-.mktero-citation-popup-batch-controls {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: 6px;
-    margin-left: auto;
-}
-
 .mktero-citation-popup-select-all-label {
     display: inline-flex;
+    flex: 0 0 auto;
     min-height: 30px;
     align-items: center;
     color: color-mix(in srgb, var(--citation-popup-text) 72%, transparent);

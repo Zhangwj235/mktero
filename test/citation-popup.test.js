@@ -115,20 +115,25 @@ test('keeps row navigation separate from the batch import action', async () => {
     const selectAll = document.querySelector(
         '.mktero-citation-popup-select-all'
     );
+    const libraryPicker = document.querySelector(
+        '.mktero-citation-popup-library-picker'
+    );
     const importButton = document.querySelector(
         '.mktero-citation-popup-batch-import'
     );
     assert.equal(row.querySelectorAll('button:not([hidden])').length, 1);
     assert.equal(row.querySelector('button')?.parentElement, row);
     assert.equal(action.hidden, true);
-    assert.equal(
-        [...document.querySelector('.mktero-citation-popup-header').children]
-            .some(child => child.tagName === 'LABEL'),
-        false
+    assert.deepEqual(
+        [...document.querySelector('.mktero-citation-popup-header').children],
+        [selectAll.parentElement, libraryPicker, importButton]
     );
     assert.equal(selectAll.parentElement.textContent, '');
-    assert.equal(importButton.disabled, false);
+    assert.equal(selectAll.checked, false);
+    assert.equal(importButton.disabled, true);
     assert.equal(importButton.textContent, '');
+    selectAll.click();
+    assert.equal(importButton.disabled, false);
     importButton.click();
     await nextTask();
     assert.equal(imported, 1);
@@ -186,15 +191,15 @@ test('imports all selected references from the batch toolbar', async () => {
     const checkboxes = [...document.querySelectorAll(
         '.mktero-citation-popup-reference-checkbox'
     )];
-    assert.equal(selectAll.checked, true);
+    assert.equal(selectAll.checked, false);
     assert.equal(selectAll.indeterminate, false);
-    assert.equal(importButton.disabled, false);
+    assert.equal(importButton.disabled, true);
     assert.equal(
         importButton.querySelector('[data-lucide="download"]') !== null,
         true
     );
     assert.equal(checkboxes.length, 2);
-    assert.deepEqual(checkboxes.map(checkbox => checkbox.checked), [true, true]);
+    assert.deepEqual(checkboxes.map(checkbox => checkbox.checked), [false, false]);
 
     checkboxes[0].click();
     assert.equal(selectAll.checked, false);
@@ -256,6 +261,8 @@ test('keeps failed batch imports selected for retry', async () => {
     const checkbox = document.querySelector(
         '.mktero-citation-popup-reference-checkbox'
     );
+    checkbox.click();
+    assert.equal(importButton.disabled, false);
     importButton.click();
     await nextTask();
     await nextTask();

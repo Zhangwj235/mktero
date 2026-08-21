@@ -761,13 +761,14 @@ test('styles the citation library picker like the reader font picker', () => {
 });
 
 test('styles citation batch selection controls as a compact action bar', () => {
-    const controls = ruleBody('.mktero-citation-popup-batch-controls');
+    const header = ruleBody('.mktero-citation-popup-header');
+    const selectAllLabel = ruleBody('.mktero-citation-popup-select-all-label');
     const importButton = ruleBody('.mktero-citation-popup-batch-import');
     const item = ruleBody('.mktero-citation-popup-item');
     const checkbox = ruleBody('.mktero-citation-popup-reference-checkbox');
 
-    assert.match(controls, /display:\s*flex/);
-    assert.match(controls, /margin-left:\s*auto/);
+    assert.match(header, /display:\s*flex/);
+    assert.match(selectAllLabel, /flex:\s*0 0 auto/);
     assert.doesNotMatch(
         MARKDOWN_STYLES,
         /\.mktero-citation-popup-header\s+label/

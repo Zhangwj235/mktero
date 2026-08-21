@@ -195,8 +195,9 @@ export function createCitationPopup(parent, {
                         onImport: importSelected,
                     });
                     header.append(
+                        batchControls.selectAllLabel,
                         libraryPicker.element,
-                        batchControls.element
+                        batchControls.importButton
                     );
                     contentRoot.appendChild(header);
                 }
@@ -332,8 +333,8 @@ function createCitationItem({
                 checkbox.checked = false;
             }
             else if (!row.selectionTouched) {
-                row.selected = true;
-                checkbox.checked = true;
+                row.selected = false;
+                checkbox.checked = false;
             }
             onSelectionStateChange?.();
         },
@@ -614,8 +615,6 @@ function createBatchControls(document, {
     onToggleAll,
     onImport,
 }) {
-    const element = createElement(document, 'div');
-    element.className = 'mktero-citation-popup-batch-controls';
     const selectAllLabel = createElement(document, 'label');
     selectAllLabel.className = 'mktero-citation-popup-select-all-label';
     const selectAll = createElement(document, 'input');
@@ -641,8 +640,7 @@ function createBatchControls(document, {
     importButton.addEventListener('click', () => {
         void onImport?.();
     });
-    element.append(selectAllLabel, importButton);
-    return { element, selectAll, importButton };
+    return { selectAllLabel, selectAll, importButton };
 }
 
 function updateBatchControls(controls, rows, batchBusy, t) {
