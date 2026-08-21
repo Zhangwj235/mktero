@@ -66,6 +66,8 @@ test('renders XHTML controls and closes after opening a Zotero match', async () 
     const select = document.querySelector('.mktero-citation-popup-library-select');
     const action = document.querySelector('.mktero-citation-popup-action');
     assert.equal(row.namespaceURI, XHTML_NAMESPACE);
+    assert.equal(row.matches('button'), false);
+    assert.equal(row.hasAttribute('tabindex'), false);
     assert.equal(select.namespaceURI, XHTML_NAMESPACE);
     assert.equal(action.textContent, 'Open in Zotero');
 
@@ -73,6 +75,92 @@ test('renders XHTML controls and closes after opening a Zotero match', async () 
     await nextTask();
     assert.deepEqual(opened, [7]);
     assert.equal(document.querySelector('.mktero-citation-popup'), null);
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('keeps row navigation separate from the import action', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    let activated = 0;
+    let imported = 0;
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onActivate: () => { activated++; },
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async () => ({
+            state: 'absent',
+            canImport: true,
+        }),
+        onImportReference: async () => {
+            imported++;
+            return { state: 'imported' };
+        },
+    });
+    await nextTask();
+
+    const row = document.querySelector('.mktero-citation-popup-item');
+    const action = document.querySelector('.mktero-citation-popup-action');
+    assert.equal(row.querySelectorAll('button').length, 2);
+    assert.equal(row.querySelector('button')?.parentElement, row);
+    action.click();
+    await nextTask();
+    assert.equal(imported, 1);
+    assert.equal(activated, 0);
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('reports the matching group-library name and offers explicit copy', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    let copied = 0;
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async () => ({
+            state: 'present-other-library',
+            canImport: true,
+            otherMatches: [{ libraryID: 8, libraryName: 'Research Group' }],
+        }),
+        onImportReference: async () => {
+            copied++;
+            return { state: 'present-no-pdf' };
+        },
+    });
+    await nextTask();
+
+    assert.match(
+        document.querySelector('.mktero-citation-popup-status').textContent,
+        /Research Group/
+    );
+    assert.equal(document.querySelector('.mktero-citation-popup-action').textContent,
+        'Copy to selected library');
+    document.querySelector('.mktero-citation-popup-action').click();
+    await nextTask();
+    assert.equal(copied, 1);
 
     popup.destroy();
     dom.window.close();
@@ -124,6 +212,7 @@ test('aborts status work on close and ignores an old-library import result', asy
     let importResolve;
     let secondStatusResolve;
     let observedSignal;
+    let unsubscribed = 0;
     const popup = createCitationPopup(parent);
     popup.open({
         anchor,
@@ -150,6 +239,7 @@ test('aborts status work on close and ignores an old-library import result', asy
         onImportReference: async () => new Promise(resolve => {
             importResolve = resolve;
         }),
+        onSubscribeReferenceUpdates: () => () => { unsubscribed++; },
     });
     await nextTask();
 
@@ -167,6 +257,7 @@ test('aborts status work on close and ignores an old-library import result', asy
 
     popup.close();
     assert.equal(observedSignal.aborted, true);
+    assert.equal(unsubscribed, 1);
     secondStatusResolve({ state: 'absent', canImport: true });
     popup.destroy();
     dom.window.close();

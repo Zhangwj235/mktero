@@ -3,6 +3,69 @@ import assert from 'node:assert/strict';
 
 import { OpenAlexClient } from '../src/citations/openalex-client.js';
 
+test('resolves the best OpenAlex open-access PDF from a DOI-only request', async () => {
+    let request;
+    const client = new OpenAlexClient({
+        fetch: async (url, options) => {
+            request = { url: String(url), options };
+            return jsonResponse({
+                results: [{
+                    best_oa_location: {
+                        pdf_url: 'https://repository.example/paper.pdf#view=fit',
+                    },
+                    locations: [],
+                }],
+            });
+        },
+    });
+
+    assert.equal(await client.resolveOpenAccessPDF({
+        doi: 'DOI:10.1000/TEST',
+        apiKey: 'openalex-secret',
+    }), 'https://repository.example/paper.pdf');
+    const parsed = new URL(request.url);
+    assert.equal(parsed.searchParams.get('filter'), 'doi:10.1000/test');
+    assert.match(parsed.searchParams.get('select'), /best_oa_location/);
+    assert.equal(parsed.searchParams.get('api_key'), 'openalex-secret');
+    assert.deepEqual(request.options.headers, {});
+});
+
+test('rejects malformed and oversized OpenAlex open-access responses', async () => {
+    const malformed = new OpenAlexClient({
+        fetch: async () => jsonResponse({ results: {} }),
+    });
+    await assert.rejects(
+        () => malformed.resolveOpenAccessPDF({ doi: '10.1000/malformed' }),
+        error => error.code === 'OPENALEX_INVALID_RESPONSE'
+    );
+
+    const oversized = new OpenAlexClient({
+        maxResponseBytes: 8,
+        fetch: async () => jsonResponse({ results: [{ best_oa_location: {} }] }),
+    });
+    await assert.rejects(
+        () => oversized.resolveOpenAccessPDF({ doi: '10.1000/large' }),
+        error => error.code === 'OPENALEX_RESPONSE_TOO_LARGE'
+    );
+});
+
+test('honors cancellation during an OpenAlex open-access lookup', async () => {
+    const controller = new AbortController();
+    const client = new OpenAlexClient({
+        fetch: async (_url, { signal }) => new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(
+                new DOMException('Aborted', 'AbortError')
+            ), { once: true });
+        }),
+    });
+    const pending = client.resolveOpenAccessPDF({
+        doi: '10.1000/cancel',
+        signal: controller.signal,
+    });
+    controller.abort();
+    await assert.rejects(pending, error => error.name === 'AbortError');
+});
+
 test('matches OpenAlex references through DOI-only local paper requests', async () => {
     const requests = [];
     const client = new OpenAlexClient({

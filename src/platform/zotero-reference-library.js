@@ -2,6 +2,7 @@ import {
     normalizeArxivID,
     normalizeDOI,
 } from '../citations/citation-identifiers.js';
+import { createRuntimeAbortController } from './abort-controller.js';
 
 const MAX_ITEMS = 50_000;
 const MAX_ATTACHMENTS = 1_000;
@@ -22,6 +23,7 @@ export class ZoteroReferenceLibrary {
         searchFactory = null,
         translateFactory = null,
         importPDF = null,
+        createAbortController = null,
     } = {}) {
         if (!zotero || typeof zotero !== 'object') {
             throw new TypeError('A Zotero runtime is required');
@@ -31,12 +33,16 @@ export class ZoteroReferenceLibrary {
         this.searchFactory = searchFactory;
         this.translateFactory = translateFactory;
         this.importPDF = importPDF;
+        this.createAbortController = createAbortController
+            || (() => createRuntimeAbortController({ zotero: this.zotero }));
         this.index = null;
-        this.refreshPromise = null;
+        this.refreshEntry = null;
         this.invalidated = true;
+        this.disposed = false;
     }
 
     async listLibraries({ signal } = {}) {
+        this.#assertActive();
         throwIfAborted(signal);
         return discoverLibraries(this.zotero);
     }
@@ -44,7 +50,7 @@ export class ZoteroReferenceLibrary {
     async getDefaultLibraryID(sourceItemID, { signal } = {}) {
         const libraries = await this.listLibraries({ signal });
         const personal = libraries.find(library => library.type === 'user');
-        const source = await this.#getItem(sourceItemID);
+        const source = await this.#getItem(sourceItemID, signal);
         throwIfAborted(signal);
         const sourceLibraryID = source?.libraryID;
         const sourceLibrary = libraries.find(library => (
@@ -55,19 +61,42 @@ export class ZoteroReferenceLibrary {
     }
 
     invalidate() {
+        if (this.disposed) return;
         this.invalidated = true;
     }
 
     async refreshIndex({ signal } = {}) {
-        if (this.refreshPromise) return this.refreshPromise;
-        this.refreshPromise = this.#buildIndex(signal)
-            .finally(() => {
-                this.refreshPromise = null;
+        this.#assertActive();
+        throwIfAborted(signal);
+        let entry = this.refreshEntry;
+        if (!entry) {
+            const controller = this.createAbortController();
+            entry = {
+                controller,
+                promise: null,
+                waiters: 0,
+                settled: false,
+            };
+            entry.promise = this.#buildIndex(controller.signal).finally(() => {
+                entry.settled = true;
+                if (this.refreshEntry === entry) this.refreshEntry = null;
             });
-        return this.refreshPromise;
+            this.refreshEntry = entry;
+        }
+        entry.waiters++;
+        try {
+            return await awaitWithAbort(entry.promise, signal);
+        }
+        finally {
+            entry.waiters--;
+            if (!entry.waiters && !entry.settled) {
+                entry.controller.abort?.();
+            }
+        }
     }
 
     async find(reference, { targetLibraryID = null, signal } = {}) {
+        this.#assertActive();
         await this.#ensureIndex(signal);
         throwIfAborted(signal);
         const identifiers = normalizeReferenceIdentifiers(reference);
@@ -86,15 +115,22 @@ export class ZoteroReferenceLibrary {
             : matches.filter(match => (
                 String(match.libraryID) !== String(targetLibraryID)
             ));
+        // An exact identifier can legitimately occur more than once after a
+        // Zotero merge/import race. Keep every bounded projection available
+        // for diagnostics, but do not let callers silently choose one item.
+        const ambiguous = selectedMatches.length > 1
+            || (selectedMatches.length === 0 && otherMatches.length > 1);
         return {
             identifiers,
             selectedMatches,
             otherMatches,
+            ambiguous,
             candidates: titleCandidates(this.index, reference, targetLibraryID),
         };
     }
 
     async lookupByIdentifier(identifier) {
+        this.#assertActive();
         await this.#ensureIndex();
         const normalized = normalizeIdentifier(identifier);
         if (!normalized.value) return [];
@@ -104,6 +140,7 @@ export class ZoteroReferenceLibrary {
     }
 
     async openItem(itemID) {
+        this.#assertActive();
         const item = await this.#getItem(itemID);
         if (!item?.isRegularItem?.()) {
             throw referenceError(
@@ -122,8 +159,10 @@ export class ZoteroReferenceLibrary {
         return item.id;
     }
 
-    async copyItem({ itemID, targetLibraryID } = {}) {
-        const libraries = await this.listLibraries();
+    async copyItem({ itemID, targetLibraryID, signal } = {}) {
+        this.#assertActive();
+        throwIfAborted(signal);
+        const libraries = await this.listLibraries({ signal });
         const library = libraries.find(candidate => (
             String(candidate.libraryID) === String(targetLibraryID)
         ));
@@ -133,7 +172,7 @@ export class ZoteroReferenceLibrary {
                 'The selected Zotero library is read-only'
             );
         }
-        const source = await this.#getItem(itemID);
+        const source = await this.#getItem(itemID, signal);
         if (!source?.isRegularItem?.() || typeof source.clone !== 'function') {
             throw referenceError(
                 'REFERENCE_COPY_UNAVAILABLE',
@@ -143,7 +182,8 @@ export class ZoteroReferenceLibrary {
         if (String(source.libraryID) === String(library.libraryID)) {
             return { itemID: source.id, hasPDF: await hasPDFAttachment(
                 this.zotero,
-                safeAttachmentIDs(source)
+                safeAttachmentIDs(source),
+                signal
             ) };
         }
         const clone = source.clone(library.libraryID);
@@ -154,7 +194,9 @@ export class ZoteroReferenceLibrary {
                 'Zotero cannot copy this reference into the selected library'
             );
         }
+        throwIfAborted(signal);
         const copiedID = await save.call(clone, { skipSelect: true });
+        throwIfAborted(signal);
         const newItemID = copiedID ?? clone.id;
         if (newItemID === null || newItemID === undefined) {
             throw referenceError(
@@ -168,7 +210,8 @@ export class ZoteroReferenceLibrary {
                 === 'function') {
             const copyPDFs = async () => {
                 for (const attachmentID of safeAttachmentIDs(source)) {
-                    const attachment = await this.#getItem(attachmentID);
+                    throwIfAborted(signal);
+                    const attachment = await this.#getItem(attachmentID, signal);
                     if (!attachment?.isPDFAttachment?.()) continue;
                     try {
                         await this.zotero.Attachments.copyAttachmentToLibrary(
@@ -176,9 +219,12 @@ export class ZoteroReferenceLibrary {
                             library.libraryID,
                             newItemID
                         );
+                        throwIfAborted(signal);
                         hasPDF = true;
                     }
-                    catch {
+                    catch (error) {
+                        if (error?.name === 'AbortError') throw error;
+                        if (signal?.aborted) throwIfAborted(signal);
                         // Keep the successfully copied metadata item. The
                         // import service can still resolve and retry a PDF.
                     }
@@ -191,6 +237,7 @@ export class ZoteroReferenceLibrary {
                 await copyPDFs();
             }
         }
+        throwIfAborted(signal);
         try {
             await clone.addLinkedItem?.(source);
         }
@@ -202,8 +249,9 @@ export class ZoteroReferenceLibrary {
     }
 
     async translateIdentifier({ reference, libraryID, signal } = {}) {
+        this.#assertActive();
         throwIfAborted(signal);
-        const libraries = await this.listLibraries();
+        const libraries = await this.listLibraries({ signal });
         const library = libraries.find(candidate => (
             String(candidate.libraryID) === String(libraryID)
         ));
@@ -238,6 +286,7 @@ export class ZoteroReferenceLibrary {
             // Older Zotero translators expose these as translate options only.
         }
         const translators = await translator.getTranslators?.();
+        throwIfAborted(signal);
         if (Array.isArray(translators) && !translators.length) {
             throw referenceError(
                 'REFERENCE_TRANSLATOR_NOT_FOUND',
@@ -263,7 +312,11 @@ export class ZoteroReferenceLibrary {
         return {
             items: items.slice(0, 100),
             attachments: [
-                ...(await collectTranslatedAttachments(this.zotero, items)),
+                ...(await collectTranslatedAttachments(
+                    this.zotero,
+                    items,
+                    signal
+                )),
                 ...(Array.isArray(result?.attachments)
                     ? result.attachments.filter(isPDFAttachmentProjection)
                     : []),
@@ -274,6 +327,7 @@ export class ZoteroReferenceLibrary {
     }
 
     async attachPDF({ itemID, libraryID, url, signal } = {}) {
+        this.#assertActive();
         throwIfAborted(signal);
         const normalizedURL = normalizePDFURL(url);
         if (!normalizedURL) {
@@ -282,7 +336,7 @@ export class ZoteroReferenceLibrary {
                 'The PDF URL is invalid'
             );
         }
-        const libraries = await this.listLibraries();
+        const libraries = await this.listLibraries({ signal });
         const library = libraries.find(candidate => (
             String(candidate.libraryID) === String(libraryID)
         ));
@@ -320,6 +374,15 @@ export class ZoteroReferenceLibrary {
         return projectAttachment(attachment);
     }
 
+    dispose() {
+        if (this.disposed) return;
+        this.disposed = true;
+        this.refreshEntry?.controller?.abort?.();
+        this.refreshEntry = null;
+        this.index = null;
+        this.invalidated = true;
+    }
+
     async #buildIndex(signal) {
         const libraries = await this.listLibraries({ signal });
         const byIdentifier = new Map();
@@ -354,6 +417,7 @@ export class ZoteroReferenceLibrary {
             }
             if (itemCount >= MAX_ITEMS) break;
         }
+        throwIfAborted(signal);
         this.index = { byIdentifier, byTitle, libraries };
         this.invalidated = false;
         return this.index;
@@ -389,12 +453,17 @@ export class ZoteroReferenceLibrary {
         return Array.isArray(items) ? items : [];
     }
 
-    async #getItem(itemID) {
+    async #getItem(itemID, signal) {
         if (itemID === null || itemID === undefined) return null;
+        throwIfAborted(signal);
         try {
-            return await this.zotero.Items?.getAsync?.(itemID);
+            const item = await this.zotero.Items?.getAsync?.(itemID);
+            throwIfAborted(signal);
+            return item;
         }
-        catch {
+        catch (error) {
+            if (error?.name === 'AbortError') throw error;
+            if (signal?.aborted) throwIfAborted(signal);
             return null;
         }
     }
@@ -405,6 +474,15 @@ export class ZoteroReferenceLibrary {
         }
         const Search = this.zotero.Translate?.Search;
         return typeof Search === 'function' ? new Search() : null;
+    }
+
+    #assertActive() {
+        if (this.disposed) {
+            throw referenceError(
+                'REFERENCE_LIBRARY_DISPOSED',
+                'The Zotero reference library is disposed'
+            );
+        }
     }
 }
 
@@ -445,10 +523,10 @@ function projectLibrary(library, userLibraryID) {
         ? 'group'
         : 'user';
     const editable = library.editable !== undefined
-        ? Boolean(library.editable)
+        ? readBoolean(library, 'editable')
         : type === 'user';
     const filesEditable = library.filesEditable !== undefined
-        ? Boolean(library.filesEditable)
+        ? readBoolean(library, 'filesEditable')
         : editable;
     return {
         libraryID,
@@ -609,8 +687,10 @@ async function hasPDFAttachment(zotero, attachmentIDs, signal) {
                 return true;
             }
         }
-        catch {
+        catch (error) {
             // A missing attachment should not hide a bibliographic item.
+            if (error?.name === 'AbortError') throw error;
+            if (signal?.aborted) throwIfAborted(signal);
         }
     }
     return false;
@@ -626,11 +706,12 @@ function safeAttachmentIDs(item) {
     }
 }
 
-async function collectTranslatedAttachments(zotero, items) {
+async function collectTranslatedAttachments(zotero, items, signal) {
     const attachments = [];
     for (const item of items) {
+        throwIfAborted(signal);
         for (const id of safeAttachmentIDs(item)) {
-            if (!await hasPDFAttachment(zotero, [id])) continue;
+            if (!await hasPDFAttachment(zotero, [id], signal)) continue;
             attachments.push({ id, parentItemID: item?.id });
         }
     }
@@ -820,4 +901,32 @@ function throwIfAborted(signal) {
         if (!error.name) error.name = 'AbortError';
         throw error;
     }
+}
+
+function awaitWithAbort(promise, signal) {
+    if (!signal) return promise;
+    throwIfAborted(signal);
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const cleanup = () => signal.removeEventListener?.('abort', onAbort);
+        const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            callback(value);
+        };
+        const onAbort = () => {
+            try {
+                throwIfAborted(signal);
+            }
+            catch (error) {
+                finish(reject, error);
+            }
+        };
+        signal.addEventListener?.('abort', onAbort, { once: true });
+        Promise.resolve(promise).then(
+            value => finish(resolve, value),
+            error => finish(reject, error)
+        );
+    });
 }

@@ -54,6 +54,7 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
     const errors = [];
     const requests = [];
     const referenceSignals = [];
+    const referenceNotifier = createZoteroNotifier();
     let toolbarHandler;
     const mainWindow = createMainWindow(AbortController, []);
     mainWindow.document.defaultView.HTMLCanvasElement.prototype.getContext
@@ -103,7 +104,18 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
                 : items.get(value) || null,
             loadDataTypes: async () => {},
         },
-        Libraries: { get: () => ({ name: 'My Library' }) },
+        Libraries: {
+            get: () => ({ name: 'My Library' }),
+            userLibraryID: 1,
+            getAll: () => [{
+                libraryID: 1,
+                name: 'My Library',
+                libraryType: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+        },
+        Notifier: referenceNotifier,
         PreferencePanes: {
             register: async options => options.id,
             unregister() {},
@@ -158,6 +170,9 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
         id: 'mktero@tenglvjun.github.io',
         rootURI: 'resource://mktero/',
     });
+    assert.equal(referenceNotifier.count(), 1);
+    referenceNotifier.notify(null, 'item');
+    assert.equal(referenceNotifier.notifications, 1);
     const toolbarButtons = [];
     toolbarHandler({
         reader: { type: 'pdf', itemID: 42 },
@@ -201,6 +216,7 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
     const shutdownSignals = referenceSignals.slice(6, 9);
     globalThis.shutdown();
     await waitFor(() => shutdownSignals.every(signal => signal.aborted));
+    assert.equal(referenceNotifier.count(), 0);
     assert.equal(
         mainWindow.document.querySelector('.mktero-citation-graph-modal-host'),
         null
@@ -973,6 +989,32 @@ function createObserverService() {
         },
         count(topic) {
             return Number(listeners.has(topic));
+        },
+    };
+}
+
+function createZoteroNotifier() {
+    let observer = null;
+    let observerID = null;
+    return {
+        notifications: 0,
+        registerObserver(nextObserver, _types, id) {
+            observer = nextObserver;
+            observerID = id;
+            return id;
+        },
+        unregisterObserver(id) {
+            if (id === observerID) {
+                observer = null;
+                observerID = null;
+            }
+        },
+        notify(event, type) {
+            this.notifications++;
+            observer?.notify(event, type);
+        },
+        count() {
+            return Number(Boolean(observer));
         },
     };
 }

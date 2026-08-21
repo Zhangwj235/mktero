@@ -50,6 +50,29 @@ test('maps numeric citation tags and ranges to numbered references', () => {
     )));
 });
 
+test('attaches normalized identifiers to analyzed reference targets', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Evidence [1].',
+        '',
+        '## References',
+        '',
+        '[1] Doe. A paper. DOI:10.1000/ABC; PMID:123456; '
+            + 'https://arxiv.org/abs/2401.00001v2; '
+            + 'https://example.org/paper.pdf#page=2',
+    ].join('\n');
+
+    const [reference] = analyzeMarkdownCitations(markdown).references;
+
+    assert.deepEqual(reference.identifiers, {
+        doi: '10.1000/abc',
+        arxivID: '2401.00001',
+        pmid: '123456',
+        pdfURL: 'https://example.org/paper.pdf',
+    });
+});
+
 test('maps superscript citations to bare numbered references', () => {
     const markdown = [
         '# Paper',

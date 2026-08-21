@@ -187,18 +187,6 @@ function createCitationItem({
 }) {
     const element = createElement(document, 'div');
     element.className = 'mktero-citation-popup-item';
-    element.tabIndex = -1;
-    element.addEventListener('keydown', event => {
-        if (event.target !== element || (event.key !== 'Enter'
-            && event.key !== ' ')) return;
-        event.preventDefault();
-        primary.click();
-    });
-    element.addEventListener('click', event => {
-        if (event.target !== element) return;
-        close();
-        onActivate?.(target);
-    });
     const primary = createElement(document, 'button');
     primary.type = 'button';
     primary.className = 'mktero-citation-popup-primary';
@@ -491,6 +479,7 @@ function statusLabel(state, t) {
         'present-no-pdf': 'reference.presentNoPDF',
         'present-other-library': 'reference.presentOtherLibrary',
         absent: 'reference.absent',
+        ambiguous: 'reference.ambiguous',
         unknown: 'reference.unknown',
         importing: 'reference.importing',
         imported: 'reference.imported',
@@ -507,6 +496,7 @@ function errorLabel(errorCode, t) {
         REFERENCE_TRANSLATOR_UNAVAILABLE: 'reference.errorTranslator',
         REFERENCE_TRANSLATOR_NOT_FOUND: 'reference.errorTranslator',
         REFERENCE_TRANSLATOR_EMPTY: 'reference.errorTranslator',
+        REFERENCE_DUPLICATE_RACE: 'reference.errorDuplicate',
         REFERENCE_NETWORK_FAILED: 'reference.errorNetwork',
         REFERENCE_PDF_FAILED: 'reference.errorPDF',
     };
@@ -569,5 +559,5 @@ function createAbortController(parent) {
 }
 
 function focusFirstItem(popup) {
-    popup.querySelector('.mktero-citation-popup-item')?.focus();
+    popup.querySelector('.mktero-citation-popup-primary')?.focus();
 }

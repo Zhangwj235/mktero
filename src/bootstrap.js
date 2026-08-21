@@ -116,7 +116,10 @@ import {
     findCitationPaperPDFAttachment,
 } from './platform/zotero-citation-library.js';
 import { createZoteroReferenceLibrary } from './platform/zotero-reference-library.js';
-import { createReferenceImportService } from './core/reference-import-service.js';
+import {
+    createReferenceImportService,
+    createReferenceServiceActions,
+} from './core/reference-import-service.js';
 import {
     registerZoteroAnnotationObserver,
 } from './platform/zotero-annotation-observer.js';
@@ -587,23 +590,9 @@ async function openItemAsMarkdown(itemID, {
                 annotationID
             )
         ),
-        onListReferenceLibraries: ({ sourceItemID, signal } = {}) => (
-            runtime.referenceImportService?.listTargetLibraries(
-                sourceItemID ?? itemID,
-                { signal }
-            )
-        ),
-        onGetReferenceStatus: (reference, options = {}) => (
-            runtime.referenceImportService?.getStatus(reference, options)
-        ),
-        onImportReference: (reference, options = {}) => (
-            runtime.referenceImportService?.importReference(reference, options)
-        ),
-        onOpenReferenceMatch: match => (
-            runtime.referenceImportService?.openMatch(match)
-        ),
-        onSubscribeReferenceUpdates: listener => (
-            runtime.referenceImportService?.subscribe(listener)
+        ...createReferenceServiceActions(
+            runtime.referenceImportService,
+            { getSourceItemID: () => itemID }
         ),
     });
     if (presentation.created) {
@@ -765,10 +754,12 @@ async function openSavedMarkdownNote(noteID) {
 }
 
 function createSavedMarkdownActions(noteID, sourceItem) {
+    const currentSourceItemID = () => runtime.presenter?.get(noteID)?.model
+        ?.sourceItemID
+        ?? sourceItem?.id
+        ?? null;
     const withSource = callback => (...args) => {
-        const sourceItemID = runtime.presenter?.get(noteID)?.model?.sourceItemID
-            ?? sourceItem?.id
-            ?? null;
+        const sourceItemID = currentSourceItemID();
         if (!sourceItemID) throw new Error('The source PDF is unavailable');
         return callback(sourceItemID, ...args);
     };
@@ -823,6 +814,10 @@ function createSavedMarkdownActions(noteID, sourceItem) {
                     annotationID
                 )
             )
+        ),
+        ...createReferenceServiceActions(
+            runtime.referenceImportService,
+            { getSourceItemID: currentSourceItemID }
         ),
     };
 }

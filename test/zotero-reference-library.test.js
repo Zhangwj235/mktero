@@ -9,6 +9,7 @@ function item({
     libraryID,
     title,
     DOI = '',
+    PMID = '',
     extra = '',
     attachments = [],
     creators = [],
@@ -24,6 +25,7 @@ function item({
             return {
                 title,
                 DOI,
+                PMID,
                 extra,
                 year: '2024',
                 date: '2024',
@@ -94,6 +96,16 @@ test('discovers personal and group libraries while excluding feeds', async () =>
     ]);
 });
 
+test('defaults a read-only source group to the personal library', async () => {
+    const source = item({ id: 90, libraryID: 2, title: 'Source' });
+    const runtime = createRuntime([source]);
+    const library = createZoteroReferenceLibrary(runtime, {
+        loadItems: async () => [],
+    });
+
+    assert.equal(await library.getDefaultLibraryID(90), 1);
+});
+
 test('indexes exact DOI matches and detects PDF attachments across libraries', async () => {
     const pdf = {
         id: 20,
@@ -125,6 +137,87 @@ test('indexes exact DOI matches and detects PDF attachments across libraries', a
     assert.equal(result.selectedMatches[0].hasPDF, true);
     assert.equal(result.otherMatches.length, 1);
     assert.equal(result.otherMatches[0].libraryID, 2);
+    assert.equal(result.otherMatches[0].libraryName, 'Read-only Group');
+});
+
+test('indexes arXiv and explicit PMID fields while excluding deleted items', async () => {
+    const arxiv = item({
+        id: 12,
+        libraryID: 1,
+        title: 'arXiv paper',
+        extra: 'arXiv:2401.00001v2',
+    });
+    const pmid = item({
+        id: 13,
+        libraryID: 1,
+        title: 'PubMed paper',
+        PMID: '123456',
+    });
+    const deleted = item({
+        id: 14,
+        libraryID: 1,
+        title: 'Deleted paper',
+        DOI: '10.1000/deleted',
+        deleted: true,
+    });
+    const runtime = createRuntime([arxiv, pmid, deleted]);
+    const library = createZoteroReferenceLibrary(runtime, {
+        loadItems: async () => [arxiv, pmid, deleted],
+    });
+
+    const arxivResult = await library.find({
+        identifiers: { arxivID: '2401.00001' },
+    }, { targetLibraryID: 1 });
+    const pmidResult = await library.find({
+        identifiers: { pmid: '123456' },
+    }, { targetLibraryID: 1 });
+    const deletedResult = await library.find({
+        identifiers: { doi: '10.1000/deleted' },
+    }, { targetLibraryID: 1 });
+
+    assert.equal(arxivResult.selectedMatches[0].itemID, 12);
+    assert.equal(pmidResult.selectedMatches[0].itemID, 13);
+    assert.equal(deletedResult.selectedMatches.length, 0);
+});
+
+test('marks duplicate exact identifiers as ambiguous instead of choosing an item', async () => {
+    const first = item({ id: 15, libraryID: 1, DOI: '10.1000/duplicate' });
+    const second = item({ id: 16, libraryID: 1, DOI: '10.1000/duplicate' });
+    const library = createZoteroReferenceLibrary(createRuntime([first, second]), {
+        loadItems: async () => [first, second],
+    });
+
+    const result = await library.find({
+        identifiers: { doi: '10.1000/duplicate' },
+    }, { targetLibraryID: 1 });
+
+    assert.equal(result.ambiguous, true);
+    assert.deepEqual(result.selectedMatches.map(match => match.itemID), [15, 16]);
+});
+
+test('propagates an attachment lookup abort while building the index', async () => {
+    const parent = item({
+        id: 17,
+        libraryID: 1,
+        DOI: '10.1000/abort',
+        attachments: [18],
+    });
+    const runtime = createRuntime([parent]);
+    runtime.Items.getAsync = async id => {
+        if (id === 18) {
+            throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+        }
+        return id === 17 ? parent : null;
+    };
+    const library = createZoteroReferenceLibrary(runtime, {
+        loadItems: async () => [parent],
+    });
+    await assert.rejects(
+        library.find({ identifiers: { doi: '10.1000/abort' } }, {
+            targetLibraryID: 1,
+        }),
+        error => error.name === 'AbortError'
+    );
 });
 
 test('uses native Zotero search translator with selected library', async () => {
@@ -153,6 +246,34 @@ test('uses native Zotero search translator with selected library', async () => {
     assert.deepEqual(calls.at(-1), [
         'translate',
         { libraryID: 1, saveAttachments: true },
+    ]);
+});
+
+test('maps arXiv and PMID identifiers through the native translator contract', async () => {
+    const calls = [];
+    const translator = {
+        setIdentifier(value) { calls.push(value); },
+        async getTranslators() { return [{}]; },
+        setTranslator() {},
+        async translate() { return [{ id: 31 }]; },
+    };
+    const library = createZoteroReferenceLibrary(createRuntime([]), {
+        loadItems: async () => [],
+        translateFactory: () => translator,
+    });
+
+    await library.translateIdentifier({
+        reference: { identifiers: { arxivID: '2401.00001' } },
+        libraryID: 1,
+    });
+    await library.translateIdentifier({
+        reference: { identifiers: { pmid: '123456' } },
+        libraryID: 1,
+    });
+
+    assert.deepEqual(calls, [
+        { arXiv: '2401.00001' },
+        { PMID: '123456' },
     ]);
 });
 
@@ -252,4 +373,104 @@ test('copies metadata across libraries and preserves it when files are disabled'
         itemID: 42,
         targetLibraryID: 4,
     }), { itemID: 52, hasPDF: false });
+});
+
+test('opens a regular Zotero item and invalidates a stale index', async () => {
+    const opened = [];
+    const itemValue = item({ id: 61, libraryID: 1, DOI: '10.1000/new' });
+    let items = [];
+    const runtime = createRuntime([itemValue]);
+    runtime.getMainWindow = () => ({
+        ZoteroPane: {
+            async selectItem(id) { opened.push(id); },
+        },
+    });
+    const library = createZoteroReferenceLibrary(runtime, {
+        loadItems: async () => items,
+    });
+
+    assert.equal((await library.find({ identifiers: { doi: '10.1000/new' } }, {
+        targetLibraryID: 1,
+    })).selectedMatches.length, 0);
+    items = [itemValue];
+    assert.equal((await library.find({ identifiers: { doi: '10.1000/new' } }, {
+        targetLibraryID: 1,
+    })).selectedMatches.length, 0);
+    library.invalidate();
+    assert.equal((await library.find({ identifiers: { doi: '10.1000/new' } }, {
+        targetLibraryID: 1,
+    })).selectedMatches[0].itemID, 61);
+    await library.openItem(61);
+    assert.deepEqual(opened, [61]);
+});
+
+test('cancels an in-progress index before loading the next library', async () => {
+    const controller = new AbortController();
+    let started = false;
+    const library = createZoteroReferenceLibrary(createRuntime([]), {
+        loadItems: async (_libraryID, { signal }) => {
+            started = true;
+            await new Promise(resolve => {
+                signal.addEventListener('abort', resolve, { once: true });
+            });
+            signal.throwIfAborted?.();
+            throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+        },
+    });
+    const pending = library.refreshIndex({ signal: controller.signal });
+    while (!started) await Promise.resolve();
+    controller.abort();
+    await assert.rejects(pending, error => error.name === 'AbortError');
+});
+
+test('keeps a shared index alive for another caller when one signal aborts', async () => {
+    let started = false;
+    let release;
+    let waits = 0;
+    const runtime = createRuntime([]);
+    const library = createZoteroReferenceLibrary(runtime, {
+        loadItems: async (_libraryID, { signal }) => {
+            if (waits++ === 0) {
+                started = true;
+                await new Promise(resolve => {
+                    release = resolve;
+                    signal.addEventListener('abort', resolve, { once: true });
+                });
+            }
+            signal.throwIfAborted?.();
+            return [];
+        },
+    });
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+    const first = library.refreshIndex({ signal: firstController.signal });
+    while (!started) await Promise.resolve();
+    const second = library.refreshIndex({ signal: secondController.signal });
+    firstController.abort();
+    await assert.rejects(first, error => error.name === 'AbortError');
+    release();
+    await second;
+    assert.equal(secondController.signal.aborted, false);
+});
+
+test('disposes and aborts a shared index build', async () => {
+    let started = false;
+    const library = createZoteroReferenceLibrary(createRuntime([]), {
+        loadItems: async (_libraryID, { signal }) => {
+            started = true;
+            await new Promise(resolve => {
+                signal.addEventListener('abort', resolve, { once: true });
+            });
+            signal.throwIfAborted?.();
+            return [];
+        },
+    });
+    const pending = library.refreshIndex();
+    while (!started) await Promise.resolve();
+    library.dispose();
+    await assert.rejects(pending, error => error.name === 'AbortError');
+    await assert.rejects(
+        library.refreshIndex(),
+        error => error.code === 'REFERENCE_LIBRARY_DISPOSED'
+    );
 });

@@ -349,6 +349,7 @@ const MESSAGES = Object.freeze({
         'reference.presentNoPDF': 'In Zotero, no PDF attached',
         'reference.presentOtherLibrary': 'Available in Zotero library: {library}',
         'reference.absent': 'Not found in accessible libraries',
+        'reference.ambiguous': 'Multiple Zotero items match this identifier; resolve the duplicate in Zotero',
         'reference.unknown': 'Cannot determine automatically',
         'reference.importing': 'Importing…',
         'reference.imported': 'Imported into Zotero',
@@ -365,6 +366,7 @@ const MESSAGES = Object.freeze({
         'reference.errorLibraryReadOnly': 'The selected Zotero library is read-only',
         'reference.errorFilesReadOnly': 'PDF files cannot be added to the selected library',
         'reference.errorTranslator': 'Zotero could not import metadata for this reference',
+        'reference.errorDuplicate': 'Multiple Zotero items match this identifier; resolve the duplicate in Zotero, then retry',
         'reference.errorPDF': 'Metadata was imported, but the PDF could not be added',
         'reference.errorNetwork': 'The reference service timed out or could not be reached',
         'reference.errorImport': 'The reference could not be imported',
@@ -759,6 +761,7 @@ const MESSAGES = Object.freeze({
         'reference.presentNoPDF': 'Zotero 中已有文献，但没有 PDF',
         'reference.presentOtherLibrary': '存在于 Zotero 文库：{library}',
         'reference.absent': '可访问文库中未找到',
+        'reference.ambiguous': '多个 Zotero 条目匹配此标识符，请在 Zotero 中处理重复条目',
         'reference.unknown': '无法自动判断',
         'reference.importing': '正在导入…',
         'reference.imported': '已导入 Zotero',
@@ -775,6 +778,7 @@ const MESSAGES = Object.freeze({
         'reference.errorLibraryReadOnly': '所选 Zotero 文库为只读',
         'reference.errorFilesReadOnly': '无法向所选文库添加 PDF 文件',
         'reference.errorTranslator': 'Zotero 无法导入该文献的元数据',
+        'reference.errorDuplicate': '多个 Zotero 条目匹配此标识符，请先在 Zotero 中处理重复条目，再重试',
         'reference.errorPDF': '元数据已导入，但无法添加 PDF',
         'reference.errorNetwork': '文献服务超时或无法访问',
         'reference.errorImport': '无法导入该文献',
@@ -856,4 +860,9 @@ export function translateMessage(language, key, variables = {}) {
 
 export function translateEnglish(key, variables) {
     return translateMessage(LANGUAGE_ENGLISH, key, variables);
+}
+
+export function getLocalizationMessageKeys(language) {
+    const messages = MESSAGES[language] || MESSAGES[LANGUAGE_ENGLISH];
+    return Object.freeze(Object.keys(messages));
 }

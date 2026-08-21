@@ -2,12 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     createReferenceImportService,
+    createReferenceServiceActions,
 } from '../src/core/reference-import-service.js';
 
 function createLibraryHarness() {
     const matches = new Map();
     const calls = [];
     let nextItemID = 50;
+    let translatedResult = null;
+    let translateHook = null;
     const libraries = [
         { libraryID: 1, name: 'Personal', type: 'user', editable: true, filesEditable: true },
         { libraryID: 2, name: 'Read-only', type: 'group', editable: false, filesEditable: false },
@@ -25,6 +28,7 @@ function createLibraryHarness() {
             return {
                 identifiers: reference.identifiers,
                 ...value,
+                ambiguous: Boolean(value.ambiguous),
                 candidates: [],
                 selectedMatches: value.selectedMatches.filter(
                     match => String(match.libraryID) === String(targetLibraryID)
@@ -34,9 +38,10 @@ function createLibraryHarness() {
                 ),
             };
         },
-        async translateIdentifier() {
+        async translateIdentifier(options) {
             calls.push(['translate']);
-            return { items: [{ id: nextItemID++ }], attachments: [] };
+            if (translateHook) return translateHook(options);
+            return translatedResult || { items: [{ id: nextItemID++ }], attachments: [] };
         },
         async attachPDF(options) {
             calls.push(['attach', options]);
@@ -51,12 +56,84 @@ function createLibraryHarness() {
             return id;
         },
         setMatch(key, value) { matches.set(key, value); },
+        setTranslated(value) { translatedResult = value; },
+        setTranslateHook(hook) { translateHook = hook; },
     };
 }
 
+test('builds tab callbacks with the current source PDF library context', async () => {
+    const calls = [];
+    const service = {
+        async listTargetLibraries(sourceItemID, options) {
+            calls.push(['libraries', sourceItemID, options]);
+            return { libraries: [], defaultLibraryID: 1 };
+        },
+        async getStatus(reference, options) {
+            calls.push(['status', reference, options]);
+            return { state: 'unknown' };
+        },
+        async importReference(reference, options) {
+            calls.push(['import', reference, options]);
+            return { state: 'failed' };
+        },
+        async openMatch(match) {
+            calls.push(['open', match]);
+            return match.itemID;
+        },
+        subscribe(listener) {
+            calls.push(['subscribe', listener]);
+            return () => {};
+        },
+    };
+    let sourceItemID = 42;
+    const actions = createReferenceServiceActions(service, {
+        getSourceItemID: () => sourceItemID,
+    });
+    const signal = new AbortController().signal;
+    await actions.onListReferenceLibraries({ signal });
+    await actions.onListReferenceLibraries({ sourceItemID: 77, signal });
+    await actions.onGetReferenceStatus({ id: 'r' }, { signal });
+    await actions.onImportReference({ id: 'r' }, { signal });
+    await actions.onOpenReferenceMatch({ itemID: 7 });
+    actions.onSubscribeReferenceUpdates(() => {});
+    sourceItemID = 99;
+    await actions.onListReferenceLibraries({ signal });
+
+    assert.equal(calls[0][1], 42);
+    assert.equal(calls[0][2].signal, signal);
+    assert.equal(calls[1][1], 77);
+    assert.equal(calls[6][1], 99);
+});
+
+test('lists selectable libraries and rejects import into a read-only target', async () => {
+    const library = createLibraryHarness();
+    const service = createReferenceImportService({
+        library,
+        sourceItemID: 42,
+    });
+    const targets = await service.listTargetLibraries();
+    assert.equal(targets.defaultLibraryID, 1);
+    assert.deepEqual(targets.libraries.map(value => value.libraryID), [1, 2]);
+
+    const result = await service.importReference({
+        identifiers: { doi: '10.1000/read-only' },
+    }, { targetLibraryID: 2 });
+    assert.equal(result.errorCode, 'REFERENCE_LIBRARY_READ_ONLY');
+    assert.equal(library.calls.some(call => call[0] === 'translate'), false);
+});
+
 test('reports unknown for title-only references and absent for reliable misses', async () => {
     const library = createLibraryHarness();
-    const service = createReferenceImportService({ library });
+    let externalCalls = 0;
+    const service = createReferenceImportService({
+        library,
+        openAccessResolver: {
+            async resolve() {
+                externalCalls++;
+                return null;
+            },
+        },
+    });
     const unknown = await service.getStatus({ text: 'A title only reference', identifiers: {} }, {
         targetLibraryID: 1,
     });
@@ -65,8 +142,15 @@ test('reports unknown for title-only references and absent for reliable misses',
     });
     assert.equal(unknown.state, 'unknown');
     assert.equal(unknown.canImport, false);
+    const importUnknown = await service.importReference({
+        text: 'A title only reference',
+        identifiers: {},
+    }, { targetLibraryID: 1 });
+    assert.equal(importUnknown.errorCode, 'REFERENCE_IDENTIFIER_UNSUPPORTED');
+    assert.equal(library.calls.some(call => call[0] === 'translate'), false);
     assert.equal(absent.state, 'absent');
     assert.equal(absent.canImport, true);
+    assert.equal(externalCalls, 0);
     assert.equal((await service.getStatus({
         identifiers: { pmid: 'not-a-pmid' },
     }, { targetLibraryID: 1 })).state, 'unknown');
@@ -92,6 +176,56 @@ test('reports selected, other-library, and no-PDF states', async () => {
     assert.equal((await service.getStatus({ identifiers: { doi: '10.1000/other' } }, { targetLibraryID: 1 })).state, 'present-other-library');
 });
 
+test('does not choose an ambiguous exact match and keeps retry available', async () => {
+    const library = createLibraryHarness();
+    library.setMatch('10.1000/ambiguous', {
+        ambiguous: true,
+        selectedMatches: [
+            { itemID: 1, libraryID: 1, hasPDF: true },
+            { itemID: 2, libraryID: 1, hasPDF: true },
+        ],
+        otherMatches: [],
+    });
+    const service = createReferenceImportService({ library });
+    const result = await service.getStatus({
+        identifiers: { doi: '10.1000/ambiguous' },
+    }, { targetLibraryID: 1 });
+
+    assert.equal(result.state, 'ambiguous');
+    assert.equal(result.ambiguous, true);
+    assert.equal(result.match, null);
+    assert.equal(result.canImport, false);
+    const importResult = await service.importReference({
+        identifiers: { doi: '10.1000/ambiguous' },
+    }, { targetLibraryID: 1 });
+    assert.equal(importResult.errorCode, 'REFERENCE_DUPLICATE_RACE');
+    assert.equal(importResult.canImport, true);
+    assert.equal(library.calls.some(call => call[0] === 'translate'), false);
+});
+
+test('does not report imported when a duplicate appears during import', async () => {
+    const library = createLibraryHarness();
+    library.setTranslateHook(() => {
+        library.setMatch('10.1000/race-after-import', {
+            ambiguous: true,
+            selectedMatches: [
+                { itemID: 51, libraryID: 1, hasPDF: false },
+                { itemID: 52, libraryID: 1, hasPDF: false },
+            ],
+            otherMatches: [],
+        });
+        return { items: [{ id: 51 }], attachments: [] };
+    });
+    const service = createReferenceImportService({ library });
+    const result = await service.importReference({
+        identifiers: { doi: '10.1000/race-after-import' },
+    }, { targetLibraryID: 1 });
+
+    assert.equal(result.state, 'failed');
+    assert.equal(result.errorCode, 'REFERENCE_DUPLICATE_RACE');
+    assert.equal(result.canImport, true);
+});
+
 test('deduplicates imports and attaches an open PDF after metadata', async () => {
     const library = createLibraryHarness();
     const service = createReferenceImportService({
@@ -102,6 +236,8 @@ test('deduplicates imports and attaches an open PDF after metadata', async () =>
             },
         },
     });
+    const events = [];
+    service.subscribe(event => events.push(event.type));
     const reference = { id: 'number:1', identifiers: { doi: '10.1000/new' } };
     const [first, second] = await Promise.all([
         service.importReference(reference, { targetLibraryID: 1 }),
@@ -111,6 +247,79 @@ test('deduplicates imports and attaches an open PDF after metadata', async () =>
     assert.equal(library.calls.filter(call => call[0] === 'translate').length, 1);
     assert.equal(library.calls.filter(call => call[0] === 'attach').length, 1);
     assert.equal(first.state, 'imported');
+    assert.ok(events.includes('updated'));
+});
+
+test('uses translator PDF attachments before trying open-access providers', async () => {
+    const library = createLibraryHarness();
+    library.setTranslated({
+        items: [{ id: 70 }],
+        attachments: [{ contentType: 'application/pdf' }],
+    });
+    let resolverCalls = 0;
+    const service = createReferenceImportService({
+        library,
+        openAccessResolver: {
+            async resolve() {
+                resolverCalls++;
+                return { url: 'https://example.org/fallback.pdf' };
+            },
+        },
+    });
+
+    const result = await service.importReference({
+        identifiers: { doi: '10.1000/translator-pdf' },
+    }, { targetLibraryID: 1 });
+    assert.equal(result.state, 'imported');
+    assert.equal(resolverCalls, 0);
+    assert.equal(library.calls.some(call => call[0] === 'attach'), false);
+});
+
+test('attaches a public arXiv PDF after metadata import', async () => {
+    const library = createLibraryHarness();
+    let resolvedReference;
+    const service = createReferenceImportService({
+        library,
+        openAccessResolver: {
+            async resolve(reference) {
+                resolvedReference = reference;
+                return {
+                    url: 'https://arxiv.org/pdf/2401.00001.pdf',
+                    source: 'arxiv',
+                };
+            },
+        },
+    });
+    const result = await service.importReference({
+        identifiers: { arxivID: '2401.00001' },
+    }, { targetLibraryID: 1 });
+
+    assert.equal(result.state, 'imported');
+    assert.equal(resolvedReference.identifiers.arxivID, '2401.00001');
+    assert.equal(library.calls.filter(call => call[0] === 'attach').length, 1);
+});
+
+test('keeps metadata usable when the target library cannot store files', async () => {
+    const library = createLibraryHarness();
+    library.libraries[0] = {
+        ...library.libraries[0],
+        filesEditable: false,
+    };
+    const service = createReferenceImportService({
+        library,
+        openAccessResolver: {
+            async resolve() {
+                throw new Error('must not resolve a PDF');
+            },
+        },
+    });
+    const result = await service.importReference({
+        identifiers: { doi: '10.1000/no-files' },
+    }, { targetLibraryID: 1 });
+
+    assert.equal(result.state, 'present-no-pdf');
+    assert.equal(result.retryablePDF, false);
+    assert.equal(library.calls.some(call => call[0] === 'attach'), false);
 });
 
 test('copies an existing item from another library instead of silently duplicating it', async () => {
@@ -147,4 +356,53 @@ test('preserves metadata when PDF resolution fails and exposes retry state', asy
     assert.equal(result.state, 'present-no-pdf');
     assert.equal(result.retryablePDF, true);
     assert.equal(result.pdfError, 'REFERENCE_NETWORK_FAILED');
+});
+
+test('retries a missing PDF for an existing metadata item', async () => {
+    const library = createLibraryHarness();
+    library.setMatch('10.1000/retry', {
+        selectedMatches: [{ itemID: 77, libraryID: 1, hasPDF: false }],
+        otherMatches: [],
+    });
+    let resolverCalls = 0;
+    const service = createReferenceImportService({
+        library,
+        openAccessResolver: {
+            async resolve() {
+                resolverCalls++;
+                return { url: 'https://example.org/retry.pdf' };
+            },
+        },
+    });
+    const result = await service.retryPDF({
+        identifiers: { doi: '10.1000/retry' },
+    }, { targetLibraryID: 1 });
+
+    assert.equal(result.state, 'imported');
+    assert.equal(resolverCalls, 1);
+    assert.equal(library.calls.filter(call => call[0] === 'translate').length, 0);
+});
+
+test('publishes refresh updates and aborts in-flight work on dispose', async () => {
+    const library = createLibraryHarness();
+    let notifyStarted;
+    const started = new Promise(resolve => { notifyStarted = resolve; });
+    library.setTranslateHook(({ signal }) => new Promise((_resolve, reject) => {
+        notifyStarted();
+        const abort = () => reject(
+            signal.reason || Object.assign(new Error('aborted'), { name: 'AbortError' })
+        );
+        if (signal.aborted) abort();
+        else signal.addEventListener('abort', abort, { once: true });
+    }));
+    const service = createReferenceImportService({ library });
+    const events = [];
+    service.subscribe(event => events.push(event.type));
+    const pending = service.importReference({
+        identifiers: { doi: '10.1000/cancel' },
+    }, { targetLibraryID: 1 });
+    await started;
+    service.dispose();
+    await assert.rejects(pending, error => error.name === 'AbortError');
+    assert.deepEqual(events, []);
 });

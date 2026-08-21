@@ -94,3 +94,19 @@ test('propagates cancellation instead of falling through', async () => {
         error => error.name === 'AbortError'
     );
 });
+
+test('propagates a provider AbortError even when the signal is not marked', async () => {
+    const resolver = createOpenAccessResolver({
+        semanticScholarClient: {
+            async resolveOpenAccessPDF() {
+                throw Object.assign(new Error('aborted'), {
+                    name: 'AbortError',
+                });
+            },
+        },
+    });
+    await assert.rejects(
+        resolver.resolve({ identifiers: { doi: '10.1000/test' } }),
+        error => error.name === 'AbortError'
+    );
+});

@@ -62,7 +62,9 @@ export class OpenAccessResolver {
                 }
             }
             catch (error) {
-                if (signal?.aborted) throw error;
+                if (signal?.aborted || error?.name === 'AbortError') {
+                    throw error;
+                }
                 providerError ||= error;
             }
         }
@@ -83,7 +85,9 @@ export class OpenAccessResolver {
                 }
             }
             catch (error) {
-                if (signal?.aborted) throw error;
+                if (signal?.aborted || error?.name === 'AbortError') {
+                    throw error;
+                }
                 providerError ||= error;
             }
         }

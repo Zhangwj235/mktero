@@ -14,6 +14,27 @@ export function createReferenceImportService(options) {
     return new ReferenceImportService(options);
 }
 
+export function createReferenceServiceActions(service, {
+    getSourceItemID = () => null,
+} = {}) {
+    return {
+        onListReferenceLibraries: ({ sourceItemID, signal } = {}) => (
+            service?.listTargetLibraries(
+                sourceItemID ?? getSourceItemID(),
+                { signal }
+            )
+        ),
+        onGetReferenceStatus: (reference, options = {}) => (
+            service?.getStatus(reference, options)
+        ),
+        onImportReference: (reference, options = {}) => (
+            service?.importReference(reference, options)
+        ),
+        onOpenReferenceMatch: match => service?.openMatch(match),
+        onSubscribeReferenceUpdates: listener => service?.subscribe(listener),
+    };
+}
+
 export class ReferenceImportService {
     constructor({
         library,
@@ -34,6 +55,7 @@ export class ReferenceImportService {
     }
 
     async listTargetLibraries(sourceItemID = this.sourceItemID, { signal } = {}) {
+        this.#assertActive();
         throwIfAborted(signal);
         const libraries = await this.library.listLibraries({ signal });
         const defaultLibraryID = await this.library.getDefaultLibraryID(
@@ -65,9 +87,13 @@ export class ReferenceImportService {
         const otherMatches = Array.isArray(result?.otherMatches)
             ? result.otherMatches
             : [];
+        const ambiguous = Boolean(result?.ambiguous);
         const reliable = hasReliableIdentifier(identifiers);
         let state = 'unknown';
-        if (selectedMatches.length) {
+        if (ambiguous) {
+            state = 'ambiguous';
+        }
+        else if (selectedMatches.length) {
             state = selectedMatches.some(match => match.hasPDF)
                 ? 'present'
                 : 'present-no-pdf';
@@ -89,8 +115,9 @@ export class ReferenceImportService {
             candidates: Array.isArray(result?.candidates)
                 ? result.candidates
                 : [],
-            match: selectedMatches[0] || null,
-            canImport: Boolean(library?.editable && reliable),
+            match: ambiguous ? null : selectedMatches[0] || null,
+            ambiguous,
+            canImport: Boolean(library?.editable && reliable && !ambiguous),
             filesEditable: Boolean(library?.filesEditable),
             targetLibraryEditable: Boolean(library?.editable),
             targetLibraryFilesEditable: Boolean(library?.filesEditable),
@@ -173,6 +200,7 @@ export class ReferenceImportService {
         this.disposed = true;
         for (const controller of this.controllers) controller.abort?.();
         this.controllers.clear();
+        this.library.dispose?.();
         this.inFlight.clear();
         this.listeners.clear();
         this.generation++;
@@ -198,6 +226,14 @@ export class ReferenceImportService {
                 targetLibraryID,
                 signal: operationSignal,
             });
+            if (before.ambiguous) {
+                return failedResult(
+                    reference,
+                    targetLibraryID,
+                    'REFERENCE_DUPLICATE_RACE',
+                    { canImport: Boolean(library?.editable) }
+                );
+            }
             if (before.selectedMatches.length
                 && before.selectedMatches.some(match => match.hasPDF)) {
                 return before;
@@ -212,6 +248,7 @@ export class ReferenceImportService {
                 const copied = await this.library.copyItem({
                     itemID: before.otherMatches[0].itemID,
                     targetLibraryID,
+                    signal: operationSignal,
                 });
                 itemID = copied && typeof copied === 'object'
                     ? copied.itemID
@@ -271,6 +308,21 @@ export class ReferenceImportService {
                 targetLibraryID,
                 signal: operationSignal,
             });
+            if (after.ambiguous) {
+                const result = failedResult(
+                    reference,
+                    targetLibraryID,
+                    'REFERENCE_DUPLICATE_RACE',
+                    { canImport: Boolean(library?.editable) }
+                );
+                onProgress({
+                    status: 'failed',
+                    stage: 'duplicate',
+                    errorCode: result.errorCode,
+                });
+                this.#notify({ type: 'updated', reference, result });
+                return result;
+            }
             const finalStatus = pdfError || (!hasPDF && !after.match?.hasPDF)
                 ? 'present-no-pdf'
                 : 'imported';
@@ -280,7 +332,8 @@ export class ReferenceImportService {
                 state: finalStatus,
                 importedItemID: itemID,
                 pdfError,
-                retryablePDF: finalStatus === 'present-no-pdf',
+                retryablePDF: finalStatus === 'present-no-pdf'
+                    && Boolean(library.filesEditable),
             };
             onProgress({ status: finalStatus, stage: pdfError ? 'pdf-failed' : 'done' });
             this.#notify({ type: 'updated', reference, result });
