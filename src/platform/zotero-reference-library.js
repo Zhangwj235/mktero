@@ -41,14 +41,29 @@ export class ZoteroReferenceLibrary {
         this.disposed = false;
     }
 
-    async listLibraries({ signal } = {}) {
+    async listLibraries({ sourceItemID = null, signal } = {}) {
         this.#assertActive();
         throwIfAborted(signal);
-        return discoverLibraries(this.zotero);
+        await waitForZoteroInitialization(this.zotero, signal);
+        throwIfAborted(signal);
+        const libraries = discoverLibraries(this.zotero);
+        if (sourceItemID === null || sourceItemID === undefined) {
+            return libraries;
+        }
+        const sourceLibrary = await this.#discoverSourceLibrary(
+            sourceItemID,
+            signal
+        );
+        if (!sourceLibrary || libraries.some(library => (
+            String(library.libraryID) === String(sourceLibrary.libraryID)
+        ))) {
+            return libraries;
+        }
+        return dedupeLibraries([...libraries, sourceLibrary]);
     }
 
     async getDefaultLibraryID(sourceItemID, { signal } = {}) {
-        const libraries = await this.listLibraries({ signal });
+        const libraries = await this.listLibraries({ sourceItemID, signal });
         const personal = libraries.find(library => library.type === 'user');
         const source = await this.#getItem(sourceItemID, signal);
         throwIfAborted(signal);
@@ -468,6 +483,41 @@ export class ZoteroReferenceLibrary {
         }
     }
 
+    async #discoverSourceLibrary(sourceItemID, signal) {
+        const source = await this.#getItem(sourceItemID, signal);
+        const libraryID = source?.libraryID;
+        if (libraryID === null || libraryID === undefined) return null;
+        const userLibraryID = safeUserLibraryID(this.zotero);
+        let runtimeLibrary = null;
+        try {
+            runtimeLibrary = this.zotero.Libraries?.get?.(libraryID) || null;
+        }
+        catch {
+            runtimeLibrary = null;
+        }
+        if (runtimeLibrary) {
+            try {
+                const projection = projectLibrary(
+                    runtimeLibrary,
+                    userLibraryID
+                );
+                if (projection) return projection;
+            }
+            catch {
+                // Fall through to a bounded source-library projection.
+            }
+        }
+        const isUserLibrary = userLibraryID !== null
+            && String(libraryID) === String(userLibraryID);
+        return projectLibrary({
+            libraryID,
+            name: isUserLibrary ? 'My Library' : `Group ${libraryID}`,
+            libraryType: isUserLibrary ? 'user' : 'group',
+            editable: isUserLibrary,
+            filesEditable: isUserLibrary,
+        }, userLibraryID);
+    }
+
     #createTranslator() {
         if (typeof this.translateFactory === 'function') {
             return this.translateFactory();
@@ -501,7 +551,7 @@ export function discoverLibraries(zotero) {
     const libraries = Array.isArray(source)
         ? source
         : Array.isArray(source?.libraries) ? source.libraries : [];
-    const userLibraryID = zotero?.Libraries?.userLibraryID;
+    const userLibraryID = safeUserLibraryID(zotero);
     const projections = libraries.map(library => {
         try {
             return projectLibrary(library, userLibraryID);
@@ -525,9 +575,31 @@ export function discoverLibraries(zotero) {
         catch {
             projection = null;
         }
+        if (!projection && userLibraryID !== null
+            && userLibraryID !== undefined) {
+            projection = projectLibrary({
+                libraryID: userLibraryID,
+                name: 'My Library',
+                libraryType: 'user',
+                editable: true,
+                filesEditable: true,
+            }, userLibraryID);
+        }
         if (projection) projections.unshift(projection);
     }
     return dedupeLibraries(projections);
+}
+
+function safeUserLibraryID(zotero) {
+    try {
+        const libraryID = zotero?.Libraries?.userLibraryID;
+        return libraryID === null || libraryID === undefined
+            ? null
+            : libraryID;
+    }
+    catch {
+        return null;
+    }
 }
 
 function projectLibrary(library, userLibraryID) {
@@ -955,4 +1027,17 @@ function awaitWithAbort(promise, signal) {
             error => finish(reject, error)
         );
     });
+}
+
+async function waitForZoteroInitialization(zotero, signal) {
+    let initializationPromise = null;
+    try {
+        initializationPromise = zotero?.initializationPromise;
+    }
+    catch {
+        return;
+    }
+    if (!initializationPromise
+        || typeof initializationPromise.then !== 'function') return;
+    await awaitWithAbort(initializationPromise, signal);
 }

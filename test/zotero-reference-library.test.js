@@ -101,16 +101,67 @@ test('falls back to the personal library when library enumeration is unavailable
     runtime.Libraries.getAll = () => {
         throw new Error('library manager is not ready');
     };
-    runtime.Libraries.get = libraryID => ({
-        libraryID,
-        name: 'Personal',
-        libraryType: 'user',
-        editable: true,
-        filesEditable: true,
-    });
+    runtime.Libraries.get = () => null;
     const library = createZoteroReferenceLibrary(runtime);
 
     assert.deepEqual(await library.listLibraries(), [{
+        libraryID: 1,
+        name: 'My Library',
+        type: 'user',
+        editable: true,
+        filesEditable: true,
+    }]);
+});
+
+test('projects the source item library when the library cache is empty', async () => {
+    const source = item({ id: 90, libraryID: 7, title: 'Source' });
+    const runtime = createRuntime([source]);
+    runtime.Libraries.getAll = () => [];
+    runtime.Libraries.get = () => null;
+    const library = createZoteroReferenceLibrary(runtime);
+
+    assert.deepEqual(await library.listLibraries({ sourceItemID: 90 }), [
+        {
+            libraryID: 1,
+            name: 'My Library',
+            type: 'user',
+            editable: true,
+            filesEditable: true,
+        },
+        {
+            libraryID: 7,
+            name: 'Group 7',
+            type: 'group',
+            editable: false,
+            filesEditable: false,
+        },
+    ]);
+});
+
+test('waits for Zotero initialization before enumerating libraries', async () => {
+    const runtime = createRuntime([]);
+    let resolveInitialization;
+    let initialized = false;
+    runtime.initializationPromise = new Promise(resolve => {
+        resolveInitialization = resolve;
+    });
+    runtime.Libraries.getAll = () => {
+        if (!initialized) throw new Error('library cache is not initialized');
+        return [{
+            libraryID: 1,
+            name: 'Personal',
+            libraryType: 'user',
+            editable: true,
+            filesEditable: true,
+        }];
+    };
+    const library = createZoteroReferenceLibrary(runtime);
+    const listing = library.listLibraries();
+
+    await Promise.resolve();
+    initialized = true;
+    resolveInitialization();
+    assert.deepEqual(await listing, [{
         libraryID: 1,
         name: 'Personal',
         type: 'user',

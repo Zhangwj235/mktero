@@ -57,7 +57,10 @@ export class ReferenceImportService {
     async listTargetLibraries(sourceItemID = this.sourceItemID, { signal } = {}) {
         this.#assertActive();
         throwIfAborted(signal);
-        const libraries = await this.library.listLibraries({ signal });
+        const libraries = await this.library.listLibraries({
+            sourceItemID,
+            signal,
+        });
         let defaultLibraryID = null;
         try {
             defaultLibraryID = await this.library.getDefaultLibraryID(
