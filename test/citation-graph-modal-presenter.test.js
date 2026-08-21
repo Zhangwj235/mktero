@@ -26,10 +26,11 @@ function createSnapshot() {
     };
 }
 
-function createHarness() {
+function createHarness({ onOpenPaper = null } = {}) {
     const { document, window } = parseHTML('<html><body></body></html>');
     const renders = [];
     const views = [];
+    let openPaperHandler = null;
     const graphSnapshot = createSnapshot();
     const graph = {
         async getLibraryGraph() {
@@ -46,8 +47,10 @@ function createHarness() {
         },
         graph,
         library: { openPaper: async () => {} },
+        onOpenPaper,
         getLibraryName: () => 'My Library',
-        createView() {
+        createView(options) {
+            openPaperHandler = options.onOpenPaper;
             const root = document.createElement('div');
             const view = {
                 root,
@@ -57,7 +60,16 @@ function createHarness() {
             return view;
         },
     });
-    return { document, window, presenter, renders, views };
+    return {
+        document,
+        window,
+        presenter,
+        renders,
+        views,
+        get openPaperHandler() {
+            return openPaperHandler;
+        },
+    };
 }
 
 test('opens a modal with only the focused paper citation graph', async () => {
@@ -90,6 +102,22 @@ test('closes the modal and aborts its active refresh', () => {
     assert.equal(controller.signal.aborted, true);
     assert.equal(harness.document.querySelector('.mktero-citation-graph-modal-host'), null);
     assert.deepEqual(harness.views, ['destroyed']);
+});
+
+test('uses the injected paper opener for graph navigation', async () => {
+    const opened = [];
+    const harness = createHarness({
+        onOpenPaper: node => opened.push(node.itemID),
+    });
+    const presentation = harness.presenter.open({
+        libraryID: 1,
+        focusItemID: 7,
+    });
+
+    await presentation.refreshPromise;
+    await harness.openPaperHandler({ itemID: 8 });
+
+    assert.deepEqual(opened, [8]);
 });
 
 test('closes a modal when either the source attachment or focused item closes', () => {

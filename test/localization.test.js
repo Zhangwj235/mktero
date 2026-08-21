@@ -62,6 +62,8 @@ test('creates a fixed localization from the Zotero locale', () => {
         localization.t('preferences.citations.note'),
         /DOI and arXiv identifiers/
     );
+    assert.equal(localization.t('graph.openWithMktero'), 'Open with Mktero');
+    assert.equal(chinese.t('graph.openWithMktero'), '使用 Mktero 打开');
     assert.equal(localization.t('ai.cancelDocumentTranslationCompact'), 'Cancel');
     assert.equal(chinese.t('ai.cancelDocumentTranslationCompact'), '取消');
     assert.equal(

@@ -341,6 +341,14 @@ test('shows hover details and uses distinct connected and isolated colors', () =
     assert.ok(harness.context.fillStyles.includes('#6b7280'));
 });
 
+test('uses an opaque system surface behind graph hover details', () => {
+    const rule = /\.citation-graph-hover\s*\{([^}]*)\}/s.exec(
+        GRAPH_STYLES
+    )?.[1] || '';
+
+    assert.match(rule, /background:\s*Canvas\s*;/);
+});
+
 test('settles the force layout without animation when reduced motion is enabled', () => {
     const harness = createHarness();
     harness.window.matchMedia = query => ({
@@ -387,7 +395,7 @@ test('renders graph warnings and navigation failures as localized status', async
     );
 });
 
-test('exposes refresh and Zotero navigation commands', () => {
+test('exposes refresh and Mktero navigation commands', () => {
     const harness = createHarness();
     const refreshed = [];
     const opened = [];
@@ -397,6 +405,11 @@ test('exposes refresh and Zotero navigation commands', () => {
     });
     view.render(createSnapshot());
     const root = view.root.shadowRoot;
+
+    assert.equal(
+        root.querySelector('[data-action="open-paper"]').textContent,
+        'Open with Mktero'
+    );
 
     root.querySelector('[data-action="refresh"]').dispatchEvent(
         new harness.window.Event('click')

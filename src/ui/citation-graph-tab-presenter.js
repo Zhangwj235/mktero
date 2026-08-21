@@ -22,6 +22,7 @@ export class CitationGraphTabPresenter {
         rootURI,
         graph,
         library,
+        onOpenPaper = null,
         getLibraryName = libraryID => String(libraryID),
         createView = createCitationGraphView,
         createAbortController = createRuntimeAbortController,
@@ -37,6 +38,9 @@ export class CitationGraphTabPresenter {
         this.rootURI = rootURI;
         this.graph = graph;
         this.library = library;
+        this.onOpenPaper = typeof onOpenPaper === 'function'
+            ? onOpenPaper
+            : node => this.library.openPaper(node);
         this.getLibraryName = getLibraryName;
         this.createView = createView;
         this.createAbortController = createAbortController;
@@ -90,7 +94,7 @@ export class CitationGraphTabPresenter {
                     forceRefresh: true,
                 });
             },
-            onOpenPaper: node => this.library.openPaper(node),
+            onOpenPaper: node => this.onOpenPaper(node),
             onError: error => this.zotero.logError?.(error),
         });
         let presentation;

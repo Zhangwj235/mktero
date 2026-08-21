@@ -196,7 +196,7 @@ input:focus-visible {
 }
 
 .citation-graph-hover {
-    background: var(--material-menu, #fff);
+    background: Canvas;
     border: 1px solid var(--fill-quaternary, #c9ccd1);
     border-radius: 5px;
     box-shadow: 0 4px 12px rgb(0 0 0 / 16%);

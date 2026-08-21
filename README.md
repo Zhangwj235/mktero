@@ -153,7 +153,9 @@ The citation graph contains the focused paper and direct references that can be
 matched to items already in the current Zotero library. DOI and arXiv
 identifiers are queried concurrently from Semantic Scholar, OpenCitations, and
 OpenAlex when supported. Matching uses a unique normalized identifier, never a
-title, and provider metadata stays local.
+title, and provider metadata stays local. The graph details include a button
+labeled `Open with Mktero`. It opens the first local PDF attachment through the
+same Markdown reading workflow as `Read as Markdown with Mktero`.
 
 ### Save a portable snapshot
 
