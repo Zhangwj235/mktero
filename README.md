@@ -166,8 +166,10 @@ same Markdown reading workflow as `Read as Markdown with Mktero`.
 
 Open a citation popup to see local Zotero presence before any network lookup is
 made. Title-only references remain unresolved until you explicitly choose
-`Find metadata`; Mktero then searches OpenAlex and shows bounded candidates for
-your confirmation. Confirming a candidate only fills its identifiers and
+`Find metadata`; Mktero then searches OpenAlex (retrying with a cleaned title
+when a full citation is too noisy) and shows bounded candidates for your
+confirmation. This also covers OpenAlex records such as books that do not have
+a DOI. Confirming a candidate only fills its identifiers and metadata and
 refreshes the local status; it never imports automatically. The popup lists
 accessible personal and group libraries and lets you
 choose the import target. A read-only library remains selectable for presence
@@ -175,7 +177,9 @@ checks, while its import actions stay disabled with a permission explanation.
 If a matching item exists in another library, Mktero offers an
 explicit copy action rather than silently creating a duplicate. Missing
 references with a reliable DOI, arXiv ID, or PMID can be imported through
-Zotero's native translator. When the target library permits files, Mktero also
+Zotero's native translator; confirmed OpenAlex-only records such as books are
+created directly from their bounded metadata. When the target library permits
+files, Mktero also
 tries an arXiv or configured open-access PDF; metadata remains available when
 the PDF download fails and can be retried. References start unselected. Select
 one or more missing references with the row checkboxes, use `Select all` when
@@ -219,9 +223,9 @@ and raw HTML is escaped or sanitized before rendering.
 | Complete PDF on a cache miss | MinerU | Not by Mktero |
 | MinerU API Token and AI/provider credentials | Active Zotero profile, unencrypted | No |
 | Cached Markdown, figures, source maps, PDF indexes, corrections, and translations | Active Zotero profile, unencrypted | No |
-| Focused DOI/arXiv identifiers and provider-specific candidate DOI identifiers | Semantic Scholar, OpenCitations, or OpenAlex | Not by Mktero |
+| Focused DOI/arXiv/OpenAlex identifiers and provider-specific candidate identifiers | Semantic Scholar, OpenCitations, or OpenAlex | Not by Mktero |
 | Bounded citation text after the user clicks `Find metadata` for a title-only reference | OpenAlex | Not by Mktero |
-| A normalized DOI, arXiv ID, or PMID after the user confirms a candidate and clicks the import action; optional open-access PDF request | The selected metadata/PDF provider | Not by Mktero |
+| A normalized DOI, arXiv ID, PMID, or OpenAlex work ID plus confirmed metadata after the user clicks the import action; optional open-access PDF request | The selected metadata/PDF provider | Not by Mktero |
 | Protected Markdown translation batches | AI provider configured by you | Not by Mktero |
 | Zotero PDF annotations | Local Zotero library | According to Zotero settings |
 | Saved snapshot Note and attachments | Zotero items and attachments | According to Zotero settings |

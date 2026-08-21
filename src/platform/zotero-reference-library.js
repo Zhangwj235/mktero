@@ -1,6 +1,7 @@
 import {
     normalizeArxivID,
     normalizeDOI,
+    normalizeOpenAlexID,
 } from '../citations/citation-identifiers.js';
 import { createRuntimeAbortController } from './abort-controller.js';
 
@@ -12,6 +13,7 @@ const MAX_FIELD_LENGTH = 4_096;
 const MAX_EXTRA_LENGTH = 16 * 1_024;
 const MAX_PDF_URL_LENGTH = 2_048;
 const MAX_CANDIDATES = 20;
+const MAX_METADATA_AUTHORS = 8;
 
 export function createZoteroReferenceLibrary(zotero, options = {}) {
     return new ZoteroReferenceLibrary(zotero, options);
@@ -338,6 +340,77 @@ export class ZoteroReferenceLibrary {
             ].slice(0, MAX_ATTACHMENTS),
             identifier,
             libraryID: library.libraryID,
+        };
+    }
+
+    async importMetadata({ reference, metadata, libraryID, signal } = {}) {
+        this.#assertActive();
+        throwIfAborted(signal);
+        const libraries = await this.listLibraries({ signal });
+        const library = libraries.find(candidate => (
+            String(candidate.libraryID) === String(libraryID)
+        ));
+        if (!library?.editable) {
+            throw referenceError(
+                'REFERENCE_LIBRARY_READ_ONLY',
+                'The selected Zotero library is read-only'
+            );
+        }
+        const identifiers = normalizeReferenceIdentifiers(reference);
+        const normalizedMetadata = normalizeImportedMetadata(metadata);
+        if (!identifiers.openAlexID || !normalizedMetadata?.title) {
+            throw referenceError(
+                'REFERENCE_METADATA_INVALID',
+                'The reference metadata is incomplete'
+            );
+        }
+        // OpenAlex work IDs are provider identifiers, not Zotero translator
+        // inputs, so confirmed metadata-only records are created locally.
+        const Item = this.zotero.Item;
+        if (typeof Item !== 'function') {
+            throw referenceError(
+                'REFERENCE_METADATA_IMPORT_UNAVAILABLE',
+                'Zotero metadata import is unavailable'
+            );
+        }
+        const item = new Item(normalizedMetadata.itemType);
+        item.libraryID = library.libraryID;
+        setItemField(item, 'title', normalizedMetadata.title);
+        if (normalizedMetadata.year) {
+            trySetItemField(item, 'date', String(normalizedMetadata.year));
+        }
+        if (normalizedMetadata.publisher) {
+            trySetItemField(
+                item,
+                normalizedMetadata.itemType === 'journalArticle'
+                    ? 'publicationTitle'
+                    : 'publisher',
+                normalizedMetadata.publisher
+            );
+        }
+        if (normalizedMetadata.url) {
+            trySetItemField(item, 'url', normalizedMetadata.url);
+        }
+        if (identifiers.doi) trySetItemField(item, 'DOI', identifiers.doi);
+        setItemField(item, 'extra', `OpenAlex ID: ${identifiers.openAlexID}`);
+        setItemCreators(item, normalizedMetadata.authors);
+        throwIfAborted(signal);
+        const save = item.saveTx || item.save;
+        if (typeof save !== 'function') {
+            throw referenceError(
+                'REFERENCE_METADATA_IMPORT_UNAVAILABLE',
+                'Zotero metadata import is unavailable'
+            );
+        }
+        const savedID = await save.call(item, { skipSelect: true });
+        throwIfAborted(signal);
+        this.invalidate();
+        return {
+            items: [item],
+            attachments: [],
+            identifier: { type: 'openAlexID', value: identifiers.openAlexID },
+            libraryID: library.libraryID,
+            itemID: savedID ?? item.id,
         };
     }
 
@@ -680,11 +753,18 @@ function normalizeItemIdentifiers(item) {
             || safeField(item, 'extra').match(/(?:^|\n)\s*(?:PMID|PubMed ID)\s*:\s*(\d{1,12})/iu)?.[1]
             || ''
     );
-    return { doi, arxivID, pmid };
+    const openAlexID = normalizeOpenAlexID(
+        safeField(item, 'extra').match(
+            /(?:^|\n)\s*OpenAlex(?:\s+ID)?\s*:\s*(\S+)/iu
+        )?.[1] || ''
+    );
+    const identifiers = { doi, arxivID, pmid };
+    if (openAlexID) identifiers.openAlexID = openAlexID;
+    return identifiers;
 }
 
 function normalizeReferenceIdentifiers(reference) {
-    return {
+    const identifiers = {
         doi: normalizeDOI(reference?.identifiers?.doi || reference?.doi),
         arxivID: normalizeArxivID(
             reference?.identifiers?.arxivID || reference?.arxivID
@@ -694,17 +774,22 @@ function normalizeReferenceIdentifiers(reference) {
             reference?.identifiers?.pdfURL || reference?.pdfURL
         ),
     };
+    const openAlexID = normalizeOpenAlexID(
+        reference?.identifiers?.openAlexID || reference?.openAlexID
+    );
+    if (openAlexID) identifiers.openAlexID = openAlexID;
+    return identifiers;
 }
 
 function firstIdentifier(identifiers) {
-    for (const type of ['doi', 'arxivID', 'pmid']) {
+    for (const type of ['doi', 'arxivID', 'pmid', 'openAlexID']) {
         if (identifiers[type]) return { type, value: identifiers[type] };
     }
     return { type: '', value: '' };
 }
 
 function itemIdentifiers(projected) {
-    return ['doi', 'arxivID', 'pmid'].flatMap(type => (
+    return ['doi', 'arxivID', 'pmid', 'openAlexID'].flatMap(type => (
         projected.identifiers[type]
             ? [{ type, value: projected.identifiers[type] }]
             : []
@@ -712,7 +797,7 @@ function itemIdentifiers(projected) {
 }
 
 function identifierMatches(index, identifiers) {
-    for (const type of ['doi', 'arxivID', 'pmid']) {
+    for (const type of ['doi', 'arxivID', 'pmid', 'openAlexID']) {
         if (!identifiers[type]) continue;
         const matches = index.byIdentifier.get(
             identifierKey({ type, value: identifiers[type] })
@@ -874,7 +959,9 @@ function normalizeIdentifier(identifier) {
             ? normalizeArxivID(identifier.value)
             : type === 'pmid'
                 ? normalizePMID(identifier.value)
-                : '';
+                : type === 'openAlexID'
+                    ? normalizeOpenAlexID(identifier.value)
+                    : '';
     return { type, value };
 }
 
@@ -916,6 +1003,85 @@ function isPrivateIPv6(host) {
     return host === '::1' || host === '::'
         || /^(?:fc|fd|fe8|fe9|fea|feb)/iu.test(host)
         || /^::ffff:(?:0:)?(?:127\.|10\.|192\.168\.)/iu.test(host);
+}
+
+function normalizeImportedMetadata(value) {
+    if (!value || typeof value !== 'object') return null;
+    const title = boundedString(value.title, MAX_FIELD_LENGTH);
+    if (!title) return null;
+    const itemTypes = new Set([
+        'book',
+        'bookSection',
+        'conferencePaper',
+        'document',
+        'journalArticle',
+        'report',
+        'thesis',
+    ]);
+    const rawYear = Number(value.year);
+    return {
+        itemType: itemTypes.has(value.itemType) ? value.itemType : 'document',
+        title,
+        year: Number.isSafeInteger(rawYear) && rawYear >= 0 && rawYear <= 9_999
+            ? rawYear
+            : 0,
+        authors: Array.isArray(value.authors)
+            ? value.authors.slice(0, MAX_METADATA_AUTHORS)
+                .map(author => boundedString(author, MAX_FIELD_LENGTH))
+                .filter(Boolean)
+            : [],
+        publisher: boundedString(value.publisher, MAX_FIELD_LENGTH),
+        url: normalizePDFURL(value.url),
+    };
+}
+
+function setItemField(item, field, value) {
+    if (typeof item?.setField === 'function') {
+        item.setField(field, value);
+        return;
+    }
+    item[field] = value;
+}
+
+function trySetItemField(item, field, value) {
+    try {
+        setItemField(item, field, value);
+    }
+    catch {
+        // OpenAlex type mappings are advisory; unsupported optional fields
+        // must not prevent importing the confirmed bibliographic record.
+    }
+}
+
+function setItemCreators(item, authors) {
+    if (!authors.length) return;
+    if (typeof item?.setCreator === 'function') {
+        authors.forEach((author, index) => {
+            item.setCreator(index, creatorFromDisplayName(author));
+        });
+        return;
+    }
+    if (typeof item?.setCreators === 'function') {
+        item.setCreators(authors.map(creatorFromDisplayName));
+    }
+}
+
+function creatorFromDisplayName(value) {
+    const normalized = boundedString(value, MAX_FIELD_LENGTH).trim();
+    if (normalized.includes(',')) {
+        const [lastName, ...firstNames] = normalized.split(',');
+        return {
+            firstName: firstNames.join(',').trim(),
+            lastName: lastName.trim(),
+            creatorType: 'author',
+        };
+    }
+    const parts = normalized.split(/\s+/u).filter(Boolean);
+    return {
+        firstName: parts.slice(0, -1).join(' '),
+        lastName: parts.at(-1) || normalized,
+        creatorType: 'author',
+    };
 }
 
 function normalizePMID(value) {

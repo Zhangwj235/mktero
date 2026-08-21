@@ -182,7 +182,14 @@ test('lets the user review and confirm metadata before enabling import', async (
                     year: 2024,
                     identifiers: {
                         doi: '10.1000/confirmed',
+                        openAlexID: 'W42',
                         pdfURL: 'https://repository.example/paper.pdf',
+                    },
+                    metadata: {
+                        itemType: 'book',
+                        title: 'A title-only paper',
+                        year: 2024,
+                        authors: ['Jane Doe'],
                     },
                 }],
             };
@@ -213,6 +220,8 @@ test('lets the user review and confirm metadata before enabling import', async (
     await nextTask();
     await nextTask();
     assert.equal(target.identifiers.doi, '10.1000/confirmed');
+    assert.equal(target.identifiers.openAlexID, 'W42');
+    assert.equal(target.metadata.itemType, 'book');
     assert.equal(imported, 0);
     assert.equal(
         document.querySelector('.mktero-citation-popup-status').dataset.state,

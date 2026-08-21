@@ -266,6 +266,23 @@ test('indexes arXiv and explicit PMID fields while excluding deleted items', asy
     assert.equal(deletedResult.selectedMatches.length, 0);
 });
 
+test('indexes OpenAlex IDs stored in Zotero Extra', async () => {
+    const book = item({
+        id: 18,
+        libraryID: 1,
+        title: 'Compilers: Principles, Techniques, and Tools',
+        extra: 'OpenAlex ID: W1721908487',
+    });
+    const library = createZoteroReferenceLibrary(createRuntime([book]), {
+        loadItems: async () => [book],
+    });
+    const result = await library.find({
+        identifiers: { openAlexID: 'https://openalex.org/W1721908487' },
+    }, { targetLibraryID: 1 });
+    assert.equal(result.selectedMatches[0].itemID, 18);
+    assert.equal(result.selectedMatches[0].identifiers.openAlexID, 'W1721908487');
+});
+
 test('marks duplicate exact identifiers as ambiguous instead of choosing an item', async () => {
     const first = item({ id: 15, libraryID: 1, DOI: '10.1000/duplicate' });
     const second = item({ id: 16, libraryID: 1, DOI: '10.1000/duplicate' });
@@ -361,6 +378,69 @@ test('maps arXiv and PMID identifiers through the native translator contract', a
         { arXiv: '2401.00001' },
         { PMID: '123456' },
     ]);
+});
+
+test('creates a bounded Zotero item from confirmed OpenAlex metadata', async () => {
+    const saved = [];
+    const runtime = createRuntime([]);
+    runtime.Item = class {
+        constructor(type) {
+            this.itemType = type;
+            this.fields = {};
+            this.creators = [];
+            this.id = null;
+        }
+
+        setField(field, value) {
+            this.fields[field] = value;
+        }
+
+        setCreator(index, creator) {
+            this.creators[index] = creator;
+        }
+
+        async saveTx(options) {
+            saved.push(options);
+            this.id = 77;
+            return this.id;
+        }
+    };
+    const library = createZoteroReferenceLibrary(runtime, {
+        loadItems: async () => [],
+    });
+    const result = await library.importMetadata({
+        reference: {
+            identifiers: { openAlexID: 'https://openalex.org/W1721908487' },
+        },
+        metadata: {
+            itemType: 'book',
+            title: 'Compilers: Principles, Techniques, and Tools (2nd Edition)',
+            year: 2006,
+            authors: ['Alfred V. Aho', 'Monica S. Lam'],
+            publisher: 'Addison-Wesley',
+            url: 'https://example.org/book',
+        },
+        libraryID: 1,
+    });
+    assert.equal(result.items[0].itemType, 'book');
+    assert.equal(result.items[0].id, 77);
+    assert.deepEqual(result.items[0].fields, {
+        title: 'Compilers: Principles, Techniques, and Tools (2nd Edition)',
+        date: '2006',
+        publisher: 'Addison-Wesley',
+        url: 'https://example.org/book',
+        extra: 'OpenAlex ID: W1721908487',
+    });
+    assert.deepEqual(result.items[0].creators, [{
+        firstName: 'Alfred V.',
+        lastName: 'Aho',
+        creatorType: 'author',
+    }, {
+        firstName: 'Monica S.',
+        lastName: 'Lam',
+        creatorType: 'author',
+    }]);
+    assert.deepEqual(saved, [{ skipSelect: true }]);
 });
 
 test('rejects PDF attachment import into a read-only library', async () => {

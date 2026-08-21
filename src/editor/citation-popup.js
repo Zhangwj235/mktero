@@ -600,9 +600,11 @@ async function confirmMetadataCandidate(candidate, {
             'doi',
             'arxivID',
             'pmid',
+            'openAlexID',
             'pdfURL',
         ].map(type => [type, identifiers[type] || target.identifiers?.[type] || ''])),
     };
+    if (candidate?.metadata) target.metadata = candidate.metadata;
     clearMetadataCandidates(row);
     row.action.disabled = true;
     row.status.textContent = t('reference.checking');
@@ -627,6 +629,7 @@ function firstCandidateIdentifier(identifiers) {
     return identifiers?.doi
         || identifiers?.arxivID
         || identifiers?.pmid
+        || identifiers?.openAlexID
         || '';
 }
 
@@ -900,6 +903,8 @@ function errorLabel(errorCode, t) {
         REFERENCE_TRANSLATOR_UNAVAILABLE: 'reference.errorTranslator',
         REFERENCE_TRANSLATOR_NOT_FOUND: 'reference.errorTranslator',
         REFERENCE_TRANSLATOR_EMPTY: 'reference.errorTranslator',
+        REFERENCE_METADATA_INVALID: 'reference.errorTranslator',
+        REFERENCE_METADATA_IMPORT_UNAVAILABLE: 'reference.errorTranslator',
         REFERENCE_DUPLICATE_RACE: 'reference.errorDuplicate',
         REFERENCE_NETWORK_FAILED: 'reference.errorNetwork',
         REFERENCE_PDF_FAILED: 'reference.errorPDF',

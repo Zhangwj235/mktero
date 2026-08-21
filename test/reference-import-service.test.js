@@ -11,6 +11,7 @@ function createLibraryHarness() {
     let nextItemID = 50;
     let translatedResult = null;
     let translateHook = null;
+    let metadataImportHook = null;
     const libraries = [
         { libraryID: 1, name: 'Personal', type: 'user', editable: true, filesEditable: true },
         { libraryID: 2, name: 'Read-only', type: 'group', editable: false, filesEditable: false },
@@ -23,7 +24,9 @@ function createLibraryHarness() {
         invalidate() { calls.push(['invalidate']); },
         async refreshIndex() { calls.push(['refresh']); },
         async find(reference, { targetLibraryID }) {
-            const key = reference.identifiers?.doi || reference.identifiers?.arxivID;
+            const key = reference.identifiers?.doi
+                || reference.identifiers?.arxivID
+                || reference.identifiers?.openAlexID;
             const value = matches.get(key) || { selectedMatches: [], otherMatches: [] };
             return {
                 identifiers: reference.identifiers,
@@ -43,6 +46,11 @@ function createLibraryHarness() {
             if (translateHook) return translateHook(options);
             return translatedResult || { items: [{ id: nextItemID++ }], attachments: [] };
         },
+        async importMetadata(options) {
+            calls.push(['metadata', options]);
+            if (metadataImportHook) return metadataImportHook(options);
+            return { items: [{ id: nextItemID++ }], attachments: [] };
+        },
         async attachPDF(options) {
             calls.push(['attach', options]);
             return { id: nextItemID++ };
@@ -58,6 +66,7 @@ function createLibraryHarness() {
         setMatch(key, value) { matches.set(key, value); },
         setTranslated(value) { translatedResult = value; },
         setTranslateHook(hook) { translateHook = hook; },
+        setMetadataImportHook(hook) { metadataImportHook = hook; },
     };
 }
 
@@ -241,6 +250,59 @@ test('returns local and online metadata candidates without importing', async () 
     assert.equal(result.searchedAt, 8_000);
     assert.equal(calls[0].apiKey, 'metadata-key');
     assert.equal(library.calls.some(call => call[0] === 'translate'), false);
+});
+
+test('keeps OpenAlex-only book metadata importable after candidate confirmation', async () => {
+    const library = createLibraryHarness();
+    const service = createReferenceImportService({
+        library,
+        metadataClient: {
+            async searchReferences() {
+                return {
+                    searchedAt: 8_100,
+                    candidates: [{
+                        paperID: 'W1721908487',
+                        title: 'Compilers: Principles, Techniques, and Tools (2nd Edition)',
+                        year: 2006,
+                        authors: ['Alfred V. Aho', 'Monica S. Lam'],
+                        identifiers: {
+                            openAlexID: 'https://openalex.org/W1721908487',
+                        },
+                        metadata: {
+                            itemType: 'book',
+                            title: 'Compilers: Principles, Techniques, and Tools (2nd Edition)',
+                            year: 2006,
+                            authors: ['Alfred V. Aho', 'Monica S. Lam'],
+                            publisher: 'Addison-Wesley',
+                        },
+                    }],
+                };
+            },
+        },
+    });
+    const search = await service.searchReferenceMetadata({
+        text: 'Aho, A. V. Compilers: Principles, Techniques, and Tools, 2006.',
+        year: 2006,
+        identifiers: {},
+    }, { targetLibraryID: 1 });
+    const candidate = search.candidates[0];
+    assert.equal(candidate.identifiers.openAlexID, 'W1721908487');
+    assert.equal(candidate.metadata.itemType, 'book');
+
+    const reference = {
+        text: candidate.title,
+        year: candidate.year,
+        identifiers: candidate.identifiers,
+        metadata: candidate.metadata,
+    };
+    const result = await service.importReference(reference, {
+        targetLibraryID: 1,
+    });
+    assert.equal(result.importedItemID, 50);
+    assert.equal(library.calls.some(call => call[0] === 'metadata'), true);
+    assert.equal(library.calls.some(call => call[0] === 'translate'), false);
+    assert.equal(library.calls.find(call => call[0] === 'metadata')[1].metadata.title,
+        candidate.title);
 });
 
 test('does not perform online metadata lookup when a reliable identifier exists', async () => {

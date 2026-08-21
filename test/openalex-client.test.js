@@ -357,6 +357,114 @@ test('searches bounded OpenAlex metadata and normalizes candidate identifiers', 
     assert.deepEqual(request.options.headers, {});
 });
 
+test('retries noisy book citations with the title and keeps OpenAlex-only matches', async () => {
+    const searches = [];
+    const client = new OpenAlexClient({
+        now: () => 7_100,
+        fetch: async url => {
+            const parsed = new URL(url);
+            searches.push(parsed.searchParams.get('search'));
+            if (searches.length === 1) return jsonResponse({ results: [] });
+            return jsonResponse({
+                results: [{
+                    id: 'https://openalex.org/W1721908487',
+                    title: 'Compilers: Principles, Techniques, and Tools (2nd Edition)',
+                    publication_year: 2006,
+                    type: 'book',
+                    ids: { openalex: 'https://openalex.org/W1721908487' },
+                    authorships: [{ author: { display_name: 'Alfred V. Aho' } }, {
+                        author: { display_name: 'Monica S. Lam' },
+                    }, { author: { display_name: 'Ravi Sethi' } }, {
+                        author: { display_name: 'Jeffrey D. Ullman' },
+                    }],
+                    primary_location: {
+                        source: { display_name: 'Addison-Wesley' },
+                    },
+                }],
+            });
+        },
+    });
+
+    const result = await client.searchReferences({
+        text: 'Aho, A. V., Lam, M. S., Sethi, R. & Ullman, J. D. '
+            + 'Compilers: Principles, Techniques, and Tools 2nd edn '
+            + '(Addison-Wesley, 2006).',
+        year: 2006,
+        authorSearchText: 'aho a',
+    });
+
+    assert.deepEqual(searches, [
+        'Aho, A. V., Lam, M. S., Sethi, R. & Ullman, J. D. '
+            + 'Compilers: Principles, Techniques, and Tools 2nd edn '
+            + '(Addison-Wesley, 2006).',
+        'Compilers: Principles, Techniques, and Tools',
+    ]);
+    assert.equal(result.status, 'found');
+    assert.deepEqual(result.candidates, [{
+        source: 'openalex',
+        paperID: 'W1721908487',
+        title: 'Compilers: Principles, Techniques, and Tools (2nd Edition)',
+        year: 2006,
+        authors: [
+            'Alfred V. Aho',
+            'Monica S. Lam',
+            'Ravi Sethi',
+            'Jeffrey D. Ullman',
+        ],
+        identifiers: {
+            doi: '',
+            arxivID: '',
+            pmid: '',
+            openAlexID: 'W1721908487',
+            pdfURL: '',
+        },
+        metadata: {
+            itemType: 'book',
+            title: 'Compilers: Principles, Techniques, and Tools (2nd Edition)',
+            year: 2006,
+            authors: [
+                'Alfred V. Aho',
+                'Monica S. Lam',
+                'Ravi Sethi',
+                'Jeffrey D. Ullman',
+            ],
+            publisher: 'Addison-Wesley',
+            url: '',
+        },
+    }]);
+    assert.equal(result.searchedAt, 7_100);
+});
+
+test('uses the longest citation segment for title-only fallback queries', async () => {
+    const searches = [];
+    const client = new OpenAlexClient({
+        fetch: async url => {
+            const parsed = new URL(url);
+            searches.push(parsed.searchParams.get('search'));
+            return jsonResponse({
+                results: searches.length === 1
+                    ? []
+                    : [{
+                        id: 'W700',
+                        title: 'A searchable title',
+                        publication_year: 2024,
+                        doi: 'https://doi.org/10.1000/title',
+                    }],
+            });
+        },
+    });
+
+    const result = await client.searchReferences({
+        text: 'Doe, J. A searchable title. Journal. 2024.',
+        year: 2024,
+    });
+    assert.deepEqual(searches, [
+        'Doe, J. A searchable title. Journal. 2024.',
+        'A searchable title',
+    ]);
+    assert.equal(result.candidates[0].identifiers.doi, '10.1000/title');
+});
+
 test('caps metadata candidates and skips malformed or identifier-less works', async () => {
     const client = new OpenAlexClient({
         fetch: async () => jsonResponse({

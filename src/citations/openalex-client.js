@@ -1,6 +1,7 @@
 import {
     normalizeArxivID,
     normalizeDOI,
+    normalizeOpenAlexID,
 } from './citation-identifiers.js';
 import { CitationProviderRequest } from './citation-provider-request.js';
 
@@ -8,7 +9,6 @@ const DEFAULT_API_BASE = 'https://api.openalex.org';
 const MAX_BATCH_SIZE = 100;
 const MAX_BATCH_CONCURRENCY = 4;
 const MAX_REFERENCES = 1_000;
-const MAX_OPENALEX_ID_LENGTH = 64;
 const MAX_TITLE_LENGTH = 512;
 const MAX_SEARCH_RESULTS = 10;
 const MAX_SEARCH_TEXT_LENGTH = 512;
@@ -87,15 +87,21 @@ export class OpenAlexClient {
         // without making it part of the provider query (OpenAlex already
         // tokenizes the bounded citation text).
         void authorSearchText;
-        const payload = await this.request.getJSON(this.#searchURL({
-            query,
-            year: normalizedYear,
-            apiKey: boundedString(apiKey, 4_096).trim(),
-        }), { signal, onRetry });
-        const candidates = workResults(payload, this.request)
-            .map(normalizeSearchCandidate)
-            .filter(Boolean)
-            .slice(0, MAX_SEARCH_RESULTS);
+        const normalizedAPIKey = boundedString(apiKey, 4_096).trim();
+        const queries = searchQueries(query);
+        let candidates = [];
+        for (const searchQuery of queries) {
+            const payload = await this.request.getJSON(this.#searchURL({
+                query: searchQuery,
+                year: normalizedYear,
+                apiKey: normalizedAPIKey,
+            }), { signal, onRetry });
+            candidates = workResults(payload, this.request)
+                .map(normalizeSearchCandidate)
+                .filter(Boolean)
+                .slice(0, MAX_SEARCH_RESULTS);
+            if (candidates.length) break;
+        }
         return {
             status: candidates.length ? 'found' : 'unindexed',
             candidates,
@@ -239,7 +245,7 @@ export class OpenAlexClient {
     #searchURL({ query, year, apiKey }) {
         const params = new URLSearchParams({
             search: query,
-            select: 'id,title,publication_year,authorships,doi,ids,best_oa_location',
+            select: 'id,title,publication_year,type,authorships,doi,ids,best_oa_location,primary_location',
             per_page: String(MAX_SEARCH_RESULTS),
         });
         if (year) params.set('filter', `publication_year:${year}`);
@@ -255,6 +261,40 @@ function workResults(payload, request) {
         throw request.invalidResponseError();
     }
     return payload.results;
+}
+
+function searchQueries(query) {
+    const titleQuery = extractTitleQuery(query);
+    return titleQuery && titleQuery !== query
+        ? [query, titleQuery]
+        : [query];
+}
+
+function extractTitleQuery(query) {
+    let candidate = collapseWhitespace(query)
+        .replace(/\s*\([^()]{0,256}\b(?:18|19|20)\d{2}[a-z]?\b[^()]{0,256}\)\s*\.?$/iu, '')
+        .replace(/\s+\b\d+(?:st|nd|rd|th)\s+(?:edn|edition)\b\s*\.?$/iu, '')
+        .replace(/\s+\b(?:edn|edition)\b\s*\.?$/iu, '')
+        .replace(/\s+\b(?:18|19|20)\d{2}[a-z]?\b\s*\.?$/iu, '')
+        .trim();
+    const colonIndex = candidate.indexOf(':');
+    if (colonIndex >= 0) {
+        const beforeColon = candidate.slice(0, colonIndex);
+        const words = [...beforeColon.matchAll(
+            /[\p{L}\p{N}][\p{L}\p{N}'’\u2010-]*/gu
+        )];
+        const lastWord = words.at(-1);
+        if (lastWord) candidate = candidate.slice(lastWord.index);
+    }
+    else {
+        const segments = candidate
+            .split(/(?:\.\s+|[。；;]\s*)/u)
+            .map(value => value.trim())
+            .filter(value => value.length >= 12);
+        candidate = segments.sort((left, right) => right.length - left.length)[0]
+            || candidate;
+    }
+    return collapseWhitespace(candidate).slice(0, MAX_SEARCH_TEXT_LENGTH);
 }
 
 function uniquePaperDOIIndex(papers) {
@@ -310,7 +350,11 @@ function normalizeSearchCandidate(work) {
         pmid: normalizePMID(work?.ids?.pmid),
         pdfURL: normalizePublicURL(work?.best_oa_location?.pdf_url),
     };
-    if (!paperID || !title || !hasReliableIdentifier(identifiers)) {
+    const hasStandardIdentifier = hasReliableIdentifier(identifiers);
+    if (!hasStandardIdentifier) {
+        identifiers.openAlexID = normalizeOpenAlexID(work?.ids?.openalex);
+    }
+    if (!paperID || !title || (!hasStandardIdentifier && !identifiers.openAlexID)) {
         return null;
     }
     const rawYear = Number(work?.publication_year);
@@ -322,7 +366,7 @@ function normalizeSearchCandidate(work) {
             )))
             .filter(Boolean)
         : [];
-    return {
+    const candidate = {
         source: 'openalex',
         paperID,
         title,
@@ -332,12 +376,40 @@ function normalizeSearchCandidate(work) {
         authors,
         identifiers,
     };
+    if (!hasStandardIdentifier) {
+        candidate.metadata = normalizeMetadata(work, {
+            title,
+            year: candidate.year,
+            authors,
+        });
+    }
+    return candidate;
 }
 
-function normalizeOpenAlexID(value) {
-    const bounded = boundedString(value, MAX_OPENALEX_ID_LENGTH).trim();
-    const match = /^(?:https?:\/\/openalex\.org\/)?(W[1-9]\d*)$/i.exec(bounded);
-    return match ? match[1].toUpperCase() : '';
+function normalizeMetadata(work, fallback) {
+    return {
+        itemType: normalizeItemType(work?.type),
+        title: fallback.title,
+        year: fallback.year,
+        authors: fallback.authors,
+        publisher: collapseWhitespace(boundedString(
+            work?.primary_location?.source?.display_name
+                || work?.primary_location?.raw_source_name,
+            MAX_TITLE_LENGTH
+        )),
+        url: normalizePublicURL(work?.primary_location?.landing_page_url),
+    };
+}
+
+function normalizeItemType(value) {
+    return {
+        article: 'journalArticle',
+        'book-chapter': 'bookSection',
+        book: 'book',
+        dissertation: 'thesis',
+        report: 'report',
+        'conference-paper': 'conferencePaper',
+    }[String(value || '').toLowerCase()] || 'document';
 }
 
 function negativeResult(fetchedAt) {

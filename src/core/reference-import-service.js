@@ -1,14 +1,18 @@
 import {
     normalizeArxivID,
     normalizeDOI,
+    normalizeOpenAlexID,
 } from '../citations/citation-identifiers.js';
 
 const RELIABLE_IDENTIFIER_TYPES = Object.freeze([
     'doi',
     'arxivID',
     'pmid',
+    'openAlexID',
 ]);
 const MAX_PDF_URL_LENGTH = 2_048;
+const MAX_METADATA_LENGTH = 512;
+const MAX_METADATA_AUTHORS = 8;
 
 export function createReferenceImportService(options) {
     return new ReferenceImportService(options);
@@ -357,11 +361,29 @@ export class ReferenceImportService {
                 this.library.invalidate?.();
             }
             if (!itemID) {
-                const translated = await this.library.translateIdentifier({
-                    reference,
-                    libraryID: targetLibraryID,
-                    signal: operationSignal,
-                });
+                let translated;
+                if (identifier.type === 'openAlexID') {
+                    if (typeof this.library.importMetadata !== 'function') {
+                        return failedResult(
+                            reference,
+                            targetLibraryID,
+                            'REFERENCE_METADATA_IMPORT_UNAVAILABLE'
+                        );
+                    }
+                    translated = await this.library.importMetadata({
+                        reference,
+                        metadata: reference?.metadata,
+                        libraryID: targetLibraryID,
+                        signal: operationSignal,
+                    });
+                }
+                else {
+                    translated = await this.library.translateIdentifier({
+                        reference,
+                        libraryID: targetLibraryID,
+                        signal: operationSignal,
+                    });
+                }
                 itemID = firstTranslatedItemID(translated?.items);
                 hasPDF = Boolean(translated?.attachments?.length);
                 if (!itemID) {
@@ -478,12 +500,15 @@ export class ReferenceImportService {
 
 function normalizedIdentifiers(reference) {
     const value = reference?.identifiers || reference || {};
-    return {
+    const identifiers = {
         doi: normalizeDOI(value.doi),
         arxivID: normalizeArxivID(value.arxivID),
         pmid: normalizePMID(value.pmid),
         pdfURL: normalizePDFURL(value.pdfURL),
     };
+    const openAlexID = normalizeOpenAlexID(value.openAlexID);
+    if (openAlexID) identifiers.openAlexID = openAlexID;
+    return identifiers;
 }
 
 function normalizeCandidates(candidates, source) {
@@ -492,7 +517,7 @@ function normalizeCandidates(candidates, source) {
         .map(candidate => {
             const identifiers = normalizedIdentifiers(candidate);
             if (!hasReliableIdentifier(identifiers)) return null;
-            return {
+            const normalized = {
                 source,
                 paperID: boundedString(candidate?.paperID, 128),
                 itemID: candidate?.itemID ?? null,
@@ -503,12 +528,15 @@ function normalizeCandidates(candidates, source) {
                     ? Number(candidate.year)
                     : 0,
                 authors: Array.isArray(candidate?.authors)
-                    ? candidate.authors.slice(0, 8)
+                    ? candidate.authors.slice(0, MAX_METADATA_AUTHORS)
                         .map(value => boundedString(value, 256).trim())
                         .filter(Boolean)
                     : [],
                 identifiers,
             };
+            const metadata = normalizeMetadata(candidate?.metadata);
+            if (metadata) normalized.metadata = metadata;
+            return normalized;
         })
         .filter(Boolean);
 }
@@ -573,6 +601,40 @@ function normalizePDFURL(value) {
     catch {
         return '';
     }
+}
+
+function normalizeMetadata(value) {
+    if (!value || typeof value !== 'object') return null;
+    const title = boundedString(value.title, MAX_METADATA_LENGTH).trim();
+    if (!title) return null;
+    const rawYear = Number(value.year);
+    return {
+        itemType: normalizeItemType(value.itemType),
+        title,
+        year: Number.isSafeInteger(rawYear) && rawYear >= 0 && rawYear <= 9_999
+            ? rawYear
+            : 0,
+        authors: Array.isArray(value.authors)
+            ? value.authors.slice(0, MAX_METADATA_AUTHORS)
+                .map(author => boundedString(author, 256).trim())
+                .filter(Boolean)
+            : [],
+        publisher: boundedString(value.publisher, MAX_METADATA_LENGTH).trim(),
+        url: normalizePDFURL(value.url),
+    };
+}
+
+function normalizeItemType(value) {
+    const allowed = new Set([
+        'book',
+        'bookSection',
+        'conferencePaper',
+        'document',
+        'journalArticle',
+        'report',
+        'thesis',
+    ]);
+    return allowed.has(value) ? value : 'document';
 }
 
 function firstTranslatedItemID(items) {
