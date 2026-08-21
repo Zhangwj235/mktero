@@ -96,6 +96,18 @@ test('discovers personal and group libraries while excluding feeds', async () =>
     ]);
 });
 
+test('accepts a callable Zotero namespace from a wrapped bootstrap realm', async () => {
+    const runtime = Object.assign(
+        function zoteroNamespace() {},
+        createRuntime([])
+    );
+    const library = createZoteroReferenceLibrary(runtime, {
+        loadItems: async () => [],
+    });
+
+    assert.equal((await library.listLibraries())[0].libraryID, 1);
+});
+
 test('falls back to the personal library when library enumeration is unavailable', async () => {
     const runtime = createRuntime([]);
     runtime.Libraries.getAll = () => {

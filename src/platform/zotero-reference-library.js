@@ -25,7 +25,7 @@ export class ZoteroReferenceLibrary {
         importPDF = null,
         createAbortController = null,
     } = {}) {
-        if (!zotero || typeof zotero !== 'object') {
+        if (!zotero || !['object', 'function'].includes(typeof zotero)) {
             throw new TypeError('A Zotero runtime is required');
         }
         this.zotero = zotero;
