@@ -193,7 +193,13 @@ test('keeps read-only libraries visible and disables their import action', async
     });
     await nextTask();
 
-    const option = document.querySelector('option');
+    const option = document.querySelector(
+        '.mktero-citation-popup-library-option'
+    );
+    const trigger = document.querySelector(
+        '.mktero-citation-popup-library-select'
+    );
+    assert.equal(trigger.textContent.trim(), 'Shared — Read-only');
     const action = document.querySelector('.mktero-citation-popup-action');
     assert.match(option.textContent, /Shared.*Read-only/);
     assert.equal(option.disabled, false);
@@ -207,7 +213,7 @@ test('keeps read-only libraries visible and disables their import action', async
     dom.window.close();
 });
 
-test('populates the library selector and refreshes status after switching libraries', async () => {
+test('opens a custom library listbox and refreshes status after switching libraries', async () => {
     const { dom, document, parent, anchor } = createHarness();
     const statusLibraryIDs = [];
     const popup = createCitationPopup(parent);
@@ -241,18 +247,123 @@ test('populates the library selector and refreshes status after switching librar
     await nextTask();
     await nextTask();
 
-    const select = document.querySelector('.mktero-citation-popup-library-select');
-    assert.equal(select.disabled, false);
+    const trigger = document.querySelector(
+        '.mktero-citation-popup-library-select'
+    );
+    const options = document.querySelector(
+        '.mktero-citation-popup-library-options'
+    );
+    assert.equal(trigger.matches('button'), true);
+    assert.equal(trigger.disabled, false);
+    assert.equal(trigger.getAttribute('aria-haspopup'), 'listbox');
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+    assert.equal(options.hidden, true);
+    assert.equal(options.getAttribute('role'), 'listbox');
     assert.deepEqual(
-        [...select.options].map(option => option.textContent),
+        [...options.querySelectorAll('[role="option"]')]
+            .map(option => option.textContent.trim()),
         ['Personal', 'Research Group']
     );
-    assert.equal(select.value, '1');
+    assert.equal(trigger.textContent.trim(), 'Personal');
 
-    select.value = '8';
-    select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    trigger.click();
+    assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+    assert.equal(options.hidden, false);
+    options.querySelector('[data-library-id="8"]').click();
     await nextTask();
+    assert.equal(trigger.textContent.trim(), 'Research Group');
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+    assert.equal(options.hidden, true);
     assert.ok(statusLibraryIDs.includes('8'));
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('supports keyboard navigation and focus restoration in the library listbox', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const statusLibraryIDs = [];
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onListReferenceLibraries: async () => ({
+            libraries: [
+                {
+                    libraryID: 1,
+                    name: 'Personal',
+                    type: 'user',
+                    editable: true,
+                    filesEditable: true,
+                },
+                {
+                    libraryID: 8,
+                    name: 'Research Group',
+                    type: 'group',
+                    editable: true,
+                    filesEditable: true,
+                },
+            ],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async (_target, { targetLibraryID }) => {
+            statusLibraryIDs.push(String(targetLibraryID));
+            return { state: 'absent', canImport: true };
+        },
+    });
+    await nextTask();
+
+    const trigger = document.querySelector(
+        '.mktero-citation-popup-library-select'
+    );
+    const options = document.querySelector(
+        '.mktero-citation-popup-library-options'
+    );
+    trigger.focus();
+    trigger.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        bubbles: true,
+    }));
+    assert.equal(options.hidden, false);
+    assert.equal(
+        document.activeElement.dataset.libraryId,
+        '1'
+    );
+
+    document.activeElement.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        bubbles: true,
+    }));
+    assert.equal(document.activeElement.dataset.libraryId, '8');
+    document.activeElement.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+    }));
+    await nextTask();
+    assert.equal(options.hidden, true);
+    assert.equal(document.activeElement, trigger);
+    assert.equal(trigger.textContent.trim(), 'Research Group');
+    assert.ok(statusLibraryIDs.includes('8'));
+
+    trigger.click();
+    trigger.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+    }));
+    assert.equal(options.hidden, true);
+    assert.equal(document.activeElement, trigger);
+
+    trigger.click();
+    const selectedOption = document.querySelector(
+        '.mktero-citation-popup-library-option[data-library-id="8"]'
+    );
+    selectedOption.focus();
+    selectedOption.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+    }));
+    assert.equal(options.hidden, true);
+    assert.equal(document.activeElement, trigger);
 
     popup.destroy();
     dom.window.close();
@@ -271,11 +382,41 @@ test('shows a visible placeholder when library loading fails', async () => {
     await nextTask();
     await nextTask();
 
-    const select = document.querySelector('.mktero-citation-popup-library-select');
-    assert.equal(select.disabled, true);
-    assert.equal(select.options.length, 1);
-    assert.equal(select.options[0].textContent, 'Zotero libraries could not be loaded');
-    assert.equal(select.options[0].disabled, true);
+    const trigger = document.querySelector(
+        '.mktero-citation-popup-library-select'
+    );
+    const placeholder = document.querySelector(
+        '.mktero-citation-popup-library-placeholder'
+    );
+    assert.equal(trigger.disabled, true);
+    assert.equal(trigger.textContent, 'Zotero libraries could not be loaded');
+    assert.equal(placeholder.textContent, 'Zotero libraries could not be loaded');
+    assert.equal(placeholder.getAttribute('aria-disabled'), 'true');
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('shows an unavailable state when no Zotero libraries are returned', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onListReferenceLibraries: async () => ({ libraries: [] }),
+    });
+    await nextTask();
+    await nextTask();
+
+    const trigger = document.querySelector(
+        '.mktero-citation-popup-library-select'
+    );
+    const placeholder = document.querySelector(
+        '.mktero-citation-popup-library-placeholder'
+    );
+    assert.equal(trigger.disabled, true);
+    assert.equal(trigger.textContent, 'No Zotero libraries available');
+    assert.equal(placeholder.textContent, 'No Zotero libraries available');
 
     popup.destroy();
     dom.window.close();
@@ -318,9 +459,13 @@ test('aborts status work on close and ignores an old-library import result', asy
     await nextTask();
 
     document.querySelector('.mktero-citation-popup-action').click();
-    const select = document.querySelector('.mktero-citation-popup-library-select');
-    select.value = '2';
-    select.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    const trigger = document.querySelector(
+        '.mktero-citation-popup-library-select'
+    );
+    trigger.click();
+    document.querySelector(
+        '.mktero-citation-popup-library-option[data-library-id="2"]'
+    ).click();
     await nextTask();
     importResolve({ state: 'imported', match: { itemID: 9 } });
     await nextTask();

@@ -1,7 +1,12 @@
 import { createAnchoredPopup } from './anchored-popup.js';
 import { createLocalization } from '../i18n/localization.js';
+import {
+    createLucideIcon,
+    LUCIDE_ICONS,
+} from '../icons/lucide-icon.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+let nextLibraryPickerID = 1;
 
 export function createCitationPopup(parent, {
     localization = createLocalization(),
@@ -49,6 +54,8 @@ export function createCitationPopup(parent, {
         let rows = [];
         let contentRoot = null;
         let unsubscribeUpdates = null;
+        let destroyLibraryPicker = null;
+        let libraryPicker = null;
 
         const isCurrent = expectedGeneration => (
             activeController === controller
@@ -92,7 +99,7 @@ export function createCitationPopup(parent, {
                     ?? libraries.find(library => library.type === 'user')?.libraryID
                     ?? libraries[0]?.libraryID
                     ?? null;
-                renderLibrarySelector(contentRoot, {
+                libraryPicker?.render?.({
                     libraries,
                     selectedLibraryID,
                     onChange(nextID) {
@@ -105,7 +112,7 @@ export function createCitationPopup(parent, {
             }
             catch {
                 if (controller.signal?.aborted || activeAnchor !== anchor) return;
-                renderLibraryError(contentRoot, t('reference.libraryLoadFailed'));
+                libraryPicker?.renderError?.(t('reference.libraryLoadFailed'));
             }
         };
 
@@ -117,6 +124,8 @@ export function createCitationPopup(parent, {
                 controller.abort?.();
                 unsubscribeUpdates?.();
                 unsubscribeUpdates = null;
+                destroyLibraryPicker?.();
+                destroyLibraryPicker = null;
                 if (activeController === controller) activeController = null;
                 if (activeAnchor === anchor) activeAnchor = null;
             },
@@ -128,17 +137,14 @@ export function createCitationPopup(parent, {
                     header.className = 'mktero-citation-popup-header';
                     const labelElement = createElement(document, 'label');
                     labelElement.textContent = t('reference.targetLibrary');
-                    const select = createElement(document, 'select');
-                    select.className = 'mktero-citation-popup-library-select';
-                    select.disabled = true;
-                    select.setAttribute('aria-busy', 'true');
-                    select.setAttribute('aria-label', t('reference.targetLibrary'));
-                    appendSelectPlaceholder(
-                        select,
-                        t('reference.loadingLibraries'),
-                        document
-                    );
-                    header.append(labelElement, select);
+                    libraryPicker = createLibraryPicker(document, {
+                        label: t('reference.targetLibrary'),
+                        loadingLabel: t('reference.loadingLibraries'),
+                        readOnlyLabel: t('reference.readOnly'),
+                    });
+                    destroyLibraryPicker = libraryPicker.destroy;
+                    labelElement.setAttribute('for', libraryPicker.trigger.id);
+                    header.append(labelElement, libraryPicker.element);
                     contentRoot.appendChild(header);
                 }
                 rows = targets.map(target => createCitationItem({
@@ -511,71 +517,320 @@ function errorLabel(errorCode, t) {
     return t(keys[errorCode] || 'reference.errorImport');
 }
 
-function renderLibrarySelector(root, {
-    libraries,
-    selectedLibraryID,
-    onChange,
-    t,
+function createLibraryPicker(document, {
+    label,
+    loadingLabel,
+    readOnlyLabel,
 }) {
-    const select = root?.querySelector?.('.mktero-citation-popup-library-select');
-    if (!select) return;
-    clearChildren(select);
-    const availableLibraries = Array.isArray(libraries) ? libraries : [];
-    if (!availableLibraries.length) {
-        appendSelectPlaceholder(
-            select,
-            t('reference.noLibraries'),
-            root.ownerDocument
-        );
-    }
-    for (const library of availableLibraries) {
-        const option = createElement(root.ownerDocument, 'option');
-        option.value = String(library.libraryID);
-        option.textContent = library.editable
-            ? library.name
-            : `${library.name} — ${t('reference.readOnly')}`;
-        // Keep read-only libraries selectable so the row can explain why
-        // import actions are unavailable for that target.
-        option.disabled = false;
-        if (!library.editable) {
-            option.title = t('reference.errorLibraryReadOnly');
+    const pickerID = `mktero-citation-library-picker-${nextLibraryPickerID++}`;
+    const picker = createElement(document, 'div');
+    picker.className = 'mktero-citation-popup-library-picker';
+    const trigger = createElement(document, 'button');
+    trigger.id = `${pickerID}-trigger`;
+    trigger.type = 'button';
+    trigger.className = 'mktero-citation-popup-library-select';
+    trigger.disabled = true;
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', `${pickerID}-options`);
+    trigger.setAttribute('aria-busy', 'true');
+    trigger.setAttribute('aria-label', label);
+    const current = createElement(document, 'span');
+    current.className = 'mktero-citation-popup-library-current';
+    current.textContent = loadingLabel;
+    const chevron = createLucideIcon(
+        document,
+        LUCIDE_ICONS.chevronDown,
+        {
+            className: 'mktero-citation-popup-library-chevron',
+            size: 14,
         }
-        select.appendChild(option);
-    }
-    if (availableLibraries.length) {
-        const selected = availableLibraries.find(library => (
-            String(library.libraryID) === String(selectedLibraryID)
-        )) || availableLibraries[0];
-        select.value = String(selected.libraryID);
-    }
-    select.disabled = !availableLibraries.length;
-    select.setAttribute('aria-busy', 'false');
-    select.title = '';
-    select.onchange = () => onChange(select.value);
-    select.setAttribute('aria-label', t('reference.targetLibrary'));
-}
+    );
+    trigger.append(current, chevron);
+    const options = createElement(document, 'div');
+    options.id = `${pickerID}-options`;
+    options.className = 'mktero-citation-popup-library-options';
+    options.setAttribute('role', 'listbox');
+    options.setAttribute('aria-label', label);
+    options.hidden = true;
+    appendLibraryPlaceholder(options, loadingLabel, document);
+    picker.append(trigger, options);
 
-function renderLibraryError(root, message) {
-    const select = root?.querySelector?.('.mktero-citation-popup-library-select');
-    if (!select) return;
-    clearChildren(select);
-    appendSelectPlaceholder(select, message, root.ownerDocument);
-    select.disabled = true;
-    select.setAttribute('aria-busy', 'false');
-    select.title = message;
+    let availableLibraries = [];
+    let selectedLibraryID = null;
+    let onChange = null;
+    let open = false;
+
+    const optionButtons = () => [...options.querySelectorAll(
+        '.mktero-citation-popup-library-option'
+    )];
+    const selectedLibrary = () => availableLibraries.find(library => (
+        String(library.libraryID) === String(selectedLibraryID)
+    )) || availableLibraries[0] || null;
+    const updateTrigger = () => {
+        const library = selectedLibrary();
+        const text = library
+            ? libraryLabel(library, readOnlyLabel)
+            : current.textContent;
+        current.textContent = text;
+        trigger.setAttribute('aria-label', `${label}: ${text}`);
+        trigger.title = text;
+        for (const option of optionButtons()) {
+            const selected = String(option.dataset.libraryId)
+                === String(library?.libraryID);
+            option.setAttribute('aria-selected', String(selected));
+            option.classList.toggle('is-selected', selected);
+            option.setAttribute('tabindex', open && selected ? '0' : '-1');
+        }
+    };
+    const focusOption = libraryID => {
+        const option = optionButtons().find(button => (
+            String(button.dataset.libraryId) === String(libraryID)
+        )) || optionButtons()[0];
+        if (!option) return;
+        for (const button of optionButtons()) {
+            button.setAttribute('tabindex', button === option ? '0' : '-1');
+        }
+        option.focus?.();
+    };
+    const setOpen = (nextOpen, { focusLibraryID = null } = {}) => {
+        const visible = Boolean(nextOpen) && !trigger.disabled;
+        open = visible;
+        trigger.setAttribute('aria-expanded', String(visible));
+        options.hidden = !visible;
+        picker.classList.toggle('is-open', visible);
+        updateTrigger();
+        if (visible) positionOptions();
+        if (visible && focusLibraryID !== null) focusOption(focusLibraryID);
+    };
+
+    function positionOptions() {
+        if (!open) return;
+        const rect = trigger.getBoundingClientRect?.();
+        const ownerWindow = document.defaultView;
+        if (!rect || !ownerWindow) return;
+        const viewportWidth = ownerWindow.innerWidth || 1024;
+        const viewportHeight = ownerWindow.innerHeight || 768;
+        const width = Math.min(
+            Math.max(rect.width, 220),
+            Math.max(220, viewportWidth - 24)
+        );
+        const menuHeight = options.getBoundingClientRect?.().height
+            || options.offsetHeight
+            || 0;
+        const left = Math.min(
+            Math.max(12, rect.left),
+            Math.max(12, viewportWidth - width - 12)
+        );
+        const below = rect.bottom + 6;
+        const top = below + menuHeight <= viewportHeight - 12
+            || rect.top < menuHeight + 18
+            ? below
+            : Math.max(12, rect.top - menuHeight - 6);
+        options.style.width = `${Math.round(width)}px`;
+        options.style.left = `${Math.round(left)}px`;
+        options.style.top = `${Math.round(top)}px`;
+    }
+
+    trigger.addEventListener('click', () => {
+        setOpen(!open);
+    });
+    trigger.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && open) {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+            trigger.focus?.();
+            return;
+        }
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        event.preventDefault();
+        setOpen(true, { focusLibraryID: selectedLibrary()?.libraryID });
+    });
+    options.addEventListener('click', event => {
+        const option = event.target?.closest?.(
+            '.mktero-citation-popup-library-option'
+        );
+        if (!option || !options.contains(option)) return;
+        event.stopPropagation();
+        const nextID = option.dataset.libraryId;
+        const changed = String(nextID) !== String(selectedLibraryID);
+        selectedLibraryID = availableLibraries.find(library => (
+            String(library.libraryID) === String(nextID)
+        ))?.libraryID ?? nextID;
+        setOpen(false);
+        trigger.focus?.();
+        if (changed) onChange?.(selectedLibraryID);
+    });
+    options.addEventListener('keydown', event => {
+        const option = event.target?.closest?.(
+            '.mktero-citation-popup-library-option'
+        );
+        if (!option || !options.contains(option)) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+            trigger.focus?.();
+            return;
+        }
+        if (event.key === 'Tab') {
+            setOpen(false);
+            return;
+        }
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            option.click();
+            return;
+        }
+        const optionList = optionButtons();
+        const index = optionList.indexOf(option);
+        let nextIndex;
+        if (event.key === 'ArrowDown') {
+            nextIndex = (index + 1) % optionList.length;
+        }
+        else if (event.key === 'ArrowUp') {
+            nextIndex = (index - 1 + optionList.length) % optionList.length;
+        }
+        else if (event.key === 'Home') {
+            nextIndex = 0;
+        }
+        else if (event.key === 'End') {
+            nextIndex = optionList.length - 1;
+        }
+        else {
+            return;
+        }
+        event.preventDefault();
+        focusOption(optionList[nextIndex].dataset.libraryId);
+    });
+    const closeOnOutsidePress = event => {
+        if (!open) return;
+        const path = event.composedPath?.() || [];
+        if (!path.includes(picker)) setOpen(false);
+    };
+    document.defaultView?.addEventListener(
+        'pointerdown',
+        closeOnOutsidePress,
+        { capture: true }
+    );
+    document.defaultView?.addEventListener(
+        'mousedown',
+        closeOnOutsidePress,
+        { capture: true }
+    );
+
+    const render = ({
+        libraries,
+        selectedLibraryID: nextID,
+        onChange: nextOnChange,
+        t,
+    }) => {
+        availableLibraries = Array.isArray(libraries) ? libraries : [];
+        onChange = nextOnChange;
+        selectedLibraryID = availableLibraries.find(library => (
+            String(library.libraryID) === String(nextID)
+        ))?.libraryID ?? availableLibraries[0]?.libraryID ?? null;
+        clearChildren(options);
+        if (!availableLibraries.length) {
+            appendLibraryPlaceholder(
+                options,
+                t('reference.noLibraries'),
+                document
+            );
+            trigger.disabled = true;
+            trigger.setAttribute('aria-busy', 'false');
+            current.textContent = t('reference.noLibraries');
+            trigger.title = t('reference.noLibraries');
+            setOpen(false);
+            return;
+        }
+        for (const library of availableLibraries) {
+            const option = createElement(document, 'button');
+            option.type = 'button';
+            option.className = 'mktero-citation-popup-library-option';
+            option.dataset.libraryId = String(library.libraryID);
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', 'false');
+            option.setAttribute('tabindex', '-1');
+            if (!library.editable) {
+                option.title = t('reference.errorLibraryReadOnly');
+            }
+            const optionLabel = createElement(document, 'span');
+            optionLabel.className = 'mktero-citation-popup-library-option-label';
+            optionLabel.textContent = libraryLabel(
+                library,
+                t('reference.readOnly')
+            );
+            option.append(
+                createLucideIcon(document, LUCIDE_ICONS.check, {
+                    className: 'mktero-citation-popup-library-option-check',
+                    size: 14,
+                }),
+                optionLabel
+            );
+            options.appendChild(option);
+        }
+        trigger.disabled = false;
+        trigger.setAttribute('aria-busy', 'false');
+        trigger.title = '';
+        updateTrigger();
+    };
+    const renderError = message => {
+        availableLibraries = [];
+        selectedLibraryID = null;
+        clearChildren(options);
+        appendLibraryPlaceholder(options, message, document);
+        trigger.disabled = true;
+        trigger.setAttribute('aria-busy', 'false');
+        current.textContent = message;
+        trigger.setAttribute('aria-label', `${label}: ${message}`);
+        trigger.title = message;
+        setOpen(false);
+    };
+    const destroy = () => {
+        document.defaultView?.removeEventListener(
+            'pointerdown',
+            closeOnOutsidePress,
+            { capture: true }
+        );
+        document.defaultView?.removeEventListener(
+            'mousedown',
+            closeOnOutsidePress,
+            { capture: true }
+        );
+        document.defaultView?.removeEventListener('resize', positionOptions);
+        document.defaultView?.removeEventListener(
+            'scroll',
+            positionOptions,
+            true
+        );
+    };
+
+    document.defaultView?.addEventListener('resize', positionOptions);
+    document.defaultView?.addEventListener('scroll', positionOptions, true);
+
+    return { element: picker, trigger, render, renderError, destroy };
 }
 
 function clearChildren(element) {
     while (element.firstChild) element.removeChild(element.firstChild);
 }
 
-function appendSelectPlaceholder(select, text, document) {
-    const option = createElement(document, 'option');
-    option.value = '';
+function appendLibraryPlaceholder(options, text, document) {
+    const option = createElement(document, 'div');
+    option.className = 'mktero-citation-popup-library-placeholder';
     option.textContent = text;
-    option.disabled = true;
-    option.selected = true;
-    select.appendChild(option);
+    option.setAttribute('role', 'option');
+    option.setAttribute('aria-disabled', 'true');
+    option.setAttribute('tabindex', '-1');
+    options.appendChild(option);
+}
+
+function libraryLabel(library, readOnlyLabel) {
+    return library?.editable
+        ? library.name
+        : `${library?.name} — ${readOnlyLabel}`;
 }
 
 function createElement(document, name) {

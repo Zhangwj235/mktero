@@ -731,6 +731,35 @@ test('styles citation popups and temporary reference highlights', () => {
     assert.match(highlight, /animation:\s*mktero-reference-highlight 3s ease-out/);
 });
 
+test('styles the citation library picker like the reader font picker', () => {
+    const picker = ruleBody('.mktero-citation-popup-library-picker');
+    const trigger = ruleBody('.mktero-citation-popup-library-select');
+    const options = ruleBody('.mktero-citation-popup-library-options');
+    const option = ruleBody('.mktero-citation-popup-library-option');
+
+    assert.match(picker, /position:\s*relative/);
+    assert.match(trigger, /display:\s*flex/);
+    assert.match(trigger, /height:\s*30px/);
+    assert.match(
+        trigger,
+        /border:\s*1px\s+solid\s+var\(--citation-popup-border\)/
+    );
+    assert.match(trigger, /cursor:\s*pointer/);
+    assert.match(options, /display:\s*grid/);
+    assert.match(options, /position:\s*fixed/);
+    assert.match(options, /box-shadow:\s*var\(--shadow-popover\)/);
+    assert.match(options, /max-height:/);
+    assert.match(
+        option,
+        /grid-template-columns:\s*14px\s+minmax\(0,\s*1fr\)/
+    );
+    assert.match(option, /cursor:\s*pointer/);
+    assert.match(
+        MARKDOWN_STYLES,
+        /\.mktero-citation-popup-library-option\[aria-selected='true'\][\s\S]*?color:\s*var\(--citation-popup-accent\)/
+    );
+});
+
 test('styles Zotero-colored PDF annotations and their action popup', () => {
     const annotation = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-mktero-pdf-annotation'
