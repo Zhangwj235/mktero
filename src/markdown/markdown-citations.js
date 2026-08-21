@@ -1,6 +1,7 @@
 import {
     isLikelyNumericSuperscriptExponent,
 } from './text-normalization.js';
+import { extractReferenceIdentifiers } from './markdown-reference-identifiers.js';
 
 const REFERENCE_HEADING_PATTERN = /^(?:(#{1,6})[ \t]+)?(?:\*{1,2}|_{1,2})?(?:(?:\d+(?:\.\d+)*)[.)]?[ \t]+)?(?:references?|bibliography|works[ \t]+cited|literature[ \t]+cited|参考文献|参考资料|参考书目)(?:\*{1,2}|_{1,2})?[ \t]*[:：]?[ \t]*#*[ \t]*$/gim;
 const AUTHOR_AFFILIATIONS_HEADING_PATTERN = /^#{1,6}[ \t]+(?:author[ \t]+affiliations?|作者单位|作者机构)[ \t]*#*[ \t]*$/gim;
@@ -609,6 +610,7 @@ function createReference({ id, number, text, from, to }) {
         to,
         year,
         authorSearchText: normalizeSearchText(referenceAuthorText(text, year)),
+        identifiers: extractReferenceIdentifiers(text),
     };
 }
 

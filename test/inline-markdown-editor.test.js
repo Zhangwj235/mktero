@@ -4783,7 +4783,9 @@ test('opens every reference in a grouped citation from its popup', () => {
     citation.dispatchEvent(
         new dom.window.MouseEvent('mouseover', { bubbles: true })
     );
-    const targets = [...document.querySelectorAll('.mktero-citation-popup-item')];
+    const rows = [...document.querySelectorAll('.mktero-citation-popup-item')];
+    const targets = [...document.querySelectorAll('.mktero-citation-popup-primary')];
+    assert.equal(rows.length, 2);
     assert.equal(targets.length, 2);
 
     citation.focus();
@@ -4808,7 +4810,7 @@ test('opens every reference in a grouped citation from its popup', () => {
         key: 'ArrowDown',
     }));
     const reopenedTargets = [
-        ...document.querySelectorAll('.mktero-citation-popup-item'),
+        ...document.querySelectorAll('.mktero-citation-popup-primary'),
     ];
     assert.equal(document.activeElement, reopenedTargets[0]);
     reopenedTargets[1].focus();

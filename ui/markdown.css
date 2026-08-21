@@ -2586,26 +2586,248 @@ main {
     scrollbar-width: thin;
 }
 
+.mktero-citation-popup-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px 8px;
+    border-bottom: 1px solid var(--citation-popup-border);
+    font-size: 12px;
+}
+
+.mktero-citation-popup-select-all-label {
+    display: inline-flex;
+    flex: 0 0 auto;
+    min-height: 30px;
+    align-items: center;
+    color: color-mix(in srgb, var(--citation-popup-text) 72%, transparent);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.mktero-citation-popup-select-all-label input,
+.mktero-citation-popup-reference-checkbox {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--citation-popup-accent);
+}
+
+.mktero-citation-popup-batch-import {
+    display: inline-grid;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    place-items: center;
+    color: var(--citation-popup-accent);
+    background: transparent;
+    border: 1px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 40%,
+        var(--citation-popup-border)
+    );
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.mktero-citation-popup-batch-import:hover,
+.mktero-citation-popup-batch-import:focus-visible {
+    background: color-mix(
+        in srgb,
+        var(--citation-popup-accent) 10%,
+        var(--citation-popup-surface)
+    );
+    outline: 2px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 35%,
+        transparent
+    );
+    outline-offset: 1px;
+}
+
+.mktero-citation-popup-batch-import:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+
+.mktero-citation-popup-library-picker {
+    position: relative;
+    min-width: 0;
+    flex: 1 1 auto;
+    width: min(220px, 100%);
+}
+
+.mktero-citation-popup-library-select {
+    display: flex;
+    min-width: 0;
+    width: 100%;
+    height: 30px;
+    padding: 0 8px;
+    border: 1px solid var(--citation-popup-border);
+    border-radius: var(--radius-sm);
+    background: color-mix(
+        in srgb,
+        var(--citation-popup-surface) 92%,
+        var(--surface)
+    );
+    color: var(--citation-popup-text);
+    cursor: pointer;
+    font: 12px/1 var(--ui-font);
+    align-items: center;
+    justify-content: space-between;
+    text-align: left;
+}
+
+.mktero-citation-popup-library-select:hover,
+.mktero-citation-popup-library-select:focus-visible {
+    border-color: color-mix(
+        in srgb,
+        var(--citation-popup-accent) 40%,
+        var(--citation-popup-border)
+    );
+    outline: 2px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 35%,
+        transparent
+    );
+    outline-offset: 1px;
+}
+
+.mktero-citation-popup-library-select:disabled {
+    cursor: default;
+    opacity: 0.72;
+}
+
+.mktero-citation-popup-library-picker.is-open
+    .mktero-citation-popup-library-chevron {
+    transform: rotate(180deg);
+}
+
+.mktero-citation-popup-library-current {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mktero-citation-popup-library-chevron {
+    flex: 0 0 auto;
+    color: color-mix(in srgb, var(--citation-popup-text) 65%, transparent);
+    transition: transform 140ms ease;
+}
+
+.mktero-citation-popup-library-options {
+    position: fixed;
+    z-index: 7;
+    top: 0;
+    left: 0;
+    display: grid;
+    width: 220px;
+    max-height: min(220px, calc(100vh - 40px));
+    gap: 2px;
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid var(--citation-popup-border);
+    border-radius: var(--radius-sm);
+    background: color-mix(
+        in srgb,
+        var(--citation-popup-surface) 92%,
+        var(--surface)
+    );
+    box-shadow: var(--shadow-popover);
+}
+
+.mktero-citation-popup-library-options[hidden] {
+    display: none;
+}
+
+.mktero-citation-popup-library-option {
+    display: grid;
+    width: 100%;
+    min-height: 28px;
+    padding: 0 7px 0 5px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--citation-popup-text);
+    cursor: pointer;
+    font: 12px/1.2 var(--ui-font);
+    align-items: center;
+    gap: 6px;
+    grid-template-columns: 14px minmax(0, 1fr);
+    text-align: left;
+}
+
+.mktero-citation-popup-library-option:hover,
+.mktero-citation-popup-library-option:focus-visible {
+    background: color-mix(
+        in srgb,
+        var(--citation-popup-accent) 9%,
+        var(--citation-popup-surface)
+    );
+    outline: 1px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 24%,
+        transparent
+    );
+    outline-offset: -1px;
+}
+
+.mktero-citation-popup-library-option[aria-selected='true'] {
+    background: color-mix(
+        in srgb,
+        var(--citation-popup-accent) 12%,
+        var(--citation-popup-surface)
+    );
+    color: var(--citation-popup-accent);
+    font-weight: 600;
+}
+
+.mktero-citation-popup-library-option-check {
+    opacity: 0;
+}
+
+.mktero-citation-popup-library-option[aria-selected='true']
+    .mktero-citation-popup-library-option-check {
+    opacity: 1;
+}
+
+.mktero-citation-popup-library-option-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mktero-citation-popup-library-placeholder {
+    min-height: 28px;
+    padding: 6px 7px;
+    color: color-mix(in srgb, var(--citation-popup-text) 65%, transparent);
+    font-size: 12px;
+}
+
 .mktero-citation-popup-item {
     display: grid;
     width: 100%;
     min-width: 0;
     margin: 0;
     padding: 10px 12px;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: 18px minmax(0, 1fr);
     align-items: start;
     gap: 8px;
-    border: 0;
     border-radius: 7px;
     color: inherit;
-    background: transparent;
-    appearance: none;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-    transition:
-        background-color 120ms ease,
-        box-shadow 120ms ease;
+}
+
+.mktero-citation-popup-reference-checkbox {
+    grid-column: 1;
+    margin-top: 3px;
+}
+
+.mktero-citation-popup-primary,
+.mktero-citation-popup-actions,
+.mktero-citation-popup-candidates {
+    grid-column: 2;
 }
 
 .mktero-citation-popup-item + .mktero-citation-popup-item {
@@ -2619,6 +2841,39 @@ main {
     outline: none;
 }
 
+.mktero-citation-popup-item:focus-visible,
+.mktero-citation-popup-primary:focus-visible,
+.mktero-citation-popup-action:focus-visible,
+.mktero-citation-popup-library-select:focus-visible,
+.mktero-citation-popup-library-option:focus-visible,
+.mktero-citation-popup-candidate:focus-visible,
+.mktero-citation-popup-batch-import:focus-visible,
+.mktero-citation-popup-select-all:focus-visible,
+.mktero-citation-popup-reference-checkbox:focus-visible {
+    outline: 2px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 35%,
+        transparent
+    );
+    outline-offset: -2px;
+}
+
+.mktero-citation-popup-primary {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
 .mktero-citation-popup-item:focus-visible {
     outline: 2px solid color-mix(
         in srgb,
@@ -2626,6 +2881,107 @@ main {
         transparent
     );
     outline-offset: -2px;
+}
+
+.mktero-citation-popup-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding-left: 3.4ch;
+}
+
+.mktero-citation-popup-status {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+    color: color-mix(in srgb, var(--citation-popup-text) 72%, transparent);
+    font-size: 12px;
+}
+
+.mktero-citation-popup-status[data-state="present"],
+.mktero-citation-popup-status[data-state="imported"] {
+    color: var(--success, #2e7d32);
+}
+
+.mktero-citation-popup-status[data-state="failed"] {
+    color: var(--error, #c62828);
+}
+
+.mktero-citation-popup-action {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    color: var(--citation-popup-accent);
+    background: transparent;
+    border: 1px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 40%,
+        var(--citation-popup-border)
+    );
+    border-radius: 5px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.mktero-citation-popup-action:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.mktero-citation-popup-candidates {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    margin-top: 5px;
+    padding-left: 3.4ch;
+}
+
+.mktero-citation-popup-candidate {
+    display: grid;
+    min-width: 0;
+    padding: 5px 7px;
+    gap: 2px;
+    border: 1px solid var(--citation-popup-border);
+    border-radius: 5px;
+    color: inherit;
+    background: color-mix(
+        in srgb,
+        var(--citation-popup-surface) 84%,
+        var(--surface)
+    );
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+
+.mktero-citation-popup-candidate:hover,
+.mktero-citation-popup-candidate:focus-visible {
+    border-color: color-mix(
+        in srgb,
+        var(--citation-popup-accent) 42%,
+        var(--citation-popup-border)
+    );
+    background: var(--citation-popup-hover);
+    outline: 2px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 30%,
+        transparent
+    );
+    outline-offset: 1px;
+}
+
+.mktero-citation-popup-candidate-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+}
+
+.mktero-citation-popup-candidate-details {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: color-mix(in srgb, var(--citation-popup-text) 62%, transparent);
+    font-size: 11px;
 }
 
 .mktero-citation-popup-number {

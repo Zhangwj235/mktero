@@ -1,12 +1,18 @@
-import { normalizeDOI } from './citation-identifiers.js';
+import {
+    normalizeArxivID,
+    normalizeDOI,
+    normalizeOpenAlexID,
+} from './citation-identifiers.js';
 import { CitationProviderRequest } from './citation-provider-request.js';
 
 const DEFAULT_API_BASE = 'https://api.openalex.org';
 const MAX_BATCH_SIZE = 100;
 const MAX_BATCH_CONCURRENCY = 4;
 const MAX_REFERENCES = 1_000;
-const MAX_OPENALEX_ID_LENGTH = 64;
 const MAX_TITLE_LENGTH = 512;
+const MAX_SEARCH_RESULTS = 10;
+const MAX_SEARCH_TEXT_LENGTH = 512;
+const MAX_AUTHORS = 8;
 
 export class OpenAlexClient {
     constructor({
@@ -27,6 +33,80 @@ export class OpenAlexClient {
 
     supports(paper) {
         return Boolean(normalizeDOI(paper?.doi));
+    }
+
+    async resolveOpenAccessPDF({
+        doi = '',
+        apiKey = '',
+        signal,
+        onRetry = () => {},
+    } = {}) {
+        const normalizedDOI = normalizeDOI(doi);
+        if (!normalizedDOI) return null;
+        const payload = await this.request.getJSON(this.#worksURL({
+            dois: [normalizedDOI],
+            select: 'best_oa_location,locations',
+            perPage: 1,
+            apiKey: boundedString(apiKey, 4_096).trim(),
+        }), { signal, onRetry });
+        const [work] = workResults(payload, this.request);
+        if (!work) return null;
+        const candidates = [
+            work.best_oa_location?.pdf_url,
+            ...(Array.isArray(work.locations)
+                ? work.locations.map(location => location?.pdf_url)
+                : []),
+        ];
+        return candidates.map(normalizePublicURL).find(Boolean) || null;
+    }
+
+    async searchReferences({
+        text = '',
+        year = 0,
+        authorSearchText = '',
+        apiKey = '',
+        signal,
+        onRetry = () => {},
+    } = {}) {
+        const query = collapseWhitespace(
+            boundedString(text, MAX_SEARCH_TEXT_LENGTH)
+        );
+        if (!query) {
+            return {
+                status: 'unindexed',
+                candidates: [],
+                searchedAt: this.now(),
+            };
+        }
+        const rawYear = Number(year);
+        const normalizedYear = Number.isSafeInteger(rawYear)
+            && rawYear >= 0 && rawYear <= 9_999
+            ? rawYear
+            : 0;
+        // Keep the argument explicit so callers can pass parsed author context
+        // without making it part of the provider query (OpenAlex already
+        // tokenizes the bounded citation text).
+        void authorSearchText;
+        const normalizedAPIKey = boundedString(apiKey, 4_096).trim();
+        const queries = searchQueries(query);
+        let candidates = [];
+        for (const searchQuery of queries) {
+            const payload = await this.request.getJSON(this.#searchURL({
+                query: searchQuery,
+                year: normalizedYear,
+                apiKey: normalizedAPIKey,
+            }), { signal, onRetry });
+            candidates = workResults(payload, this.request)
+                .map(normalizeSearchCandidate)
+                .filter(Boolean)
+                .slice(0, MAX_SEARCH_RESULTS);
+            if (candidates.length) break;
+        }
+        return {
+            status: candidates.length ? 'found' : 'unindexed',
+            candidates,
+            searchedAt: this.now(),
+        };
     }
 
     cacheScopeIdentifiers(papers, focus) {
@@ -161,6 +241,17 @@ export class OpenAlexClient {
         if (apiKey) params.set('api_key', apiKey);
         return `${this.apiBase}/works?${params}`;
     }
+
+    #searchURL({ query, year, apiKey }) {
+        const params = new URLSearchParams({
+            search: query,
+            select: 'id,title,publication_year,type,authorships,doi,ids,best_oa_location,primary_location',
+            per_page: String(MAX_SEARCH_RESULTS),
+        });
+        if (year) params.set('filter', `publication_year:${year}`);
+        if (apiKey) params.set('api_key', apiKey);
+        return `${this.apiBase}/works?${params}`;
+    }
 }
 
 function workResults(payload, request) {
@@ -170,6 +261,40 @@ function workResults(payload, request) {
         throw request.invalidResponseError();
     }
     return payload.results;
+}
+
+function searchQueries(query) {
+    const titleQuery = extractTitleQuery(query);
+    return titleQuery && titleQuery !== query
+        ? [query, titleQuery]
+        : [query];
+}
+
+function extractTitleQuery(query) {
+    let candidate = collapseWhitespace(query)
+        .replace(/\s*\([^()]{0,256}\b(?:18|19|20)\d{2}[a-z]?\b[^()]{0,256}\)\s*\.?$/iu, '')
+        .replace(/\s+\b\d+(?:st|nd|rd|th)\s+(?:edn|edition)\b\s*\.?$/iu, '')
+        .replace(/\s+\b(?:edn|edition)\b\s*\.?$/iu, '')
+        .replace(/\s+\b(?:18|19|20)\d{2}[a-z]?\b\s*\.?$/iu, '')
+        .trim();
+    const colonIndex = candidate.indexOf(':');
+    if (colonIndex >= 0) {
+        const beforeColon = candidate.slice(0, colonIndex);
+        const words = [...beforeColon.matchAll(
+            /[\p{L}\p{N}][\p{L}\p{N}'’\u2010-]*/gu
+        )];
+        const lastWord = words.at(-1);
+        if (lastWord) candidate = candidate.slice(lastWord.index);
+    }
+    else {
+        const segments = candidate
+            .split(/(?:\.\s+|[。；;]\s*)/u)
+            .map(value => value.trim())
+            .filter(value => value.length >= 12);
+        candidate = segments.sort((left, right) => right.length - left.length)[0]
+            || candidate;
+    }
+    return collapseWhitespace(candidate).slice(0, MAX_SEARCH_TEXT_LENGTH);
 }
 
 function uniquePaperDOIIndex(papers) {
@@ -214,10 +339,77 @@ function localReference(paper, paperID) {
     };
 }
 
-function normalizeOpenAlexID(value) {
-    const bounded = boundedString(value, MAX_OPENALEX_ID_LENGTH).trim();
-    const match = /^(?:https?:\/\/openalex\.org\/)?(W[1-9]\d*)$/i.exec(bounded);
-    return match ? match[1].toUpperCase() : '';
+function normalizeSearchCandidate(work) {
+    const paperID = normalizeOpenAlexID(work?.id);
+    const title = collapseWhitespace(
+        boundedString(work?.title, MAX_TITLE_LENGTH)
+    );
+    const identifiers = {
+        doi: normalizeDOI(work?.doi),
+        arxivID: normalizeArxivID(work?.ids?.arxiv),
+        pmid: normalizePMID(work?.ids?.pmid),
+        pdfURL: normalizePublicURL(work?.best_oa_location?.pdf_url),
+    };
+    const hasStandardIdentifier = hasReliableIdentifier(identifiers);
+    if (!hasStandardIdentifier) {
+        identifiers.openAlexID = normalizeOpenAlexID(work?.ids?.openalex);
+    }
+    if (!paperID || !title || (!hasStandardIdentifier && !identifiers.openAlexID)) {
+        return null;
+    }
+    const rawYear = Number(work?.publication_year);
+    const authors = Array.isArray(work?.authorships)
+        ? work.authorships.slice(0, MAX_AUTHORS)
+            .map(authorship => collapseWhitespace(boundedString(
+                authorship?.author?.display_name,
+                MAX_TITLE_LENGTH
+            )))
+            .filter(Boolean)
+        : [];
+    const candidate = {
+        source: 'openalex',
+        paperID,
+        title,
+        year: Number.isSafeInteger(rawYear) && rawYear >= 0 && rawYear <= 9_999
+            ? rawYear
+            : 0,
+        authors,
+        identifiers,
+    };
+    if (!hasStandardIdentifier) {
+        candidate.metadata = normalizeMetadata(work, {
+            title,
+            year: candidate.year,
+            authors,
+        });
+    }
+    return candidate;
+}
+
+function normalizeMetadata(work, fallback) {
+    return {
+        itemType: normalizeItemType(work?.type),
+        title: fallback.title,
+        year: fallback.year,
+        authors: fallback.authors,
+        publisher: collapseWhitespace(boundedString(
+            work?.primary_location?.source?.display_name
+                || work?.primary_location?.raw_source_name,
+            MAX_TITLE_LENGTH
+        )),
+        url: normalizePublicURL(work?.primary_location?.landing_page_url),
+    };
+}
+
+function normalizeItemType(value) {
+    return {
+        article: 'journalArticle',
+        'book-chapter': 'bookSection',
+        book: 'book',
+        dissertation: 'thesis',
+        report: 'report',
+        'conference-paper': 'conferencePaper',
+    }[String(value || '').toLowerCase()] || 'document';
 }
 
 function negativeResult(fetchedAt) {
@@ -236,4 +428,44 @@ function boundedString(value, maximum) {
 
 function collapseWhitespace(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizePublicURL(value) {
+    if (typeof value !== 'string' || value.length > 2_048) return '';
+    try {
+        const url = new URL(value);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+        if (url.username || url.password) return '';
+        url.hash = '';
+        return url.toString();
+    }
+    catch {
+        return '';
+    }
+}
+
+function normalizePMID(value) {
+    const bounded = boundedString(value, 128).trim();
+    if (/^\d{1,12}$/u.test(bounded)) return bounded;
+    try {
+        const url = new URL(bounded);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+        if (url.username || url.password) return '';
+        const host = url.hostname.toLowerCase();
+        const pubmedPath = /^\/(\d{1,12})\/?$/u.exec(url.pathname);
+        if (host === 'pubmed.ncbi.nlm.nih.gov' && pubmedPath) {
+            return pubmedPath[1];
+        }
+        const ncbiPath = /^\/pubmed\/(\d{1,12})\/?$/iu.exec(url.pathname);
+        return host === 'www.ncbi.nlm.nih.gov' && ncbiPath
+            ? ncbiPath[1]
+            : '';
+    }
+    catch {
+        return '';
+    }
+}
+
+function hasReliableIdentifier(identifiers) {
+    return Boolean(identifiers.doi || identifiers.arxivID || identifiers.pmid);
 }

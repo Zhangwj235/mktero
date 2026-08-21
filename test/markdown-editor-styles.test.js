@@ -696,6 +696,13 @@ test('styles citation popups and temporary reference highlights', () => {
     assert.match(popupItem, /padding:\s*10px 12px/);
     assert.match(popupItem, /border-radius:\s*7px/);
 
+    const candidate = ruleBody('.mktero-citation-popup-candidate');
+    assert.match(candidate, /display:\s*grid/);
+    const candidateTitle = ruleBody(
+        '.mktero-citation-popup-candidate-title'
+    );
+    assert.match(candidateTitle, /overflow-wrap:\s*anywhere/);
+
     const popupItemHover = ruleBody([
         '.mktero-citation-popup-item:hover,',
         '.mktero-citation-popup-item:focus-visible',
@@ -729,6 +736,56 @@ test('styles citation popups and temporary reference highlights', () => {
         '.markdown-editor-host > .cm-editor .cm-mktero-reference-highlight'
     );
     assert.match(highlight, /animation:\s*mktero-reference-highlight 3s ease-out/);
+});
+
+test('styles the citation library picker like the reader font picker', () => {
+    const picker = ruleBody('.mktero-citation-popup-library-picker');
+    const trigger = ruleBody('.mktero-citation-popup-library-select');
+    const options = ruleBody('.mktero-citation-popup-library-options');
+    const option = ruleBody('.mktero-citation-popup-library-option');
+
+    assert.match(picker, /position:\s*relative/);
+    assert.match(trigger, /display:\s*flex/);
+    assert.match(trigger, /height:\s*30px/);
+    assert.match(
+        trigger,
+        /border:\s*1px\s+solid\s+var\(--citation-popup-border\)/
+    );
+    assert.match(trigger, /cursor:\s*pointer/);
+    assert.match(options, /display:\s*grid/);
+    assert.match(options, /position:\s*fixed/);
+    assert.match(options, /box-shadow:\s*var\(--shadow-popover\)/);
+    assert.match(options, /max-height:/);
+    assert.match(
+        option,
+        /grid-template-columns:\s*14px\s+minmax\(0,\s*1fr\)/
+    );
+    assert.match(option, /cursor:\s*pointer/);
+    assert.match(
+        MARKDOWN_STYLES,
+        /\.mktero-citation-popup-library-option\[aria-selected='true'\][\s\S]*?color:\s*var\(--citation-popup-accent\)/
+    );
+});
+
+test('styles citation batch selection controls as a compact action bar', () => {
+    const header = ruleBody('.mktero-citation-popup-header');
+    const selectAllLabel = ruleBody('.mktero-citation-popup-select-all-label');
+    const importButton = ruleBody('.mktero-citation-popup-batch-import');
+    const item = ruleBody('.mktero-citation-popup-item');
+    const checkbox = ruleBody('.mktero-citation-popup-reference-checkbox');
+
+    assert.match(header, /display:\s*flex/);
+    assert.match(selectAllLabel, /flex:\s*0 0 auto/);
+    assert.doesNotMatch(
+        MARKDOWN_STYLES,
+        /\.mktero-citation-popup-header\s+label/
+    );
+    assert.match(importButton, /width:\s*30px/);
+    assert.match(importButton, /height:\s*30px/);
+    assert.match(importButton, /place-items:\s*center/);
+    assert.match(importButton, /cursor:\s*pointer/);
+    assert.match(item, /grid-template-columns:\s*18px\s+minmax\(0,\s*1fr\)/);
+    assert.match(checkbox, /accent-color:\s*var\(--citation-popup-accent\)/);
 });
 
 test('styles Zotero-colored PDF annotations and their action popup', () => {

@@ -6,6 +6,7 @@ const DEFAULT_MAX_AUTHORS = 100;
 const DOI_PATTERN = /^10\.\d{4,9}\/[!#$%&'*+./0-9:;<=>?@A-Z[\]^_`a-z{|}~-]+$/;
 const CURRENT_ARXIV_PATTERN = /^\d{4}\.\d{4,5}$/;
 const LEGACY_ARXIV_PATTERN = /^[a-z][a-z0-9.-]*\/[0-9]{7}$/;
+const OPENALEX_ID_PATTERN = /^W[1-9]\d*$/i;
 
 export function normalizeDOI(value) {
     let normalized = boundedString(value, MAX_IDENTIFIER_INPUT_LENGTH).trim();
@@ -35,6 +36,16 @@ export function normalizeArxivID(value) {
         return '';
     }
     return normalized;
+}
+
+export function normalizeOpenAlexID(value) {
+    const normalized = boundedString(value, MAX_IDENTIFIER_INPUT_LENGTH)
+        .trim()
+        .replace(/^https?:\/\/openalex\.org\//i, '')
+        .trim();
+    return OPENALEX_ID_PATTERN.test(normalized)
+        ? normalized.toUpperCase()
+        : '';
 }
 
 export function extractCitationIdentifiers({ doi = '', extra = '' } = {}) {

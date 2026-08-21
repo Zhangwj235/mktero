@@ -177,6 +177,70 @@ test('shows the current-paper citation graph button in the reader', async () => 
     }
 });
 
+test('passes reference library callbacks and the current source item to the editor', async () => {
+    const calls = [];
+    const callbacks = {
+        onListReferenceLibraries(options) {
+            calls.push(['libraries', options]);
+            return { libraries: [], defaultLibraryID: 1 };
+        },
+        onGetReferenceStatus(reference, options) {
+            calls.push(['status', reference, options]);
+            return { state: 'unknown' };
+        },
+        onSearchReferenceMetadata(reference, options) {
+            calls.push(['search', reference, options]);
+            return { status: 'unresolved', candidates: [] };
+        },
+        onImportReference(reference, options) {
+            calls.push(['import', reference, options]);
+            return { state: 'failed' };
+        },
+        onOpenReferenceMatch(match) {
+            calls.push(['open', match]);
+            return match.itemID;
+        },
+        onSubscribeReferenceUpdates(listener) {
+            calls.push(['subscribe', listener]);
+            return () => {};
+        },
+    };
+    let editorOptions;
+    const { view } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        sourceItemID: 42,
+        ...callbacks,
+    }), {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return createTestInlineEditor(options);
+        },
+    });
+
+    try {
+        const signal = new AbortController().signal;
+        await editorOptions.onListReferenceLibraries({ signal });
+        await editorOptions.onGetReferenceStatus({ id: 'r' }, { signal });
+        await editorOptions.onSearchReferenceMetadata({ id: 'r' }, { signal });
+        await editorOptions.onImportReference({ id: 'r' }, { signal });
+        await editorOptions.onOpenReferenceMatch({ itemID: 7 });
+        editorOptions.onSubscribeReferenceUpdates(() => {});
+        assert.equal(calls[0][0], 'libraries');
+        assert.equal(calls[0][1].sourceItemID, 42);
+        assert.equal(calls[1][0], 'status');
+        assert.equal(calls[2][0], 'search');
+        assert.equal(calls[3][0], 'import');
+        assert.equal(calls[4][0], 'open');
+        assert.equal(calls[5][0], 'subscribe');
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('toggles block correction mode and restores all saved corrections', async () => {
     const modeChanges = [];
     const editorStates = [];

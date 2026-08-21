@@ -37,6 +37,7 @@ import { OpenCitationsClient } from './citations/open-citations-client.js';
 import {
     SemanticScholarClient,
 } from './citations/semantic-scholar-client.js';
+import { createOpenAccessResolver } from './citations/open-access-resolver.js';
 import { AISDKGateway } from './ai/ai-sdk-gateway.js';
 import {
     MarkdownTranslationService,
@@ -114,6 +115,11 @@ import {
     createZoteroCitationLibrary,
     findCitationPaperPDFAttachment,
 } from './platform/zotero-citation-library.js';
+import { createZoteroReferenceLibrary } from './platform/zotero-reference-library.js';
+import {
+    createReferenceImportService,
+    createReferenceServiceActions,
+} from './core/reference-import-service.js';
 import {
     registerZoteroAnnotationObserver,
 } from './platform/zotero-annotation-observer.js';
@@ -155,6 +161,8 @@ const runtime = {
     citationGraph: null,
     citationLibrary: null,
     citationCache: null,
+    referenceLibrary: null,
+    referenceImportService: null,
     cache: null,
     translationService: null,
     revisionStore: null,
@@ -172,6 +180,7 @@ const runtime = {
     clipboard: null,
     evidenceReference: null,
     disposeAnnotationObserver: null,
+    disposeReferenceObserver: null,
     disposeCacheObserver: null,
     disposeAITargetLanguageObserver: null,
     annotationOverlayRefresher: null,
@@ -222,6 +231,7 @@ globalThis.startup = async function startup({ id, rootURI }) {
     });
     runtime.cache = cache;
     initializeCitationGraph(localization);
+    initializeReferenceImport();
     runtime.translationService = new MarkdownTranslationService({
         aiGateway: new AISDKGateway({
             createAbortController: createZoteroAbortController,
@@ -415,6 +425,8 @@ globalThis.shutdown = function shutdown() {
     abortAllTranslations();
     destroyAllRevisionSessions();
     runtime.disposeAnnotationObserver?.();
+    runtime.disposeReferenceObserver?.();
+    runtime.referenceImportService?.dispose?.();
     runtime.disposeCacheObserver?.();
     runtime.disposeAITargetLanguageObserver?.();
     runtime.localAnnotations?.dispose();
@@ -434,6 +446,8 @@ globalThis.shutdown = function shutdown() {
     runtime.citationGraph = null;
     runtime.citationLibrary = null;
     runtime.citationCache = null;
+    runtime.referenceLibrary = null;
+    runtime.referenceImportService = null;
     runtime.service = null;
     runtime.cache = null;
     runtime.translationService = null;
@@ -452,6 +466,7 @@ globalThis.shutdown = function shutdown() {
     runtime.clipboard = null;
     runtime.evidenceReference = null;
     runtime.disposeAnnotationObserver = null;
+    runtime.disposeReferenceObserver = null;
     runtime.disposeCacheObserver = null;
     runtime.disposeAITargetLanguageObserver = null;
     runtime.annotationOverlayRefresher = null;
@@ -574,6 +589,10 @@ async function openItemAsMarkdown(itemID, {
                 itemID,
                 annotationID
             )
+        ),
+        ...createReferenceServiceActions(
+            runtime.referenceImportService,
+            { getSourceItemID: () => itemID }
         ),
     });
     if (presentation.created) {
@@ -735,10 +754,12 @@ async function openSavedMarkdownNote(noteID) {
 }
 
 function createSavedMarkdownActions(noteID, sourceItem) {
+    const currentSourceItemID = () => runtime.presenter?.get(noteID)?.model
+        ?.sourceItemID
+        ?? sourceItem?.id
+        ?? null;
     const withSource = callback => (...args) => {
-        const sourceItemID = runtime.presenter?.get(noteID)?.model?.sourceItemID
-            ?? sourceItem?.id
-            ?? null;
+        const sourceItemID = currentSourceItemID();
         if (!sourceItemID) throw new Error('The source PDF is unavailable');
         return callback(sourceItemID, ...args);
     };
@@ -793,6 +814,10 @@ function createSavedMarkdownActions(noteID, sourceItem) {
                     annotationID
                 )
             )
+        ),
+        ...createReferenceServiceActions(
+            runtime.referenceImportService,
+            { getSourceItemID: currentSourceItemID }
         ),
     };
 }
@@ -1815,4 +1840,73 @@ function initializeCitationGraph(localization) {
         runtime.citationGraph = null;
         runtime.citationPresenter = null;
     }
+}
+
+function initializeReferenceImport() {
+    try {
+        const referenceLibrary = createZoteroReferenceLibrary(Zotero);
+        const semanticScholarClient = new SemanticScholarClient({
+            createAbortController: createZoteroAbortController,
+            requestTimeoutMs: 6_000,
+            maxRetryAttempts: 2,
+        });
+        const openAlexClient = new OpenAlexClient({
+            createAbortController: createZoteroAbortController,
+            requestTimeoutMs: 6_000,
+            maxRetryAttempts: 2,
+        });
+        const openAccessResolver = createOpenAccessResolver({
+            semanticScholarClient,
+            openAlexClient,
+            getSemanticScholarAPIKey: () => getSemanticScholarAPIKey(Zotero),
+            getOpenAlexAPIKey: () => getOpenAlexAPIKey(Zotero),
+        });
+        const referenceImportService = createReferenceImportService({
+            library: referenceLibrary,
+            openAccessResolver,
+            metadataClient: openAlexClient,
+            getMetadataAPIKey: () => getOpenAlexAPIKey(Zotero),
+            createAbortController: createZoteroAbortController,
+        });
+        runtime.referenceLibrary = referenceLibrary;
+        runtime.referenceImportService = referenceImportService;
+        runtime.disposeReferenceObserver = registerReferenceIndexObserver(
+            Zotero,
+            () => referenceImportService.invalidate(),
+            error => Zotero.logError?.(error)
+        );
+    }
+    catch (error) {
+        Zotero.logError?.(error);
+        runtime.referenceLibrary = null;
+        runtime.referenceImportService = null;
+    }
+}
+
+function registerReferenceIndexObserver(zotero, onChange, onError) {
+    if (typeof zotero?.Notifier?.registerObserver !== 'function') {
+        return () => {};
+    }
+    let active = true;
+    const observer = {
+        notify(_event, type) {
+            if (!active || type !== 'item') return;
+            try {
+                onChange?.();
+            }
+            catch (error) {
+                onError?.(error);
+            }
+        },
+    };
+    const observerID = zotero.Notifier.registerObserver(
+        observer,
+        ['item'],
+        'mktero-reference-index'
+    );
+    return () => {
+        if (!active) return;
+        active = false;
+        zotero.Notifier.unregisterObserver?.(observerID);
+    };
 }

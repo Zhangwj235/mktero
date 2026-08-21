@@ -3,6 +3,69 @@ import assert from 'node:assert/strict';
 
 import { OpenAlexClient } from '../src/citations/openalex-client.js';
 
+test('resolves the best OpenAlex open-access PDF from a DOI-only request', async () => {
+    let request;
+    const client = new OpenAlexClient({
+        fetch: async (url, options) => {
+            request = { url: String(url), options };
+            return jsonResponse({
+                results: [{
+                    best_oa_location: {
+                        pdf_url: 'https://repository.example/paper.pdf#view=fit',
+                    },
+                    locations: [],
+                }],
+            });
+        },
+    });
+
+    assert.equal(await client.resolveOpenAccessPDF({
+        doi: 'DOI:10.1000/TEST',
+        apiKey: 'openalex-secret',
+    }), 'https://repository.example/paper.pdf');
+    const parsed = new URL(request.url);
+    assert.equal(parsed.searchParams.get('filter'), 'doi:10.1000/test');
+    assert.match(parsed.searchParams.get('select'), /best_oa_location/);
+    assert.equal(parsed.searchParams.get('api_key'), 'openalex-secret');
+    assert.deepEqual(request.options.headers, {});
+});
+
+test('rejects malformed and oversized OpenAlex open-access responses', async () => {
+    const malformed = new OpenAlexClient({
+        fetch: async () => jsonResponse({ results: {} }),
+    });
+    await assert.rejects(
+        () => malformed.resolveOpenAccessPDF({ doi: '10.1000/malformed' }),
+        error => error.code === 'OPENALEX_INVALID_RESPONSE'
+    );
+
+    const oversized = new OpenAlexClient({
+        maxResponseBytes: 8,
+        fetch: async () => jsonResponse({ results: [{ best_oa_location: {} }] }),
+    });
+    await assert.rejects(
+        () => oversized.resolveOpenAccessPDF({ doi: '10.1000/large' }),
+        error => error.code === 'OPENALEX_RESPONSE_TOO_LARGE'
+    );
+});
+
+test('honors cancellation during an OpenAlex open-access lookup', async () => {
+    const controller = new AbortController();
+    const client = new OpenAlexClient({
+        fetch: async (_url, { signal }) => new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(
+                new DOMException('Aborted', 'AbortError')
+            ), { once: true });
+        }),
+    });
+    const pending = client.resolveOpenAccessPDF({
+        doi: '10.1000/cancel',
+        signal: controller.signal,
+    });
+    controller.abort();
+    await assert.rejects(pending, error => error.name === 'AbortError');
+});
+
 test('matches OpenAlex references through DOI-only local paper requests', async () => {
     const requests = [];
     const client = new OpenAlexClient({
@@ -233,6 +296,230 @@ test('honors caller cancellation while OpenAlex batches are active', async () =>
     controller.abort();
 
     await assert.rejects(pending, error => error.name === 'AbortError');
+});
+
+test('searches bounded OpenAlex metadata and normalizes candidate identifiers', async () => {
+    let request;
+    const client = new OpenAlexClient({
+        now: () => 7_000,
+        fetch: async (url, options) => {
+            request = { url: String(url), options };
+            return jsonResponse({
+                results: [{
+                    id: 'https://openalex.org/W123',
+                    title: '  A  searchable title  ',
+                    publication_year: 2024,
+                    doi: 'https://doi.org/10.1000/SEARCH',
+                    ids: {
+                        arxiv: 'https://arxiv.org/abs/2401.12345',
+                        pmid: 'https://pubmed.ncbi.nlm.nih.gov/123456/',
+                    },
+                    authorships: [{ author: { display_name: 'Jane Doe' } }],
+                    best_oa_location: {
+                        pdf_url: 'https://repository.example/paper.pdf#page=1',
+                    },
+                }],
+            });
+        },
+    });
+
+    const result = await client.searchReferences({
+        text: 'Jane Doe. A searchable title. Journal. 2024.',
+        year: 2024,
+        authorSearchText: 'jane doe',
+        apiKey: ' openalex-key ',
+    });
+
+    const parsed = new URL(request.url);
+    assert.equal(parsed.searchParams.get('search'),
+        'Jane Doe. A searchable title. Journal. 2024.');
+    assert.equal(parsed.searchParams.get('filter'), 'publication_year:2024');
+    assert.equal(parsed.searchParams.get('per-page'), null);
+    assert.equal(parsed.searchParams.get('per_page'), '10');
+    assert.equal(parsed.searchParams.get('api_key'), 'openalex-key');
+    assert.deepEqual(result, {
+        status: 'found',
+        candidates: [{
+            source: 'openalex',
+            paperID: 'W123',
+            title: 'A searchable title',
+            year: 2024,
+            authors: ['Jane Doe'],
+            identifiers: {
+                doi: '10.1000/search',
+                arxivID: '2401.12345',
+                pmid: '123456',
+                pdfURL: 'https://repository.example/paper.pdf',
+            },
+        }],
+        searchedAt: 7_000,
+    });
+    assert.deepEqual(request.options.headers, {});
+});
+
+test('retries noisy book citations with the title and keeps OpenAlex-only matches', async () => {
+    const searches = [];
+    const client = new OpenAlexClient({
+        now: () => 7_100,
+        fetch: async url => {
+            const parsed = new URL(url);
+            searches.push(parsed.searchParams.get('search'));
+            if (searches.length === 1) return jsonResponse({ results: [] });
+            return jsonResponse({
+                results: [{
+                    id: 'https://openalex.org/W1721908487',
+                    title: 'Compilers: Principles, Techniques, and Tools (2nd Edition)',
+                    publication_year: 2006,
+                    type: 'book',
+                    ids: { openalex: 'https://openalex.org/W1721908487' },
+                    authorships: [{ author: { display_name: 'Alfred V. Aho' } }, {
+                        author: { display_name: 'Monica S. Lam' },
+                    }, { author: { display_name: 'Ravi Sethi' } }, {
+                        author: { display_name: 'Jeffrey D. Ullman' },
+                    }],
+                    primary_location: {
+                        source: { display_name: 'Addison-Wesley' },
+                    },
+                }],
+            });
+        },
+    });
+
+    const result = await client.searchReferences({
+        text: 'Aho, A. V., Lam, M. S., Sethi, R. & Ullman, J. D. '
+            + 'Compilers: Principles, Techniques, and Tools 2nd edn '
+            + '(Addison-Wesley, 2006).',
+        year: 2006,
+        authorSearchText: 'aho a',
+    });
+
+    assert.deepEqual(searches, [
+        'Aho, A. V., Lam, M. S., Sethi, R. & Ullman, J. D. '
+            + 'Compilers: Principles, Techniques, and Tools 2nd edn '
+            + '(Addison-Wesley, 2006).',
+        'Compilers: Principles, Techniques, and Tools',
+    ]);
+    assert.equal(result.status, 'found');
+    assert.deepEqual(result.candidates, [{
+        source: 'openalex',
+        paperID: 'W1721908487',
+        title: 'Compilers: Principles, Techniques, and Tools (2nd Edition)',
+        year: 2006,
+        authors: [
+            'Alfred V. Aho',
+            'Monica S. Lam',
+            'Ravi Sethi',
+            'Jeffrey D. Ullman',
+        ],
+        identifiers: {
+            doi: '',
+            arxivID: '',
+            pmid: '',
+            openAlexID: 'W1721908487',
+            pdfURL: '',
+        },
+        metadata: {
+            itemType: 'book',
+            title: 'Compilers: Principles, Techniques, and Tools (2nd Edition)',
+            year: 2006,
+            authors: [
+                'Alfred V. Aho',
+                'Monica S. Lam',
+                'Ravi Sethi',
+                'Jeffrey D. Ullman',
+            ],
+            publisher: 'Addison-Wesley',
+            url: '',
+        },
+    }]);
+    assert.equal(result.searchedAt, 7_100);
+});
+
+test('uses the longest citation segment for title-only fallback queries', async () => {
+    const searches = [];
+    const client = new OpenAlexClient({
+        fetch: async url => {
+            const parsed = new URL(url);
+            searches.push(parsed.searchParams.get('search'));
+            return jsonResponse({
+                results: searches.length === 1
+                    ? []
+                    : [{
+                        id: 'W700',
+                        title: 'A searchable title',
+                        publication_year: 2024,
+                        doi: 'https://doi.org/10.1000/title',
+                    }],
+            });
+        },
+    });
+
+    const result = await client.searchReferences({
+        text: 'Doe, J. A searchable title. Journal. 2024.',
+        year: 2024,
+    });
+    assert.deepEqual(searches, [
+        'Doe, J. A searchable title. Journal. 2024.',
+        'A searchable title',
+    ]);
+    assert.equal(result.candidates[0].identifiers.doi, '10.1000/title');
+});
+
+test('caps metadata candidates and skips malformed or identifier-less works', async () => {
+    const client = new OpenAlexClient({
+        fetch: async () => jsonResponse({
+            results: [
+                { id: 'W1', title: 'No identifier' },
+                ...Array.from({ length: 12 }, (_, index) => ({
+                    id: `W${index + 2}`,
+                    title: index === 0
+                        ? '<script>alert(1)</script>'
+                        : `Candidate ${index}`,
+                    publication_year: 2023,
+                    doi: `https://doi.org/10.1000/${index}`,
+                })),
+                { id: 'bad', title: 'Missing DOI', doi: 'not-a-doi' },
+            ],
+        }),
+    });
+
+    const result = await client.searchReferences({ text: 'candidate' });
+    assert.equal(result.status, 'found');
+    assert.equal(result.candidates.length, 10);
+    assert.deepEqual(result.candidates.map(candidate => candidate.paperID),
+        Array.from({ length: 10 }, (_, index) => `W${index + 2}`));
+    assert.equal(result.candidates[0].title, '<script>alert(1)</script>');
+});
+
+test('honors cancellation during an explicit OpenAlex metadata search', async () => {
+    const controller = new AbortController();
+    const client = new OpenAlexClient({
+        fetch: async (_url, { signal }) => new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(
+                new DOMException('Aborted', 'AbortError')
+            ), { once: true });
+        }),
+    });
+    const pending = client.searchReferences({
+        text: 'cancel me',
+        signal: controller.signal,
+    });
+    controller.abort();
+    await assert.rejects(pending, error => error.name === 'AbortError');
+});
+
+test('does not accept arbitrary URL suffixes as PMID identifiers', async () => {
+    const client = new OpenAlexClient({
+        fetch: async () => jsonResponse({
+            results: [{
+                id: 'W700',
+                title: 'Untrusted PMID',
+                ids: { pmid: 'https://evil.example/700' },
+            }],
+        }),
+    });
+    const result = await client.searchReferences({ text: 'untrusted PMID' });
+    assert.deepEqual(result.candidates, []);
 });
 
 function paper(itemID, key, values = {}) {

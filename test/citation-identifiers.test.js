@@ -5,6 +5,7 @@ import {
     extractCitationIdentifiers,
     normalizeArxivID,
     normalizeDOI,
+    normalizeOpenAlexID,
     normalizeSemanticScholarPaper,
 } from '../src/citations/citation-identifiers.js';
 
@@ -25,6 +26,13 @@ test('normalizes current and legacy arXiv identifiers without versions', () => {
         'hep-th/9901001'
     );
     assert.equal(normalizeArxivID('not-an-arxiv-id'), '');
+});
+
+test('normalizes OpenAlex work identifiers and rejects malformed values', () => {
+    assert.equal(normalizeOpenAlexID('https://openalex.org/w1721908487'), 'W1721908487');
+    assert.equal(normalizeOpenAlexID(' W123 '), 'W123');
+    assert.equal(normalizeOpenAlexID('W0'), '');
+    assert.equal(normalizeOpenAlexID('openalex:W123'), '');
 });
 
 test('extracts DOI and arXiv from bounded Zotero metadata', () => {

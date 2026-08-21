@@ -50,6 +50,48 @@ test('maps numeric citation tags and ranges to numbered references', () => {
     )));
 });
 
+test('attaches normalized identifiers to analyzed reference targets', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Evidence [1].',
+        '',
+        '## References',
+        '',
+        '[1] Doe. A paper. DOI:10.1000/ABC; PMID:123456; '
+            + 'https://arxiv.org/abs/2401.00001v2; '
+            + 'https://example.org/paper.pdf#page=2',
+    ].join('\n');
+
+    const [reference] = analyzeMarkdownCitations(markdown).references;
+
+    assert.deepEqual(reference.identifiers, {
+        doi: '10.1000/abc',
+        arxivID: '2401.00001',
+        pmid: '123456',
+        pdfURL: 'https://example.org/paper.pdf',
+    });
+});
+
+test('keeps identifiers when a PDF reference wraps a DOI across lines', () => {
+    const markdown = [
+        'Evidence [1].',
+        '',
+        '## References',
+        '',
+        '[1] Mesen TB. Progesterone and the luteal phase. [doi: 10.1016/',
+        'j.ogc.2014.10.003] [Medline: 25681845]',
+    ].join('\n');
+
+    const [reference] = analyzeMarkdownCitations(markdown).references;
+    assert.deepEqual(reference.identifiers, {
+        doi: '10.1016/j.ogc.2014.10.003',
+        arxivID: '',
+        pmid: '25681845',
+        pdfURL: '',
+    });
+});
+
 test('maps superscript citations to bare numbered references', () => {
     const markdown = [
         '# Paper',

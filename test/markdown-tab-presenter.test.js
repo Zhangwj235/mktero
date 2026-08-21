@@ -148,6 +148,34 @@ test('passes the citation graph action to the Markdown reader model', () => {
     presenter.dispose();
 });
 
+test('passes reference library actions to the Markdown reader model and refreshes reuse', () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness);
+    const firstLibraries = () => [];
+    const firstStatus = () => ({ state: 'unknown' });
+    const firstSearch = () => ({ status: 'unresolved' });
+    const firstImport = () => null;
+    const firstOpen = () => null;
+    const presentation = presenter.open(42, {
+        onListReferenceLibraries: firstLibraries,
+        onGetReferenceStatus: firstStatus,
+        onSearchReferenceMetadata: firstSearch,
+        onImportReference: firstImport,
+        onOpenReferenceMatch: firstOpen,
+    });
+    assert.equal(presentation.model.onListReferenceLibraries, firstLibraries);
+    assert.equal(presentation.model.onGetReferenceStatus, firstStatus);
+    assert.equal(presentation.model.onSearchReferenceMetadata, firstSearch);
+    assert.equal(presentation.model.onImportReference, firstImport);
+    assert.equal(presentation.model.onOpenReferenceMatch, firstOpen);
+
+    const secondStatus = () => ({ state: 'present' });
+    presenter.open(42, { onGetReferenceStatus: secondStatus });
+    assert.equal(presentation.model.onGetReferenceStatus, secondStatus);
+    presenter.dispose();
+});
+
 test('installs the custom Markdown tab icon stylesheet in the Zotero window', () => {
     const { document } = parseHTML('<html><body></body></html>');
     const mainWindow = createMainWindow(document);

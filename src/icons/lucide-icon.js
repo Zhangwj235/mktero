@@ -7,6 +7,7 @@ import {
     ChevronUp,
     Clock,
     Copy,
+    Download,
     ExternalLink,
     FileText,
     Languages,
@@ -70,6 +71,10 @@ export const LUCIDE_ICONS = Object.freeze({
     copy: Object.freeze({
         name: 'copy',
         nodes: Copy,
+    }),
+    download: Object.freeze({
+        name: 'download',
+        nodes: Download,
     }),
     externalLink: Object.freeze({
         name: 'external-link',

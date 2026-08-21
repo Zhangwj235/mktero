@@ -12,6 +12,7 @@ export function createAnchoredPopup(parent, {
     let anchor = null;
     let ignoredOpenAnchor = null;
     let closeTimer = null;
+    let closeHandler = null;
 
     const cancelClose = () => {
         if (closeTimer === null) return;
@@ -21,6 +22,8 @@ export function createAnchoredPopup(parent, {
 
     const close = () => {
         cancelClose();
+        const onClose = closeHandler;
+        closeHandler = null;
         if (anchor && popup
             && anchor.getAttribute?.('aria-describedby') === popup.id) {
             anchor.removeAttribute?.('aria-describedby');
@@ -28,6 +31,7 @@ export function createAnchoredPopup(parent, {
         popup?.remove();
         popup = null;
         anchor = null;
+        onClose?.();
     };
 
     const scheduleClose = () => {
@@ -50,9 +54,11 @@ export function createAnchoredPopup(parent, {
         focusContent,
         popupClassName,
         dismissOnMouseLeave = true,
+        onClose,
+        forceOpen = false,
     }) => {
         if (!nextAnchor || typeof renderContent !== 'function') return;
-        if (ignoredOpenAnchor === nextAnchor) {
+        if (ignoredOpenAnchor === nextAnchor && !forceOpen) {
             ignoredOpenAnchor = null;
             return;
         }
@@ -63,6 +69,7 @@ export function createAnchoredPopup(parent, {
         }
         close();
         anchor = nextAnchor;
+        closeHandler = typeof onClose === 'function' ? onClose : null;
         popup = document.createElementNS(XHTML_NAMESPACE, 'div');
         popup.id = `${idPrefix}-${nextPopupID++}`;
         popup.className = [className, popupClassName]

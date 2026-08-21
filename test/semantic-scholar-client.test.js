@@ -21,6 +21,70 @@ test('supports focused papers with either DOI or arXiv identifiers', () => {
     assert.equal(client.supports({ title: 'Title only' }), false);
 });
 
+test('resolves an open-access PDF using only the normalized DOI', async () => {
+    let request;
+    const client = new SemanticScholarClient({
+        fetch: async (url, options) => {
+            request = { url: String(url), options };
+            return jsonResponse({
+                openAccessPdf: { url: 'https://repository.example/paper.pdf#page=1' },
+                externalIds: { DOI: '10.1000/test' },
+            });
+        },
+    });
+
+    assert.equal(await client.resolveOpenAccessPDF({
+        doi: ' DOI:10.1000/TEST ',
+        apiKey: 'provider-secret',
+    }), 'https://repository.example/paper.pdf');
+    assert.match(request.url, /fields=.*openAccessPdf/);
+    assert.match(request.url, /DOI%3A10\.1000%2Ftest/);
+    assert.equal(request.options.headers['x-api-key'], 'provider-secret');
+    assert.doesNotMatch(request.url, /reference text|LOCAL-KEY/i);
+});
+
+test('treats missing or malformed open-access PDF fields as a normal miss', async () => {
+    const responses = [
+        jsonResponse({}, 404),
+        jsonResponse({ openAccessPdf: { url: 'javascript:alert(1)' } }),
+    ];
+    const client = new SemanticScholarClient({
+        fetch: async () => responses.shift(),
+    });
+
+    assert.equal(await client.resolveOpenAccessPDF({ doi: '10.1000/missing' }), null);
+    assert.equal(await client.resolveOpenAccessPDF({ doi: '10.1000/unsafe' }), '');
+});
+
+test('enforces response limits and request timeouts for open-access lookup', async () => {
+    const oversized = new SemanticScholarClient({
+        maxResponseBytes: 8,
+        fetch: async () => jsonResponse({ openAccessPdf: { url: 'https://example.org/paper.pdf' } }),
+    });
+    await assert.rejects(
+        () => oversized.resolveOpenAccessPDF({ doi: '10.1000/large' }),
+        error => error.code === 'S2_RESPONSE_TOO_LARGE'
+    );
+
+    const timedOut = new SemanticScholarClient({
+        maxRetryAttempts: 1,
+        setTimer(callback) {
+            callback();
+            return 1;
+        },
+        clearTimer() {},
+        fetch: async (_url, { signal }) => new Promise((_resolve, reject) => {
+            const abort = () => reject(new DOMException('Aborted', 'AbortError'));
+            if (signal.aborted) abort();
+            else signal.addEventListener('abort', abort, { once: true });
+        }),
+    });
+    await assert.rejects(
+        () => timedOut.resolveOpenAccessPDF({ doi: '10.1000/timeout' }),
+        error => error.code === 'S2_REQUEST_TIMEOUT'
+    );
+});
+
 test('resolves DOI and arXiv identifiers in batches of at most 500', async () => {
     const requests = [];
     const client = new SemanticScholarClient({

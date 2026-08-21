@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     createLocalization,
+    getLocalizationMessageKeys,
     LANGUAGE_ENGLISH,
     LANGUAGE_SIMPLIFIED_CHINESE,
     resolveLanguage,
@@ -112,4 +113,31 @@ test('localizes Markdown annotation synchronization status', () => {
         chinese.t('annotation.syncFailed.pdfIndexUnavailable'),
         '本地 PDF 索引不可用'
     );
+});
+
+test('keeps English and Simplified Chinese message keys in sync', () => {
+    assert.deepEqual(
+        [...getLocalizationMessageKeys(LANGUAGE_SIMPLIFIED_CHINESE)].sort(),
+        [...getLocalizationMessageKeys(LANGUAGE_ENGLISH)].sort()
+    );
+    const english = createLocalization({ zoteroLocale: 'en-US' });
+    const chinese = createLocalization({ zoteroLocale: 'zh-CN' });
+    for (const key of [
+        'reference.checking',
+        'reference.present',
+        'reference.presentNoPDF',
+        'reference.presentOtherLibrary',
+        'reference.absent',
+        'reference.unknown',
+        'reference.importing',
+        'reference.imported',
+        'reference.retryPDF',
+        'reference.errorTranslator',
+        'reference.errorPDF',
+        'reference.errorNetwork',
+        'reference.errorCanceled',
+    ]) {
+        assert.notEqual(english.t(key), key);
+        assert.notEqual(chinese.t(key), key);
+    }
 });

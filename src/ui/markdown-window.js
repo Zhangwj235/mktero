@@ -311,6 +311,28 @@ class MarkdownTabView {
                 this.navigationBackAvailable = Boolean(available);
                 this.syncNavigationBack();
             },
+            sourceItemID: this.model.sourceItemID,
+            onListReferenceLibraries: options => (
+                this.model.onListReferenceLibraries?.({
+                    ...options,
+                    sourceItemID: this.model.sourceItemID,
+                })
+            ),
+            onGetReferenceStatus: (target, options) => (
+                this.model.onGetReferenceStatus?.(target, options)
+            ),
+            onSearchReferenceMetadata: (target, options) => (
+                this.model.onSearchReferenceMetadata?.(target, options)
+            ),
+            onImportReference: (target, options) => (
+                this.model.onImportReference?.(target, options)
+            ),
+            onOpenReferenceMatch: match => (
+                this.model.onOpenReferenceMatch?.(match)
+            ),
+            onSubscribeReferenceUpdates: listener => (
+                this.model.onSubscribeReferenceUpdates?.(listener)
+            ),
             onCommitCorrection: correction => (
                 this.commitCorrection(correction)
             ),
