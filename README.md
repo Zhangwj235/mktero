@@ -38,8 +38,9 @@ Useful links: [Product page](https://tenglvjun.github.io/mktero/) ·
   the current reading position.
 - See whether each Markdown reference already exists in any accessible Zotero
   library. Choose a writable personal or group library, explicitly copy a
-  reference from another library, and import missing metadata from the citation
-  popup with an optional public PDF attachment.
+  reference from another library, review local/online metadata matches for
+  title-only references, and import missing metadata from the citation popup
+  with an optional public PDF attachment.
 - Display Zotero PDF highlights and underlines in Markdown, and create,
   recolor, comment on, or delete annotations.
 - Correct recognition errors in existing paragraphs, headings, and GFM table
@@ -164,7 +165,11 @@ same Markdown reading workflow as `Read as Markdown with Mktero`.
 ### Import references from Markdown
 
 Open a citation popup to see local Zotero presence before any network lookup is
-made. The popup lists accessible personal and group libraries and lets you
+made. Title-only references remain unresolved until you explicitly choose
+`Find metadata`; Mktero then searches OpenAlex and shows bounded candidates for
+your confirmation. Confirming a candidate only fills its identifiers and
+refreshes the local status; it never imports automatically. The popup lists
+accessible personal and group libraries and lets you
 choose the import target. A read-only library remains selectable for presence
 checks, while its import actions stay disabled with a permission explanation.
 If a matching item exists in another library, Mktero offers an
@@ -215,7 +220,8 @@ and raw HTML is escaped or sanitized before rendering.
 | MinerU API Token and AI/provider credentials | Active Zotero profile, unencrypted | No |
 | Cached Markdown, figures, source maps, PDF indexes, corrections, and translations | Active Zotero profile, unencrypted | No |
 | Focused DOI/arXiv identifiers and provider-specific candidate DOI identifiers | Semantic Scholar, OpenCitations, or OpenAlex | Not by Mktero |
-| A normalized DOI, arXiv ID, or PMID after the user clicks `Import reference`; optional open-access PDF request | The selected metadata/PDF provider | Not by Mktero |
+| Bounded citation text after the user clicks `Find metadata` for a title-only reference | OpenAlex | Not by Mktero |
+| A normalized DOI, arXiv ID, or PMID after the user confirms a candidate and clicks the import action; optional open-access PDF request | The selected metadata/PDF provider | Not by Mktero |
 | Protected Markdown translation batches | AI provider configured by you | Not by Mktero |
 | Zotero PDF annotations | Local Zotero library | According to Zotero settings |
 | Saved snapshot Note and attachments | Zotero items and attachments | According to Zotero settings |
@@ -223,9 +229,11 @@ and raw HTML is escaped or sanitized before rendering.
 
 Mktero does not send PDF annotations, local PDF.js indexes, Zotero notes,
 complete item records, local paths, or cached Markdown to reference/PDF
-providers. Reference import requests are local-first and happen only after an
-explicit user action; they contain normalized identifiers and configured
-provider credentials, never reference text, Zotero keys, or PDF bytes.
+providers. Reference import requests are local-first. A title-only metadata
+lookup sends only bounded citation text after the explicit `Find metadata`
+action; import requests after candidate confirmation contain normalized
+identifiers and configured provider credentials, never Zotero keys or PDF
+bytes.
 Translation requests contain protected Markdown and instructions; if
 placeholder validation repeatedly fails, the final retry contains only the
 affected block's ordinary text segments. API Tokens, presigned URLs, PDF bytes,

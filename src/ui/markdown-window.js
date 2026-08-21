@@ -321,6 +321,9 @@ class MarkdownTabView {
             onGetReferenceStatus: (target, options) => (
                 this.model.onGetReferenceStatus?.(target, options)
             ),
+            onSearchReferenceMetadata: (target, options) => (
+                this.model.onSearchReferenceMetadata?.(target, options)
+            ),
             onImportReference: (target, options) => (
                 this.model.onImportReference?.(target, options)
             ),

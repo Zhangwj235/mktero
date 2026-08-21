@@ -755,9 +755,15 @@ function titleCandidates(index, reference, targetLibraryID) {
 function uniqueMatches(matches) {
     return [...new Map((matches || []).map(match => [
         `${match.libraryID}:${match.itemID}`,
-        { ...match, identifiers: undefined, authorSearchText: undefined },
+        {
+            ...match,
+            identifiers: match.identifiers
+                ? { ...match.identifiers }
+                : undefined,
+            authorSearchText: undefined,
+        },
     ])).values()].map(match => {
-        const { identifiers, authorSearchText, ...publicMatch } = match;
+        const { authorSearchText, ...publicMatch } = match;
         return publicMatch;
     });
 }

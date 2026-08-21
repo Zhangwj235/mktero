@@ -429,6 +429,11 @@ test('returns bounded title, author, and year candidates as advisory matches', a
     }, { targetLibraryID: 1 });
     assert.equal(result.selectedMatches.length, 0);
     assert.deepEqual(result.candidates.map(match => match.itemID), [41]);
+    assert.deepEqual(result.candidates[0].identifiers, {
+        doi: '',
+        arxivID: '',
+        pmid: '',
+    });
 });
 
 test('copies metadata across libraries and preserves it when files are disabled', async () => {

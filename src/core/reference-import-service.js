@@ -27,6 +27,9 @@ export function createReferenceServiceActions(service, {
         onGetReferenceStatus: (reference, options = {}) => (
             service?.getStatus(reference, options)
         ),
+        onSearchReferenceMetadata: (reference, options = {}) => (
+            service?.searchReferenceMetadata(reference, options)
+        ),
         onImportReference: (reference, options = {}) => (
             service?.importReference(reference, options)
         ),
@@ -39,12 +42,16 @@ export class ReferenceImportService {
     constructor({
         library,
         openAccessResolver = null,
+        metadataClient = null,
+        getMetadataAPIKey = () => '',
         sourceItemID = null,
         createAbortController = () => new AbortController(),
     } = {}) {
         if (!library) throw new TypeError('A reference library is required');
         this.library = library;
         this.openAccessResolver = openAccessResolver;
+        this.metadataClient = metadataClient;
+        this.getMetadataAPIKey = getMetadataAPIKey;
         this.sourceItemID = sourceItemID;
         this.createAbortController = createAbortController;
         this.inFlight = new Map();
@@ -143,6 +150,74 @@ export class ReferenceImportService {
             targetLibraryEditable: Boolean(library?.editable),
             targetLibraryFilesEditable: Boolean(library?.filesEditable),
         };
+    }
+
+    async searchReferenceMetadata(reference, {
+        targetLibraryID,
+        signal,
+        onRetry = () => {},
+    } = {}) {
+        this.#assertActive();
+        const searchGeneration = this.generation;
+        throwIfAborted(signal);
+        const current = await this.getStatus(reference, {
+            targetLibraryID,
+            signal,
+        });
+        if (!this.#isCurrentSearchGeneration(searchGeneration)) {
+            return unresolvedMetadataResult();
+        }
+        const allLibraryMatches = typeof this.library.find === 'function'
+            ? await this.library.find(reference, { signal })
+            : current;
+        if (!this.#isCurrentSearchGeneration(searchGeneration)) {
+            return unresolvedMetadataResult();
+        }
+        const localCandidates = normalizeCandidates(
+            allLibraryMatches?.candidates,
+            'zotero'
+        );
+        let onlineCandidates = [];
+        let searchedAt = null;
+        if (!hasReliableIdentifier(current.identifiers)
+            && this.metadataClient
+            && typeof this.metadataClient.searchReferences === 'function') {
+            const result = await this.metadataClient.searchReferences({
+                text: boundedString(reference?.text, 512),
+                year: reference?.year,
+                authorSearchText: boundedString(reference?.authorSearchText, 512),
+                apiKey: boundedString(this.getMetadataAPIKey?.(), 4_096).trim(),
+                signal,
+                onRetry,
+            });
+            throwIfAborted(signal);
+            if (!this.#isCurrentSearchGeneration(searchGeneration)) {
+                return unresolvedMetadataResult();
+            }
+            searchedAt = Number.isFinite(result?.searchedAt)
+                ? result.searchedAt
+                : null;
+            onlineCandidates = normalizeCandidates(
+                result?.candidates,
+                'openalex'
+            );
+        }
+        const candidates = dedupeCandidates([
+            ...localCandidates,
+            ...onlineCandidates,
+        ]);
+        return {
+            status: candidates.length ? 'found' : 'unresolved',
+            localCandidates,
+            onlineCandidates,
+            candidates,
+            searchedAt,
+        };
+    }
+
+    #isCurrentSearchGeneration(generation) {
+        this.#assertActive();
+        return this.generation === generation;
     }
 
     async importReference(reference, {
@@ -409,6 +484,63 @@ function normalizedIdentifiers(reference) {
         pmid: normalizePMID(value.pmid),
         pdfURL: normalizePDFURL(value.pdfURL),
     };
+}
+
+function normalizeCandidates(candidates, source) {
+    return (Array.isArray(candidates) ? candidates : [])
+        .slice(0, 20)
+        .map(candidate => {
+            const identifiers = normalizedIdentifiers(candidate);
+            if (!hasReliableIdentifier(identifiers)) return null;
+            return {
+                source,
+                paperID: boundedString(candidate?.paperID, 128),
+                itemID: candidate?.itemID ?? null,
+                libraryID: candidate?.libraryID ?? null,
+                libraryName: boundedString(candidate?.libraryName, 256),
+                title: boundedString(candidate?.title, 512),
+                year: Number.isSafeInteger(Number(candidate?.year))
+                    ? Number(candidate.year)
+                    : 0,
+                authors: Array.isArray(candidate?.authors)
+                    ? candidate.authors.slice(0, 8)
+                        .map(value => boundedString(value, 256).trim())
+                        .filter(Boolean)
+                    : [],
+                identifiers,
+            };
+        })
+        .filter(Boolean);
+}
+
+function dedupeCandidates(candidates) {
+    const seen = new Set();
+    return candidates.filter(candidate => {
+        const identifiers = candidate.identifiers;
+        const identities = RELIABLE_IDENTIFIER_TYPES
+            .filter(type => identifiers[type])
+            .map(type => `${type}:${identifiers[type]}`);
+        if (!identities.length) {
+            identities.push(`${candidate.source}:${candidate.itemID || candidate.paperID}`);
+        }
+        if (identities.some(identity => seen.has(identity))) return false;
+        for (const identity of identities) seen.add(identity);
+        return true;
+    });
+}
+
+function unresolvedMetadataResult() {
+    return {
+        status: 'unresolved',
+        localCandidates: [],
+        onlineCandidates: [],
+        candidates: [],
+        searchedAt: null,
+    };
+}
+
+function boundedString(value, maximum) {
+    return typeof value === 'string' ? value.slice(0, maximum) : '';
 }
 
 function firstIdentifier(identifiers) {

@@ -87,6 +87,7 @@ export class MarkdownTabPresenter {
         onRetryMarkdownAnnotationSynchronization,
         onListReferenceLibraries,
         onGetReferenceStatus,
+        onSearchReferenceMetadata,
         onImportReference,
         onOpenReferenceMatch,
         onSubscribeReferenceUpdates,
@@ -192,6 +193,9 @@ export class MarkdownTabPresenter {
             if (onGetReferenceStatus !== undefined) {
                 existing.model.onGetReferenceStatus = onGetReferenceStatus;
             }
+            if (onSearchReferenceMetadata !== undefined) {
+                existing.model.onSearchReferenceMetadata = onSearchReferenceMetadata;
+            }
             if (onImportReference !== undefined) {
                 existing.model.onImportReference = onImportReference;
             }
@@ -234,6 +238,7 @@ export class MarkdownTabPresenter {
                 onRetryMarkdownAnnotationSynchronization,
                 onListReferenceLibraries,
                 onGetReferenceStatus,
+                onSearchReferenceMetadata,
                 onImportReference,
                 onOpenReferenceMatch,
                 onSubscribeReferenceUpdates,

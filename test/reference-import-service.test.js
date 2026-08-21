@@ -76,6 +76,10 @@ test('builds tab callbacks with the current source PDF library context', async (
             calls.push(['import', reference, options]);
             return { state: 'failed' };
         },
+        async searchReferenceMetadata(reference, options) {
+            calls.push(['search', reference, options]);
+            return { status: 'unresolved', candidates: [] };
+        },
         async openMatch(match) {
             calls.push(['open', match]);
             return match.itemID;
@@ -93,6 +97,7 @@ test('builds tab callbacks with the current source PDF library context', async (
     await actions.onListReferenceLibraries({ signal });
     await actions.onListReferenceLibraries({ sourceItemID: 77, signal });
     await actions.onGetReferenceStatus({ id: 'r' }, { signal });
+    await actions.onSearchReferenceMetadata({ id: 'r' }, { signal });
     await actions.onImportReference({ id: 'r' }, { signal });
     await actions.onOpenReferenceMatch({ itemID: 7 });
     actions.onSubscribeReferenceUpdates(() => {});
@@ -102,7 +107,9 @@ test('builds tab callbacks with the current source PDF library context', async (
     assert.equal(calls[0][1], 42);
     assert.equal(calls[0][2].signal, signal);
     assert.equal(calls[1][1], 77);
-    assert.equal(calls[6][1], 99);
+    assert.equal(calls[7][1], 99);
+    assert.equal(calls[3][0], 'search');
+    assert.equal(calls[3][2].signal, signal);
 });
 
 test('lists selectable libraries and rejects import into a read-only target', async () => {
@@ -166,6 +173,128 @@ test('reports unknown for title-only references and absent for reliable misses',
     assert.equal((await service.getStatus({
         identifiers: { pmid: 'not-a-pmid' },
     }, { targetLibraryID: 1 })).state, 'unknown');
+});
+
+test('returns local and online metadata candidates without importing', async () => {
+    const library = createLibraryHarness();
+    library.find = async reference => ({
+        identifiers: reference.identifiers || {},
+        selectedMatches: [],
+        otherMatches: [],
+        ambiguous: false,
+        candidates: [{
+            itemID: 41,
+            libraryID: 1,
+            libraryName: 'Personal',
+            title: 'Local title',
+            year: 2024,
+            hasPDF: true,
+            identifiers: { doi: '10.1000/local' },
+        }],
+    });
+    const calls = [];
+    const service = createReferenceImportService({
+        library,
+        metadataClient: {
+            now: () => 8_000,
+            async searchReferences(options) {
+                calls.push(options);
+                return {
+                    searchedAt: 8_000,
+                    candidates: [{
+                        source: 'openalex',
+                        paperID: 'W1',
+                        title: 'Online title',
+                        year: 2024,
+                        authors: ['Jane Doe'],
+                        identifiers: {
+                            doi: 'DOI:10.1000/online',
+                            pdfURL: 'https://repository.example/online.pdf',
+                        },
+                    }],
+                };
+            },
+        },
+        getMetadataAPIKey: () => ' metadata-key ',
+    });
+    const result = await service.searchReferenceMetadata({
+        text: 'Jane Doe. A title. 2024.',
+        year: 2024,
+        authorSearchText: 'jane doe',
+        identifiers: {},
+    }, { targetLibraryID: 1 });
+
+    assert.equal(result.status, 'found');
+    assert.deepEqual(result.localCandidates[0].identifiers, {
+        doi: '10.1000/local',
+        arxivID: '',
+        pmid: '',
+        pdfURL: '',
+    });
+    assert.deepEqual(result.onlineCandidates[0].identifiers, {
+        doi: '10.1000/online',
+        arxivID: '',
+        pmid: '',
+        pdfURL: 'https://repository.example/online.pdf',
+    });
+    assert.equal(result.candidates.length, 2);
+    assert.equal(result.searchedAt, 8_000);
+    assert.equal(calls[0].apiKey, 'metadata-key');
+    assert.equal(library.calls.some(call => call[0] === 'translate'), false);
+});
+
+test('does not perform online metadata lookup when a reliable identifier exists', async () => {
+    const library = createLibraryHarness();
+    let searches = 0;
+    const service = createReferenceImportService({
+        library,
+        metadataClient: {
+            async searchReferences() {
+                searches++;
+                return { candidates: [] };
+            },
+        },
+    });
+    const result = await service.searchReferenceMetadata({
+        text: 'DOI reference',
+        identifiers: { doi: '10.1000/existing' },
+    }, { targetLibraryID: 1 });
+    assert.equal(searches, 0);
+    assert.equal(result.onlineCandidates.length, 0);
+});
+
+test('does not publish metadata candidates from an invalidated search', async () => {
+    const library = createLibraryHarness();
+    let resolveSearch;
+    let markSearchStarted;
+    const searchStarted = new Promise(resolve => {
+        markSearchStarted = resolve;
+    });
+    const service = createReferenceImportService({
+        library,
+        metadataClient: {
+            async searchReferences() {
+                markSearchStarted();
+                return new Promise(resolve => { resolveSearch = resolve; });
+            },
+        },
+    });
+    const pending = service.searchReferenceMetadata({
+        text: 'stale title',
+        identifiers: {},
+    }, { targetLibraryID: 1 });
+    await searchStarted;
+    service.invalidate();
+    resolveSearch({
+        searchedAt: 9_000,
+        candidates: [{
+            title: 'Stale candidate',
+            identifiers: { doi: '10.1000/stale' },
+        }],
+    });
+    const result = await pending;
+    assert.equal(result.status, 'unresolved');
+    assert.deepEqual(result.candidates, []);
 });
 
 test('reports selected, other-library, and no-PDF states', async () => {

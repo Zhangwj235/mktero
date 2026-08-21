@@ -28,6 +28,7 @@ export function createCitationPopup(parent, {
         sourceItemID = null,
         onListReferenceLibraries,
         onGetReferenceStatus,
+        onSearchReferenceMetadata,
         onImportReference,
         onOpenReferenceMatch,
         onSubscribeReferenceUpdates,
@@ -77,6 +78,7 @@ export function createCitationPopup(parent, {
                     isCurrent,
                     controller,
                     onGetReferenceStatus,
+                    onSearchReferenceMetadata,
                     onImportReference,
                     onOpenReferenceMatch,
                     close,
@@ -118,6 +120,7 @@ export function createCitationPopup(parent, {
             for (const row of selectedRows) row.checkbox.disabled = true;
             await runBatchReferenceImports(selectedRows, {
                 selectedLibraryID: () => batchLibraryID,
+                onSearchReferenceMetadata,
                 onImportReference,
                 onOpenReferenceMatch,
                 controller,
@@ -217,6 +220,7 @@ export function createCitationPopup(parent, {
                         isCurrent,
                         controller,
                         onGetReferenceStatus,
+                        onSearchReferenceMetadata,
                         onImportReference,
                         onOpenReferenceMatch,
                         close,
@@ -316,12 +320,21 @@ function createCitationItem({
             options: rowOptions,
         });
     });
+    const candidatePanel = createElement(document, 'div');
+    candidatePanel.className = 'mktero-citation-popup-candidates';
+    candidatePanel.hidden = true;
+    candidatePanel.setAttribute('role', 'listbox');
+    candidatePanel.setAttribute(
+        'aria-label',
+        t('reference.metadataCandidates')
+    );
     controls.append(status, action);
     row = {
         element,
         target,
         status,
         action,
+        candidatePanel,
         checkbox,
         selectable: false,
         selected: false,
@@ -339,7 +352,7 @@ function createCitationItem({
             onSelectionStateChange?.();
         },
     };
-    element.append(checkbox, primary, controls);
+    element.append(checkbox, primary, controls, candidatePanel);
     return row;
 }
 
@@ -351,6 +364,7 @@ async function updateReferenceRow({
     isCurrent,
     controller,
     onGetReferenceStatus,
+    onSearchReferenceMetadata,
     onImportReference,
     onOpenReferenceMatch,
     close,
@@ -373,6 +387,7 @@ async function updateReferenceRow({
         applyStatus(row, result, {
             target,
             selectedLibraryID,
+            onSearchReferenceMetadata,
             onImportReference,
             onOpenReferenceMatch,
             close,
@@ -393,6 +408,7 @@ async function updateReferenceRow({
 function applyStatus(row, result, {
     target,
     selectedLibraryID,
+    onSearchReferenceMetadata,
     onImportReference,
     onOpenReferenceMatch,
     close,
@@ -431,6 +447,8 @@ function applyStatus(row, result, {
     row.action._mkteroActionKind = null;
     row.action._mkteroActionGeneration = null;
     row.action._mkteroActionIsCurrent = null;
+    row.action._mkteroActionLabel = null;
+    clearMetadataCandidates(row);
     if ((state === 'present' || state === 'imported')
         && selectedMatch
         && typeof onOpenReferenceMatch === 'function') {
@@ -490,6 +508,22 @@ function applyStatus(row, result, {
             isCurrent
         );
     }
+    else if (state === 'unknown'
+        && typeof onSearchReferenceMetadata === 'function') {
+        configureAction(
+            row.action,
+            Array.isArray(result?.candidates) && result.candidates.length
+                ? t('reference.reviewMatches')
+                : t('reference.searchMetadata'),
+            () => onSearchReferenceMetadata(target, {
+                targetLibraryID: selectedLibraryID,
+                signal: controller.signal,
+            }),
+            'resolve',
+            generation,
+            isCurrent
+        );
+    }
     row.selectable = (
         state === 'absent'
         && result?.canImport !== false
@@ -498,9 +532,113 @@ function applyStatus(row, result, {
     row.syncSelectionAvailability?.();
 }
 
+function clearMetadataCandidates(row) {
+    if (!row?.candidatePanel) return;
+    row.candidatePanel.replaceChildren();
+    row.candidatePanel.hidden = true;
+}
+
+function renderMetadataCandidates(row, candidates, options) {
+    clearMetadataCandidates(row);
+    const values = Array.isArray(candidates) ? candidates.slice(0, 20) : [];
+    if (!values.length || !row?.candidatePanel) return;
+    for (const candidate of values) {
+        const button = row.candidatePanel.ownerDocument.createElementNS(
+            XHTML_NAMESPACE,
+            'button'
+        );
+        button.type = 'button';
+        button.className = 'mktero-citation-popup-candidate';
+        button.setAttribute('role', 'option');
+        const title = row.candidatePanel.ownerDocument.createElementNS(
+            XHTML_NAMESPACE,
+            'span'
+        );
+        title.className = 'mktero-citation-popup-candidate-title';
+        title.textContent = candidate.title || tFallback(options.t);
+        const details = row.candidatePanel.ownerDocument.createElementNS(
+            XHTML_NAMESPACE,
+            'span'
+        );
+        details.className = 'mktero-citation-popup-candidate-details';
+        const source = candidate.source === 'zotero'
+            ? options.t('reference.localCandidate')
+            : options.t('reference.onlineCandidate');
+        const year = candidate.year ? String(candidate.year) : '';
+        const identifier = firstCandidateIdentifier(candidate.identifiers);
+        details.textContent = [source, year, identifier]
+            .filter(Boolean)
+            .join(' · ');
+        button.append(title, details);
+        button.addEventListener('click', event => {
+            event.stopPropagation();
+            void confirmMetadataCandidate(candidate, options);
+        });
+        row.candidatePanel.appendChild(button);
+    }
+    row.candidatePanel.hidden = false;
+}
+
+async function confirmMetadataCandidate(candidate, {
+    row,
+    target,
+    selectedLibraryID,
+    controller,
+    generation,
+    isCurrent,
+    onGetReferenceStatus,
+    onSearchReferenceMetadata,
+    onImportReference,
+    onOpenReferenceMatch,
+    t,
+}) {
+    if (!isCurrent?.(generation) || controller.signal?.aborted) return;
+    const identifiers = candidate?.identifiers || {};
+    target.identifiers = {
+        ...(target.identifiers || {}),
+        ...Object.fromEntries([
+            'doi',
+            'arxivID',
+            'pmid',
+            'pdfURL',
+        ].map(type => [type, identifiers[type] || target.identifiers?.[type] || ''])),
+    };
+    clearMetadataCandidates(row);
+    row.action.disabled = true;
+    row.status.textContent = t('reference.checking');
+    row.status.dataset.state = 'checking';
+    await updateReferenceRow({
+        row,
+        target,
+        selectedLibraryID: selectedLibraryID(),
+        generation,
+        isCurrent,
+        controller,
+        onGetReferenceStatus,
+        onSearchReferenceMetadata,
+        onImportReference,
+        onOpenReferenceMatch,
+        close: () => {},
+        t,
+    });
+}
+
+function firstCandidateIdentifier(identifiers) {
+    return identifiers?.doi
+        || identifiers?.arxivID
+        || identifiers?.pmid
+        || '';
+}
+
+function tFallback(t) {
+    return typeof t === 'function' ? t('document.untitled') : '';
+}
+
 async function runReferenceAction({ target, row, options }) {
     const {
         selectedLibraryID,
+        onGetReferenceStatus,
+        onSearchReferenceMetadata,
         onImportReference,
         onOpenReferenceMatch,
         close,
@@ -516,6 +654,46 @@ async function runReferenceAction({ target, row, options }) {
         if (row.action._mkteroActionKind === 'open') {
             await row.action._mkteroAction();
             options.close?.();
+            return;
+        }
+        if (row.action._mkteroActionKind === 'resolve') {
+            row.action.disabled = true;
+            row.action.textContent = t('reference.searchingMetadata');
+            row.status.textContent = t('reference.searchingMetadata');
+            row.status.dataset.state = 'checking';
+            const result = await row.action._mkteroAction({
+                target,
+                targetLibraryID: selectedLibraryID(),
+                signal: controller.signal,
+            });
+            if (actionGeneration !== null
+                && actionGeneration !== undefined
+                && !options.isCurrent?.(actionGeneration)) return;
+            row.action.disabled = false;
+            renderMetadataCandidates(row, result?.candidates, {
+                row,
+                target,
+                selectedLibraryID,
+                controller,
+                generation: actionGeneration,
+                isCurrent: options.isCurrent,
+                onGetReferenceStatus,
+                onSearchReferenceMetadata,
+                onImportReference,
+                onOpenReferenceMatch,
+                t,
+            });
+            if (result?.candidates?.length) {
+                row.status.textContent = t('reference.chooseMetadata');
+                row.status.dataset.state = 'unknown';
+                row.action.textContent = t('reference.reviewMatches');
+                row.action._mkteroActionLabel = row.action.textContent;
+            }
+            else {
+                row.status.textContent = t('reference.noMetadataMatches');
+                row.status.dataset.state = 'unknown';
+                row.action.textContent = t('reference.searchMetadata');
+            }
             return;
         }
         row.action.disabled = true;
@@ -534,6 +712,7 @@ async function runReferenceAction({ target, row, options }) {
             applyStatus(row, result, {
                 target,
                 selectedLibraryID: selectedLibraryID(),
+                onSearchReferenceMetadata,
                 onImportReference,
                 onOpenReferenceMatch,
                 close: () => {},
@@ -546,7 +725,13 @@ async function runReferenceAction({ target, row, options }) {
     }
     catch (error) {
         if (error?.name === 'AbortError') return;
+        if (actionGeneration !== null
+            && actionGeneration !== undefined
+            && !options.isCurrent?.(actionGeneration)) return;
         row.action.disabled = false;
+        row.action.hidden = false;
+        row.action.textContent = row.action._mkteroActionLabel
+            || t('reference.retry');
         row.status.textContent = errorLabel(error?.code, t);
         row.status.dataset.state = 'failed';
     }
@@ -554,6 +739,7 @@ async function runReferenceAction({ target, row, options }) {
 
 async function runBatchReferenceImports(rows, {
     selectedLibraryID,
+    onSearchReferenceMetadata,
     onImportReference,
     onOpenReferenceMatch,
     controller,
@@ -577,6 +763,7 @@ async function runBatchReferenceImports(rows, {
                 applyStatus(row, result || { state: 'imported' }, {
                     target: row.target,
                     selectedLibraryID: selectedLibraryID(),
+                    onSearchReferenceMetadata,
                     onImportReference,
                     onOpenReferenceMatch,
                     close: () => {},
@@ -596,6 +783,7 @@ async function runBatchReferenceImports(rows, {
                 }, {
                     target: row.target,
                     selectedLibraryID: selectedLibraryID(),
+                    onSearchReferenceMetadata,
                     onImportReference,
                     onOpenReferenceMatch,
                     close: () => {},
@@ -674,6 +862,7 @@ function configureAction(
     button._mkteroActionKind = kind;
     button._mkteroActionGeneration = generation;
     button._mkteroActionIsCurrent = isCurrent;
+    button._mkteroActionLabel = label;
 }
 
 function setStatus(row, state, t) {
@@ -684,6 +873,7 @@ function setStatus(row, state, t) {
     row.action._mkteroActionKind = null;
     row.action._mkteroActionGeneration = null;
     row.action._mkteroActionIsCurrent = null;
+    row.action._mkteroActionLabel = null;
 }
 
 function statusLabel(state, t) {
@@ -713,6 +903,11 @@ function errorLabel(errorCode, t) {
         REFERENCE_DUPLICATE_RACE: 'reference.errorDuplicate',
         REFERENCE_NETWORK_FAILED: 'reference.errorNetwork',
         REFERENCE_PDF_FAILED: 'reference.errorPDF',
+        OPENALEX_NETWORK_ERROR: 'reference.errorNetwork',
+        OPENALEX_REQUEST_TIMEOUT: 'reference.errorNetwork',
+        OPENALEX_HTTP_ERROR: 'reference.errorNetwork',
+        OPENALEX_RESPONSE_TOO_LARGE: 'reference.errorNetwork',
+        OPENALEX_INVALID_RESPONSE: 'reference.errorNetwork',
     };
     return t(keys[errorCode] || 'reference.errorImport');
 }

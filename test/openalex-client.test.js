@@ -298,6 +298,122 @@ test('honors caller cancellation while OpenAlex batches are active', async () =>
     await assert.rejects(pending, error => error.name === 'AbortError');
 });
 
+test('searches bounded OpenAlex metadata and normalizes candidate identifiers', async () => {
+    let request;
+    const client = new OpenAlexClient({
+        now: () => 7_000,
+        fetch: async (url, options) => {
+            request = { url: String(url), options };
+            return jsonResponse({
+                results: [{
+                    id: 'https://openalex.org/W123',
+                    title: '  A  searchable title  ',
+                    publication_year: 2024,
+                    doi: 'https://doi.org/10.1000/SEARCH',
+                    ids: {
+                        arxiv: 'https://arxiv.org/abs/2401.12345',
+                        pmid: 'https://pubmed.ncbi.nlm.nih.gov/123456/',
+                    },
+                    authorships: [{ author: { display_name: 'Jane Doe' } }],
+                    best_oa_location: {
+                        pdf_url: 'https://repository.example/paper.pdf#page=1',
+                    },
+                }],
+            });
+        },
+    });
+
+    const result = await client.searchReferences({
+        text: 'Jane Doe. A searchable title. Journal. 2024.',
+        year: 2024,
+        authorSearchText: 'jane doe',
+        apiKey: ' openalex-key ',
+    });
+
+    const parsed = new URL(request.url);
+    assert.equal(parsed.searchParams.get('search'),
+        'Jane Doe. A searchable title. Journal. 2024.');
+    assert.equal(parsed.searchParams.get('filter'), 'publication_year:2024');
+    assert.equal(parsed.searchParams.get('per-page'), null);
+    assert.equal(parsed.searchParams.get('per_page'), '10');
+    assert.equal(parsed.searchParams.get('api_key'), 'openalex-key');
+    assert.deepEqual(result, {
+        status: 'found',
+        candidates: [{
+            source: 'openalex',
+            paperID: 'W123',
+            title: 'A searchable title',
+            year: 2024,
+            authors: ['Jane Doe'],
+            identifiers: {
+                doi: '10.1000/search',
+                arxivID: '2401.12345',
+                pmid: '123456',
+                pdfURL: 'https://repository.example/paper.pdf',
+            },
+        }],
+        searchedAt: 7_000,
+    });
+    assert.deepEqual(request.options.headers, {});
+});
+
+test('caps metadata candidates and skips malformed or identifier-less works', async () => {
+    const client = new OpenAlexClient({
+        fetch: async () => jsonResponse({
+            results: [
+                { id: 'W1', title: 'No identifier' },
+                ...Array.from({ length: 12 }, (_, index) => ({
+                    id: `W${index + 2}`,
+                    title: index === 0
+                        ? '<script>alert(1)</script>'
+                        : `Candidate ${index}`,
+                    publication_year: 2023,
+                    doi: `https://doi.org/10.1000/${index}`,
+                })),
+                { id: 'bad', title: 'Missing DOI', doi: 'not-a-doi' },
+            ],
+        }),
+    });
+
+    const result = await client.searchReferences({ text: 'candidate' });
+    assert.equal(result.status, 'found');
+    assert.equal(result.candidates.length, 10);
+    assert.deepEqual(result.candidates.map(candidate => candidate.paperID),
+        Array.from({ length: 10 }, (_, index) => `W${index + 2}`));
+    assert.equal(result.candidates[0].title, '<script>alert(1)</script>');
+});
+
+test('honors cancellation during an explicit OpenAlex metadata search', async () => {
+    const controller = new AbortController();
+    const client = new OpenAlexClient({
+        fetch: async (_url, { signal }) => new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(
+                new DOMException('Aborted', 'AbortError')
+            ), { once: true });
+        }),
+    });
+    const pending = client.searchReferences({
+        text: 'cancel me',
+        signal: controller.signal,
+    });
+    controller.abort();
+    await assert.rejects(pending, error => error.name === 'AbortError');
+});
+
+test('does not accept arbitrary URL suffixes as PMID identifiers', async () => {
+    const client = new OpenAlexClient({
+        fetch: async () => jsonResponse({
+            results: [{
+                id: 'W700',
+                title: 'Untrusted PMID',
+                ids: { pmid: 'https://evil.example/700' },
+            }],
+        }),
+    });
+    const result = await client.searchReferences({ text: 'untrusted PMID' });
+    assert.deepEqual(result.candidates, []);
+});
+
 function paper(itemID, key, values = {}) {
     return {
         id: `1:${key}`,

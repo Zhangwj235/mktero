@@ -143,6 +143,141 @@ test('keeps row navigation separate from the batch import action', async () => {
     dom.window.close();
 });
 
+test('lets the user review and confirm metadata before enabling import', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const target = {
+        id: 'number:title-only',
+        number: 1,
+        text: 'Doe. A title-only paper. 2024.',
+        year: 2024,
+        authorSearchText: 'doe',
+        identifiers: {},
+    };
+    let imported = 0;
+    const searched = [];
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [target],
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async reference => reference.identifiers?.doi
+            ? { state: 'absent', canImport: true }
+            : { state: 'unknown', canImport: false },
+        onSearchReferenceMetadata: async reference => {
+            searched.push(reference);
+            return {
+                candidates: [{
+                    source: 'openalex',
+                    paperID: 'W42',
+                    title: 'A title-only paper',
+                    year: 2024,
+                    identifiers: {
+                        doi: '10.1000/confirmed',
+                        pdfURL: 'https://repository.example/paper.pdf',
+                    },
+                }],
+            };
+        },
+        onImportReference: async () => {
+            imported++;
+            return { state: 'imported' };
+        },
+    });
+    await nextTask();
+    await nextTask();
+
+    const action = document.querySelector('.mktero-citation-popup-action');
+    assert.equal(action.hidden, false);
+    assert.equal(action.textContent, 'Find metadata');
+    action.click();
+    await nextTask();
+    assert.equal(searched.length, 1);
+    assert.equal(imported, 0);
+    assert.equal(action.textContent, 'Review matches');
+    const candidate = document.querySelector(
+        '.mktero-citation-popup-candidate'
+    );
+    assert.equal(candidate.hidden, false);
+    assert.match(candidate.textContent, /A title-only paper/);
+
+    candidate.click();
+    await nextTask();
+    await nextTask();
+    assert.equal(target.identifiers.doi, '10.1000/confirmed');
+    assert.equal(imported, 0);
+    assert.equal(
+        document.querySelector('.mktero-citation-popup-status').dataset.state,
+        'absent'
+    );
+    const checkbox = document.querySelector(
+        '.mktero-citation-popup-reference-checkbox'
+    );
+    assert.equal(checkbox.disabled, false);
+    assert.equal(document.querySelector('.mktero-citation-popup-candidates').hidden,
+        true);
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('renders metadata candidates as bounded inert text', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [{
+            id: 'title-only',
+            text: 'A title-only reference',
+            identifiers: {},
+        }],
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async () => ({
+            state: 'unknown',
+            canImport: false,
+        }),
+        onSearchReferenceMetadata: async () => ({
+            candidates: Array.from({ length: 25 }, (_, index) => ({
+                source: 'openalex',
+                paperID: `W${index + 1}`,
+                title: index === 0
+                    ? '<img src=x onerror=alert(1)>'
+                    : `Candidate ${index}`,
+                year: 2024,
+                identifiers: { doi: `10.1000/candidate-${index}` },
+            })),
+        }),
+    });
+    await nextTask();
+    await nextTask();
+    document.querySelector('.mktero-citation-popup-action').click();
+    await nextTask();
+    const panel = document.querySelector('.mktero-citation-popup-candidates');
+    assert.equal(panel.querySelectorAll('button').length, 20);
+    assert.equal(panel.querySelector('img'), null);
+    assert.match(panel.textContent, /<img src=x onerror=alert\(1\)>/);
+
+    popup.destroy();
+    dom.window.close();
+});
+
 test('imports all selected references from the batch toolbar', async () => {
     const { dom, document, parent, anchor } = createHarness();
     const imported = [];
@@ -315,6 +450,45 @@ test('reports the matching group-library name and offers explicit copy', async (
     document.querySelector('.mktero-citation-popup-action').click();
     await nextTask();
     assert.equal(copied, 1);
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('keeps the row action label after a copy failure', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async () => ({
+            state: 'present-other-library',
+            canImport: true,
+            otherMatches: [{ libraryName: 'Research Group' }],
+        }),
+        onImportReference: async () => {
+            throw Object.assign(new Error('network down'), {
+                code: 'REFERENCE_NETWORK_FAILED',
+            });
+        },
+    });
+    await nextTask();
+    const action = document.querySelector('.mktero-citation-popup-action');
+    assert.equal(action.textContent, 'Copy to selected library');
+    action.click();
+    await nextTask();
+    assert.equal(action.textContent, 'Copy to selected library');
+    assert.equal(action.disabled, false);
 
     popup.destroy();
     dom.window.close();

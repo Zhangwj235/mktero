@@ -1864,6 +1864,8 @@ function initializeReferenceImport() {
         const referenceImportService = createReferenceImportService({
             library: referenceLibrary,
             openAccessResolver,
+            metadataClient: openAlexClient,
+            getMetadataAPIKey: () => getOpenAlexAPIKey(Zotero),
             createAbortController: createZoteroAbortController,
         });
         runtime.referenceLibrary = referenceLibrary;

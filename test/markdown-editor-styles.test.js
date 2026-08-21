@@ -696,6 +696,13 @@ test('styles citation popups and temporary reference highlights', () => {
     assert.match(popupItem, /padding:\s*10px 12px/);
     assert.match(popupItem, /border-radius:\s*7px/);
 
+    const candidate = ruleBody('.mktero-citation-popup-candidate');
+    assert.match(candidate, /display:\s*grid/);
+    const candidateTitle = ruleBody(
+        '.mktero-citation-popup-candidate-title'
+    );
+    assert.match(candidateTitle, /overflow-wrap:\s*anywhere/);
+
     const popupItemHover = ruleBody([
         '.mktero-citation-popup-item:hover,',
         '.mktero-citation-popup-item:focus-visible',

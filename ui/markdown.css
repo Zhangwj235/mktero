@@ -2825,7 +2825,8 @@ main {
 }
 
 .mktero-citation-popup-primary,
-.mktero-citation-popup-actions {
+.mktero-citation-popup-actions,
+.mktero-citation-popup-candidates {
     grid-column: 2;
 }
 
@@ -2845,6 +2846,7 @@ main {
 .mktero-citation-popup-action:focus-visible,
 .mktero-citation-popup-library-select:focus-visible,
 .mktero-citation-popup-library-option:focus-visible,
+.mktero-citation-popup-candidate:focus-visible,
 .mktero-citation-popup-batch-import:focus-visible,
 .mktero-citation-popup-select-all:focus-visible,
 .mktero-citation-popup-reference-checkbox:focus-visible {
@@ -2925,6 +2927,61 @@ main {
 .mktero-citation-popup-action:disabled {
     opacity: 0.6;
     cursor: wait;
+}
+
+.mktero-citation-popup-candidates {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    margin-top: 5px;
+    padding-left: 3.4ch;
+}
+
+.mktero-citation-popup-candidate {
+    display: grid;
+    min-width: 0;
+    padding: 5px 7px;
+    gap: 2px;
+    border: 1px solid var(--citation-popup-border);
+    border-radius: 5px;
+    color: inherit;
+    background: color-mix(
+        in srgb,
+        var(--citation-popup-surface) 84%,
+        var(--surface)
+    );
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+
+.mktero-citation-popup-candidate:hover,
+.mktero-citation-popup-candidate:focus-visible {
+    border-color: color-mix(
+        in srgb,
+        var(--citation-popup-accent) 42%,
+        var(--citation-popup-border)
+    );
+    background: var(--citation-popup-hover);
+    outline: 2px solid color-mix(
+        in srgb,
+        var(--citation-popup-accent) 30%,
+        transparent
+    );
+    outline-offset: 1px;
+}
+
+.mktero-citation-popup-candidate-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+}
+
+.mktero-citation-popup-candidate-details {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: color-mix(in srgb, var(--citation-popup-text) 62%, transparent);
+    font-size: 11px;
 }
 
 .mktero-citation-popup-number {

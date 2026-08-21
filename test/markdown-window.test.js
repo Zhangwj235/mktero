@@ -188,6 +188,10 @@ test('passes reference library callbacks and the current source item to the edit
             calls.push(['status', reference, options]);
             return { state: 'unknown' };
         },
+        onSearchReferenceMetadata(reference, options) {
+            calls.push(['search', reference, options]);
+            return { status: 'unresolved', candidates: [] };
+        },
         onImportReference(reference, options) {
             calls.push(['import', reference, options]);
             return { state: 'failed' };
@@ -220,15 +224,17 @@ test('passes reference library callbacks and the current source item to the edit
         const signal = new AbortController().signal;
         await editorOptions.onListReferenceLibraries({ signal });
         await editorOptions.onGetReferenceStatus({ id: 'r' }, { signal });
+        await editorOptions.onSearchReferenceMetadata({ id: 'r' }, { signal });
         await editorOptions.onImportReference({ id: 'r' }, { signal });
         await editorOptions.onOpenReferenceMatch({ itemID: 7 });
         editorOptions.onSubscribeReferenceUpdates(() => {});
         assert.equal(calls[0][0], 'libraries');
         assert.equal(calls[0][1].sourceItemID, 42);
         assert.equal(calls[1][0], 'status');
-        assert.equal(calls[2][0], 'import');
-        assert.equal(calls[3][0], 'open');
-        assert.equal(calls[4][0], 'subscribe');
+        assert.equal(calls[2][0], 'search');
+        assert.equal(calls[3][0], 'import');
+        assert.equal(calls[4][0], 'open');
+        assert.equal(calls[5][0], 'subscribe');
     }
     finally {
         view.destroy();
