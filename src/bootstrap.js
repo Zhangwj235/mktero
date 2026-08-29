@@ -26,11 +26,6 @@ import {
     isSupportedAITargetLanguage,
     observeAITargetLanguage,
 } from './config/ai-preferences.js';
-import {
-    getOpenAlexAPIKey,
-    getOpenCitationsAccessToken,
-    getSemanticScholarAPIKey,
-} from './config/citation-preferences.js';
 import { CitationGraph } from './citations/citation-graph.js';
 import { OpenAlexClient } from './citations/openalex-client.js';
 import { OpenCitationsClient } from './citations/open-citations-client.js';
@@ -1797,21 +1792,21 @@ function initializeCitationGraph(localization) {
                     requestTimeoutMs: 6_000,
                     maxRetryAttempts: 2,
                 }),
-                getAPIKey: () => getSemanticScholarAPIKey(Zotero),
+                getAPIKey: () => '',
             }, {
                 id: 'open-citations',
                 client: new OpenCitationsClient({
                     createAbortController: createZoteroAbortController,
                     maxRetryAttempts: 2,
                 }),
-                getAPIKey: () => getOpenCitationsAccessToken(Zotero),
+                getAPIKey: () => '',
             }, {
                 id: 'openalex',
                 client: new OpenAlexClient({
                     createAbortController: createZoteroAbortController,
                     maxRetryAttempts: 2,
                 }),
-                getAPIKey: () => getOpenAlexAPIKey(Zotero),
+                getAPIKey: () => '',
             }],
             cache: citationCache,
             createCacheKey: createCitationCacheKey,
@@ -1858,14 +1853,11 @@ function initializeReferenceImport() {
         const openAccessResolver = createOpenAccessResolver({
             semanticScholarClient,
             openAlexClient,
-            getSemanticScholarAPIKey: () => getSemanticScholarAPIKey(Zotero),
-            getOpenAlexAPIKey: () => getOpenAlexAPIKey(Zotero),
         });
         const referenceImportService = createReferenceImportService({
             library: referenceLibrary,
             openAccessResolver,
             metadataClient: openAlexClient,
-            getMetadataAPIKey: () => getOpenAlexAPIKey(Zotero),
             createAbortController: createZoteroAbortController,
         });
         runtime.referenceLibrary = referenceLibrary;

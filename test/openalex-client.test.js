@@ -345,6 +345,7 @@ test('searches bounded OpenAlex metadata and normalizes candidate identifiers', 
             title: 'A searchable title',
             year: 2024,
             authors: ['Jane Doe'],
+            matchConfidence: 'exact',
             identifiers: {
                 doi: '10.1000/search',
                 arxivID: '2401.12345',
@@ -355,6 +356,161 @@ test('searches bounded OpenAlex metadata and normalizes candidate identifiers', 
         searchedAt: 7_000,
     });
     assert.deepEqual(request.options.headers, {});
+});
+
+test('retries a full citation without the year filter for an adjacent-year match', async () => {
+    const requests = [];
+    const citation = 'Shilaih, M.; Goodale, B.M.; Falco, L.; Kübler, F.; '
+        + 'De Clerck, V.; Leeners, B. Modern fertility awareness methods: '
+        + 'Wrist wearables capture the changes of temperature associated with '
+        + 'the menstrual cycle. Biosci. Rep. 2018, 38, BSR20171279. [CrossRef]';
+    const title = 'Modern fertility awareness methods: Wrist wearables capture '
+        + 'the changes of temperature associated with the menstrual cycle';
+    const client = new OpenAlexClient({
+        fetch: async url => {
+            const parsed = new URL(url);
+            requests.push({
+                search: parsed.searchParams.get('search'),
+                filter: parsed.searchParams.get('filter'),
+            });
+            if (parsed.searchParams.has('filter')) {
+                return jsonResponse({ results: [] });
+            }
+            return jsonResponse({
+                results: [{
+                    id: 'https://openalex.org/W2768584306',
+                    title: 'Modern fertility awareness methods: wrist wearables '
+                        + 'capture the changes in temperature associated with '
+                        + 'the menstrual cycle',
+                    publication_year: 2017,
+                    doi: 'https://doi.org/10.1042/BSR20171279',
+                    ids: {
+                        openalex: 'https://openalex.org/W2768584306',
+                        pmid: 'https://pubmed.ncbi.nlm.nih.gov/29175999/',
+                    },
+                    authorships: [{
+                        author: { display_name: 'Mohaned Shilaih' },
+                    }],
+                    best_oa_location: {
+                        pdf_url: 'https://portlandpress.com/bsr-2017-1279-t.pdf',
+                    },
+                }],
+            });
+        },
+    });
+
+    const result = await client.searchReferences({
+        text: citation,
+        year: 2018,
+        authorSearchText: 'shilaih m goodale b m falco l',
+    });
+
+    assert.equal(requests.length, 3);
+    assert.deepEqual(requests[2], { search: title, filter: null });
+    assert.equal(result.status, 'found');
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].matchConfidence, 'exact');
+    assert.equal(result.candidates[0].identifiers.doi, '10.1042/bsr20171279');
+});
+
+test('rejects adjacent-year fallback results without strong author and year evidence', async () => {
+    const cases = [{
+        publicationYear: 2023,
+        author: 'Jane Roe',
+    }, {
+        publicationYear: 2022,
+        author: 'Jane Doe',
+    }];
+    for (const candidate of cases) {
+        const client = new OpenAlexClient({
+            fetch: async () => jsonResponse({ results: [{
+                id: 'https://openalex.org/W101',
+                title: 'A shared paper title',
+                publication_year: candidate.publicationYear,
+                doi: 'https://doi.org/10.1000/shared',
+                authorships: [{
+                    author: { display_name: candidate.author },
+                }],
+            }] }),
+        });
+
+        const result = await client.searchReferences({
+            text: 'Jane Doe. A shared paper title. Journal. 2024.',
+            year: 2024,
+            authorSearchText: 'jane doe',
+        });
+
+        assert.deepEqual(result.candidates, []);
+    }
+});
+
+test('keeps only the unique exact match from broad metadata results', async () => {
+    const client = new OpenAlexClient({
+        fetch: async () => jsonResponse({
+            results: [{
+                id: 'https://openalex.org/W3954913288',
+                title: 'An update on pain management for elderly patients undergoing ambulatory surgery',
+                publication_year: 2016,
+                doi: 'https://doi.org/10.1097/ACO.0000000000000396',
+                authorships: [{ author: { display_name: 'X Cao' } }],
+            }, {
+                id: 'https://openalex.org/W2558756074',
+                title: 'Update on Prevalence of Pain in Patients With Cancer: Systematic Review and Meta-Analysis',
+                publication_year: 2016,
+                doi: 'https://doi.org/10.1016/j.jpainsymman.2015.12.340',
+                authorships: [{ author: { display_name: 'M H van den Beuken-van Everdingen' } }],
+            }, {
+                id: 'https://openalex.org/W2523640398',
+                title: '2016 ESC Guidelines for the management of atrial fibrillation developed in collaboration with EACTS',
+                publication_year: 2016,
+                doi: 'https://doi.org/10.1093/eurheartj/ehw210',
+                authorships: [{ author: { display_name: 'P Kirchhof' } }],
+            }],
+        }),
+    });
+
+    const result = await client.searchReferences({
+        text: 'Cao, X.; Elvir-Lazo, O.L.; White, P.F.; Yumul, R.; Tang, J. '
+            + 'An update on pain management for elderly patients undergoing '
+            + 'ambulatory surgery. Curr. Opin. Anaesthesiol. 2016, 29, '
+            + '674-682. [CrossRef] [PubMed]',
+        year: 2016,
+        authorSearchText: 'cao x elvir lazo o l white p f yumul r tang j',
+    });
+
+    assert.equal(result.candidates.length, 1);
+    assert.equal(
+        result.candidates[0].identifiers.doi,
+        '10.1097/aco.0000000000000396'
+    );
+    assert.equal(result.candidates[0].matchConfidence, 'exact');
+});
+
+test('does not mark title matches exact without the same first author and year', async () => {
+    const client = new OpenAlexClient({
+        fetch: async () => jsonResponse({
+            results: [{
+                id: 'https://openalex.org/W101',
+                title: 'A shared paper title',
+                publication_year: 2024,
+                doi: 'https://doi.org/10.1000/shared',
+                authorships: [{ author: { display_name: 'Jane Roe' } }],
+            }],
+        }),
+    });
+
+    const wrongAuthor = await client.searchReferences({
+        text: 'Jane Doe; Jane Roe. A shared paper title. 2024.',
+        year: 2024,
+        authorSearchText: 'jane doe jane roe',
+    });
+    const missingYear = await client.searchReferences({
+        text: 'Jane Roe. A shared paper title.',
+        authorSearchText: 'jane roe',
+    });
+
+    assert.equal(wrongAuthor.candidates[0].matchConfidence, 'probable');
+    assert.equal(missingYear.candidates[0].matchConfidence, 'probable');
 });
 
 test('retries noisy book citations with the title and keeps OpenAlex-only matches', async () => {
@@ -411,6 +567,7 @@ test('retries noisy book citations with the title and keeps OpenAlex-only matche
             'Ravi Sethi',
             'Jeffrey D. Ullman',
         ],
+        matchConfidence: 'probable',
         identifiers: {
             doi: '',
             arxivID: '',
@@ -465,7 +622,107 @@ test('uses the longest citation segment for title-only fallback queries', async 
     assert.equal(result.candidates[0].identifiers.doi, '10.1000/title');
 });
 
-test('caps metadata candidates and skips malformed or identifier-less works', async () => {
+test('finds the STRAViT IEEE reference from its quoted article title', async () => {
+    const searches = [];
+    const citation = 'Y. Li, L. Wang, W. Zheng, Y. Zong, L. Qi, Z. Cui, '
+        + 'T. Zhang, and T. Song, “A novel bi-hemispheric discrepancy model '
+        + 'for eeg emotion recognition,” IEEE Transactions on Cognitive and '
+        + 'Developmental Systems, vol. 13, no. 2, pp. 354–367, 2020.';
+    const title = 'A novel bi-hemispheric discrepancy model for eeg emotion '
+        + 'recognition';
+    const client = new OpenAlexClient({
+        fetch: async url => {
+            const parsed = new URL(url);
+            searches.push({
+                query: parsed.searchParams.get('search'),
+                filter: parsed.searchParams.get('filter'),
+            });
+            return jsonResponse({
+                results: searches.length === 1
+                    ? []
+                    : [{
+                        id: 'https://openalex.org/W3033046106',
+                        title: 'A Novel Bi-Hemispheric Discrepancy Model for '
+                            + 'EEG Emotion Recognition',
+                        publication_year: 2020,
+                        doi: 'https://doi.org/10.1109/TCDS.2020.2999337',
+                        authorships: [{
+                            author: { display_name: 'Yang Li' },
+                        }],
+                    }],
+            });
+        },
+    });
+
+    const result = await client.searchReferences({
+        text: citation,
+        year: 2020,
+        authorSearchText: 'y li l wang w zheng y zong l qi z cui t zhang '
+            + 'and t song',
+    });
+
+    assert.deepEqual(searches, [{
+        query: citation,
+        filter: 'publication_year:2020',
+    }, {
+        query: title,
+        filter: 'publication_year:2020',
+    }]);
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].matchConfidence, 'exact');
+    assert.equal(
+        result.candidates[0].identifiers.doi,
+        '10.1109/tcds.2020.2999337'
+    );
+});
+
+test('finds metadata when a citation article title contains a colon', async () => {
+    const searches = [];
+    const client = new OpenAlexClient({
+        fetch: async url => {
+            const parsed = new URL(url);
+            searches.push(parsed.searchParams.get('search'));
+            return jsonResponse({
+                results: searches.length === 1
+                    ? []
+                    : [{
+                        id: 'W700',
+                        title: 'Knowledge, attitudes, and practices regarding '
+                            + 'conception and fertility: a population-based '
+                            + 'survey among reproductive-age United States women',
+                        publication_year: 2014,
+                        doi: 'https://doi.org/10.1016/j.fertnstert.2013.12.006',
+                        authorships: [{
+                            author: { display_name: 'Lisbet S. Lundsberg' },
+                        }],
+                    }],
+            });
+        },
+    });
+    const title = 'Knowledge, attitudes, and practices regarding conception '
+        + 'and fertility: A population-based survey among reproductive-age '
+        + 'United States women';
+    const citation = 'Lundsberg, L.S.; Pal, L.; Gariepy, A.M.; Xu, X.; '
+        + 'Chu, M.C.; Illuzzi, J.L. '
+        + `${title}. Fertil. Steril. 2014, 101, 767–774. [CrossRef]`;
+
+    const result = await client.searchReferences({
+        text: citation,
+        year: 2014,
+        authorSearchText: 'lundsberg l s pal l gariepy a m xu x chu m c '
+            + 'illuzzi j l',
+    });
+
+    assert.deepEqual(searches, [citation, title]);
+    assert.equal(result.status, 'found');
+    assert.equal(
+        result.candidates[0].identifiers.doi,
+        '10.1016/j.fertnstert.2013.12.006'
+    );
+    assert.equal(result.candidates[0].matchConfidence, 'exact');
+});
+
+test('keeps at most three plausible metadata candidates', async () => {
     const client = new OpenAlexClient({
         fetch: async () => jsonResponse({
             results: [
@@ -485,10 +742,11 @@ test('caps metadata candidates and skips malformed or identifier-less works', as
 
     const result = await client.searchReferences({ text: 'candidate' });
     assert.equal(result.status, 'found');
-    assert.equal(result.candidates.length, 10);
+    assert.equal(result.candidates.length, 3);
     assert.deepEqual(result.candidates.map(candidate => candidate.paperID),
-        Array.from({ length: 10 }, (_, index) => `W${index + 2}`));
-    assert.equal(result.candidates[0].title, '<script>alert(1)</script>');
+        ['W3', 'W4', 'W5']);
+    assert.equal(result.candidates[0].title, 'Candidate 1');
+    assert.equal(result.candidates[0].matchConfidence, 'probable');
 });
 
 test('honors cancellation during an explicit OpenAlex metadata search', async () => {

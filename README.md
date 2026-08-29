@@ -5,11 +5,11 @@
 [![Test](https://github.com/tenglvjun/mktero/actions/workflows/test.yml/badge.svg)](https://github.com/tenglvjun/mktero/actions/workflows/test.yml)
 [![Latest release](https://img.shields.io/github/v/release/tenglvjun/mktero)](https://github.com/tenglvjun/mktero/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
-[![Zotero](https://img.shields.io/badge/Zotero-7%20%7C%208%20%7C%209-cc2936.svg)](https://www.zotero.org/)
+[![Zotero](https://img.shields.io/badge/Zotero-7%20%7C%208%20%7C%209%20%7C%2010-cc2936.svg)](https://www.zotero.org/)
 
 **Read Zotero PDFs as source-linked Markdown.**
 
-Mktero is a restartless Zotero extension for Zotero 7, 8, and 9. It sends a
+Mktero is a restartless Zotero extension for Zotero 7, 8, 9, and 10. It sends a
 local PDF to [MinerU](https://mineru.net/) when needed, then opens the
 resulting Markdown, formulas, tables, figures, citations, and annotations in a
 temporary, reading-first Zotero tab. A content-addressed local cache avoids
@@ -60,7 +60,7 @@ Useful links: [Product page](https://tenglvjun.github.io/mktero/) ·
 
 ### Requirements
 
-- Desktop Zotero `7.0` through `9.0.*`
+- Desktop Zotero `7.0` through `10.0.*`
 - A PDF attachment downloaded and available as a local file
 - A [MinerU API Token](https://mineru.net/apiManage/token)
 - Network access to the MinerU API
@@ -89,13 +89,12 @@ Open `Settings -> Mktero` after installation.
 | MinerU API Token | Yes for a cache miss | Upload and convert PDFs with MinerU |
 | AI features and provider settings | Optional | Translate Markdown through a hosted or loopback model service |
 | Translation language | Optional | Choose Simplified/Traditional Chinese, Japanese, Korean, Spanish, French, or Brazilian Portuguese |
-| Citation provider credentials | Optional | Increase limits for Semantic Scholar, OpenAlex, or OpenCitations; anonymous requests remain supported |
 | Body text font and size | Optional | Choose the reading font and a 16–22 px body size |
 | Reuse conversion results | Optional | Reuse results for the same PDF content and parser profile |
 
-Credentials are stored as ordinary, unencrypted preferences in the active
-Zotero profile. Use `Test connection` to validate an AI endpoint before
-translating.
+MinerU and AI credentials are stored as ordinary, unencrypted preferences in
+the active Zotero profile. Use `Test connection` to validate an AI endpoint
+before translating.
 
 ### Open a PDF
 
@@ -136,7 +135,10 @@ Existing Zotero text highlights and underlines are loaded when a document opens.
 Selecting Markdown text can create a local annotation immediately; Mktero then
 creates the corresponding Zotero annotation only when the local PDF text index
 can identify one reliable match. Repeated or ambiguous text remains local and
-can be retried instead of receiving a guessed PDF position.
+can be retried instead of receiving a guessed PDF position. When a highlight
+overlaps a citation, table reference, or figure reference, that semantic
+reference keeps interaction priority; annotation actions remain available from
+the surrounding highlighted text or its note marker.
 
 ### Translate with AI
 
@@ -165,28 +167,33 @@ same Markdown reading workflow as `Read as Markdown with Mktero`.
 ### Import references from Markdown
 
 Open a citation popup to see local Zotero presence before any network lookup is
-made. Title-only references remain unresolved until you explicitly choose
-`Find metadata`; Mktero then searches OpenAlex (retrying with a cleaned title
-when a full citation is too noisy) and shows bounded candidates for your
-confirmation. This also covers OpenAlex records such as books that do not have
-a DOI. Confirming a candidate only fills its identifiers and metadata and
-refreshes the local status; it never imports automatically. The popup lists
-accessible personal and group libraries and lets you
-choose the import target. A read-only library remains selectable for presence
-checks, while its import actions stay disabled with a permission explanation.
-If a matching item exists in another library, Mktero offers an
-explicit copy action rather than silently creating a duplicate. Missing
-references with a reliable DOI, arXiv ID, or PMID can be imported through
-Zotero's native translator; confirmed OpenAlex-only records such as books are
-created directly from their bounded metadata. When the target library permits
-files, Mktero also
-tries an arXiv or configured open-access PDF; metadata remains available when
-the PDF download fails and can be retried. References start unselected. Select
-one or more missing references with the row checkboxes, use `Select all` when
-needed, and click the toolbar import icon to import them in one batch. The
-toolbar order is select-all, target library, then import. References that
-import successfully are cleared from the selection; failed references remain
-selected so they can be retried individually or in a later batch.
+made. Choosing `Import reference` for a title-only reference explicitly starts
+a bounded OpenAlex lookup. A unique exact title, year, and author match
+continues directly into import. Mktero also accepts a one-year provider date
+difference only when the cleaned title is nearly identical and the first author
+matches. Otherwise it shows at most three plausible candidates, and choosing
+one continues the same import. The lookup retries with a cleaned title when a
+full citation is too noisy and also covers OpenAlex records such as books that
+do not have a DOI. For IEEE-style references, a paired straight or typographic
+double-quoted article title is searched separately from its authors, venue,
+volume, and pages. The popup lists accessible
+personal and group libraries and lets you choose the import target. A read-only
+library remains selectable for presence checks, while its import actions stay
+disabled with a permission explanation. If a matching item exists in another
+library, Mktero offers an explicit copy action rather than silently creating a
+duplicate. Missing references with a reliable DOI, arXiv ID, or PMID can be
+imported through Zotero's native translator; confirmed OpenAlex-only records
+such as books are created directly from their bounded metadata. When the target
+library permits files, Mktero also tries an arXiv or configured open-access
+PDF; metadata remains available when the PDF download fails and can be retried.
+The popup header contains only the target-library picker. Each reference shows
+its status on the left and its own import, retry, copy, or open action on the
+right, so actions always apply to one visible reference.
+
+Grouped author-year citations resolve every matched bibliography entry. If PDF
+conversion inserts a stray heading inside an APA-style bibliography, Mktero
+continues the reference list only when multiple bibliography-shaped entries
+clearly resume after it, so a genuine author note still ends the list.
 
 ### Save a portable snapshot
 
@@ -221,10 +228,10 @@ and raw HTML is escaped or sanitized before rendering.
 | Data | Sent to or stored in | Zotero sync |
 | --- | --- | --- |
 | Complete PDF on a cache miss | MinerU | Not by Mktero |
-| MinerU API Token and AI/provider credentials | Active Zotero profile, unencrypted | No |
+| MinerU API Token and AI credentials | Active Zotero profile, unencrypted | No |
 | Cached Markdown, figures, source maps, PDF indexes, corrections, and translations | Active Zotero profile, unencrypted | No |
 | Focused DOI/arXiv/OpenAlex identifiers and provider-specific candidate identifiers | Semantic Scholar, OpenCitations, or OpenAlex | Not by Mktero |
-| Bounded citation text after the user clicks `Find metadata` for a title-only reference | OpenAlex | Not by Mktero |
+| Bounded citation text after the user chooses `Import reference` for a title-only reference | OpenAlex | Not by Mktero |
 | A normalized DOI, arXiv ID, PMID, or OpenAlex work ID plus confirmed metadata after the user clicks the import action; optional open-access PDF request | The selected metadata/PDF provider | Not by Mktero |
 | Protected Markdown translation batches | AI provider configured by you | Not by Mktero |
 | Zotero PDF annotations | Local Zotero library | According to Zotero settings |
@@ -234,16 +241,17 @@ and raw HTML is escaped or sanitized before rendering.
 Mktero does not send PDF annotations, local PDF.js indexes, Zotero notes,
 complete item records, local paths, or cached Markdown to reference/PDF
 providers. Reference import requests are local-first. A title-only metadata
-lookup sends only bounded citation text after the explicit `Find metadata`
-action; import requests after candidate confirmation contain normalized
-identifiers and configured provider credentials, never Zotero keys or PDF
-bytes.
+lookup sends only bounded citation text after the explicit import action. A
+unique high-confidence match continues automatically; uncertain matches require
+candidate confirmation. Citation and reference requests use anonymous provider access and
+contain only the bounded citation text, normalized identifiers, and confirmed
+metadata described above, never Zotero keys or PDF bytes.
 Translation requests contain protected Markdown and instructions; if
 placeholder validation repeatedly fails, the final retry contains only the
 affected block's ordinary text segments. API Tokens, presigned URLs, PDF bytes,
 and authenticated responses are not written to logs.
 
-Review the privacy policy of MinerU and any AI or citation provider you enable.
+Review the privacy policy of MinerU and any AI or citation provider Mktero uses.
 Do not process confidential PDFs unless their data-handling terms are suitable
 for your use case.
 

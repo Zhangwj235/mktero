@@ -252,6 +252,38 @@ test('returns local and online metadata candidates without importing', async () 
     assert.equal(library.calls.some(call => call[0] === 'translate'), false);
 });
 
+test('exposes one exact online candidate for automatic import', async () => {
+    const library = createLibraryHarness();
+    const service = createReferenceImportService({
+        library,
+        metadataClient: {
+            async searchReferences() {
+                return {
+                    candidates: [{
+                        source: 'openalex',
+                        paperID: 'W42',
+                        title: 'An exact paper',
+                        year: 2024,
+                        matchConfidence: 'exact',
+                        identifiers: { doi: '10.1000/exact' },
+                    }],
+                };
+            },
+        },
+    });
+
+    const result = await service.searchReferenceMetadata({
+        text: 'Doe. An exact paper. 2024.',
+        year: 2024,
+        authorSearchText: 'doe',
+        identifiers: {},
+    }, { targetLibraryID: 1 });
+
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.automaticCandidate?.identifiers.doi, '10.1000/exact');
+    assert.equal(result.automaticCandidate?.matchConfidence, 'exact');
+});
+
 test('keeps OpenAlex-only book metadata importable after candidate confirmation', async () => {
     const library = createLibraryHarness();
     const service = createReferenceImportService({

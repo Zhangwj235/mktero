@@ -52,16 +52,10 @@ test('creates a fixed localization from the Zotero locale', () => {
     assert.equal(chinese.t('revision.deletedBlock'), '已删除一段内容');
     assert.equal(chinese.t('revision.undoDelete'), '撤销删除');
     assert.equal(
-        localization.t('preferences.citations.openAlexApiKeyLabel'),
-        'OpenAlex API Key'
-    );
-    assert.equal(
-        chinese.t('preferences.citations.openCitationsTokenLabel'),
-        'OpenCitations Access Token'
-    );
-    assert.match(
-        localization.t('preferences.citations.note'),
-        /DOI and arXiv identifiers/
+        getLocalizationMessageKeys().some(key => (
+            key.startsWith('preferences.citations.')
+        )),
+        false
     );
     assert.equal(localization.t('graph.openWithMktero'), 'Open with Mktero');
     assert.equal(chinese.t('graph.openWithMktero'), '使用 Mktero 打开');

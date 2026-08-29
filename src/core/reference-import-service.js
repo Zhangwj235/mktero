@@ -13,6 +13,7 @@ const RELIABLE_IDENTIFIER_TYPES = Object.freeze([
 const MAX_PDF_URL_LENGTH = 2_048;
 const MAX_METADATA_LENGTH = 512;
 const MAX_METADATA_AUTHORS = 8;
+const MAX_METADATA_CANDIDATES = 3;
 
 export function createReferenceImportService(options) {
     return new ReferenceImportService(options);
@@ -209,12 +210,18 @@ export class ReferenceImportService {
         const candidates = dedupeCandidates([
             ...localCandidates,
             ...onlineCandidates,
-        ]);
+        ]).slice(0, MAX_METADATA_CANDIDATES);
+        const exactOnlineCandidates = onlineCandidates.filter(candidate => (
+            candidate.matchConfidence === 'exact'
+        ));
         return {
             status: candidates.length ? 'found' : 'unresolved',
             localCandidates,
             onlineCandidates,
             candidates,
+            automaticCandidate: exactOnlineCandidates.length === 1
+                ? exactOnlineCandidates[0]
+                : null,
             searchedAt,
         };
     }
@@ -536,6 +543,10 @@ function normalizeCandidates(candidates, source) {
             };
             const metadata = normalizeMetadata(candidate?.metadata);
             if (metadata) normalized.metadata = metadata;
+            if (candidate?.matchConfidence === 'exact'
+                || candidate?.matchConfidence === 'probable') {
+                normalized.matchConfidence = candidate.matchConfidence;
+            }
             return normalized;
         })
         .filter(Boolean);
@@ -563,6 +574,7 @@ function unresolvedMetadataResult() {
         localCandidates: [],
         onlineCandidates: [],
         candidates: [],
+        automaticCandidate: null,
         searchedAt: null,
     };
 }

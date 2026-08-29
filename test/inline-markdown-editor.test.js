@@ -98,6 +98,76 @@ async function createHighlightFromSelection(document, pointerLine, pointer) {
     await Promise.resolve();
 }
 
+function assertSemanticReferenceOutranksAnnotation({
+    markdown,
+    referenceText,
+    referenceSelector,
+    popupSelector,
+    resolveImageURL,
+}) {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        resolveImageURL,
+    });
+    const from = markdown.indexOf(referenceText);
+    assert.notEqual(from, -1);
+    editor.setDocument({
+        markdown,
+        annotationOverlay: {
+            matched: [{
+                id: 'OVERLAP0001',
+                source: 'zotero',
+                type: 'highlight',
+                text: referenceText,
+                comment: '',
+                color: '#ffd400',
+                ranges: [{ from, to: from + referenceText.length }],
+            }],
+            unmatched: [],
+        },
+    });
+
+    const scheduled = new Map();
+    const originalSetTimeout = dom.window.setTimeout;
+    const originalClearTimeout = dom.window.clearTimeout;
+    let nextTimerID = 1;
+    dom.window.setTimeout = (callback, delay) => {
+        const timerID = nextTimerID++;
+        scheduled.set(timerID, { callback, delay });
+        return timerID;
+    };
+    dom.window.clearTimeout = timerID => scheduled.delete(timerID);
+
+    const reference = document.querySelector(referenceSelector);
+    const annotation = reference?.closest('.cm-mktero-pdf-annotation');
+    assert.ok(reference);
+    assert.ok(annotation);
+
+    annotation.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    assert.ok([...scheduled.values()].some(timer => timer.delay === 220));
+
+    reference.dispatchEvent(new dom.window.MouseEvent('mouseover', {
+        bubbles: true,
+    }));
+    for (const timer of [...scheduled.values()]) timer.callback();
+
+    assert.ok(document.querySelector(popupSelector));
+    assert.equal(document.querySelector('.mktero-annotation-popup'), null);
+    assert.equal(scheduled.size, 0);
+
+    dom.window.setTimeout = originalSetTimeout;
+    dom.window.clearTimeout = originalClearTimeout;
+    editor.destroy();
+    dom.window.close();
+}
+
 test('keeps Markdown as the source of truth in a read-only surface', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -950,6 +1020,52 @@ test('renders matched PDF annotations with their Zotero colors', () => {
 
     editor.destroy();
     dom.window.close();
+});
+
+test('prefers a citation over an overlapping PDF annotation', () => {
+    assertSemanticReferenceOutranksAnnotation({
+        markdown: [
+            'The result is supported by [1].',
+            '',
+            '## References',
+            '',
+            '[1] Alpha A. Study. 2024.',
+        ].join('\n'),
+        referenceText: '[1]',
+        referenceSelector: '.cm-mktero-citation',
+        popupSelector: '.mktero-citation-popup',
+    });
+});
+
+test('prefers a table reference over an overlapping PDF annotation', () => {
+    assertSemanticReferenceOutranksAnnotation({
+        markdown: [
+            'The result is reported in Table 5.',
+            '',
+            'Table 5. Model performance',
+            '',
+            '| Model | Accuracy |',
+            '| --- | ---: |',
+            '| LLaMA | 0.72 |',
+        ].join('\n'),
+        referenceText: 'Table 5',
+        referenceSelector: '.cm-mktero-table-reference',
+        popupSelector: '.mktero-table-preview-popup',
+    });
+});
+
+test('prefers a figure reference over an overlapping PDF annotation', () => {
+    assertSemanticReferenceOutranksAnnotation({
+        markdown: [
+            'The architecture is shown in Fig. 1.',
+            '',
+            '![Fig. 1. Pipeline architecture](images/pipeline.png)',
+        ].join('\n'),
+        referenceText: 'Fig. 1',
+        referenceSelector: '.cm-mktero-figure-reference',
+        popupSelector: '.mktero-figure-preview-popup',
+        resolveImageURL: path => `blob:mktero-${path}`,
+    });
 });
 
 test('shows one note marker for a commented multiline PDF annotation', () => {

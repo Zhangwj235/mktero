@@ -177,15 +177,6 @@
     outline-offset: 0;
 }
 
-#mktero-semantic-scholar-api-key {
-    font-variant-ligatures: none;
-}
-
-#mktero-openalex-api-key,
-#mktero-open-citations-access-token {
-    font-variant-ligatures: none;
-}
-
 .mktero-field-meta {
     display: flex;
     align-items: baseline;
