@@ -8,6 +8,8 @@ export const AI_TARGET_LANGUAGE_PREF = 'extensions.mktero.aiTargetLanguage';
 export const AI_REQUEST_TIMEOUT_PREF = 'extensions.mktero.aiRequestTimeoutMs';
 export const AI_MAX_OUTPUT_TOKENS_PREF = 'extensions.mktero.aiMaxOutputTokens';
 export const AI_STREAMING_PREF = 'extensions.mktero.aiStreaming';
+export const AI_AUTO_TRANSLATE_SELECTION_PREF =
+    'extensions.mktero.aiAutoTranslateSelection';
 
 export const AI_PROVIDER_OPENAI = 'openai';
 export const AI_PROVIDER_ANTHROPIC = 'anthropic';
@@ -82,6 +84,7 @@ export function getAISettings(zotero) {
     const provider = normalizeProvider(rawProvider);
     return {
         enabled: get(AI_ENABLED_PREF) === true,
+        autoTranslateSelection: get(AI_AUTO_TRANSLATE_SELECTION_PREF) === true,
         provider,
         protocol: normalizeProtocol(get(AI_PROTOCOL_PREF), provider, {
             legacyOpenAICompatible: rawProvider === AI_PROVIDER_OPENAI_COMPATIBLE,

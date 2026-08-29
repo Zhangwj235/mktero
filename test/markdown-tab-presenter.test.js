@@ -506,6 +506,44 @@ test('exposes and refreshes document translation actions on the tab model', asyn
     ]);
 });
 
+test('exposes and refreshes selection translation actions on the tab model', async () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const calls = [];
+    const presenter = createPresenter(mainWindow, harness);
+    const first = presenter.open(42, {
+        onTranslateSelection: request => calls.push(['translate-first', request]),
+        onCancelSelectionTranslation: () => calls.push(['cancel-first']),
+        shouldAutoTranslateSelection: () => false,
+        onCopySelectionTranslation: text => calls.push(['copy-first', text]),
+    });
+    const second = presenter.open(42, {
+        onTranslateSelection: request => calls.push(['translate-second', request]),
+        onCancelSelectionTranslation: () => calls.push(['cancel-second']),
+        shouldAutoTranslateSelection: () => true,
+        onCopySelectionTranslation: text => calls.push(['copy-second', text]),
+    });
+
+    await second.model.onTranslateSelection({
+        text: 'Selected text.',
+        context: 'Surrounding text.',
+    });
+    second.model.onCancelSelectionTranslation();
+    assert.equal(second.model.shouldAutoTranslateSelection(), true);
+    await second.model.onCopySelectionTranslation('已翻译文本');
+
+    assert.equal(first.model, second.model);
+    assert.deepEqual(calls, [
+        ['translate-second', {
+            text: 'Selected text.',
+            context: 'Surrounding text.',
+        }],
+        ['cancel-second'],
+        ['copy-second', '已翻译文本'],
+    ]);
+    presenter.dispose();
+});
+
 test('closes another Mktero tab for the same source PDF', () => {
     const mainWindow = createMainWindow();
     const harness = createViewHarness();

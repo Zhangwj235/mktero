@@ -301,6 +301,24 @@ class MarkdownTabView {
             copyCode: typeof model?.onCopyCode === 'function'
                 ? code => this.copyCode(code)
                 : null,
+            translateSelection: typeof model?.onTranslateSelection === 'function'
+                ? (text, selectionContext) => this.model.onTranslateSelection({
+                    text,
+                    context: selectionContext?.translationContext || '',
+                })
+                : null,
+            cancelSelectionTranslation:
+                typeof model?.onCancelSelectionTranslation === 'function'
+                    ? () => this.model.onCancelSelectionTranslation()
+                    : null,
+            shouldAutoTranslateSelection:
+                typeof model?.shouldAutoTranslateSelection === 'function'
+                    ? () => this.model.shouldAutoTranslateSelection() === true
+                    : null,
+            copySelectionTranslation:
+                typeof model?.onCopySelectionTranslation === 'function'
+                    ? text => this.model.onCopySelectionTranslation(text)
+                    : null,
             openSourceLocation: location => this.openSourceLocation(location),
             openAnnotationInPDF: annotationID => (
                 this.openAnnotationInPDF(annotationID)

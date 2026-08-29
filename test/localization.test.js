@@ -73,6 +73,14 @@ test('creates a fixed localization from the Zotero locale', () => {
         }),
         '简体中文译文'
     );
+    assert.match(
+        localization.t('preferences.ai.autoTranslateSelectionHelp'),
+        /stable Markdown selection.*AI Provider.*cost/i
+    );
+    assert.match(
+        chinese.t('preferences.ai.autoTranslateSelectionHelp'),
+        /选区.*稳定.*AI Provider.*费用/
+    );
 });
 
 test('localizes Markdown annotation synchronization status', () => {

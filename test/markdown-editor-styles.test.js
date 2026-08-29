@@ -918,6 +918,24 @@ test('styles Zotero-colored PDF annotations and their action popup', () => {
     assert.match(noteSeparator, /bottom:\s*3px/);
 });
 
+test('styles Markdown selection translation states as a compact popup section', () => {
+    const translation = ruleBody('.mktero-selection-translation');
+    const result = lastRuleBody('.mktero-selection-translation-result');
+    const error = lastRuleBody('.mktero-selection-translation-error');
+    const button = lastRuleBody('.mktero-selection-translation-button');
+
+    assert.match(translation, /flex:\s*1 1 100%/);
+    assert.match(
+        translation,
+        /border-top:\s*1px solid var\(--border-subtle\)/
+    );
+    assert.match(result, /white-space:\s*pre-wrap/);
+    assert.match(result, /overflow-wrap:\s*anywhere/);
+    assert.match(error, /color:\s*var\(--error, #c62828\)/);
+    assert.match(button, /width:\s*25px/);
+    assert.match(button, /height:\s*25px/);
+});
+
 test('keeps snapshot code blocks from inheriting inline code chrome', () => {
     const inlineCode = ruleBody('.markdown-snapshot-host code');
     assert.match(inlineCode, /border:\s*1px solid var\(--border-subtle\)/);

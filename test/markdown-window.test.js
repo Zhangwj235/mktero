@@ -1066,6 +1066,31 @@ test('navigates failed translation blocks with wraparound', () => {
     }
 });
 
+test('only exposes selection translation callbacks when the model provides them', () => {
+    let editorOptions;
+    const { view } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Paper text.',
+        sourceKind: 'markdown',
+    }), {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return createTestInlineEditor(options);
+        },
+    });
+
+    try {
+        assert.equal(editorOptions.translateSelection, null);
+        assert.equal(editorOptions.cancelSelectionTranslation, null);
+        assert.equal(editorOptions.shouldAutoTranslateSelection, null);
+        assert.equal(editorOptions.copySelectionTranslation, null);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('keeps a partial translation readable while retrying the document', () => {
     const updates = [];
     let editorOptions;
@@ -1526,6 +1551,59 @@ test('forwards code copy requests to the current tab model', async () => {
 
     assert.deepEqual(copied, ['const answer = 42;\n']);
     view.destroy();
+});
+
+test('forwards selection translation callbacks through the current reader model', async () => {
+    let editorOptions;
+    const calls = [];
+    const firstModel = createModel({
+        status: 'ready',
+        markdown: 'Selected text.',
+        onTranslateSelection: request => calls.push(['first', request]),
+        onCancelSelectionTranslation: () => calls.push(['cancel-first']),
+        shouldAutoTranslateSelection: () => false,
+        onCopySelectionTranslation: text => calls.push(['copy-first', text]),
+    });
+    const { view } = createView(firstModel, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+    const secondModel = {
+        ...firstModel,
+        onTranslateSelection: request => calls.push(['second', request]),
+        onCancelSelectionTranslation: () => calls.push(['cancel-second']),
+        shouldAutoTranslateSelection: () => true,
+        onCopySelectionTranslation: text => calls.push(['copy-second', text]),
+    };
+
+    try {
+        view.render(secondModel);
+        await editorOptions.translateSelection(
+            'Selected text.',
+            { translationContext: 'Before selected text. Selected text. After.' }
+        );
+        editorOptions.cancelSelectionTranslation();
+        assert.equal(editorOptions.shouldAutoTranslateSelection(), true);
+        await editorOptions.copySelectionTranslation('已翻译文本');
+
+        assert.deepEqual(calls, [
+            ['second', {
+                text: 'Selected text.',
+                context: 'Before selected text. Selected text. After.',
+            }],
+            ['cancel-second'],
+            ['copy-second', '已翻译文本'],
+        ]);
+    }
+    finally {
+        view.destroy();
+    }
 });
 
 test('reparses the current PDF from an accessible icon action', async () => {

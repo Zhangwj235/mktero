@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     AI_API_BASE_PREF,
     AI_API_KEY_PREF,
+    AI_AUTO_TRANSLATE_SELECTION_PREF,
     AI_ENABLED_PREF,
     AI_MAX_OUTPUT_TOKENS_PREF,
     AI_MODEL_PREF,
@@ -28,6 +29,7 @@ test('reads and normalizes the configured AI settings', () => {
         [AI_PROTOCOL_PREF, AI_PROTOCOL_OPENAI_RESPONSES],
         [AI_API_BASE_PREF, ' https://example.com/v1/ '],
         [AI_API_KEY_PREF, ' secret-token '],
+        [AI_AUTO_TRANSLATE_SELECTION_PREF, true],
         [AI_MODEL_PREF, ' example-chat '],
         [AI_TARGET_LANGUAGE_PREF, 'zh-CN'],
         [AI_REQUEST_TIMEOUT_PREF, 45_000],
@@ -44,6 +46,7 @@ test('reads and normalizes the configured AI settings', () => {
         protocol: AI_PROTOCOL_OPENAI_RESPONSES,
         apiBase: 'https://example.com/v1',
         apiKey: 'secret-token',
+        autoTranslateSelection: true,
         model: 'example-chat',
         reasoning: 'none',
         targetLanguage: 'zh-CN',
@@ -56,6 +59,7 @@ test('reads and normalizes the configured AI settings', () => {
 test('uses full-document request defaults and preserves a streaming opt-out', () => {
     const defaults = getAISettings({ Prefs: { get: () => undefined } });
     assert.equal(defaults.streaming, true);
+    assert.equal(defaults.autoTranslateSelection, false);
     assert.equal(defaults.requestTimeoutMs, 600_000);
     assert.equal(defaults.maxOutputTokens, 0);
     assert.equal(getAISettings({
@@ -63,6 +67,13 @@ test('uses full-document request defaults and preserves a streaming opt-out', ()
             get: key => key === AI_STREAMING_PREF ? false : undefined,
         },
     }).streaming, false);
+    assert.equal(getAISettings({
+        Prefs: {
+            get: key => key === AI_AUTO_TRANSLATE_SELECTION_PREF
+                ? true
+                : undefined,
+        },
+    }).autoTranslateSelection, true);
     assert.equal(validateAISettings({
         enabled: true,
         provider: 'openai',

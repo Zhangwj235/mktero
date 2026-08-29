@@ -42,6 +42,10 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(prefs, /pref\("extensions\.mktero\.aiApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiRequestTimeoutMs", 600000\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.aiMaxOutputTokens", 0\)/);
+    assert.match(
+        prefs,
+        /pref\("extensions\.mktero\.aiAutoTranslateSelection", false\)/
+    );
     assert.doesNotMatch(prefs, /extensions\.mktero\.aiReasoning/);
     assert.doesNotMatch(prefs, /extensions\.mktero\.aiCacheEnabled/);
     assert.doesNotMatch(
@@ -80,6 +84,10 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.match(pane, /preference="extensions\.mktero\.aiModel"/);
     assert.match(pane, /preference="extensions\.mktero\.aiRequestTimeoutMs"/);
     assert.match(pane, /preference="extensions\.mktero\.aiMaxOutputTokens"/);
+    assert.match(
+        pane,
+        /id="mktero-ai-auto-translate-selection"[\s\S]*?preference="extensions\.mktero\.aiAutoTranslateSelection"/
+    );
     assert.match(
         pane,
         /id="mktero-ai-request-timeout"[\s\S]*?max="3600000"/
@@ -140,9 +148,11 @@ test('ships responsive settings cards and a cache switch', async () => {
     ]);
 
     assert.match(pane, /class="mktero-settings-card"/);
-    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 3);
-    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 3);
-    assert.equal((pane.match(/role="switch"/g) || []).length, 3);
+    assert.equal((pane.match(/class="mktero-switch-input"/g) || []).length, 4);
+    assert.equal((pane.match(/class="mktero-switch" aria-hidden="true"/g) || []).length, 4);
+    assert.equal((pane.match(/role="switch"/g) || []).length, 4);
+    assert.match(pane, /data-i18n="preferences\.ai\.autoTranslateSelectionLabel"/);
+    assert.match(pane, /data-i18n="preferences\.ai\.autoTranslateSelectionHelp"/);
     assert.match(pane, /id="mktero-ai-streaming"/);
     assert.match(pane, /preference="extensions\.mktero\.aiStreaming"/);
     assert.match(styles, /\.mktero-settings-card\s*\{[\s\S]*border-radius:/);

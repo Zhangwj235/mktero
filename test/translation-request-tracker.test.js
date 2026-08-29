@@ -47,6 +47,34 @@ test('cancels one block without aborting another block in the document', async (
     await Promise.all([first, second]);
 });
 
+test('replaces and cancels a selection request independently of document translation', async () => {
+    const tracker = new TranslationRequestTracker({
+        createAbortController: () => new AbortController(),
+    });
+    let firstSignal;
+    let secondSignal;
+    let finishFirst;
+    const first = tracker.run(42, 'selection', signal => {
+        firstSignal = signal;
+        return new Promise(resolve => { finishFirst = resolve; });
+    });
+    const documentRequest = tracker.run(42, 'document', signal => {
+        secondSignal = signal;
+        return Promise.resolve();
+    });
+    const second = tracker.run(42, 'selection', signal => {
+        secondSignal = signal;
+        return Promise.resolve(signal.aborted);
+    });
+
+    assert.equal(firstSignal.aborted, true);
+    assert.equal(await documentRequest, undefined);
+    assert.equal(await second, false);
+    assert.equal(tracker.cancelBlock(42, 'selection'), false);
+    finishFirst();
+    await first;
+});
+
 test('cancels every translation in a closed document and during shutdown', async () => {
     const tracker = new TranslationRequestTracker({
         createAbortController: () => new AbortController(),

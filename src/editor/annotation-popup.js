@@ -15,11 +15,20 @@ import {
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const ANNOTATION_HOVER_OPEN_DELAY_MS = 220;
+const SELECTION_TRANSLATION_DELAY_MS = 250;
 const ANNOTATION_ERROR_KEYS = new Map([
     ['MKTERO_PDF_TEXT_NOT_FOUND', 'annotation.pdfTextNotFound'],
     ['MKTERO_PDF_TEXT_AMBIGUOUS', 'annotation.pdfTextAmbiguous'],
     ['MKTERO_PDF_READER_UNAVAILABLE', 'annotation.pdfReaderUnavailable'],
     ['MKTERO_PDF_TEXT_SEARCH_TIMEOUT', 'annotation.pdfTextSearchTimeout'],
+]);
+const SELECTION_TRANSLATION_ERROR_KEYS = new Map([
+    ['AI_CONFIGURATION_ERROR', 'ai.configurationRequired'],
+    ['AI_AUTH_ERROR', 'ai.authenticationFailed'],
+    ['AI_RATE_LIMITED', 'ai.rateLimited'],
+    ['AI_REQUEST_TIMEOUT', 'ai.requestTimedOut'],
+    ['AI_INPUT_TOO_LARGE', 'ai.selectionTranslationTooLong'],
+    ['AI_RESPONSE_TOO_LARGE', 'ai.responseTooLarge'],
 ]);
 
 export function createAnnotationPopup(parent, {
@@ -29,6 +38,10 @@ export function createAnnotationPopup(parent, {
     updateAnnotationComment,
     deleteAnnotation,
     copySourcedMarkdown,
+    translateSelection,
+    cancelSelectionTranslation,
+    shouldAutoTranslateSelection,
+    copySelectionTranslation,
     openSourceLocation,
     openAnnotationInPDF,
     onSourceNavigationError,
@@ -42,6 +55,7 @@ export function createAnnotationPopup(parent, {
     let selectionLocked = false;
     let hoverOpenTimer = null;
     let hoverOpenAnchor = null;
+    let activeSelectionTranslationCancel = null;
 
     const cancelScheduledOpen = anchor => {
         if (hoverOpenTimer === null
@@ -57,8 +71,15 @@ export function createAnnotationPopup(parent, {
         selectionLocked && anchoredPopup.isOpen()
     );
 
+    const cancelActiveSelectionTranslation = () => {
+        const cancel = activeSelectionTranslationCancel;
+        activeSelectionTranslationCancel = null;
+        cancel?.();
+    };
+
     const close = () => {
         cancelScheduledOpen();
+        cancelActiveSelectionTranslation();
         selectionLocked = false;
         anchoredPopup.close();
     };
@@ -128,46 +149,84 @@ export function createAnnotationPopup(parent, {
             comment: '',
             color: '#ffd400',
         };
+        let cancelSelectionPopup = () => {};
+        let registeredSelectionPopupCancel = false;
         openPopup({
             anchor,
             label: t('annotation.selectionActions'),
             popupClassName: 'mktero-annotation-popup--actions',
             dismissOnMouseLeave: false,
+            onClose: () => {
+                cancelSelectionPopup();
+                if (activeSelectionTranslationCancel === cancelSelectionPopup) {
+                    activeSelectionTranslationCancel = null;
+                }
+            },
             renderContent({ document, close, reposition }) {
-                return createMarkdownSelectionActions(document, annotation, t, {
-                    createMarkdownAnnotation:
-                        typeof createMarkdownAnnotation === 'function'
-                            ? draft => createMarkdownAnnotation(
-                                draft,
-                                selectionContext
-                            )
-                            : undefined,
-                    copySourcedMarkdown: canCopySource
-                        && typeof copySourcedMarkdown === 'function'
-                        ? () => copySourcedMarkdown(copyTarget)
-                        : undefined,
-                    viewPDFSource: sourceLocation
-                        && typeof openSourceLocation === 'function'
-                        ? async () => {
-                            try {
-                                await openSourceLocation(sourceLocation);
-                            }
-                            catch (error) {
-                                onSourceNavigationError?.(error);
-                                throw error;
-                            }
-                        }
-                        : undefined,
-                    openNote: () => openDraftNote({
-                        anchor,
-                        annotation,
+                const actions = createMarkdownSelectionActions(
+                    document,
+                    annotation,
+                    t,
+                    {
                         selectionContext,
-                    }),
-                    close,
-                    reposition,
-                });
+                        createMarkdownAnnotation:
+                            typeof createMarkdownAnnotation === 'function'
+                                ? draft => createMarkdownAnnotation(
+                                    draft,
+                                    selectionContext
+                                )
+                            : undefined,
+                        translateSelection:
+                            typeof translateSelection === 'function'
+                                ? text => translateSelection(
+                                    text,
+                                    selectionContext
+                                )
+                            : undefined,
+                        cancelSelectionTranslation:
+                            typeof cancelSelectionTranslation === 'function'
+                                ? cancelSelectionTranslation
+                            : undefined,
+                        shouldAutoTranslateSelection,
+                        copySelectionTranslation:
+                            typeof copySelectionTranslation === 'function'
+                                ? copySelectionTranslation
+                            : undefined,
+                        copySourcedMarkdown: canCopySource
+                            && typeof copySourcedMarkdown === 'function'
+                            ? () => copySourcedMarkdown(copyTarget)
+                            : undefined,
+                        viewPDFSource: sourceLocation
+                            && typeof openSourceLocation === 'function'
+                            ? async () => {
+                                try {
+                                    await openSourceLocation(sourceLocation);
+                                }
+                                catch (error) {
+                                    onSourceNavigationError?.(error);
+                                    throw error;
+                                }
+                            }
+                            : undefined,
+                        openNote: () => openDraftNote({
+                            anchor,
+                            annotation,
+                            selectionContext,
+                        }),
+                        close,
+                        reposition,
+                        registerPopupCancel: cancel => {
+                            registeredSelectionPopupCancel = true;
+                            cancelSelectionPopup = cancel;
+                        },
+                    }
+                );
+                return actions;
             },
         }, { lockSelection: true });
+        if (registeredSelectionPopupCancel) {
+            activeSelectionTranslationCancel = cancelSelectionPopup;
+        }
     };
     const openActions = ({ anchor, annotation, focus = false }) => {
         if (!annotation) return;
@@ -338,6 +397,12 @@ function createMarkdownSelectionActions(
     translate,
     {
         createMarkdownAnnotation,
+        selectionContext,
+        translateSelection,
+        cancelSelectionTranslation,
+        shouldAutoTranslateSelection,
+        copySelectionTranslation,
+        registerPopupCancel,
         copySourcedMarkdown,
         viewPDFSource,
         openNote,
@@ -361,6 +426,217 @@ function createMarkdownSelectionActions(
     error.setAttribute('aria-live', 'polite');
     error.hidden = true;
     const canCreate = typeof createMarkdownAnnotation === 'function';
+    const canTranslate = typeof translateSelection === 'function';
+    const translation = document.createElementNS(XHTML_NAMESPACE, 'div');
+    translation.className = 'mktero-selection-translation';
+    translation.dataset.translationStatus = 'idle';
+    const translationStatus = document.createElementNS(
+        XHTML_NAMESPACE,
+        'div'
+    );
+    translationStatus.className = 'mktero-selection-translation-status';
+    translationStatus.setAttribute('role', 'status');
+    translationStatus.setAttribute('aria-live', 'polite');
+    const translationResult = document.createElementNS(
+        XHTML_NAMESPACE,
+        'div'
+    );
+    translationResult.className = 'mktero-selection-translation-result';
+    translationResult.hidden = true;
+    const translationError = document.createElementNS(
+        XHTML_NAMESPACE,
+        'div'
+    );
+    translationError.className = 'mktero-selection-translation-error';
+    translationError.setAttribute('role', 'alert');
+    translationError.hidden = true;
+    const translationButtons = document.createElementNS(
+        XHTML_NAMESPACE,
+        'div'
+    );
+    translationButtons.className = 'mktero-selection-translation-actions';
+    let translationStatusValue = 'idle';
+    let translationRequestID = 0;
+    let autoTranslateTimer = null;
+    let translatedText = '';
+
+    const clearAutoTranslateTimer = () => {
+        if (autoTranslateTimer === null) return;
+        document.defaultView?.clearTimeout(autoTranslateTimer);
+        autoTranslateTimer = null;
+    };
+
+    const createTranslationButton = (action, label, icon) => {
+        const button = document.createElementNS(XHTML_NAMESPACE, 'button');
+        button.className = 'mktero-selection-translation-button';
+        button.type = 'button';
+        button.dataset.action = action;
+        button.setAttribute('aria-label', translate(label));
+        button.setAttribute('title', translate(label));
+        button.appendChild(createLucideIcon(
+            document,
+            icon,
+            { className: 'mktero-selection-translation-icon', size: 16 }
+        ));
+        return button;
+    };
+
+    const translateButton = canTranslate
+        ? createTranslationButton(
+            'translate-selection',
+            'ai.translateSelection',
+            LUCIDE_ICONS.languages
+        )
+        : null;
+    const cancelTranslationButton = canTranslate
+        ? createTranslationButton(
+            'cancel-selection-translation',
+            'ai.cancelSelectionTranslation',
+            LUCIDE_ICONS.x
+        )
+        : null;
+    const retryTranslationButton = canTranslate
+        ? createTranslationButton(
+            'retry-selection-translation',
+            'ai.retrySelectionTranslation',
+            LUCIDE_ICONS.rotateCcw
+        )
+        : null;
+    const copyTranslationButton = typeof copySelectionTranslation === 'function'
+        ? createTranslationButton(
+            'copy-selection-translation',
+            'ai.copySelectionTranslation',
+            LUCIDE_ICONS.copy
+        )
+        : null;
+
+    const setTranslationStatus = status => {
+        translationStatusValue = status;
+        content.dataset.status = status;
+        content.dataset.translationStatus = status;
+        translation.dataset.status = status;
+        translation.dataset.translationStatus = status;
+        translationButtons.replaceChildren();
+        translationStatus.textContent = '';
+        translationError.hidden = true;
+        translationResult.hidden = status !== 'success';
+        if (status === 'loading') {
+            translationStatus.textContent = translate(
+                'ai.selectionTranslationLoading'
+            );
+            translationButtons.appendChild(cancelTranslationButton);
+        }
+        else if (status === 'error') {
+            translationStatus.textContent = translate(
+                'ai.selectionTranslationFailed'
+            );
+            translationButtons.appendChild(retryTranslationButton);
+            translationError.hidden = false;
+        }
+        else if (status === 'success') {
+            translationStatus.textContent = translate(
+                'ai.selectionTranslationLabel'
+            );
+            if (copyTranslationButton) {
+                translationButtons.appendChild(copyTranslationButton);
+            }
+        }
+        else if (translateButton) {
+            translationButtons.appendChild(translateButton);
+        }
+        reposition?.();
+    };
+
+    const setExistingControlsBusy = busy => {
+        for (const control of controls) {
+            control.button.disabled = busy || !control.enabled;
+        }
+    };
+
+    const startTranslation = async () => {
+        if (!canTranslate || translationStatusValue === 'loading') return;
+        clearAutoTranslateTimer();
+        const requestID = ++translationRequestID;
+        translatedText = '';
+        setExistingControlsBusy(true);
+        setTranslationStatus('loading');
+        try {
+            const result = await translateSelection(
+                annotation.text,
+                selectionContext
+            );
+            if (requestID !== translationRequestID) return;
+            const text = typeof result === 'string' ? result : result?.text;
+            if (typeof text !== 'string' || !text.trim()) {
+                const emptyError = new Error('Selection translation was empty');
+                emptyError.code = 'MKTERO_AI_SELECTION_TRANSLATION_EMPTY';
+                throw emptyError;
+            }
+            translatedText = text;
+            translationResult.textContent = text;
+            setExistingControlsBusy(false);
+            setTranslationStatus('success');
+        }
+        catch (cause) {
+            if (requestID !== translationRequestID) return;
+            setExistingControlsBusy(false);
+            translationError.textContent = annotationErrorMessage(
+                cause,
+                translate,
+                'ai.selectionTranslationFailed'
+            );
+            setTranslationStatus('error');
+        }
+    };
+
+    const cancelTranslation = () => {
+        if (translationStatusValue !== 'loading') return;
+        clearAutoTranslateTimer();
+        translationRequestID += 1;
+        cancelSelectionTranslation?.();
+        setExistingControlsBusy(false);
+        setTranslationStatus('idle');
+    };
+
+    registerPopupCancel?.(() => {
+        clearAutoTranslateTimer();
+        cancelTranslation();
+    });
+
+    translateButton?.addEventListener('click', startTranslation);
+    cancelTranslationButton?.addEventListener('click', cancelTranslation);
+    retryTranslationButton?.addEventListener('click', startTranslation);
+    copyTranslationButton?.addEventListener('click', async () => {
+        try {
+            await copySelectionTranslation(translatedText);
+        }
+        catch (cause) {
+            translationError.textContent = annotationErrorMessage(
+                cause,
+                translate,
+                'ai.selectionTranslationCopyFailed'
+            );
+            translationError.hidden = false;
+            reposition?.();
+        }
+    });
+
+    translation.append(
+        translationStatus,
+        translationResult,
+        translationError,
+        translationButtons
+    );
+    if (canTranslate) {
+        content.appendChild(translation);
+        setTranslationStatus('idle');
+        if (shouldAutoTranslateSelection?.() === true) {
+            autoTranslateTimer = document.defaultView?.setTimeout(
+                startTranslation,
+                SELECTION_TRANSLATION_DELAY_MS
+            ) ?? null;
+        }
+    }
 
     const run = async (action, errorKey = 'annotation.actionFailed') => {
         for (const control of controls) control.button.disabled = true;
@@ -599,5 +875,9 @@ function createAnnotationActions(
 }
 
 function annotationErrorMessage(error, translate, fallbackKey) {
-    return translate(ANNOTATION_ERROR_KEYS.get(error?.code) || fallbackKey);
+    return translate(
+        SELECTION_TRANSLATION_ERROR_KEYS.get(error?.code)
+        || ANNOTATION_ERROR_KEYS.get(error?.code)
+        || fallbackKey
+    );
 }

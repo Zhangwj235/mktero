@@ -545,6 +545,12 @@ async function openItemAsMarkdown(itemID, {
         onRestoreAllCorrections: () => restoreAllCorrections(itemID),
         onTranslateDocument: options => translateDocument(itemID, options),
         onCancelDocumentTranslation: () => cancelDocumentTranslation(itemID),
+        onTranslateSelection: ({ text, context } = {}) => (
+            translateSelection(itemID, { text, context })
+        ),
+        onCancelSelectionTranslation: () => cancelSelectionTranslation(itemID),
+        shouldAutoTranslateSelection: () => isAutoSelectionTranslationEnabled(),
+        onCopySelectionTranslation: text => copyCode(text),
         onSetTranslationView: view => setTranslationView(itemID, view),
         onSelectTranslationLanguage: language => (
             selectTranslationLanguage(itemID, language)
@@ -713,6 +719,7 @@ async function openSavedMarkdownNote(noteID) {
     const presentation = runtime.presenter.open(noteID, {
         sourceItemID: sourceItem?.id ?? null,
         onClose: () => {
+            abortDocumentTranslations(noteID);
             runtime.citationPresenter?.closeForItem(sourceItem?.id);
         },
         ...createSavedMarkdownActions(noteID, sourceItem),
@@ -778,6 +785,12 @@ function createSavedMarkdownActions(noteID, sourceItem) {
             copySourcedMarkdown(itemID, target)
         )),
         onCopyCode: code => copyCode(code),
+        onTranslateSelection: ({ text, context } = {}) => (
+            translateSelection(noteID, { text, context })
+        ),
+        onCancelSelectionTranslation: () => cancelSelectionTranslation(noteID),
+        shouldAutoTranslateSelection: () => isAutoSelectionTranslationEnabled(),
+        onCopySelectionTranslation: text => copyCode(text),
         onChangeAnnotationColor: withSource((itemID, annotationID, color) => (
             runAnnotationAction('changeColor', itemID, annotationID, color)
         )),
@@ -1078,9 +1091,64 @@ async function translateDocument(documentID, {
     }
 }
 
+async function translateSelection(documentID, {
+    text,
+    context = '',
+    targetLanguage: requestedTargetLanguage,
+} = {}) {
+    const presentation = runtime.presenter?.get(documentID);
+    const service = runtime.translationService;
+    if (!presentation
+        || presentation.model.status !== 'ready'
+        || presentation.model.renderMode === 'html'
+        || typeof service?.translateSelection !== 'function') {
+        const error = new Error('AI selection translation is unavailable');
+        error.code = 'AI_CONFIGURATION_ERROR';
+        throw error;
+    }
+    const requests = runtime.translationRequests;
+    if (!requests) {
+        const error = new Error('AI selection translation is unavailable');
+        error.code = 'AI_CONFIGURATION_ERROR';
+        throw error;
+    }
+    const configuredTargetLanguage = getAISettings(Zotero).targetLanguage;
+    const targetLanguage = requestedTargetLanguage === undefined
+        ? configuredTargetLanguage
+        : String(requestedTargetLanguage || '').trim();
+    if (!isSupportedAITargetLanguage(targetLanguage)) {
+        const error = new Error(
+            'AI selection translation target language is unavailable'
+        );
+        error.code = 'AI_CONFIGURATION_ERROR';
+        throw error;
+    }
+    return requests.run(
+        documentID,
+        'selection',
+        signal => service.translateSelection({
+            text,
+            context,
+            signal,
+            targetLanguage,
+        })
+    );
+}
+
 function cancelDocumentTranslation(documentID) {
     return runtime.translationRequests?.cancelBlock(documentID, 'document')
         || false;
+}
+
+function cancelSelectionTranslation(documentID) {
+    return runtime.translationRequests?.cancelBlock(documentID, 'selection')
+        || false;
+}
+
+function isAutoSelectionTranslationEnabled() {
+    const settings = getAISettings(Zotero);
+    return settings.enabled === true
+        && settings.autoTranslateSelection === true;
 }
 
 function abortDocumentTranslations(documentID) {

@@ -240,6 +240,7 @@ test('tests the current AI SDK settings without exposing the key', async () => {
             <input id="mktero-ai-request-timeout" value="600000">
             <input id="mktero-ai-max-output-tokens" value="0">
             <input id="mktero-ai-streaming" type="checkbox" checked>
+            <input id="mktero-ai-auto-translate-selection" type="checkbox" checked>
             <button id="mktero-ai-test"></button>
             <span id="mktero-ai-test-status"></span>
             <span id="mktero-cache-status"></span>
@@ -284,6 +285,7 @@ test('tests the current AI SDK settings without exposing the key', async () => {
         '262144'
     );
     assert.equal(testedSettings.streaming, true);
+    assert.equal(testedSettings.autoTranslateSelection, true);
     assert.equal(
         dom.window.document.getElementById('mktero-ai-test-status').textContent,
         'Connection successful'

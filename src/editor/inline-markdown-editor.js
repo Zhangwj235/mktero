@@ -41,6 +41,7 @@ import { createFigurePreviewPopup } from './figure-preview-popup.js';
 import { createTablePreviewPopup } from './table-preview-popup.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+const SELECTION_TRANSLATION_CONTEXT_RADIUS = 800;
 const editorNavigationMeasureKey = {};
 const DOM_GLOBAL_NAMES = [
     'document',
@@ -119,6 +120,10 @@ export function createInlineMarkdownEditor({
     onOpenReferenceMatch,
     onSubscribeReferenceUpdates,
     sourceItemID,
+    translateSelection,
+    cancelSelectionTranslation,
+    shouldAutoTranslateSelection,
+    copySelectionTranslation,
     onCommitCorrection,
     onRestoreCorrection,
     onCorrectionError,
@@ -137,7 +142,7 @@ export function createInlineMarkdownEditor({
             ? async (annotation, selectionContext) => {
                 const saved = await createMarkdownAnnotation(
                     annotation,
-                    selectionContext
+                    withoutSelectionTranslationContext(selectionContext)
                 );
                 ownerWindow.getSelection?.()?.removeAllRanges?.();
                 return saved;
@@ -147,6 +152,15 @@ export function createInlineMarkdownEditor({
         updateAnnotationComment,
         deleteAnnotation,
         copySourcedMarkdown,
+        translateSelection: typeof translateSelection === 'function'
+            ? (text, selectionContext) => translateSelection(
+                text,
+                selectionContext
+            )
+            : undefined,
+        cancelSelectionTranslation,
+        shouldAutoTranslateSelection,
+        copySelectionTranslation,
         openSourceLocation,
         openAnnotationInPDF,
         onSourceNavigationError,
@@ -693,9 +707,16 @@ export function createInlineMarkdownEditor({
             selection,
             currentSourceActionRanges
         )) {
+            openSelectionKey = null;
             annotationPopup.close();
             return;
         }
+        const selectionKey = markdownSelectionKey(selection);
+        if (annotationPopup.isSelectionOpen()
+            && openSelectionKey === selectionKey) {
+            return;
+        }
+        openSelectionKey = selectionKey;
         const copyTarget = { kind: 'selection', ...selection };
         const evidence = createSourcedEvidence(
             view.state.doc.toString(),
@@ -712,7 +733,13 @@ export function createInlineMarkdownEditor({
                 event
             ),
             selection,
-            selectionContext: { side: 'source' },
+            selectionContext: {
+                side: 'source',
+                translationContext: boundedSelectionTranslationContext(
+                    view,
+                    selection
+                ),
+            },
             copyTarget,
             sourceLocation: selectionSourceLocation(
                 currentSourceMap,
@@ -769,6 +796,7 @@ export function createInlineMarkdownEditor({
     parent.addEventListener('mouseup', openSelectedMarkdownActions, true);
     let currentSourceMap = [];
     let currentSourceActionRanges = null;
+    let openSelectionKey = null;
     const setDocument = ({
         markdown,
         annotationOverlay,
@@ -984,6 +1012,46 @@ function selectionSupportsSourceActions(selection, sourceActionRanges) {
             range.from >= sourceRange.from && range.to <= sourceRange.to
         ))
     ));
+}
+
+function markdownSelectionKey(selection) {
+    const ranges = Array.isArray(selection?.ranges)
+        ? selection.ranges
+        : [];
+    return [
+        String(selection?.text || ''),
+        ...ranges.map(range => `${range?.from}:${range?.to}`),
+    ].join('|');
+}
+
+function boundedSelectionTranslationContext(view, selection) {
+    const ranges = Array.isArray(selection?.ranges)
+        ? selection.ranges.filter(range => (
+            Number.isSafeInteger(range?.from)
+            && Number.isSafeInteger(range?.to)
+            && range.to > range.from
+            && range.from >= 0
+            && range.to <= view.state.doc.length
+        ))
+        : [];
+    if (!ranges.length) return '';
+    const from = Math.min(...ranges.map(range => range.from));
+    const to = Math.max(...ranges.map(range => range.to));
+    return view.state.sliceDoc(
+        Math.max(0, from - SELECTION_TRANSLATION_CONTEXT_RADIUS),
+        Math.min(
+            view.state.doc.length,
+            to + SELECTION_TRANSLATION_CONTEXT_RADIUS
+        )
+    );
+}
+
+function withoutSelectionTranslationContext(selectionContext) {
+    if (!selectionContext || typeof selectionContext !== 'object') {
+        return selectionContext;
+    }
+    const { translationContext, ...annotationContext } = selectionContext;
+    return annotationContext;
 }
 
 function markdownSelectionSide(selection, sourceActionRanges) {

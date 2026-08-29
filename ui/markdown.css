@@ -2395,6 +2395,50 @@ main {
     flex-wrap: wrap;
 }
 
+.mktero-selection-translation {
+    display: grid;
+    flex: 1 1 100%;
+    min-width: 220px;
+    gap: 6px;
+    padding-top: 7px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.mktero-selection-translation-status,
+.mktero-selection-translation-error {
+    max-width: min(520px, calc(100vw - 48px));
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.mktero-selection-translation-result {
+    max-width: min(520px, calc(100vw - 48px));
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.mktero-selection-translation-status {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.mktero-selection-translation-result {
+    color: var(--text);
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.mktero-selection-translation-error {
+    color: var(--error, #c62828);
+    font-size: 12px;
+}
+
+.mktero-selection-translation-actions {
+    display: flex;
+    gap: 4px;
+}
+
 .mktero-annotation-color-palette {
     display: flex;
     align-items: center;
@@ -2527,6 +2571,41 @@ main {
 .mktero-evidence-copy-icon {
     width: 16px;
     height: 16px;
+}
+
+.mktero-selection-translation-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.mktero-selection-translation-button {
+    display: inline-flex;
+    width: 25px;
+    height: 25px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    border: 1px solid transparent;
+    border-radius: 50%;
+    color: var(--muted);
+    background: transparent;
+    cursor: pointer;
+}
+
+.mktero-selection-translation-button:hover {
+    border-color: color-mix(in srgb, var(--text) 18%, transparent);
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.mktero-selection-translation-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.mktero-selection-translation-button:disabled {
+    cursor: progress;
+    opacity: 0.5;
 }
 
 .mktero-annotation-action-error {
