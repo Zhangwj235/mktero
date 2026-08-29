@@ -4,7 +4,7 @@ This file applies to the entire repository.
 
 ## Project overview
 
-Mktero is a restartless Zotero extension for Zotero 7 through 9. It reads a
+Mktero is a restartless Zotero extension for Zotero 7 through 10. It reads a
 local PDF attachment, sends the PDF to MinerU, and opens the returned Markdown
 and images in a read-only Zotero tab.
 

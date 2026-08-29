@@ -11,6 +11,9 @@ const MARKDOWN_HEADING_PATTERN = /^(#{1,6})[ \t]+.+$/gm;
 const NUMBERED_REFERENCE_PATTERN = /^[ \t]*(?:[-*+][ \t]+)?(?:\[(\d{1,4})\]|(\d{1,4})[.)])[ \t]+/gm;
 const MIN_NUMERIC_CITATION_STYLE_CONTAINERS = 2;
 const MIN_INFERRED_NUMBERED_REFERENCES = 3;
+const MIN_RESUMED_UNNUMBERED_REFERENCES = 3;
+const MAX_RESUMED_REFERENCE_PARAGRAPHS = 6;
+const MAX_REFERENCE_PREFIX_LENGTH = 1_024;
 const YEAR_PATTERN = /(?:^|[^\d])((?:18|19|20)\d{2}[a-z]?)(?=$|[^\d])/i;
 const UNICODE_SUPERSCRIPT_PATTERN = /[⁰¹²³⁴⁵⁶⁷⁸⁹]+(?:\s*(?:[,;，；]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+|[-–—⁻]\s*[⁰¹²³⁴⁵⁶⁷⁸⁹]+))*/g;
 const WRAPPED_SUPERSCRIPT_PATTERNS = [
@@ -426,6 +429,13 @@ function findReferenceSection(markdown) {
     followingHeadings.lastIndex = from;
     for (let heading = followingHeadings.exec(markdown); heading; heading = followingHeadings.exec(markdown)) {
         if (heading[1].length <= level) {
+            if (unnumberedReferencesResumeAfterHeading(
+                markdown,
+                heading,
+                level
+            )) {
+                continue;
+            }
             to = heading.index;
             break;
         }
@@ -438,6 +448,43 @@ function findReferenceSection(markdown) {
         return inferredSection;
     }
     return explicitSection;
+}
+
+function unnumberedReferencesResumeAfterHeading(markdown, heading, level) {
+    let from = heading.index + heading[0].length;
+    if (markdown[from] === '\r') from++;
+    if (markdown[from] === '\n') from++;
+    let to = markdown.length;
+    const followingHeadings = new RegExp(MARKDOWN_HEADING_PATTERN);
+    followingHeadings.lastIndex = from;
+    for (let next = followingHeadings.exec(markdown); next; next = followingHeadings.exec(markdown)) {
+        if (next[1].length <= level) {
+            to = next.index;
+            break;
+        }
+    }
+    const paragraphs = paragraphRanges(markdown, { from, to })
+        .slice(0, MAX_RESUMED_REFERENCE_PARAGRAPHS);
+    const firstReference = paragraphs.findIndex(range => (
+        looksLikeUnnumberedReference(markdown, range)
+    ));
+    if (firstReference < 0 || firstReference > 1) return false;
+    return paragraphs.filter(range => (
+        looksLikeUnnumberedReference(markdown, range)
+    )).length >= MIN_RESUMED_UNNUMBERED_REFERENCES;
+}
+
+function looksLikeUnnumberedReference(markdown, { from, to }) {
+    const prefix = plainReferenceText(markdown.slice(
+        from,
+        Math.min(to, from + MAX_REFERENCE_PREFIX_LENGTH)
+    ));
+    const year = /[（(]\s*(?:18|19|20)\d{2}[a-z]?\s*[)）]/iu.exec(prefix);
+    if (!year) return false;
+    const authors = prefix.slice(0, year.index).trim();
+    return /^\p{L}/u.test(authors)
+        && /[,，]/u.test(authors)
+        && /(?:[&＆]|\band\b|\p{L}\.)/iu.test(authors);
 }
 
 function inferNumberedReferenceSection(markdown) {
@@ -1151,6 +1198,11 @@ function referenceAuthorText(text, year) {
     if (parentheticalYear) return text.slice(0, parentheticalYear.index);
     const yearIndex = text.toLowerCase().indexOf(year);
     const beforeYear = yearIndex < 0 ? text : text.slice(0, yearIndex);
+    const quotedTitle = /(?:“[^”\r\n]{12,512}”|"[^"\r\n]{12,512}")/u
+        .exec(beforeYear);
+    if (quotedTitle && /\p{L}/u.test(beforeYear.slice(0, quotedTitle.index))) {
+        return beforeYear.slice(0, quotedTitle.index);
+    }
     let firstSentenceEnd = null;
     for (const sentenceEnd of beforeYear.matchAll(/[.。]\s+(?=\p{L})/gu)) {
         firstSentenceEnd ||= sentenceEnd;

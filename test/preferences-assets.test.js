@@ -23,12 +23,15 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
 
     assert.match(prefs, /pref\("extensions\.mktero\.mineruApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.cacheEnabled", true\)/);
-    assert.match(
+    assert.doesNotMatch(
         prefs,
         /pref\("extensions\.mktero\.semanticScholarApiKey", ""\)/
     );
-    assert.match(prefs, /pref\("extensions\.mktero\.openAlexApiKey", ""\)/);
-    assert.match(
+    assert.doesNotMatch(
+        prefs,
+        /pref\("extensions\.mktero\.openAlexApiKey", ""\)/
+    );
+    assert.doesNotMatch(
         prefs,
         /pref\("extensions\.mktero\.openCitationsAccessToken", ""\)/
     );
@@ -54,15 +57,19 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.doesNotMatch(pane, /preference="extensions\.mktero\.language"/);
     assert.match(pane, /preference="extensions\.mktero\.mineruApiKey"/);
     assert.match(pane, /preference="extensions\.mktero\.cacheEnabled"/);
-    assert.match(
+    assert.doesNotMatch(
         pane,
         /preference="extensions\.mktero\.semanticScholarApiKey"/
     );
-    assert.match(pane, /preference="extensions\.mktero\.openAlexApiKey"/);
-    assert.match(
+    assert.doesNotMatch(
+        pane,
+        /preference="extensions\.mktero\.openAlexApiKey"/
+    );
+    assert.doesNotMatch(
         pane,
         /preference="extensions\.mktero\.openCitationsAccessToken"/
     );
+    assert.doesNotMatch(pane, /id="mktero-citation-section"/);
     assert.match(pane, /preference="extensions\.mktero\.readerFontSize"/);
     assert.match(pane, /preference="extensions\.mktero\.readerFont"/);
     assert.match(pane, /preference="extensions\.mktero\.aiEnabled"/);
@@ -108,6 +115,9 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
         /locateTextQuote:\s*\(itemID, annotation\)[\s\S]*?pdfAnnotationLocator\.locateTextQuote\([\s\S]*?annotation\.text[\s\S]*?pdfPageIndexHint:\s*annotation\.pageIndex[\s\S]*?sortIndex:\s*annotation\.sortIndex/
     );
     assert.doesNotMatch(bootstrap, /observeMkteroLanguagePreference/);
+    assert.doesNotMatch(bootstrap, /getSemanticScholarAPIKey/);
+    assert.doesNotMatch(bootstrap, /getOpenAlexAPIKey/);
+    assert.doesNotMatch(bootstrap, /getOpenCitationsAccessToken/);
     assert.match(markdownView, /createInlineMarkdownEditor/);
     assert.doesNotMatch(markdownView, /'mktero-show-source'/);
     assert.match(markdownView, /'mktero-reparse'/);
@@ -138,11 +148,11 @@ test('ships responsive settings cards and a cache switch', async () => {
     assert.match(styles, /\.mktero-settings-card\s*\{[\s\S]*border-radius:/);
     assert.match(styles, /\.mktero-switch-input:checked\s*\+\s*\.mktero-switch/);
     assert.match(styles, /\.mktero-switch::before/);
-    assert.match(
+    assert.doesNotMatch(
         styles,
         /#mktero-semantic-scholar-api-key\s*\{[\s\S]*?font-variant-ligatures:\s*none/s
     );
-    assert.match(
+    assert.doesNotMatch(
         styles,
         /#mktero-openalex-api-key,[\s\S]*?#mktero-open-citations-access-token[\s\S]*?font-variant-ligatures:\s*none/s
     );
@@ -232,13 +242,13 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
         (pane.match(
             /class="mktero-setting-row mktero-(?:field|reader-font)-row"/g
         ) || []).length,
-        14
+        11
     );
     assert.equal(
         (pane.match(
             /<html:div class="mktero-(?:field|reader-font)-control(?: [^"]+)?">/g
         ) || []).length,
-        14
+        11
     );
 });
 
@@ -286,8 +296,8 @@ test('presents every preference group as one cohesive settings card', async () =
         readFile(new URL('../ui/preferences.css', import.meta.url), 'utf8'),
     ]);
 
-    assert.equal((pane.match(/class="mktero-settings-card"/g) || []).length, 5);
-    assert.equal((pane.match(/class="mktero-preferences-section"/g) || []).length, 5);
+    assert.equal((pane.match(/class="mktero-settings-card"/g) || []).length, 4);
+    assert.equal((pane.match(/class="mktero-preferences-section"/g) || []).length, 4);
     assert.match(
         pane,
         /id="mktero-mineru-api-key"[\s\S]*aria-describedby="mktero-token-help mktero-token-storage-note"/

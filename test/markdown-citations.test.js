@@ -137,6 +137,30 @@ test('maps superscript citations to bare numbered references', () => {
     );
 });
 
+test('extracts IEEE authors before a quoted article title', () => {
+    const reference = 'Y. Li, L. Wang, W. Zheng, Y. Zong, L. Qi, Z. Cui, '
+        + 'T. Zhang, and T. Song, “A novel bi-hemispheric discrepancy model '
+        + 'for eeg emotion recognition,” IEEE Transactions on Cognitive and '
+        + 'Developmental Systems, vol. 13, no. 2, pp. 354–367, 2020.';
+    const markdown = [
+        '# STRAViT',
+        '',
+        'The model captures asymmetric emotional responses [13].',
+        '',
+        '## References',
+        '',
+        `[13] ${reference}`,
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.equal(result.references[0].text, reference);
+    assert.equal(
+        result.references[0].authorSearchText,
+        'y li l wang w zheng y zong l qi z cui t zhang and t song'
+    );
+});
+
 test('skips a leading image before separating byline markers from citations', () => {
     const markdown = [
         '# Paper',
@@ -1508,6 +1532,80 @@ test('matches parenthetical and narrative author-year citations', () => {
             },
         ]
     );
+});
+
+test('continues an author-year reference list after an embedded author note', () => {
+    const citation = '(Blood & Zatorre, 2001; Blood et al., 1999; '
+        + 'Koelsch, Fritz, Schulze, Alsop, & Schlaug, 2005; '
+        + 'Koelsch et al., 2006; Menon & Levitin, 2005)';
+    const markdown = [
+        '# The Music USE (MUSE) Questionnaire',
+        '',
+        `Affective functions involve several brain systems ${citation}.`,
+        '',
+        '## References',
+        '',
+        'BLOOD, A. J., & ZATORRE, R. J. (2001). Intensely pleasurable '
+            + 'responses to music correlate with activity in brain regions.',
+        '',
+        'BLOOD, A. J., ZATORRE, R. J., BERMUDEZ, P., & EVANS, A. C. '
+            + '(1999). Emotional responses to pleasant and unpleasant music.',
+        '',
+        'Correspondence should be addressed to the authors.',
+        '',
+        '## Author Note',
+        '',
+        'KOELSCH, S., FRITZ, T., SCHULZE, K., ALSOP, D., & SCHLAUG, G. '
+            + '(2005). Adults and children processing music.',
+        '',
+        'KOELSCH, S., FRITZ, T., VON CRAMON, D. Y., MULLER, K., '
+            + '& FRIEDERICI, A. D. (2006). Investigating emotion with music.',
+        '',
+        'MENON, V., & LEVITIN, D. J. (2005). The rewards of music listening.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.equal(result.citations.length, 1);
+    assert.equal(
+        markdown.slice(result.citations[0].from, result.citations[0].to),
+        citation
+    );
+    assert.deepEqual(result.citations[0].references.map(reference => (
+        reference.text.match(/^\p{L}+/u)?.[0]
+    )), [
+        'BLOOD',
+        'BLOOD',
+        'KOELSCH',
+        'KOELSCH',
+        'MENON',
+    ]);
+});
+
+test('stops an author-year reference list at a genuine author note', () => {
+    const markdown = [
+        '# Paper',
+        '',
+        'Prior work established the result (Blood & Zatorre, 2001).',
+        '',
+        '## References',
+        '',
+        'BLOOD, A. J., & ZATORRE, R. J. (2001). A reference entry.',
+        '',
+        '## Author Note',
+        '',
+        'Nikki S. Rickard (2024) prepared the archived materials.',
+        '',
+        'Alice B. Cooper (2023) reviewed the questionnaire materials.',
+        '',
+        'Thomas C. Chin (2022) prepared the supplementary files.',
+    ].join('\n');
+
+    const result = analyzeMarkdownCitations(markdown);
+
+    assert.equal(result.references.length, 1);
+    assert.equal(result.references[0].text,
+        'BLOOD, A. J., & ZATORRE, R. J. (2001). A reference entry.');
 });
 
 test('matches initials-first author-year references with trailing years', () => {

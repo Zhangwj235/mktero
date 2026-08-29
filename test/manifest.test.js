@@ -15,8 +15,8 @@ const packageLock = JSON.parse(await readFile(
     'utf8'
 ));
 
-test('allows installation on the tested Zotero 9 minor version', () => {
-    assert.equal(manifest.applications.zotero.strict_max_version, '9.0.*');
+test('allows installation on the tested Zotero 10 minor version', () => {
+    assert.equal(manifest.applications.zotero.strict_max_version, '10.0.*');
 });
 
 test('provides the update URL required by Zotero 9', () => {
@@ -36,7 +36,7 @@ test('declares the scalable Mktero logo for extension surfaces', () => {
 });
 
 test('keeps the installable package version metadata consistent', () => {
-    assert.equal(manifest.version, '0.3.2');
+    assert.equal(manifest.version, '0.3.3');
     assert.equal(packageMetadata.version, manifest.version);
     assert.equal(packageLock.version, manifest.version);
     assert.equal(packageLock.packages[''].version, manifest.version);

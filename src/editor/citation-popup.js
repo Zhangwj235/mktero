@@ -57,8 +57,6 @@ export function createCitationPopup(parent, {
         let unsubscribeUpdates = null;
         let destroyLibraryPicker = null;
         let libraryPicker = null;
-        let batchControls = null;
-        let batchBusy = false;
 
         const isCurrent = expectedGeneration => (
             activeController === controller
@@ -85,53 +83,6 @@ export function createCitationPopup(parent, {
                     t,
                 });
             }
-            updateBatchControls(batchControls, rows, batchBusy, t);
-        };
-        const handleRowSelection = (target, checked) => {
-            const row = rows.find(candidate => candidate.target === target);
-            if (!row?.selectable || batchBusy) return;
-            row.selectionTouched = true;
-            row.selected = Boolean(checked);
-            row.checkbox.checked = row.selected;
-            updateBatchControls(batchControls, rows, batchBusy, t);
-        };
-        const handleSelectAll = checked => {
-            if (batchBusy) return;
-            for (const row of rows) {
-                if (!row.selectable) continue;
-                row.selectionTouched = true;
-                row.selected = Boolean(checked);
-                row.checkbox.checked = row.selected;
-            }
-            updateBatchControls(batchControls, rows, batchBusy, t);
-        };
-        const importSelected = async () => {
-            if (batchBusy) return;
-            const selectedRows = rows.filter(row => (
-                row.selectable && row.selected
-            ));
-            if (!selectedRows.length || typeof onImportReference !== 'function') {
-                return;
-            }
-            const batchLibraryID = selectedLibraryID;
-            batchBusy = true;
-            libraryPicker?.setDisabled?.(true);
-            updateBatchControls(batchControls, rows, batchBusy, t);
-            for (const row of selectedRows) row.checkbox.disabled = true;
-            await runBatchReferenceImports(selectedRows, {
-                selectedLibraryID: () => batchLibraryID,
-                onSearchReferenceMetadata,
-                onImportReference,
-                onOpenReferenceMatch,
-                controller,
-                t,
-            });
-            batchBusy = false;
-            libraryPicker?.setDisabled?.(false);
-            for (const row of rows) {
-                row.syncSelectionAvailability?.();
-            }
-            updateBatchControls(batchControls, rows, batchBusy, t);
         };
         const loadLibraries = async () => {
             if (typeof onListReferenceLibraries !== 'function') return;
@@ -192,16 +143,7 @@ export function createCitationPopup(parent, {
                         readOnlyLabel: t('reference.readOnly'),
                     });
                     destroyLibraryPicker = libraryPicker.destroy;
-                    batchControls = createBatchControls(document, {
-                        t,
-                        onToggleAll: handleSelectAll,
-                        onImport: importSelected,
-                    });
-                    header.append(
-                        batchControls.selectAllLabel,
-                        libraryPicker.element,
-                        batchControls.importButton
-                    );
+                    header.appendChild(libraryPicker.element);
                     contentRoot.appendChild(header);
                 }
                 rows = targets.map(target => createCitationItem({
@@ -209,11 +151,6 @@ export function createCitationPopup(parent, {
                     target,
                     close,
                     onActivate,
-                    onSelectionChange: handleRowSelection,
-                    isBatchBusy: () => batchBusy,
-                    onSelectionStateChange: () => (
-                        updateBatchControls(batchControls, rows, batchBusy, t)
-                    ),
                     t,
                     rowOptions: {
                         selectedLibraryID: () => selectedLibraryID,
@@ -228,7 +165,6 @@ export function createCitationPopup(parent, {
                     },
                 }));
                 for (const row of rows) contentRoot.appendChild(row.element);
-                updateBatchControls(batchControls, rows, batchBusy, t);
                 void loadLibraries();
                 if (typeof onGetReferenceStatus === 'function') refreshRows();
                 if (typeof onSubscribeReferenceUpdates === 'function') {
@@ -262,25 +198,11 @@ function createCitationItem({
     target,
     close,
     onActivate,
-    onSelectionChange,
-    isBatchBusy = () => false,
-    onSelectionStateChange,
     t,
     rowOptions,
 }) {
     const element = createElement(document, 'div');
     element.className = 'mktero-citation-popup-item';
-    const checkbox = createElement(document, 'input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'mktero-citation-popup-reference-checkbox';
-    checkbox.disabled = true;
-    checkbox.setAttribute(
-        'aria-label',
-        t('reference.select', { text: target.text })
-    );
-    checkbox.addEventListener('change', () => {
-        onSelectionChange?.(target, checkbox.checked);
-    });
     const primary = createElement(document, 'button');
     primary.type = 'button';
     primary.className = 'mktero-citation-popup-primary';
@@ -335,24 +257,8 @@ function createCitationItem({
         status,
         action,
         candidatePanel,
-        checkbox,
-        selectable: false,
-        selected: false,
-        selectionTouched: false,
-        syncSelectionAvailability() {
-            checkbox.disabled = !row.selectable || isBatchBusy();
-            if (!row.selectable) {
-                row.selected = false;
-                checkbox.checked = false;
-            }
-            else if (!row.selectionTouched) {
-                row.selected = false;
-                checkbox.checked = false;
-            }
-            onSelectionStateChange?.();
-        },
     };
-    element.append(checkbox, primary, controls, candidatePanel);
+    element.append(primary, controls, candidatePanel);
     return row;
 }
 
@@ -371,8 +277,6 @@ async function updateReferenceRow({
     t,
 }) {
     if (!row?.status || !isReferenceTarget(target)) return;
-    row.selectable = false;
-    row.syncSelectionAvailability?.();
     setStatus(row, 'checking', t);
     if (typeof onGetReferenceStatus !== 'function') {
         setStatus(row, 'unknown', t);
@@ -442,6 +346,7 @@ function applyStatus(row, result, {
     row.status.dataset.state = state;
     row.action.hidden = true;
     row.action.disabled = false;
+    row.action.setAttribute('aria-busy', 'false');
     row.action.textContent = '';
     row.action._mkteroAction = null;
     row.action._mkteroActionKind = null;
@@ -508,28 +413,40 @@ function applyStatus(row, result, {
             isCurrent
         );
     }
-    else if (state === 'unknown'
-        && typeof onSearchReferenceMetadata === 'function') {
+    else if (state === 'absent'
+        && result?.canImport !== false
+        && typeof onImportReference === 'function') {
         configureAction(
             row.action,
-            Array.isArray(result?.candidates) && result.candidates.length
-                ? t('reference.reviewMatches')
-                : t('reference.searchMetadata'),
-            () => onSearchReferenceMetadata(target, {
+            t('reference.import'),
+            () => onImportReference(target, {
                 targetLibraryID: selectedLibraryID,
                 signal: controller.signal,
             }),
-            'resolve',
+            'import',
             generation,
             isCurrent
         );
     }
-    row.selectable = (
-        state === 'absent'
-        && result?.canImport !== false
-        && typeof onImportReference === 'function'
-    ) || row.action._mkteroActionKind === 'import';
-    row.syncSelectionAvailability?.();
+    else if (state === 'unknown'
+        && typeof onSearchReferenceMetadata === 'function') {
+        const resolveAndImport = typeof onImportReference === 'function';
+        configureAction(
+            row.action,
+            Array.isArray(result?.candidates) && result.candidates.length
+                ? t('reference.reviewMatches')
+                : t(resolveAndImport
+                    ? 'reference.import'
+                    : 'reference.searchMetadata'),
+            () => onSearchReferenceMetadata(target, {
+                targetLibraryID: selectedLibraryID,
+                signal: controller.signal,
+            }),
+            resolveAndImport ? 'resolve-import' : 'resolve',
+            generation,
+            isCurrent
+        );
+    }
 }
 
 function clearMetadataCandidates(row) {
@@ -590,23 +507,28 @@ async function confirmMetadataCandidate(candidate, {
     onSearchReferenceMetadata,
     onImportReference,
     onOpenReferenceMatch,
+    importAfterConfirm = false,
     t,
 }) {
     if (!isCurrent?.(generation) || controller.signal?.aborted) return;
-    const identifiers = candidate?.identifiers || {};
-    target.identifiers = {
-        ...(target.identifiers || {}),
-        ...Object.fromEntries([
-            'doi',
-            'arxivID',
-            'pmid',
-            'openAlexID',
-            'pdfURL',
-        ].map(type => [type, identifiers[type] || target.identifiers?.[type] || ''])),
-    };
-    if (candidate?.metadata) target.metadata = candidate.metadata;
+    applyMetadataCandidate(target, candidate);
     clearMetadataCandidates(row);
-    row.action.disabled = true;
+    if (importAfterConfirm && typeof onImportReference === 'function') {
+        await importResolvedReference({
+            row,
+            target,
+            selectedLibraryID,
+            controller,
+            generation,
+            isCurrent,
+            onSearchReferenceMetadata,
+            onImportReference,
+            onOpenReferenceMatch,
+            t,
+        });
+        return;
+    }
+    setActionBusy(row, true);
     row.status.textContent = t('reference.checking');
     row.status.dataset.state = 'checking';
     await updateReferenceRow({
@@ -623,6 +545,83 @@ async function confirmMetadataCandidate(candidate, {
         close: () => {},
         t,
     });
+}
+
+function applyMetadataCandidate(target, candidate) {
+    const identifiers = candidate?.identifiers || {};
+    target.identifiers = {
+        ...(target.identifiers || {}),
+        ...Object.fromEntries([
+            'doi',
+            'arxivID',
+            'pmid',
+            'openAlexID',
+            'pdfURL',
+        ].map(type => [type, identifiers[type] || target.identifiers?.[type] || ''])),
+    };
+    if (candidate?.metadata) target.metadata = candidate.metadata;
+}
+
+async function importResolvedReference({
+    row,
+    target,
+    selectedLibraryID,
+    controller,
+    generation,
+    isCurrent,
+    onSearchReferenceMetadata,
+    onImportReference,
+    onOpenReferenceMatch,
+    t,
+}) {
+    const libraryID = selectedLibraryID();
+    setActionBusy(row, true);
+    row.action.textContent = t('reference.importing');
+    row.status.textContent = t('reference.importing');
+    row.status.dataset.state = 'importing';
+    try {
+        const result = await onImportReference(target, {
+            targetLibraryID: libraryID,
+            signal: controller.signal,
+        });
+        if (!isCurrent?.(generation)) return;
+        applyStatus(row, result || { state: 'imported' }, {
+            target,
+            selectedLibraryID: libraryID,
+            onSearchReferenceMetadata,
+            onImportReference,
+            onOpenReferenceMatch,
+            close: () => {},
+            controller,
+            generation,
+            isCurrent,
+            t,
+        });
+    }
+    catch (error) {
+        if (error?.name === 'AbortError' || !isCurrent?.(generation)) return;
+        applyStatus(row, {
+            state: 'failed',
+            canImport: true,
+            errorCode: error?.code,
+        }, {
+            target,
+            selectedLibraryID: libraryID,
+            onSearchReferenceMetadata,
+            onImportReference,
+            onOpenReferenceMatch,
+            close: () => {},
+            controller,
+            generation,
+            isCurrent,
+            t,
+        });
+    }
+}
+
+function setActionBusy(row, busy) {
+    row.action.disabled = busy;
+    row.action.setAttribute('aria-busy', String(busy));
 }
 
 function firstCandidateIdentifier(identifiers) {
@@ -659,8 +658,11 @@ async function runReferenceAction({ target, row, options }) {
             options.close?.();
             return;
         }
-        if (row.action._mkteroActionKind === 'resolve') {
-            row.action.disabled = true;
+        if (row.action._mkteroActionKind === 'resolve'
+            || row.action._mkteroActionKind === 'resolve-import') {
+            const resolveAndImport = row.action._mkteroActionKind
+                === 'resolve-import';
+            setActionBusy(row, true);
             row.action.textContent = t('reference.searchingMetadata');
             row.status.textContent = t('reference.searchingMetadata');
             row.status.dataset.state = 'checking';
@@ -672,8 +674,7 @@ async function runReferenceAction({ target, row, options }) {
             if (actionGeneration !== null
                 && actionGeneration !== undefined
                 && !options.isCurrent?.(actionGeneration)) return;
-            row.action.disabled = false;
-            renderMetadataCandidates(row, result?.candidates, {
+            const candidateOptions = {
                 row,
                 target,
                 selectedLibraryID,
@@ -684,8 +685,18 @@ async function runReferenceAction({ target, row, options }) {
                 onSearchReferenceMetadata,
                 onImportReference,
                 onOpenReferenceMatch,
+                importAfterConfirm: resolveAndImport,
                 t,
-            });
+            };
+            if (resolveAndImport && result?.automaticCandidate) {
+                await confirmMetadataCandidate(
+                    result.automaticCandidate,
+                    candidateOptions
+                );
+                return;
+            }
+            setActionBusy(row, false);
+            renderMetadataCandidates(row, result?.candidates, candidateOptions);
             if (result?.candidates?.length) {
                 row.status.textContent = t('reference.chooseMetadata');
                 row.status.dataset.state = 'unknown';
@@ -695,11 +706,13 @@ async function runReferenceAction({ target, row, options }) {
             else {
                 row.status.textContent = t('reference.noMetadataMatches');
                 row.status.dataset.state = 'unknown';
-                row.action.textContent = t('reference.searchMetadata');
+                row.action.textContent = t(resolveAndImport
+                    ? 'reference.import'
+                    : 'reference.searchMetadata');
             }
             return;
         }
-        row.action.disabled = true;
+        setActionBusy(row, true);
         row.action.textContent = t('reference.importing');
         row.status.textContent = t('reference.importing');
         row.status.dataset.state = 'importing';
@@ -731,124 +744,13 @@ async function runReferenceAction({ target, row, options }) {
         if (actionGeneration !== null
             && actionGeneration !== undefined
             && !options.isCurrent?.(actionGeneration)) return;
-        row.action.disabled = false;
+        setActionBusy(row, false);
         row.action.hidden = false;
         row.action.textContent = row.action._mkteroActionLabel
             || t('reference.retry');
         row.status.textContent = errorLabel(error?.code, t);
         row.status.dataset.state = 'failed';
     }
-}
-
-async function runBatchReferenceImports(rows, {
-    selectedLibraryID,
-    onSearchReferenceMetadata,
-    onImportReference,
-    onOpenReferenceMatch,
-    controller,
-    t,
-}) {
-    const workerCount = Math.min(3, rows.length);
-    let nextIndex = 0;
-    const worker = async () => {
-        while (nextIndex < rows.length) {
-            const row = rows[nextIndex++];
-            if (controller.signal?.aborted) return;
-            row.status.textContent = t('reference.importing');
-            row.status.dataset.state = 'importing';
-            row.action.hidden = true;
-            try {
-                const result = await onImportReference(row.target, {
-                    targetLibraryID: selectedLibraryID(),
-                    signal: controller.signal,
-                });
-                if (controller.signal?.aborted) return;
-                applyStatus(row, result || { state: 'imported' }, {
-                    target: row.target,
-                    selectedLibraryID: selectedLibraryID(),
-                    onSearchReferenceMetadata,
-                    onImportReference,
-                    onOpenReferenceMatch,
-                    close: () => {},
-                    controller,
-                    generation: null,
-                    isCurrent: () => !controller.signal?.aborted,
-                    t,
-                });
-            }
-            catch (error) {
-                if (error?.name === 'AbortError'
-                    || controller.signal?.aborted) return;
-                applyStatus(row, {
-                    state: 'failed',
-                    canImport: true,
-                    errorCode: error?.code,
-                }, {
-                    target: row.target,
-                    selectedLibraryID: selectedLibraryID(),
-                    onSearchReferenceMetadata,
-                    onImportReference,
-                    onOpenReferenceMatch,
-                    close: () => {},
-                    controller,
-                    generation: null,
-                    isCurrent: () => !controller.signal?.aborted,
-                    t,
-                });
-            }
-        }
-    };
-    await Promise.all(Array.from({ length: workerCount }, worker));
-}
-
-function createBatchControls(document, {
-    t,
-    onToggleAll,
-    onImport,
-}) {
-    const selectAllLabel = createElement(document, 'label');
-    selectAllLabel.className = 'mktero-citation-popup-select-all-label';
-    const selectAll = createElement(document, 'input');
-    selectAll.type = 'checkbox';
-    selectAll.className = 'mktero-citation-popup-select-all';
-    selectAll.setAttribute('aria-label', t('reference.selectAll'));
-    selectAll.addEventListener('change', () => {
-        onToggleAll?.(selectAll.checked);
-    });
-    selectAllLabel.append(selectAll);
-    const importButton = createElement(document, 'button');
-    importButton.type = 'button';
-    importButton.className = 'mktero-citation-popup-batch-import';
-    importButton.disabled = true;
-    importButton.appendChild(createLucideIcon(
-        document,
-        LUCIDE_ICONS.download,
-        {
-            className: 'mktero-citation-popup-batch-import-icon',
-            size: 16,
-        }
-    ));
-    importButton.addEventListener('click', () => {
-        void onImport?.();
-    });
-    return { selectAllLabel, selectAll, importButton };
-}
-
-function updateBatchControls(controls, rows, batchBusy, t) {
-    if (!controls) return;
-    const selectableRows = rows.filter(row => row.selectable);
-    const selectedRows = selectableRows.filter(row => row.selected);
-    const selectedCount = selectedRows.length;
-    controls.selectAll.disabled = !selectableRows.length || batchBusy;
-    controls.selectAll.checked = selectableRows.length > 0
-        && selectedCount === selectableRows.length;
-    controls.selectAll.indeterminate = selectedCount > 0
-        && selectedCount < selectableRows.length;
-    controls.importButton.disabled = selectedCount === 0 || batchBusy;
-    controls.importButton.setAttribute('aria-busy', String(batchBusy));
-    const label = t('reference.importSelected', { count: selectedCount });
-    controls.importButton.setAttribute('aria-label', label);
-    controls.importButton.title = label;
 }
 
 function configureAction(
@@ -861,6 +763,7 @@ function configureAction(
 ) {
     button.hidden = false;
     button.textContent = label;
+    button.setAttribute('aria-busy', 'false');
     button._mkteroAction = action;
     button._mkteroActionKind = kind;
     button._mkteroActionGeneration = generation;
@@ -872,6 +775,7 @@ function setStatus(row, state, t) {
     row.status.textContent = statusLabel(state, t);
     row.status.dataset.state = state;
     row.action.hidden = true;
+    row.action.setAttribute('aria-busy', 'false');
     row.action._mkteroAction = null;
     row.action._mkteroActionKind = null;
     row.action._mkteroActionGeneration = null;
@@ -960,7 +864,6 @@ function createLibraryPicker(document, {
     let selectedLibraryID = null;
     let onChange = null;
     let open = false;
-    let forceDisabled = false;
 
     const optionButtons = () => [...options.querySelectorAll(
         '.mktero-citation-popup-library-option'
@@ -1005,7 +908,7 @@ function createLibraryPicker(document, {
         if (visible && focusLibraryID !== null) focusOption(focusLibraryID);
     };
     const syncDisabled = () => {
-        trigger.disabled = forceDisabled || !availableLibraries.length;
+        trigger.disabled = !availableLibraries.length;
         if (trigger.disabled) setOpen(false);
     };
 
@@ -1215,17 +1118,11 @@ function createLibraryPicker(document, {
     document.defaultView?.addEventListener('resize', positionOptions);
     document.defaultView?.addEventListener('scroll', positionOptions, true);
 
-    const setDisabled = disabled => {
-        forceDisabled = Boolean(disabled);
-        syncDisabled();
-    };
-
     return {
         element: picker,
         trigger,
         render,
         renderError,
-        setDisabled,
         destroy,
     };
 }

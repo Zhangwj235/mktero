@@ -40,6 +40,8 @@ export class ZoteroReferenceLibrary {
         this.index = null;
         this.refreshEntry = null;
         this.invalidated = true;
+        // Zotero may save a PDF child while an index build is already running.
+        this.invalidationRevision = 0;
         this.disposed = false;
     }
 
@@ -80,34 +82,42 @@ export class ZoteroReferenceLibrary {
     invalidate() {
         if (this.disposed) return;
         this.invalidated = true;
+        this.invalidationRevision++;
     }
 
     async refreshIndex({ signal } = {}) {
         this.#assertActive();
-        throwIfAborted(signal);
-        let entry = this.refreshEntry;
-        if (!entry) {
-            const controller = this.createAbortController();
-            entry = {
-                controller,
-                promise: null,
-                waiters: 0,
-                settled: false,
-            };
-            entry.promise = this.#buildIndex(controller.signal).finally(() => {
-                entry.settled = true;
-                if (this.refreshEntry === entry) this.refreshEntry = null;
-            });
-            this.refreshEntry = entry;
-        }
-        entry.waiters++;
-        try {
-            return await awaitWithAbort(entry.promise, signal);
-        }
-        finally {
-            entry.waiters--;
-            if (!entry.waiters && !entry.settled) {
-                entry.controller.abort?.();
+        while (true) {
+            throwIfAborted(signal);
+            let entry = this.refreshEntry;
+            if (!entry) {
+                const controller = this.createAbortController();
+                const revision = this.invalidationRevision;
+                entry = {
+                    controller,
+                    promise: null,
+                    waiters: 0,
+                    settled: false,
+                };
+                entry.promise = this.#buildIndex(
+                    controller.signal,
+                    revision
+                ).finally(() => {
+                    entry.settled = true;
+                    if (this.refreshEntry === entry) this.refreshEntry = null;
+                });
+                this.refreshEntry = entry;
+            }
+            entry.waiters++;
+            try {
+                const index = await awaitWithAbort(entry.promise, signal);
+                if (!this.invalidated) return index;
+            }
+            finally {
+                entry.waiters--;
+                if (!entry.waiters && !entry.settled) {
+                    entry.controller.abort?.();
+                }
             }
         }
     }
@@ -469,9 +479,10 @@ export class ZoteroReferenceLibrary {
         this.refreshEntry = null;
         this.index = null;
         this.invalidated = true;
+        this.invalidationRevision++;
     }
 
-    async #buildIndex(signal) {
+    async #buildIndex(signal, revision) {
         const libraries = await this.listLibraries({ signal });
         const byIdentifier = new Map();
         const byTitle = new Map();
@@ -507,7 +518,9 @@ export class ZoteroReferenceLibrary {
         }
         throwIfAborted(signal);
         this.index = { byIdentifier, byTitle, libraries };
-        this.invalidated = false;
+        if (this.invalidationRevision === revision) {
+            this.invalidated = false;
+        }
         return this.index;
     }
 

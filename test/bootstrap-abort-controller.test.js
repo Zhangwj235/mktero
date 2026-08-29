@@ -235,13 +235,13 @@ test('owns citation graph requests across refresh, window unload, and shutdown',
         && !String(request.options.body || '').includes('LOCAL-ITEM-KEY')
     )));
     assert.ok(requestsByProvider['semantic-scholar'].every(request => (
-        request.options.headers['x-api-key'] === 'semantic-secret'
+        !request.options.headers['x-api-key']
     )));
     assert.ok(requestsByProvider['open-citations'].every(request => (
-        request.options.headers.authorization === 'open-citations-secret'
+        !request.options.headers.authorization
     )));
     assert.ok(requestsByProvider.openalex.every(request => (
-        new URL(request.url).searchParams.get('api_key') === 'openalex-secret'
+        !new URL(request.url).searchParams.has('api_key')
     )));
     assert.ok(errors.every(error => (
         !String(error?.message || error).includes('semantic-secret')

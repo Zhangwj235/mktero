@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
+import { OpenAlexClient } from '../src/citations/openalex-client.js';
+import {
+    createReferenceImportService,
+} from '../src/core/reference-import-service.js';
 import { createCitationPopup } from '../src/editor/citation-popup.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
@@ -35,6 +39,10 @@ function reference() {
 
 function nextTask() {
     return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function jsonResponse(value, status = 200, headers = {}) {
+    return new Response(JSON.stringify(value), { status, headers });
 }
 
 test('renders XHTML controls and closes after opening a Zotero match', async () => {
@@ -80,7 +88,7 @@ test('renders XHTML controls and closes after opening a Zotero match', async () 
     dom.window.close();
 });
 
-test('keeps row navigation separate from the batch import action', async () => {
+test('offers a per-row import action without batch selection controls', async () => {
     const { dom, document, parent, anchor } = createHarness();
     let activated = 0;
     let imported = 0;
@@ -112,29 +120,30 @@ test('keeps row navigation separate from the batch import action', async () => {
 
     const row = document.querySelector('.mktero-citation-popup-item');
     const action = document.querySelector('.mktero-citation-popup-action');
-    const selectAll = document.querySelector(
-        '.mktero-citation-popup-select-all'
-    );
     const libraryPicker = document.querySelector(
         '.mktero-citation-popup-library-picker'
     );
-    const importButton = document.querySelector(
-        '.mktero-citation-popup-batch-import'
-    );
-    assert.equal(row.querySelectorAll('button:not([hidden])').length, 1);
+    assert.equal(row.querySelectorAll('button:not([hidden])').length, 2);
     assert.equal(row.querySelector('button')?.parentElement, row);
-    assert.equal(action.hidden, true);
+    assert.equal(action.hidden, false);
+    assert.equal(action.textContent, 'Import reference');
     assert.deepEqual(
         [...document.querySelector('.mktero-citation-popup-header').children],
-        [selectAll.parentElement, libraryPicker, importButton]
+        [libraryPicker]
     );
-    assert.equal(selectAll.parentElement.textContent, '');
-    assert.equal(selectAll.checked, false);
-    assert.equal(importButton.disabled, true);
-    assert.equal(importButton.textContent, '');
-    selectAll.click();
-    assert.equal(importButton.disabled, false);
-    importButton.click();
+    assert.equal(
+        document.querySelector('.mktero-citation-popup-select-all'),
+        null
+    );
+    assert.equal(
+        document.querySelector('.mktero-citation-popup-batch-import'),
+        null
+    );
+    assert.equal(
+        document.querySelector('.mktero-citation-popup-reference-checkbox'),
+        null
+    );
+    action.click();
     await nextTask();
     assert.equal(imported, 1);
     assert.equal(activated, 0);
@@ -143,7 +152,7 @@ test('keeps row navigation separate from the batch import action', async () => {
     dom.window.close();
 });
 
-test('lets the user review and confirm metadata before enabling import', async () => {
+test('lets the user review uncertain metadata before importing', async () => {
     const { dom, document, parent, anchor } = createHarness();
     const target = {
         id: 'number:title-only',
@@ -204,7 +213,7 @@ test('lets the user review and confirm metadata before enabling import', async (
 
     const action = document.querySelector('.mktero-citation-popup-action');
     assert.equal(action.hidden, false);
-    assert.equal(action.textContent, 'Find metadata');
+    assert.equal(action.textContent, 'Import reference');
     action.click();
     await nextTask();
     assert.equal(searched.length, 1);
@@ -222,17 +231,263 @@ test('lets the user review and confirm metadata before enabling import', async (
     assert.equal(target.identifiers.doi, '10.1000/confirmed');
     assert.equal(target.identifiers.openAlexID, 'W42');
     assert.equal(target.metadata.itemType, 'book');
-    assert.equal(imported, 0);
+    assert.equal(imported, 1);
     assert.equal(
         document.querySelector('.mktero-citation-popup-status').dataset.state,
-        'absent'
+        'imported'
     );
-    const checkbox = document.querySelector(
-        '.mktero-citation-popup-reference-checkbox'
+    assert.equal(
+        document.querySelector('.mktero-citation-popup-reference-checkbox'),
+        null
     );
-    assert.equal(checkbox.disabled, false);
     assert.equal(document.querySelector('.mktero-citation-popup-candidates').hidden,
         true);
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('imports a unique exact metadata match from one row action', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const target = {
+        id: 'number:exact-title',
+        number: 1,
+        text: 'Doe. An exact paper. 2024.',
+        year: 2024,
+        authorSearchText: 'doe',
+        identifiers: {},
+    };
+    const exactCandidate = {
+        source: 'openalex',
+        paperID: 'W42',
+        title: 'An exact paper',
+        year: 2024,
+        matchConfidence: 'exact',
+        identifiers: {
+            doi: '10.1000/exact',
+            openAlexID: 'W42',
+        },
+    };
+    let searches = 0;
+    const imported = [];
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [target],
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async reference => reference.identifiers?.doi
+            ? { state: 'absent', canImport: true }
+            : { state: 'unknown', canImport: false },
+        onSearchReferenceMetadata: async () => {
+            searches++;
+            return {
+                candidates: [exactCandidate],
+                automaticCandidate: exactCandidate,
+            };
+        },
+        onImportReference: async reference => {
+            imported.push(reference.identifiers.doi);
+            return { state: 'imported' };
+        },
+    });
+    await nextTask();
+    await nextTask();
+
+    const action = document.querySelector('.mktero-citation-popup-action');
+    assert.equal(action.textContent, 'Import reference');
+    action.click();
+    await nextTask();
+    await nextTask();
+
+    assert.equal(searches, 1);
+    assert.deepEqual(imported, ['10.1000/exact']);
+    assert.equal(target.identifiers.openAlexID, 'W42');
+    assert.equal(
+        document.querySelector('.mktero-citation-popup-status').dataset.state,
+        'imported'
+    );
+    assert.equal(document.querySelector('.mktero-citation-popup-candidates').hidden,
+        true);
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('imports the wrist-wearable citation with one click despite year drift', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const target = {
+        id: 'number:11',
+        number: 11,
+        text: 'Shilaih, M.; Goodale, B.M.; Falco, L.; Kübler, F.; '
+            + 'De Clerck, V.; Leeners, B. Modern fertility awareness methods: '
+            + 'Wrist wearables capture the changes of temperature associated '
+            + 'with the menstrual cycle. Biosci. Rep. 2018, 38, '
+            + 'BSR20171279. [CrossRef]',
+        year: 2018,
+        authorSearchText: 'shilaih m goodale b m falco l kubler f de clerck v '
+            + 'leeners b',
+        identifiers: {},
+    };
+    const metadataClient = new OpenAlexClient({
+        fetch: async url => {
+            const parsed = new URL(url);
+            if (parsed.searchParams.has('filter')) {
+                return jsonResponse({ results: [] });
+            }
+            return jsonResponse({ results: [{
+                id: 'https://openalex.org/W2768584306',
+                title: 'Modern fertility awareness methods: wrist wearables '
+                    + 'capture the changes in temperature associated with '
+                    + 'the menstrual cycle',
+                publication_year: 2017,
+                doi: 'https://doi.org/10.1042/BSR20171279',
+                ids: { openalex: 'https://openalex.org/W2768584306' },
+                authorships: [{
+                    author: { display_name: 'Mohaned Shilaih' },
+                }],
+            }] });
+        },
+    });
+    const library = {
+        async find() {
+            return {
+                selectedMatches: [],
+                otherMatches: [],
+                candidates: [],
+                ambiguous: false,
+            };
+        },
+        async listLibraries() {
+            return [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }];
+        },
+        async getDefaultLibraryID() {
+            return 1;
+        },
+    };
+    const service = createReferenceImportService({ library, metadataClient });
+    let searches = 0;
+    const imported = [];
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [target],
+        onListReferenceLibraries: options => service.listTargetLibraries(
+            null,
+            options
+        ),
+        onGetReferenceStatus: (reference, options) => service.getStatus(
+            reference,
+            options
+        ),
+        onSearchReferenceMetadata: (reference, options) => {
+            searches++;
+            return service.searchReferenceMetadata(reference, options);
+        },
+        onImportReference: async reference => {
+            imported.push(reference.identifiers.doi);
+            return { state: 'imported' };
+        },
+    });
+    await nextTask();
+    await nextTask();
+
+    document.querySelector('.mktero-citation-popup-action').click();
+    await nextTask();
+    await nextTask();
+    await nextTask();
+
+    assert.equal(searches, 1);
+    assert.deepEqual(imported, ['10.1042/bsr20171279']);
+    assert.equal(target.identifiers.doi, '10.1042/bsr20171279');
+    assert.equal(
+        document.querySelector('.mktero-citation-popup-status').dataset.state,
+        'imported'
+    );
+
+    service.dispose();
+    popup.destroy();
+    dom.window.close();
+});
+
+test('does not overwrite refreshed Zotero status after metadata import', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const target = {
+        id: 'number:refresh-during-import',
+        number: 1,
+        text: 'Doe. An exact paper. 2024.',
+        year: 2024,
+        authorSearchText: 'doe',
+        identifiers: {},
+    };
+    const exactCandidate = {
+        source: 'openalex',
+        paperID: 'W42',
+        title: 'An exact paper',
+        year: 2024,
+        matchConfidence: 'exact',
+        identifiers: { doi: '10.1000/exact' },
+    };
+    let notifyUpdates;
+    let finishImport;
+    const importFinished = new Promise(resolve => { finishImport = resolve; });
+    const popup = createCitationPopup(parent);
+    popup.open({
+        anchor,
+        targets: [target],
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async reference => reference.identifiers?.doi
+            ? { state: 'present', match: { itemID: 42, libraryID: 1 } }
+            : { state: 'unknown', canImport: false },
+        onSearchReferenceMetadata: async () => ({
+            candidates: [exactCandidate],
+            automaticCandidate: exactCandidate,
+        }),
+        onImportReference: async () => {
+            notifyUpdates();
+            await importFinished;
+            return { state: 'failed', canImport: true };
+        },
+        onSubscribeReferenceUpdates: listener => {
+            notifyUpdates = listener;
+            return () => {};
+        },
+    });
+    await nextTask();
+    await nextTask();
+
+    document.querySelector('.mktero-citation-popup-action').click();
+    await nextTask();
+    await nextTask();
+    finishImport();
+    await nextTask();
+
+    const status = document.querySelector('.mktero-citation-popup-status');
+    assert.equal(status.dataset.state, 'present');
+    assert.equal(status.textContent, 'Already in Zotero');
 
     popup.destroy();
     dom.window.close();
@@ -287,10 +542,9 @@ test('renders metadata candidates as bounded inert text', async () => {
     dom.window.close();
 });
 
-test('imports all selected references from the batch toolbar', async () => {
+test('imports one reference without affecting an adjacent row', async () => {
     const { dom, document, parent, anchor } = createHarness();
     const imported = [];
-    let notifyUpdates;
     const popup = createCitationPopup(parent);
     const targets = [
         { ...reference(), id: 'number:1', number: 1, text: 'First paper' },
@@ -315,62 +569,37 @@ test('imports all selected references from the batch toolbar', async () => {
         }),
         onImportReference: async target => {
             imported.push(target.text);
-            if (imported.length === 1) notifyUpdates?.();
             return { state: 'imported' };
-        },
-        onSubscribeReferenceUpdates: listener => {
-            notifyUpdates = listener;
-            return () => {};
         },
     });
     await nextTask();
     await nextTask();
 
-    const selectAll = document.querySelector(
-        '.mktero-citation-popup-select-all'
-    );
-    const importButton = document.querySelector(
-        '.mktero-citation-popup-batch-import'
-    );
-    const checkboxes = [...document.querySelectorAll(
-        '.mktero-citation-popup-reference-checkbox'
+    const actions = [...document.querySelectorAll(
+        '.mktero-citation-popup-action'
     )];
-    assert.equal(selectAll.checked, false);
-    assert.equal(selectAll.indeterminate, false);
-    assert.equal(importButton.disabled, true);
+    assert.equal(actions.length, 2);
+    assert.ok(actions.every(action => action.textContent === 'Import reference'));
     assert.equal(
-        importButton.querySelector('[data-lucide="download"]') !== null,
-        true
+        document.querySelectorAll('.mktero-citation-popup-reference-checkbox')
+            .length,
+        0
     );
-    assert.equal(checkboxes.length, 2);
-    assert.deepEqual(checkboxes.map(checkbox => checkbox.checked), [false, false]);
 
-    checkboxes[0].click();
-    assert.equal(selectAll.checked, false);
-    assert.equal(selectAll.indeterminate, true);
-    assert.equal(importButton.getAttribute('aria-label'),
-        'Import selected references (1)');
-    selectAll.click();
-    assert.equal(selectAll.checked, true);
-    assert.equal(selectAll.indeterminate, false);
-
-    importButton.click();
+    actions[1].click();
     await nextTask();
-    await nextTask();
-    assert.deepEqual(imported.sort(), ['First paper', 'Second paper']);
-    assert.equal(importButton.disabled, true);
-    assert.deepEqual(checkboxes.map(checkbox => checkbox.checked), [false, false]);
+    assert.deepEqual(imported, ['Second paper']);
     assert.deepEqual(
         [...document.querySelectorAll('.mktero-citation-popup-status')]
             .map(status => status.dataset.state),
-        ['imported', 'imported']
+        ['absent', 'imported']
     );
 
     popup.destroy();
     dom.window.close();
 });
 
-test('keeps failed batch imports selected for retry', async () => {
+test('keeps a failed row import available for retry', async () => {
     const { dom, document, parent, anchor } = createHarness();
     const popup = createCitationPopup(parent);
     popup.open({
@@ -399,19 +628,12 @@ test('keeps failed batch imports selected for retry', async () => {
     await nextTask();
     await nextTask();
 
-    const importButton = document.querySelector(
-        '.mktero-citation-popup-batch-import'
-    );
-    const checkbox = document.querySelector(
-        '.mktero-citation-popup-reference-checkbox'
-    );
-    checkbox.click();
-    assert.equal(importButton.disabled, false);
-    importButton.click();
+    const action = document.querySelector('.mktero-citation-popup-action');
+    assert.equal(action.textContent, 'Import reference');
+    action.click();
     await nextTask();
-    await nextTask();
-    assert.equal(checkbox.checked, true);
-    assert.equal(importButton.disabled, false);
+    assert.equal(action.hidden, false);
+    assert.equal(action.disabled, false);
     assert.equal(
         document.querySelector('.mktero-citation-popup-status').dataset.state,
         'failed'

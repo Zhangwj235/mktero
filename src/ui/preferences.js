@@ -108,11 +108,6 @@ export function createPreferencesController({
     const aiMaxOutputTokensInput = document.getElementById(
         'mktero-ai-max-output-tokens'
     );
-    const citationCredentialInputs = [
-        'mktero-semantic-scholar-api-key',
-        'mktero-openalex-api-key',
-        'mktero-open-citations-access-token',
-    ].map(id => document.getElementById(id)).filter(Boolean);
     const t = (key, variables) => localization.t(key, variables);
     let initialized = false;
     let aiTestController = null;
@@ -193,10 +188,6 @@ export function createPreferencesController({
             aiMaxOutputTokensInput.max = String(
                 PREFERENCE_CONTROL_LIMITS.aiMaxOutputTokens
             );
-        }
-        for (const input of citationCredentialInputs) {
-            input.maxLength
-                = PREFERENCE_CONTROL_LIMITS.citationProviderCredentialLength;
         }
     }
 

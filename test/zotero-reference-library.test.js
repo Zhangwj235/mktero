@@ -226,6 +226,50 @@ test('indexes exact DOI matches and detects PDF attachments across libraries', a
     assert.equal(result.otherMatches[0].libraryName, 'Read-only Group');
 });
 
+test('rebuilds when a PDF attachment invalidates an active index refresh', async () => {
+    let attachments = [];
+    const pdf = {
+        id: 20,
+        isPDFAttachment: () => true,
+        getField: () => '',
+    };
+    const parent = item({
+        id: 10,
+        libraryID: 1,
+        title: 'Paper',
+        DOI: '10.1000/race',
+    });
+    parent.getAttachments = () => attachments;
+    const runtime = createRuntime([parent, pdf]);
+    let personalLoads = 0;
+    let groupLoadStarted = false;
+    let releaseGroupLoad;
+    const groupLoad = new Promise(resolve => { releaseGroupLoad = resolve; });
+    const library = createZoteroReferenceLibrary(runtime, {
+        loadItems: async libraryID => {
+            if (libraryID === 1) {
+                personalLoads++;
+                return [parent];
+            }
+            groupLoadStarted = true;
+            await groupLoad;
+            return [];
+        },
+    });
+
+    const pending = library.find({
+        identifiers: { doi: '10.1000/race' },
+    }, { targetLibraryID: 1 });
+    while (!groupLoadStarted) await Promise.resolve();
+    attachments = [20];
+    library.invalidate();
+    releaseGroupLoad();
+
+    const result = await pending;
+    assert.equal(result.selectedMatches[0].hasPDF, true);
+    assert.equal(personalLoads, 2);
+});
+
 test('indexes arXiv and explicit PMID fields while excluding deleted items', async () => {
     const arxiv = item({
         id: 12,

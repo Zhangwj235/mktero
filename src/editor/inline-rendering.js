@@ -1473,6 +1473,27 @@ function referenceInteraction(event, view, context) {
             activate: openNote,
         };
     }
+    const citation = citationElement(event, view);
+    if (citation) {
+        return {
+            element: citation,
+            popup: context.citationPopup,
+            open() {
+                closeReferencePopupsExcept(context, context.citationPopup);
+                openCitationPopup(citation, view, context);
+            },
+            focusPopup() {
+                closeReferencePopupsExcept(context, context.citationPopup);
+                openCitationPopup(citation, view, context, true);
+            },
+            activate() {
+                activateCitationElement(citation, view, context);
+            },
+        };
+    }
+    const previewReference = previewReferenceInteraction(event, view, context);
+    if (previewReference) return previewReference;
+
     const annotation = annotationElement(event, view);
     if (annotation) {
         const target = context.annotationTargets.get(
@@ -1516,25 +1537,7 @@ function referenceInteraction(event, view, context) {
             allowTextSelection: true,
         };
     }
-    const citation = citationElement(event, view);
-    if (citation) {
-        return {
-            element: citation,
-            popup: context.citationPopup,
-            open() {
-                closeReferencePopupsExcept(context, context.citationPopup);
-                openCitationPopup(citation, view, context);
-            },
-            focusPopup() {
-                closeReferencePopupsExcept(context, context.citationPopup);
-                openCitationPopup(citation, view, context, true);
-            },
-            activate() {
-                activateCitationElement(citation, view, context);
-            },
-        };
-    }
-    return previewReferenceInteraction(event, view, context);
+    return null;
 }
 
 function hasSelectedInteractionText(view, element) {

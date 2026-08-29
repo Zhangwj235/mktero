@@ -11,8 +11,11 @@ const MAX_BATCH_CONCURRENCY = 4;
 const MAX_REFERENCES = 1_000;
 const MAX_TITLE_LENGTH = 512;
 const MAX_SEARCH_RESULTS = 10;
+const MAX_METADATA_CANDIDATES = 3;
 const MAX_SEARCH_TEXT_LENGTH = 512;
 const MAX_AUTHORS = 8;
+const MIN_TITLE_SIMILARITY = 0.65;
+const MIN_ADJACENT_YEAR_TITLE_SIMILARITY = 0.9;
 
 export class OpenAlexClient {
     constructor({
@@ -83,23 +86,34 @@ export class OpenAlexClient {
             && rawYear >= 0 && rawYear <= 9_999
             ? rawYear
             : 0;
-        // Keep the argument explicit so callers can pass parsed author context
-        // without making it part of the provider query (OpenAlex already
-        // tokenizes the bounded citation text).
-        void authorSearchText;
+        const titleQuery = extractTitleQuery(query);
+        const boundedAuthorSearchText = boundedString(
+            authorSearchText,
+            MAX_SEARCH_TEXT_LENGTH
+        );
         const normalizedAPIKey = boundedString(apiKey, 4_096).trim();
-        const queries = searchQueries(query);
+        const searchPlans = searchQueries(query).map(searchQuery => ({
+            query: searchQuery,
+            year: normalizedYear,
+        }));
+        if (normalizedYear) {
+            searchPlans.push({ query: titleQuery, year: 0 });
+        }
         let candidates = [];
-        for (const searchQuery of queries) {
+        for (const searchPlan of searchPlans) {
             const payload = await this.request.getJSON(this.#searchURL({
-                query: searchQuery,
-                year: normalizedYear,
+                query: searchPlan.query,
+                year: searchPlan.year,
                 apiKey: normalizedAPIKey,
             }), { signal, onRetry });
             candidates = workResults(payload, this.request)
                 .map(normalizeSearchCandidate)
-                .filter(Boolean)
-                .slice(0, MAX_SEARCH_RESULTS);
+                .filter(Boolean);
+            candidates = selectSearchCandidates(candidates, {
+                title: titleQuery,
+                year: normalizedYear,
+                authorSearchText: boundedAuthorSearchText,
+            });
             if (candidates.length) break;
         }
         return {
@@ -277,14 +291,9 @@ function extractTitleQuery(query) {
         .replace(/\s+\b(?:edn|edition)\b\s*\.?$/iu, '')
         .replace(/\s+\b(?:18|19|20)\d{2}[a-z]?\b\s*\.?$/iu, '')
         .trim();
-    const colonIndex = candidate.indexOf(':');
-    if (colonIndex >= 0) {
-        const beforeColon = candidate.slice(0, colonIndex);
-        const words = [...beforeColon.matchAll(
-            /[\p{L}\p{N}][\p{L}\p{N}'’\u2010-]*/gu
-        )];
-        const lastWord = words.at(-1);
-        if (lastWord) candidate = candidate.slice(lastWord.index);
+    const quotedTitle = longestQuotedTitle(candidate);
+    if (quotedTitle) {
+        candidate = quotedTitle;
     }
     else {
         const segments = candidate
@@ -295,6 +304,16 @@ function extractTitleQuery(query) {
             || candidate;
     }
     return collapseWhitespace(candidate).slice(0, MAX_SEARCH_TEXT_LENGTH);
+}
+
+function longestQuotedTitle(value) {
+    const titles = [...String(value).matchAll(
+        /(?:“([^”\r\n]{12,512})”|"([^"\r\n]{12,512})")/gu
+    )].map(match => collapseWhitespace(match[1] || match[2])
+        .replace(/[,.，。]+$/u, '')
+        .trim())
+        .filter(Boolean);
+    return titles.sort((left, right) => right.length - left.length)[0] || '';
 }
 
 function uniquePaperDOIIndex(papers) {
@@ -384,6 +403,89 @@ function normalizeSearchCandidate(work) {
         });
     }
     return candidate;
+}
+
+function selectSearchCandidates(candidates, {
+    title,
+    year,
+    authorSearchText,
+}) {
+    const normalizedTitle = normalizeSearchText(title);
+    if (!normalizedTitle) return [];
+    const normalizedAuthors = normalizeSearchText(authorSearchText);
+    const ranked = candidates.flatMap(candidate => {
+        const candidateTitle = normalizeSearchText(candidate.title);
+        const titleSimilarity = tokenSimilarity(normalizedTitle, candidateTitle);
+        const titleExact = candidateTitle === normalizedTitle;
+        const authorCompatible = firstAuthorMatches(
+            normalizedAuthors,
+            candidate.authors
+        );
+        const yearDifference = year && candidate.year
+            ? Math.abs(candidate.year - year)
+            : Number.POSITIVE_INFINITY;
+        const adjacentYearMatch = yearDifference === 1
+            && titleSimilarity >= MIN_ADJACENT_YEAR_TITLE_SIMILARITY
+            && authorCompatible;
+        if (year && yearDifference !== 0 && !adjacentYearMatch) return [];
+        const exact = Boolean(year)
+            && authorCompatible
+            && (
+                titleExact && yearDifference === 0
+                || adjacentYearMatch
+            );
+        if (!titleExact && titleSimilarity < MIN_TITLE_SIMILARITY) return [];
+        return [{
+            candidate: {
+                ...candidate,
+                matchConfidence: exact ? 'exact' : 'probable',
+            },
+            exact,
+            score: titleSimilarity
+                + (normalizedAuthors && authorCompatible ? 0.1 : 0),
+        }];
+    });
+    const exact = ranked.filter(result => result.exact);
+    return (exact.length ? exact : ranked)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, MAX_METADATA_CANDIDATES)
+        .map(result => result.candidate);
+}
+
+function firstAuthorMatches(normalizedAuthors, authors) {
+    if (!normalizedAuthors || !Array.isArray(authors) || !authors.length) {
+        return false;
+    }
+    const candidateTokens = normalizeSearchText(authors[0]).split(' ');
+    const expectedTokens = normalizedAuthors
+        .split(' ')
+        .slice(0, candidateTokens.length);
+    const surname = [...candidateTokens]
+        .reverse()
+        .find(token => token.length > 1);
+    return Boolean(surname && expectedTokens.includes(surname));
+}
+
+function tokenSimilarity(left, right) {
+    if (!left || !right) return 0;
+    if (left === right) return 1;
+    const leftTokens = new Set(left.split(' '));
+    const rightTokens = new Set(right.split(' '));
+    let shared = 0;
+    for (const token of leftTokens) {
+        if (rightTokens.has(token)) shared++;
+    }
+    return (2 * shared) / (leftTokens.size + rightTokens.size);
+}
+
+function normalizeSearchText(value) {
+    return String(value || '')
+        .normalize('NFKD')
+        .replace(/\p{M}/gu, '')
+        .toLocaleLowerCase('en-US')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .trim()
+        .replace(/\s+/gu, ' ');
 }
 
 function normalizeMetadata(work, fallback) {

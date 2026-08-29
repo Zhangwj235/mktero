@@ -5,11 +5,11 @@
 [![测试](https://github.com/tenglvjun/mktero/actions/workflows/test.yml/badge.svg)](https://github.com/tenglvjun/mktero/actions/workflows/test.yml)
 [![最新版本](https://img.shields.io/github/v/release/tenglvjun/mktero)](https://github.com/tenglvjun/mktero/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
-[![Zotero](https://img.shields.io/badge/Zotero-7%20%7C%208%20%7C%209-cc2936.svg)](https://www.zotero.org/)
+[![Zotero](https://img.shields.io/badge/Zotero-7%20%7C%208%20%7C%209%20%7C%2010-cc2936.svg)](https://www.zotero.org/)
 
 **在 Zotero 中以带来源链接的 Markdown 阅读 PDF。**
 
-Mktero 是适用于 Zotero 7、8 和 9 的无需重启扩展。需要时，它会将本地 PDF
+Mktero 是适用于 Zotero 7、8、9 和 10 的无需重启扩展。需要时，它会将本地 PDF
 发送到 [MinerU](https://mineru.net/) 进行转换，再在临时的阅读优先 Zotero 标签页中
 打开 Markdown、公式、表格、图片、引用和标注。内容寻址的本地缓存会复用同一 PDF 的转换结果，避免重复处理。
 
@@ -42,7 +42,7 @@ Mktero 是适用于 Zotero 7、8 和 9 的无需重启扩展。需要时，它�
 
 ### 使用要求
 
-- 桌面版 Zotero `7.0` 至 `9.0.*`
+- 桌面版 Zotero `7.0` 至 `10.0.*`
 - 已下载并可在本机访问的 PDF 附件
 - [MinerU API Token](https://mineru.net/apiManage/token)
 - 能够访问 MinerU API 的网络环境
@@ -69,12 +69,11 @@ Mktero 是适用于 Zotero 7、8 和 9 的无需重启扩展。需要时，它�
 | MinerU API Token | 缓存未命中时必需 | 使用 MinerU 上传并转换 PDF |
 | AI 功能和 Provider 设置 | 可选 | 通过托管或本地回环模型服务翻译 Markdown |
 | 翻译语言 | 可选 | 简体/繁体中文、日文、韩文、西班牙语、法语或巴西葡萄牙语 |
-| 引用 Provider 凭据 | 可选 | 提高 Semantic Scholar、OpenAlex 或 OpenCitations 的请求额度；也支持匿名请求 |
 | 正文字体和字号 | 可选 | 选择阅读字体，并在 16–22 px 间调整字号 |
 | 复用转换结果 | 可选 | 复用相同 PDF 内容和解析配置对应的结果 |
 
-凭据会作为普通的未加密首选项存储在当前 Zotero 配置文件中。开始翻译前，可以使用
-`测试连接`验证 AI 地址。
+MinerU 和 AI 凭据会作为普通的未加密首选项存储在当前 Zotero 配置文件中。开始翻译前，
+可以使用`测试连接`验证 AI 地址。
 
 ### 打开 PDF
 
@@ -98,7 +97,7 @@ MinerU 内容映射会把 Markdown 内容块连接到 PDF 的物理页码和区�
 
 ### 从 Markdown 创建标注
 
-打开文档时会加载已有的 Zotero 文本高亮和下划线。选中 Markdown 文本后可以立即创建本地标注；只有本地 PDF 文字索引能够可靠定位唯一位置时，Mktero 才会创建对应的 Zotero 标注。重复或歧义文本会保留在本地并可重试，不会被放置到猜测的位置。
+打开文档时会加载已有的 Zotero 文本高亮和下划线。选中 Markdown 文本后可以立即创建本地标注；只有本地 PDF 文字索引能够可靠定位唯一位置时，Mktero 才会创建对应的 Zotero 标注。重复或歧义文本会保留在本地并可重试，不会被放置到猜测的位置。高亮与论文引用、表格引用或图表引用重叠时，语义引用保持更高的交互优先级；仍可从周围的高亮文本或笔记标记打开标注操作。
 
 ### 使用 AI 翻译
 
@@ -112,7 +111,9 @@ AI 翻译始终需要用户主动触发，也不会重写原始 Markdown。Mkter
 
 ### 从 Markdown 导入参考文献
 
-打开引用弹窗时，Mktero 会先只检查本地 Zotero，不会立即发起网络查询。只有标题的文献会保持未确定状态，直到你明确点击“查找文献元数据”；Mktero 随后向 OpenAlex 查询受限的候选项，并等待你确认。确认候选项只会补充标识符并重新检查本地状态，不会自动导入。弹窗会列出可访问的个人库和群组库，并允许选择导入目标。只读文库仍可被选择以检查状态，但导入操作会被禁用并显示权限说明。如果其他文库中已有匹配条目，Mktero 会提供明确的“复制到所选文库”操作，不会静默创建重复条目。具有可靠 DOI、arXiv ID 或 PMID 的缺失文献会通过 Zotero 原生 translator 导入；目标文库允许文件时，还会尝试导入 arXiv 或配置的公开 PDF。即使 PDF 下载失败，元数据也会保留，并可稍后重试。弹窗打开时默认不选中任何文献；你可以通过每行的复选框选择一篇或多篇，需要时使用“全选”复选框，然后点击顶部工具栏的导入图标批量导入。顶部控件顺序为全选、目标文库和导入。成功导入的文献会自动取消选择；失败的文献会保留选中状态，方便单独或在下一批次中重试。
+打开引用弹窗时，Mktero 会先只检查本地 Zotero，不会立即发起网络查询。对只有标题的文献点击“导入文献”会明确触发一次受限的 OpenAlex 查询；标题、年份和作者构成唯一精确匹配时会直接继续导入。如果 Provider 的年份只相差一年，则还必须同时满足清理后的标题近乎一致且首位作者匹配，才会直接导入。其他情况只显示最多三个可信候选项，选择其中一项后继续同一次导入。完整引文噪声过多时会使用清理后的标题重试，这也支持没有 DOI 的 OpenAlex 图书记录。对于 IEEE 格式的引文，Mktero 会把成对直双引号或弯双引号中的论文标题与作者、期刊、卷期和页码分开检索。弹窗会列出可访问的个人库和群组库，并允许选择导入目标。只读文库仍可被选择以检查状态，但导入操作会被禁用并显示权限说明。如果其他文库中已有匹配条目，Mktero 会提供明确的“复制到所选文库”操作，不会静默创建重复条目。具有可靠 DOI、arXiv ID 或 PMID 的缺失文献会通过 Zotero 原生 translator 导入；目标文库允许文件时，还会尝试导入 arXiv 或配置的公开 PDF。即使 PDF 下载失败，元数据也会保留，并可稍后重试。弹窗顶部只保留目标文库选择器；每条文献在左侧显示状态，并在右侧显示自己的导入、重试、复制或打开按钮，所有操作都只作用于当前可见条目。
+
+作者-年份分组引用会展示所有能够匹配的参考文献。如果 PDF 转换结果在 APA 参考文献列表中间插入了无关标题，Mktero 只会在标题后明确连续出现多条参考文献时继续解析，因此真正位于文献末尾的 Author Note 仍会终止列表。
 
 ### 保存便携快照
 
@@ -140,17 +141,17 @@ PDF、MinerU 结果、压缩包、图片路径、API 响应和首选项都会被
 | 数据 | 发送到或存储在 | Zotero 同步 |
 | --- | --- | --- |
 | 缓存未命中时的完整 PDF | MinerU | Mktero 不同步 |
-| MinerU API Token 和 AI/Provider 凭据 | 当前 Zotero 配置文件，未加密 | 否 |
+| MinerU API Token 和 AI 凭据 | 当前 Zotero 配置文件，未加密 | 否 |
 | 缓存的 Markdown、图片、来源映射、PDF 索引、校对和译文 | 当前 Zotero 配置文件，未加密 | 否 |
 | 当前论文的 DOI/arXiv 标识符及 Provider 所需的候选 DOI | Semantic Scholar、OpenCitations 或 OpenAlex | Mktero 不同步 |
-| 用户点击“查找文献元数据”后发送的受限引用文本 | OpenAlex | Mktero 不同步 |
-| 用户确认候选项并点击导入后发送的规范化 DOI、arXiv ID 或 PMID，以及可选的公开 PDF 请求 | 选定的元数据/PDF Provider | Mktero 不同步 |
+| 用户为只有标题的文献点击“导入文献”后发送的受限引用文本 | OpenAlex | Mktero 不同步 |
+| 用户点击导入后发送的规范化 DOI、arXiv ID、PMID 或 OpenAlex 工作 ID、已确认的元数据，以及可选的公开 PDF 请求 | 选定的元数据/PDF Provider | Mktero 不同步 |
 | 受保护的 Markdown 翻译批次 | 你配置的 AI Provider | Mktero 不同步 |
 | Zotero PDF 标注 | 本地 Zotero 文库 | 取决于 Zotero 设置 |
 | 保存的快照 Note 和附件 | Zotero 条目和附件 | 取决于 Zotero 设置 |
 | 导入的文献元数据和 PDF 附件 | 当前 Zotero 配置文件，未加密 | 取决于 Zotero 设置 |
 
-Mktero 不会把 PDF 标注、本地 PDF.js 索引、Zotero 笔记、完整条目记录、本地路径或缓存 Markdown 发送给文献/PDF Provider。标题元数据查询只有在用户明确点击“查找文献元数据”后才会发送受限的引用文本；导入请求在候选确认后只发送规范化标识符和配置的 Provider 凭据，不会发送 Zotero key 或 PDF 字节。翻译请求包含受保护的 Markdown 和指令；如果占位符校验连续失败，最后一次重试只发送受影响内容块中的普通文本片段。日志不会写入 API Token、预签名地址、PDF 字节或带认证的响应。
+Mktero 不会把 PDF 标注、本地 PDF.js 索引、Zotero 笔记、完整条目记录、本地路径或缓存 Markdown 发送给文献/PDF Provider。只有标题的文献在用户明确点击“导入文献”后才会发送受限的引用文本；唯一的高置信度匹配会自动继续，不确定的匹配仍需用户确认。引用与文献请求始终匿名访问 Provider，只包含上表所述的受限引用文本、规范化标识符和已确认元数据，不会发送 Zotero key 或 PDF 字节。翻译请求包含受保护的 Markdown 和指令；如果占位符校验连续失败，最后一次重试只发送受影响内容块中的普通文本片段。日志不会写入 API Token、预签名地址、PDF 字节或带认证的响应。
 
 请同时阅读 MinerU、AI Provider 和引用 Provider 的隐私政策。除非相关数据处理条款符合你的使用场景，否则不要处理机密 PDF。
 
