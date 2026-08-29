@@ -622,6 +622,96 @@ test('uses the longest citation segment for title-only fallback queries', async 
     assert.equal(result.candidates[0].identifiers.doi, '10.1000/title');
 });
 
+test('finds an unquoted conference paper before its venue segment', async () => {
+    const searches = [];
+    const citation = 'S. Abbaspourazad, O. Elachqar, A. Miller, S. Emrani, '
+        + 'U. Nallasamy, and I. Shapiro. Large-scale training of foundation '
+        + 'models for wearable biosignals. In The Twelfth International '
+        + 'Conference on Learning Representations, 2024.';
+    const title = 'Large-scale training of foundation models for wearable '
+        + 'biosignals';
+    const client = new OpenAlexClient({
+        fetch: async url => {
+            const parsed = new URL(url);
+            searches.push({
+                query: parsed.searchParams.get('search'),
+                filter: parsed.searchParams.get('filter'),
+            });
+            return jsonResponse({
+                results: searches.length < 3
+                    ? []
+                    : [{
+                        id: 'https://openalex.org/W4389649986',
+                        title: 'Large-scale Training of Foundation Models for '
+                            + 'Wearable Biosignals',
+                        publication_year: 2023,
+                        doi: 'https://doi.org/10.48550/arxiv.2312.05409',
+                        authorships: [{
+                            author: { display_name: 'Salar Abbaspourazad' },
+                        }],
+                    }],
+            });
+        },
+    });
+
+    const result = await client.searchReferences({
+        text: citation,
+        year: 2024,
+        authorSearchText: 's abbaspourazad o elachqar a miller s emrani '
+            + 'u nallasamy and i shapiro',
+    });
+
+    assert.deepEqual(searches, [{
+        query: citation,
+        filter: 'publication_year:2024',
+    }, {
+        query: title,
+        filter: 'publication_year:2024',
+    }, {
+        query: title,
+        filter: null,
+    }]);
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].matchConfidence, 'exact');
+    assert.equal(
+        result.candidates[0].identifiers.doi,
+        '10.48550/arxiv.2312.05409'
+    );
+});
+
+test('keeps a paper title beginning with In separate from its journal', async () => {
+    const searches = [];
+    const title = 'In conference rooms, wearable sensors remain reliable';
+    const citation = `Doe, J. ${title}. Journal of Biosignal Research. 2024.`;
+    const client = new OpenAlexClient({
+        fetch: async url => {
+            const parsed = new URL(url);
+            searches.push(parsed.searchParams.get('search'));
+            return jsonResponse({
+                results: searches.length === 1
+                    ? []
+                    : [{
+                        id: 'W701',
+                        title,
+                        publication_year: 2024,
+                        doi: 'https://doi.org/10.1000/in-conference-rooms',
+                    }],
+            });
+        },
+    });
+
+    const result = await client.searchReferences({
+        text: citation,
+        year: 2024,
+    });
+
+    assert.deepEqual(searches, [citation, title]);
+    assert.equal(
+        result.candidates[0].identifiers.doi,
+        '10.1000/in-conference-rooms'
+    );
+});
+
 test('finds the STRAViT IEEE reference from its quoted article title', async () => {
     const searches = [];
     const citation = 'Y. Li, L. Wang, W. Zheng, Y. Zong, L. Qi, Z. Cui, '
