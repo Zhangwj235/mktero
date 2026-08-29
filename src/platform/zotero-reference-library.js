@@ -1,4 +1,5 @@
 import {
+    extractCitationIdentifiers,
     normalizeArxivID,
     normalizeDOI,
     normalizeOpenAlexID,
@@ -756,11 +757,10 @@ async function projectItem(item, zotero, libraryName = '', signal) {
 }
 
 function normalizeItemIdentifiers(item) {
-    const doi = normalizeDOI(safeField(item, 'DOI'));
-    const arxivID = normalizeArxivID(
-        safeField(item, 'extra').match(/(?:^|\n)\s*arxiv(?:\s+id)?\s*:\s*([^\n]+)/iu)?.[1]
-            || ''
-    );
+    const { doi, arxivID } = extractCitationIdentifiers({
+        doi: safeField(item, 'DOI'),
+        extra: safeField(item, 'extra'),
+    });
     const pmid = normalizePMID(
         safeField(item, 'PMID')
             || safeField(item, 'extra').match(/(?:^|\n)\s*(?:PMID|PubMed ID)\s*:\s*(\d{1,12})/iu)?.[1]
@@ -936,7 +936,7 @@ function projectAttachment(attachment) {
 }
 
 async function callNativePDFImport(importPDF, zotero, url, itemID, libraryID, signal) {
-    // Zotero 7–9 expose the options-object form. With application/pdf,
+    // Zotero 7–10 expose the options-object form. With application/pdf,
     // importFromURL downloads through Zotero's attachment pipeline and
     // rejects files whose sniffed type is not supported. The signal is
     // enforced before and after the accepted download because native import
@@ -947,7 +947,7 @@ async function callNativePDFImport(importPDF, zotero, url, itemID, libraryID, si
         parentItemID: itemID,
         libraryID,
         contentType: 'application/pdf',
-        fileBaseName: 'reference.pdf',
+        fileBaseName: 'reference',
     });
 }
 

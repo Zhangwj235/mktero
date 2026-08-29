@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    createReferenceImportService,
+} from '../src/core/reference-import-service.js';
+import {
     createZoteroReferenceLibrary,
 } from '../src/platform/zotero-reference-library.js';
 
@@ -275,7 +278,8 @@ test('indexes arXiv and explicit PMID fields while excluding deleted items', asy
         id: 12,
         libraryID: 1,
         title: 'arXiv paper',
-        extra: 'arXiv:2401.00001v2',
+        DOI: '10.48550/arXiv.2405.17766',
+        extra: 'arXiv:2405.17766 [cs.LG]',
     });
     const pmid = item({
         id: 13,
@@ -296,7 +300,7 @@ test('indexes arXiv and explicit PMID fields while excluding deleted items', asy
     });
 
     const arxivResult = await library.find({
-        identifiers: { arxivID: '2401.00001' },
+        identifiers: { arxivID: '2405.17766' },
     }, { targetLibraryID: 1 });
     const pmidResult = await library.find({
         identifiers: { pmid: '123456' },
@@ -308,6 +312,48 @@ test('indexes arXiv and explicit PMID fields while excluding deleted items', asy
     assert.equal(arxivResult.selectedMatches[0].itemID, 12);
     assert.equal(pmidResult.selectedMatches[0].itemID, 13);
     assert.equal(deletedResult.selectedMatches.length, 0);
+});
+
+test('recognizes an imported Zotero arXiv item before a sequential retry', async () => {
+    const importedItems = [];
+    let translations = 0;
+    const library = createZoteroReferenceLibrary(createRuntime([]), {
+        loadItems: async () => importedItems,
+        translateFactory: () => ({
+            setIdentifier() {},
+            async getTranslators() {
+                return [{ translatorID: 'arxiv' }];
+            },
+            setTranslator() {},
+            async translate() {
+                translations++;
+                const imported = item({
+                    id: 100 + translations,
+                    libraryID: 1,
+                    title: 'SleepFM',
+                    DOI: '10.48550/arXiv.2405.17766',
+                    extra: 'arXiv:2405.17766 [cs.LG]',
+                });
+                importedItems.push(imported);
+                return [imported];
+            },
+        }),
+    });
+    const service = createReferenceImportService({ library });
+    const reference = {
+        identifiers: { arxivID: '2405.17766' },
+    };
+
+    const first = await service.importReference(reference, {
+        targetLibraryID: 1,
+    });
+    const second = await service.importReference(reference, {
+        targetLibraryID: 1,
+    });
+
+    assert.equal(first.state, 'present-no-pdf');
+    assert.equal(second.state, 'present-no-pdf');
+    assert.equal(translations, 1);
 });
 
 test('indexes OpenAlex IDs stored in Zotero Extra', async () => {
@@ -501,7 +547,7 @@ test('rejects PDF attachment import into a read-only library', async () => {
     );
 });
 
-test('uses the Zotero 7–9 options-object API and rejects private PDF hosts', async () => {
+test('uses the Zotero 7–10 options-object API and rejects private PDF hosts', async () => {
     const calls = [];
     const runtime = createRuntime([]);
     runtime.Attachments = {
@@ -523,7 +569,7 @@ test('uses the Zotero 7–9 options-object API and rejects private PDF hosts', a
         parentItemID: 30,
         libraryID: 1,
         contentType: 'application/pdf',
-        fileBaseName: 'reference.pdf',
+        fileBaseName: 'reference',
     }]);
     await assert.rejects(
         library.attachPDF({
