@@ -41,6 +41,26 @@ function nextTask() {
     return new Promise(resolve => setTimeout(resolve, 0));
 }
 
+function createTimerHarness() {
+    let nextID = 1;
+    const callbacks = new Map();
+    return {
+        setTimer(callback) {
+            const id = nextID++;
+            callbacks.set(id, callback);
+            return id;
+        },
+        clearTimer(id) {
+            callbacks.delete(id);
+        },
+        runAll() {
+            const pending = [...callbacks.values()];
+            callbacks.clear();
+            for (const callback of pending) callback();
+        },
+    };
+}
+
 function jsonResponse(value, status = 200, headers = {}) {
     return new Response(JSON.stringify(value), { status, headers });
 }
@@ -488,6 +508,280 @@ test('does not overwrite refreshed Zotero status after metadata import', async (
     const status = document.querySelector('.mktero-citation-popup-status');
     assert.equal(status.dataset.state, 'present');
     assert.equal(status.textContent, 'Already in Zotero');
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('keeps rendered reference rows stable during a background refresh', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const targets = [1, 2].map(number => ({
+        id: `number:${number}`,
+        number,
+        text: `Reference ${number}`,
+        identifiers: { doi: `10.1000/${number}` },
+    }));
+    const pendingStatuses = [];
+    const timers = createTimerHarness();
+    let refreshInBackground = false;
+    let notifyUpdates;
+    const popup = createCitationPopup(parent, timers);
+    popup.open({
+        anchor,
+        targets,
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async target => {
+            if (!refreshInBackground) {
+                return { state: 'absent', canImport: true };
+            }
+            return new Promise(resolve => pendingStatuses.push({
+                target,
+                resolve,
+            }));
+        },
+        onImportReference: async () => ({ state: 'imported' }),
+        onSubscribeReferenceUpdates: listener => {
+            notifyUpdates = listener;
+            return () => {};
+        },
+    });
+    await nextTask();
+    await nextTask();
+
+    const statuses = [...document.querySelectorAll(
+        '.mktero-citation-popup-status'
+    )];
+    const actions = [...document.querySelectorAll(
+        '.mktero-citation-popup-action'
+    )];
+    assert.deepEqual(statuses.map(status => status.dataset.state), [
+        'absent',
+        'absent',
+    ]);
+    assert.deepEqual(actions.map(action => action.hidden), [false, false]);
+
+    refreshInBackground = true;
+    notifyUpdates({ type: 'invalidated' });
+    timers.runAll();
+    await nextTask();
+
+    assert.equal(pendingStatuses.length, 2);
+    assert.deepEqual(statuses.map(status => status.dataset.state), [
+        'absent',
+        'absent',
+    ]);
+    assert.deepEqual(actions.map(action => action.hidden), [false, false]);
+
+    for (const pending of pendingStatuses) {
+        pending.resolve({
+            state: pending.target.number === 1 ? 'present' : 'absent',
+            match: pending.target.number === 1
+                ? { itemID: 7, libraryID: 1, hasPDF: true }
+                : null,
+            canImport: true,
+        });
+    }
+    await nextTask();
+    assert.deepEqual(statuses.map(status => status.dataset.state), [
+        'present',
+        'absent',
+    ]);
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('keeps actions usable while an older background refresh is pending', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    let notifyUpdates;
+    let refreshInBackground = false;
+    let resolveBackgroundStatus;
+    let imports = 0;
+    const timers = createTimerHarness();
+    const popup = createCitationPopup(parent, timers);
+    popup.open({
+        anchor,
+        targets: [reference()],
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async () => {
+            if (!refreshInBackground) {
+                return { state: 'absent', canImport: true };
+            }
+            return new Promise(resolve => {
+                resolveBackgroundStatus = resolve;
+            });
+        },
+        onImportReference: async () => {
+            imports++;
+            return {
+                state: 'imported',
+                match: { itemID: 7, libraryID: 1, hasPDF: true },
+            };
+        },
+        onOpenReferenceMatch: async () => {},
+        onSubscribeReferenceUpdates: listener => {
+            notifyUpdates = listener;
+            return () => {};
+        },
+    });
+    await nextTask();
+    await nextTask();
+
+    refreshInBackground = true;
+    notifyUpdates({ type: 'invalidated' });
+    timers.runAll();
+    await nextTask();
+    document.querySelector('.mktero-citation-popup-action').click();
+    await nextTask();
+
+    const status = document.querySelector('.mktero-citation-popup-status');
+    assert.equal(imports, 1);
+    assert.equal(status.dataset.state, 'imported');
+
+    resolveBackgroundStatus({ state: 'absent', canImport: true });
+    await nextTask();
+    assert.equal(status.dataset.state, 'imported');
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('applies a reference update without refreshing unrelated rows', async () => {
+    const { dom, document, parent, anchor } = createHarness();
+    const targets = [1, 2].map(number => ({
+        id: `number:${number}`,
+        number,
+        text: `Reference ${number}`,
+        identifiers: { doi: `10.1000/${number}` },
+    }));
+    const statusChecks = [];
+    const timers = createTimerHarness();
+    let notifyUpdates;
+    const popup = createCitationPopup(parent, timers);
+    popup.open({
+        anchor,
+        targets,
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async target => {
+            statusChecks.push(target.id);
+            return { state: 'absent', canImport: true };
+        },
+        onImportReference: async () => ({ state: 'imported' }),
+        onOpenReferenceMatch: async () => {},
+        onSubscribeReferenceUpdates: listener => {
+            notifyUpdates = listener;
+            return () => {};
+        },
+    });
+    await nextTask();
+    await nextTask();
+    statusChecks.length = 0;
+
+    notifyUpdates({
+        type: 'updated',
+        reference: targets[0],
+        result: {
+            state: 'imported',
+            targetLibraryID: 1,
+            match: { itemID: 7, libraryID: 1, hasPDF: true },
+        },
+    });
+    await nextTask();
+
+    const statuses = [...document.querySelectorAll(
+        '.mktero-citation-popup-status'
+    )];
+    const actions = [...document.querySelectorAll(
+        '.mktero-citation-popup-action'
+    )];
+    assert.deepEqual(statusChecks, []);
+    assert.deepEqual(statuses.map(status => status.dataset.state), [
+        'imported',
+        'absent',
+    ]);
+    assert.deepEqual(actions.map(action => action.textContent), [
+        'Open in Zotero',
+        'Import reference',
+    ]);
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('coalesces consecutive Zotero invalidations into one background refresh', async () => {
+    const { dom, parent, anchor } = createHarness();
+    const targets = [1, 2].map(number => ({
+        id: `number:${number}`,
+        number,
+        text: `Reference ${number}`,
+        identifiers: { doi: `10.1000/${number}` },
+    }));
+    const statusChecks = [];
+    const timers = createTimerHarness();
+    let notifyUpdates;
+    const popup = createCitationPopup(parent, timers);
+    popup.open({
+        anchor,
+        targets,
+        onListReferenceLibraries: async () => ({
+            libraries: [{
+                libraryID: 1,
+                name: 'Personal',
+                type: 'user',
+                editable: true,
+                filesEditable: true,
+            }],
+            defaultLibraryID: 1,
+        }),
+        onGetReferenceStatus: async target => {
+            statusChecks.push(target.id);
+            return { state: 'absent', canImport: true };
+        },
+        onImportReference: async () => ({ state: 'imported' }),
+        onSubscribeReferenceUpdates: listener => {
+            notifyUpdates = listener;
+            return () => {};
+        },
+    });
+    await nextTask();
+    await nextTask();
+    statusChecks.length = 0;
+
+    notifyUpdates({ type: 'invalidated' });
+    notifyUpdates({ type: 'invalidated' });
+    notifyUpdates({ type: 'invalidated' });
+    assert.deepEqual(statusChecks, []);
+
+    timers.runAll();
+    await nextTask();
+    assert.deepEqual(statusChecks, ['number:1', 'number:2']);
 
     popup.destroy();
     dom.window.close();

@@ -60,7 +60,7 @@ export function extractCitationIdentifiers({ doi = '', extra = '' } = {}) {
             if (doiMatch) normalizedDOI = normalizeDOI(doiMatch[1]);
         }
         if (!arxivID) {
-            const arxivMatch = /^(?:arxiv(?:\s+id)?\s*:\s*)(\S+)$/i
+            const arxivMatch = /^(?:arxiv(?:\s+id)?\s*:\s*)(\S+)(?:\s+\[[A-Za-z0-9.-]+\])?$/i
                 .exec(line)
                 || /^(https?:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\/\S+)$/i
                     .exec(line);

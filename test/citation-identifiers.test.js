@@ -56,6 +56,15 @@ test('extracts DOI and arXiv from bounded Zotero metadata', () => {
     });
 });
 
+test('extracts an arXiv identifier before Zotero category metadata', () => {
+    assert.deepEqual(extractCitationIdentifiers({
+        extra: 'arXiv:2405.17766 [cs.LG]',
+    }), {
+        doi: '',
+        arxivID: '2405.17766',
+    });
+});
+
 test('does not scan identifiers beyond the Extra field budget', () => {
     assert.deepEqual(extractCitationIdentifiers({
         extra: `${'x'.repeat(16 * 1024)}\nDOI: 10.1000/hidden`,

@@ -300,10 +300,19 @@ function extractTitleQuery(query) {
             .split(/(?:\.\s+|[。；;]\s*)/u)
             .map(value => value.trim())
             .filter(value => value.length >= 12);
-        candidate = segments.sort((left, right) => right.length - left.length)[0]
+        candidate = titleBeforeConferenceVenue(segments)
+            || segments.sort((left, right) => right.length - left.length)[0]
             || candidate;
     }
     return collapseWhitespace(candidate).slice(0, MAX_SEARCH_TEXT_LENGTH);
+}
+
+function titleBeforeConferenceVenue(segments) {
+    const venuePattern = /^in\s+(?:the\s+)?(?:proceedings\s+of\b|.{0,128}\b(?:conference|workshop|symposium)\b(?=\s+(?:on|of|for|in)\b|[,.:]|$))/iu;
+    const venueIndex = segments.findIndex((segment, index) => (
+        index > 0 && venuePattern.test(segment)
+    ));
+    return venueIndex > 0 ? segments[venueIndex - 1] : '';
 }
 
 function longestQuotedTitle(value) {

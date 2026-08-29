@@ -176,7 +176,9 @@ one continues the same import. The lookup retries with a cleaned title when a
 full citation is too noisy and also covers OpenAlex records such as books that
 do not have a DOI. For IEEE-style references, a paired straight or typographic
 double-quoted article title is searched separately from its authors, venue,
-volume, and pages. The popup lists accessible
+volume, and pages. For unquoted conference references, Mktero separates a
+paper title from a following `In ... Conference`, proceedings, workshop, or
+symposium venue. The popup lists accessible
 personal and group libraries and lets you choose the import target. A read-only
 library remains selectable for presence checks, while its import actions stay
 disabled with a permission explanation. If a matching item exists in another

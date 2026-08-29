@@ -6,12 +6,22 @@ import {
 } from '../icons/lucide-icon.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+const BACKGROUND_REFRESH_DELAY_MS = 50;
 let nextLibraryPickerID = 1;
 
 export function createCitationPopup(parent, {
     localization = createLocalization(),
+    setTimer = null,
+    clearTimer = null,
 } = {}) {
     const t = localization.t.bind(localization);
+    const ownerWindow = parent.ownerDocument.defaultView;
+    const scheduleTimer = typeof setTimer === 'function'
+        ? setTimer
+        : ownerWindow.setTimeout.bind(ownerWindow);
+    const cancelTimer = typeof clearTimer === 'function'
+        ? clearTimer
+        : ownerWindow.clearTimeout.bind(ownerWindow);
     const anchoredPopup = createAnchoredPopup(parent, {
         className: 'mktero-citation-popup',
         idPrefix: 'mktero-citation-popup',
@@ -57,6 +67,7 @@ export function createCitationPopup(parent, {
         let unsubscribeUpdates = null;
         let destroyLibraryPicker = null;
         let libraryPicker = null;
+        let backgroundRefreshTimer = null;
 
         const isCurrent = expectedGeneration => (
             activeController === controller
@@ -65,9 +76,18 @@ export function createCitationPopup(parent, {
             && generation === expectedGeneration
         );
         const close = () => anchoredPopup.close();
-        const refreshRows = () => {
-            const currentGeneration = ++generation;
-            for (const row of rows) {
+        const cancelBackgroundRefresh = () => {
+            if (backgroundRefreshTimer === null) return;
+            cancelTimer(backgroundRefreshTimer);
+            backgroundRefreshTimer = null;
+        };
+        const refreshRows = ({
+            showChecking = true,
+            targetRows = rows,
+        } = {}) => {
+            if (showChecking) cancelBackgroundRefresh();
+            const currentGeneration = showChecking ? ++generation : generation;
+            for (const row of targetRows) {
                 void updateReferenceRow({
                     row,
                     target: row.target,
@@ -80,6 +100,53 @@ export function createCitationPopup(parent, {
                     onImportReference,
                     onOpenReferenceMatch,
                     close,
+                    showChecking,
+                    t,
+                });
+            }
+        };
+        const scheduleBackgroundRefresh = () => {
+            cancelBackgroundRefresh();
+            backgroundRefreshTimer = scheduleTimer(() => {
+                backgroundRefreshTimer = null;
+                if (controller.signal?.aborted) return;
+                const availableRows = rows.filter(row => !isRowActionBusy(row));
+                if (availableRows.length) {
+                    refreshRows({
+                        showChecking: false,
+                        targetRows: availableRows,
+                    });
+                }
+            }, BACKGROUND_REFRESH_DELAY_MS);
+        };
+        const applyReferenceUpdate = event => {
+            const updatedRows = rows.filter(row => referencesMatch(
+                row.target,
+                event?.reference
+            ));
+            if (!updatedRows.length) return;
+            const resultLibraryID = event?.result?.targetLibraryID;
+            if (!event?.result || (resultLibraryID !== null
+                && resultLibraryID !== undefined
+                && String(resultLibraryID) !== String(selectedLibraryID))) {
+                refreshRows({
+                    showChecking: false,
+                    targetRows: updatedRows,
+                });
+                return;
+            }
+            for (const row of updatedRows) {
+                row.statusRequestVersion++;
+                applyStatus(row, event.result, {
+                    target: row.target,
+                    selectedLibraryID,
+                    onSearchReferenceMetadata,
+                    onImportReference,
+                    onOpenReferenceMatch,
+                    close,
+                    controller,
+                    generation,
+                    isCurrent,
                     t,
                 });
             }
@@ -123,6 +190,7 @@ export function createCitationPopup(parent, {
             label,
             forceOpen: focusFirst,
             onClose() {
+                cancelBackgroundRefresh();
                 controller.abort?.();
                 unsubscribeUpdates?.();
                 unsubscribeUpdates = null;
@@ -166,10 +234,22 @@ export function createCitationPopup(parent, {
                 }));
                 for (const row of rows) contentRoot.appendChild(row.element);
                 void loadLibraries();
-                if (typeof onGetReferenceStatus === 'function') refreshRows();
+                if (typeof onListReferenceLibraries !== 'function'
+                    && typeof onGetReferenceStatus === 'function') {
+                    refreshRows();
+                }
                 if (typeof onSubscribeReferenceUpdates === 'function') {
-                    unsubscribeUpdates = onSubscribeReferenceUpdates(() => {
-                        if (!controller.signal?.aborted) refreshRows();
+                    unsubscribeUpdates = onSubscribeReferenceUpdates(event => {
+                        if (controller.signal?.aborted) return;
+                        if (event?.type === 'updated' && event.reference) {
+                            applyReferenceUpdate(event);
+                            return;
+                        }
+                        if (event?.type === 'invalidated') {
+                            scheduleBackgroundRefresh();
+                            return;
+                        }
+                        refreshRows({ showChecking: false });
                     });
                 }
                 return contentRoot;
@@ -257,6 +337,8 @@ function createCitationItem({
         status,
         action,
         candidatePanel,
+        revision: 0,
+        statusRequestVersion: 0,
     };
     element.append(primary, controls, candidatePanel);
     return row;
@@ -274,11 +356,17 @@ async function updateReferenceRow({
     onImportReference,
     onOpenReferenceMatch,
     close,
+    showChecking = true,
     t,
 }) {
     if (!row?.status || !isReferenceTarget(target)) return;
-    setStatus(row, 'checking', t);
+    const requestVersion = ++row.statusRequestVersion;
+    if (showChecking) {
+        setStatus(row, 'checking', t);
+    }
+    const expectedRevision = row.revision;
     if (typeof onGetReferenceStatus !== 'function') {
+        if (!isRowRefreshCurrent(row, requestVersion, expectedRevision)) return;
         setStatus(row, 'unknown', t);
         return;
     }
@@ -287,7 +375,10 @@ async function updateReferenceRow({
             targetLibraryID: selectedLibraryID,
             signal: controller.signal,
         });
-        if (!isCurrent(generation)) return;
+        if (!isCurrent(generation)
+            || !isRowRefreshCurrent(row, requestVersion, expectedRevision)) {
+            return;
+        }
         applyStatus(row, result, {
             target,
             selectedLibraryID,
@@ -302,7 +393,13 @@ async function updateReferenceRow({
         });
     }
     catch (error) {
-        if (!isCurrent(generation) || error?.name === 'AbortError') return;
+        if (!isCurrent(generation)
+            || !isRowRefreshCurrent(row, requestVersion, expectedRevision)
+            || error?.name === 'AbortError'
+            || !showChecking) {
+            return;
+        }
+        beginRowStateChange(row);
         row.status.textContent = errorLabel(error?.code, t);
         row.status.dataset.state = 'failed';
         row.action.hidden = true;
@@ -321,6 +418,7 @@ function applyStatus(row, result, {
     isCurrent = () => true,
     t,
 }) {
+    beginRowStateChange(row);
     const state = result?.state || result?.status || 'unknown';
     const selectedMatch = result?.match || result?.selectedMatches?.[0] || null;
     const otherLibraries = [...new Set((result?.otherMatches || [])
@@ -502,6 +600,7 @@ async function confirmMetadataCandidate(candidate, {
     selectedLibraryID,
     controller,
     generation,
+    rowRevision,
     isCurrent,
     onGetReferenceStatus,
     onSearchReferenceMetadata,
@@ -510,7 +609,12 @@ async function confirmMetadataCandidate(candidate, {
     importAfterConfirm = false,
     t,
 }) {
-    if (!isCurrent?.(generation) || controller.signal?.aborted) return;
+    if (!isCurrent?.(generation)
+        || !isRowRevisionCurrent(row, rowRevision)
+        || controller.signal?.aborted) {
+        return;
+    }
+    const confirmationRevision = beginRowStateChange(row);
     applyMetadataCandidate(target, candidate);
     clearMetadataCandidates(row);
     if (importAfterConfirm && typeof onImportReference === 'function') {
@@ -520,6 +624,7 @@ async function confirmMetadataCandidate(candidate, {
             selectedLibraryID,
             controller,
             generation,
+            rowRevision: confirmationRevision,
             isCurrent,
             onSearchReferenceMetadata,
             onImportReference,
@@ -568,6 +673,7 @@ async function importResolvedReference({
     selectedLibraryID,
     controller,
     generation,
+    rowRevision,
     isCurrent,
     onSearchReferenceMetadata,
     onImportReference,
@@ -584,7 +690,10 @@ async function importResolvedReference({
             targetLibraryID: libraryID,
             signal: controller.signal,
         });
-        if (!isCurrent?.(generation)) return;
+        if (!isCurrent?.(generation)
+            || !isRowRevisionCurrent(row, rowRevision)) {
+            return;
+        }
         applyStatus(row, result || { state: 'imported' }, {
             target,
             selectedLibraryID: libraryID,
@@ -599,7 +708,11 @@ async function importResolvedReference({
         });
     }
     catch (error) {
-        if (error?.name === 'AbortError' || !isCurrent?.(generation)) return;
+        if (error?.name === 'AbortError'
+            || !isCurrent?.(generation)
+            || !isRowRevisionCurrent(row, rowRevision)) {
+            return;
+        }
         applyStatus(row, {
             state: 'failed',
             canImport: true,
@@ -652,12 +765,20 @@ async function runReferenceAction({ target, row, options }) {
     if (actionGeneration !== null
         && actionGeneration !== undefined
         && !options.isCurrent?.(actionGeneration)) return;
+    let actionRevision = null;
+    const isActionCurrent = () => (
+        (actionGeneration === null
+            || actionGeneration === undefined
+            || options.isCurrent?.(actionGeneration))
+        && isRowRevisionCurrent(row, actionRevision)
+    );
     try {
         if (row.action._mkteroActionKind === 'open') {
             await row.action._mkteroAction();
             options.close?.();
             return;
         }
+        actionRevision = beginRowStateChange(row);
         if (row.action._mkteroActionKind === 'resolve'
             || row.action._mkteroActionKind === 'resolve-import') {
             const resolveAndImport = row.action._mkteroActionKind
@@ -671,15 +792,14 @@ async function runReferenceAction({ target, row, options }) {
                 targetLibraryID: selectedLibraryID(),
                 signal: controller.signal,
             });
-            if (actionGeneration !== null
-                && actionGeneration !== undefined
-                && !options.isCurrent?.(actionGeneration)) return;
+            if (!isActionCurrent()) return;
             const candidateOptions = {
                 row,
                 target,
                 selectedLibraryID,
                 controller,
                 generation: actionGeneration,
+                rowRevision: actionRevision,
                 isCurrent: options.isCurrent,
                 onGetReferenceStatus,
                 onSearchReferenceMetadata,
@@ -722,9 +842,7 @@ async function runReferenceAction({ target, row, options }) {
             signal: controller.signal,
         });
         if (result) {
-            if (actionGeneration !== null
-                && actionGeneration !== undefined
-                && !options.isCurrent?.(actionGeneration)) return;
+            if (!isActionCurrent()) return;
             applyStatus(row, result, {
                 target,
                 selectedLibraryID: selectedLibraryID(),
@@ -741,9 +859,8 @@ async function runReferenceAction({ target, row, options }) {
     }
     catch (error) {
         if (error?.name === 'AbortError') return;
-        if (actionGeneration !== null
-            && actionGeneration !== undefined
-            && !options.isCurrent?.(actionGeneration)) return;
+        if (!isActionCurrent()) return;
+        beginRowStateChange(row);
         setActionBusy(row, false);
         row.action.hidden = false;
         row.action.textContent = row.action._mkteroActionLabel
@@ -751,6 +868,41 @@ async function runReferenceAction({ target, row, options }) {
         row.status.textContent = errorLabel(error?.code, t);
         row.status.dataset.state = 'failed';
     }
+}
+
+function beginRowStateChange(row) {
+    row.revision = (row.revision || 0) + 1;
+    return row.revision;
+}
+
+function isRowRevisionCurrent(row, revision) {
+    return revision === null
+        || revision === undefined
+        || row.revision === revision;
+}
+
+function isRowRefreshCurrent(row, requestVersion, revision) {
+    return row.statusRequestVersion === requestVersion
+        && isRowRevisionCurrent(row, revision);
+}
+
+function isRowActionBusy(row) {
+    return row.action?.getAttribute('aria-busy') === 'true';
+}
+
+function referencesMatch(left, right) {
+    if (!left || !right) return false;
+    if (left === right) return true;
+    if (left.id && right.id && String(left.id) === String(right.id)) return true;
+    return ['doi', 'arxivID', 'pmid', 'openAlexID'].some(type => {
+        const leftValue = String(left.identifiers?.[type] || '')
+            .trim()
+            .toLowerCase();
+        const rightValue = String(right.identifiers?.[type] || '')
+            .trim()
+            .toLowerCase();
+        return Boolean(leftValue && leftValue === rightValue);
+    });
 }
 
 function configureAction(
@@ -772,6 +924,7 @@ function configureAction(
 }
 
 function setStatus(row, state, t) {
+    beginRowStateChange(row);
     row.status.textContent = statusLabel(state, t);
     row.status.dataset.state = state;
     row.action.hidden = true;
