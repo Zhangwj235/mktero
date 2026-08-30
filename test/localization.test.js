@@ -73,6 +73,22 @@ test('creates a fixed localization from the Zotero locale', () => {
         }),
         '简体中文译文'
     );
+    assert.match(
+        localization.t('preferences.ai.autoTranslateSelectionHelp'),
+        /stable Markdown selection.*AI Provider.*cost/i
+    );
+    assert.match(
+        chinese.t('preferences.ai.autoTranslateSelectionHelp'),
+        /选区.*稳定.*AI Provider.*费用/
+    );
+    assert.match(
+        localization.t('viewer.exportMarkdown'),
+        /parent folder.*paper-named folder.*assets\//i
+    );
+    assert.match(
+        chinese.t('viewer.exportMarkdown'),
+        /父文件夹.*论文命名.*assets\//
+    );
 });
 
 test('localizes Markdown annotation synchronization status', () => {

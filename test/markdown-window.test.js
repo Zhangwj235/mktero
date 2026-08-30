@@ -1066,6 +1066,31 @@ test('navigates failed translation blocks with wraparound', () => {
     }
 });
 
+test('only exposes selection translation callbacks when the model provides them', () => {
+    let editorOptions;
+    const { view } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Paper text.',
+        sourceKind: 'markdown',
+    }), {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return createTestInlineEditor(options);
+        },
+    });
+
+    try {
+        assert.equal(editorOptions.translateSelection, null);
+        assert.equal(editorOptions.cancelSelectionTranslation, null);
+        assert.equal(editorOptions.shouldAutoTranslateSelection, null);
+        assert.equal(editorOptions.copySelectionTranslation, null);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('keeps a partial translation readable while retrying the document', () => {
     const updates = [];
     let editorOptions;
@@ -1528,6 +1553,59 @@ test('forwards code copy requests to the current tab model', async () => {
     view.destroy();
 });
 
+test('forwards selection translation callbacks through the current reader model', async () => {
+    let editorOptions;
+    const calls = [];
+    const firstModel = createModel({
+        status: 'ready',
+        markdown: 'Selected text.',
+        onTranslateSelection: request => calls.push(['first', request]),
+        onCancelSelectionTranslation: () => calls.push(['cancel-first']),
+        shouldAutoTranslateSelection: () => false,
+        onCopySelectionTranslation: text => calls.push(['copy-first', text]),
+    });
+    const { view } = createView(firstModel, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+    const secondModel = {
+        ...firstModel,
+        onTranslateSelection: request => calls.push(['second', request]),
+        onCancelSelectionTranslation: () => calls.push(['cancel-second']),
+        shouldAutoTranslateSelection: () => true,
+        onCopySelectionTranslation: text => calls.push(['copy-second', text]),
+    };
+
+    try {
+        view.render(secondModel);
+        await editorOptions.translateSelection(
+            'Selected text.',
+            { translationContext: 'Before selected text. Selected text. After.' }
+        );
+        editorOptions.cancelSelectionTranslation();
+        assert.equal(editorOptions.shouldAutoTranslateSelection(), true);
+        await editorOptions.copySelectionTranslation('已翻译文本');
+
+        assert.deepEqual(calls, [
+            ['second', {
+                text: 'Selected text.',
+                context: 'Before selected text. Selected text. After.',
+            }],
+            ['cancel-second'],
+            ['copy-second', '已翻译文本'],
+        ]);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('reparses the current PDF from an accessible icon action', async () => {
     let reparseCalls = 0;
     let finishReparse;
@@ -1821,6 +1899,124 @@ test('opens the document action popover and reports snapshot save state', async 
         'Zotero snapshot saved'
     );
     view.destroy();
+});
+
+test('exports Markdown from the document action menu and reports progress', async () => {
+    let exportOptions;
+    let finishExport;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        onExportMarkdown: options => {
+            exportOptions = options;
+            return new Promise(resolve => {
+                finishExport = resolve;
+            });
+        },
+    });
+    const { document, view, shadow } = createView(model);
+    const toggle = shadow.querySelector('#mktero-document-actions');
+    const exportButton = shadow.querySelector('#mktero-export-markdown');
+
+    assert.equal(exportButton.textContent, 'Export Markdown');
+    assert.equal(
+        exportButton.querySelector('svg')?.getAttribute('data-lucide'),
+        'download'
+    );
+    toggle.click();
+    exportButton.click();
+    assert.equal(exportOptions.ownerWindow, document.defaultView);
+    assert.equal(exportButton.disabled, true);
+    assert.equal(toggle.disabled, true);
+    assert.equal(
+        shadow.querySelector('.markdown-reader-action-status').textContent,
+        'Exporting Markdown…'
+    );
+
+    finishExport({ status: 'exported', path: '/exports/Paper.md' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(exportButton.disabled, false);
+    assert.equal(toggle.disabled, false);
+    assert.equal(
+        shadow.querySelector('.markdown-reader-action-status').textContent,
+        'Markdown exported'
+    );
+    view.destroy();
+});
+
+test('closes a cancelled Markdown export without reporting success', async () => {
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        onExportMarkdown: async () => ({ status: 'cancelled' }),
+    });
+    const { view, shadow } = createView(model);
+
+    shadow.querySelector('#mktero-document-actions').click();
+    shadow.querySelector('#mktero-export-markdown').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const status = shadow.querySelector('.markdown-reader-action-status');
+    assert.equal(status.hidden, true);
+    assert.equal(status.textContent, '');
+    view.destroy();
+});
+
+test('isolates Markdown exports across windows and ignores late view updates', async () => {
+    let finishFirstExport;
+    let firstOptions;
+    let secondOptions;
+    const first = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# First',
+        sourceKind: 'markdown',
+        onExportMarkdown: options => {
+            firstOptions = options;
+            return new Promise(resolve => {
+                finishFirstExport = resolve;
+            });
+        },
+    }));
+    const second = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Second',
+        sourceKind: 'markdown',
+        onExportMarkdown: async options => {
+            secondOptions = options;
+            return { status: 'cancelled' };
+        },
+    }));
+    const firstTimers = [];
+    first.view.ownerWindow.setTimeout = (callback, delay) => {
+        const timer = { callback, delay };
+        firstTimers.push(timer);
+        return timer;
+    };
+
+    first.shadow.querySelector('#mktero-document-actions').click();
+    first.shadow.querySelector('#mktero-export-markdown').click();
+    assert.equal(firstOptions.ownerWindow, first.document.defaultView);
+    assert.equal(
+        second.shadow.querySelector('#mktero-export-markdown').disabled,
+        false
+    );
+
+    second.shadow.querySelector('#mktero-document-actions').click();
+    second.shadow.querySelector('#mktero-export-markdown').click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(secondOptions.ownerWindow, second.document.defaultView);
+
+    first.view.destroy();
+    finishFirstExport({ status: 'exported', path: '/exports/First.md' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(firstTimers, []);
+    second.view.destroy();
 });
 
 test('keeps reading controls in a toolbar above the Markdown body', () => {

@@ -10,6 +10,7 @@ import {
     MarkdownAnnotationOverlay,
 } from '../src/core/markdown-annotation-overlay.js';
 import { createInlineMarkdownEditor } from '../src/editor/inline-markdown-editor.js';
+import { createAnnotationPopup } from '../src/editor/annotation-popup.js';
 
 function enterTableCellEditing(cell, ownerWindow) {
     cell.dispatchEvent(new ownerWindow.MouseEvent('dblclick', {
@@ -5671,6 +5672,285 @@ test('shows Markdown annotation actions after selecting ordinary text', () => {
     dom.window.close();
 });
 
+test('places translation last, expands results below, and translates again', async () => {
+    const dom = new JSDOM('<!doctype html><div id="popup-parent"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const parent = document.querySelector('#popup-parent');
+    const anchor = document.createElement('span');
+    parent.appendChild(anchor);
+    let resolveTranslation;
+    let translationCalls = 0;
+    let copiedText;
+    const popup = createAnnotationPopup(parent, {
+        translateSelection: (text, selectionContext) => {
+            translationCalls += 1;
+            assert.equal(text, 'Selected **text**');
+            assert.deepEqual(selectionContext, { side: 'source' });
+            return new Promise(resolve => {
+                resolveTranslation = resolve;
+            });
+        },
+        copySelectionTranslation: text => {
+            copiedText = text;
+        },
+        copySourcedMarkdown: async () => {},
+        openSourceLocation: async () => {},
+        createMarkdownAnnotation: async () => {},
+    });
+
+    popup.openSelection({
+        anchor,
+        selection: { text: 'Selected **text**' },
+        selectionContext: { side: 'source' },
+        copyTarget: { kind: 'selection' },
+        sourceLocation: { pageIndex: 0 },
+        canCopySource: true,
+    });
+
+    assert.equal(translationCalls, 0);
+    const actions = parent.querySelector('.mktero-markdown-selection-actions');
+    const toolbar = actions.querySelector(
+        ':scope > .mktero-markdown-selection-toolbar'
+    );
+    assert.ok(toolbar);
+    assert.deepEqual(
+        [...toolbar.children]
+            .filter(element => element.matches('button'))
+            .map(element => element.dataset.action),
+        [
+            'add-note',
+            'view-in-pdf',
+            'copy-with-source',
+            'translate-selection',
+        ]
+    );
+    const translationPanel = actions.querySelector(
+        '.mktero-selection-translation'
+    );
+    assert.equal(toolbar.nextElementSibling, translationPanel);
+    assert.equal(translationPanel.hidden, true);
+    const translateButton = actions.querySelector(
+        '[data-action="translate-selection"]'
+    );
+    assert.ok(translateButton);
+    assert.equal(
+        actions.querySelector('[data-action="cancel-selection-translation"]'),
+        null
+    );
+
+    translateButton.click();
+    assert.equal(translationCalls, 1);
+    assert.equal(actions.dataset.translationStatus, 'loading');
+    assert.equal(translateButton.hidden, true);
+    assert.equal(translationPanel.hidden, false);
+    assert.ok(actions.querySelector('[data-action="cancel-selection-translation"]'));
+
+    resolveTranslation({ text: '<b>Translated</b>' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(actions.dataset.translationStatus, 'success');
+    assert.equal(translateButton.hidden, true);
+    const result = actions.querySelector('.mktero-selection-translation-result');
+    assert.equal(result.textContent, '<b>Translated</b>');
+    assert.equal(result.querySelector('b'), null);
+    assert.deepEqual(
+        [...translationPanel.querySelectorAll(
+            '.mktero-selection-translation-actions button'
+        )].map(element => element.dataset.action),
+        [
+            'retranslate-selection',
+            'copy-selection-translation',
+        ]
+    );
+    const retranslateButton = actions.querySelector(
+        '[data-action="retranslate-selection"]'
+    );
+    const copyButton = actions.querySelector(
+        '[data-action="copy-selection-translation"]'
+    );
+    assert.ok(retranslateButton);
+    assert.equal(
+        retranslateButton.getAttribute('aria-label'),
+        'Translate selection again'
+    );
+    assert.ok(copyButton);
+    copyButton.click();
+    assert.equal(copiedText, '<b>Translated</b>');
+
+    retranslateButton.click();
+    assert.equal(translationCalls, 2);
+    assert.equal(actions.dataset.translationStatus, 'loading');
+    assert.equal(result.hidden, true);
+    assert.ok(actions.querySelector(
+        '[data-action="cancel-selection-translation"]'
+    ));
+
+    resolveTranslation({ text: 'Retranslated' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(actions.dataset.translationStatus, 'success');
+    assert.equal(result.textContent, 'Retranslated');
+    actions.querySelector('[data-action="copy-selection-translation"]').click();
+    assert.equal(copiedText, 'Retranslated');
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('automatically translates a stable Markdown selection once after 250ms', async () => {
+    const dom = new JSDOM('<!doctype html><div id="popup-parent"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const parent = document.querySelector('#popup-parent');
+    const anchor = document.createElement('span');
+    parent.appendChild(anchor);
+    const scheduled = [];
+    const originalSetTimeout = dom.window.setTimeout;
+    const originalClearTimeout = dom.window.clearTimeout;
+    let nextTimerID = 1;
+    dom.window.setTimeout = (callback, delay) => {
+        const timer = { callback, delay, id: nextTimerID++ };
+        scheduled.push(timer);
+        return timer.id;
+    };
+    dom.window.clearTimeout = timerID => {
+        const index = scheduled.findIndex(timer => timer.id === timerID);
+        if (index >= 0) scheduled.splice(index, 1);
+    };
+    let translationCalls = 0;
+    let resolveTranslation;
+    let cancellations = 0;
+    const popup = createAnnotationPopup(parent, {
+        shouldAutoTranslateSelection: () => true,
+        translateSelection: () => {
+            translationCalls += 1;
+            return new Promise(resolve => {
+                resolveTranslation = resolve;
+            });
+        },
+        cancelSelectionTranslation: () => {
+            cancellations += 1;
+        },
+    });
+
+    popup.openSelection({
+        anchor,
+        selection: { text: 'Stable selection' },
+        selectionContext: { side: 'source' },
+    });
+
+    assert.equal(translationCalls, 0);
+    assert.equal(scheduled.filter(timer => timer.delay === 250).length, 1);
+    scheduled.find(timer => timer.delay === 250).callback();
+    assert.equal(translationCalls, 1);
+    assert.equal(scheduled.filter(timer => timer.delay === 250).length, 0);
+
+    popup.close();
+    assert.equal(cancellations, 1);
+    resolveTranslation({ text: 'Translated' });
+    await Promise.resolve();
+
+    dom.window.setTimeout = originalSetTimeout;
+    dom.window.clearTimeout = originalClearTimeout;
+    dom.window.close();
+});
+
+test('shows a localized error when a selection exceeds the translation limit', async () => {
+    const dom = new JSDOM('<!doctype html><div id="popup-parent"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const parent = document.querySelector('#popup-parent');
+    const anchor = document.createElement('span');
+    parent.appendChild(anchor);
+    const popup = createAnnotationPopup(parent, {
+        translateSelection: async () => {
+            const error = new Error('too large');
+            error.code = 'AI_INPUT_TOO_LARGE';
+            throw error;
+        },
+    });
+
+    popup.openSelection({
+        anchor,
+        selection: { text: 'A long selection' },
+        selectionContext: { side: 'source' },
+    });
+    parent.querySelector('[data-action="translate-selection"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const actions = parent.querySelector('.mktero-markdown-selection-actions');
+    assert.equal(actions.dataset.translationStatus, 'error');
+    assert.equal(
+        actions.querySelector('.mktero-selection-translation-error').textContent,
+        'Select a shorter passage and try again.'
+    );
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('does not let a late selection translation replace a newer popup state', async () => {
+    const dom = new JSDOM('<!doctype html><div id="popup-parent"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const parent = document.querySelector('#popup-parent');
+    const firstAnchor = document.createElement('span');
+    const secondAnchor = document.createElement('span');
+    parent.append(firstAnchor, secondAnchor);
+    const resolves = [];
+    let cancellations = 0;
+    const popup = createAnnotationPopup(parent, {
+        translateSelection: () => new Promise(resolve => resolves.push(resolve)),
+        cancelSelectionTranslation: () => {
+            cancellations += 1;
+        },
+    });
+
+    popup.openSelection({
+        anchor: firstAnchor,
+        selection: { text: 'First' },
+    });
+    parent.querySelector('[data-action="translate-selection"]').click();
+    popup.openSelection({
+        anchor: secondAnchor,
+        selection: { text: 'Second' },
+    });
+    parent.querySelector('[data-action="translate-selection"]').click();
+    assert.equal(cancellations, 1);
+    assert.equal(resolves.length, 2);
+
+    resolves[0]({ text: 'Stale first result' });
+    await Promise.resolve();
+    assert.equal(
+        parent.querySelector('.mktero-selection-translation-result').hidden,
+        true
+    );
+    assert.equal(
+        parent.querySelector('.mktero-markdown-selection-actions')
+            .dataset.translationStatus,
+        'loading'
+    );
+
+    resolves[1]({ text: 'Current second result' });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(
+        parent.querySelector('.mktero-selection-translation-result').textContent,
+        'Current second result'
+    );
+
+    popup.destroy();
+    dom.window.close();
+});
+
 test('allows annotations only from original bilingual selections', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -5744,6 +6024,224 @@ test('allows annotations only from original bilingual selections', async () => {
     assert.deepEqual(created[0].selectionContext, { side: 'source' });
 
     editor.destroy();
+    dom.window.close();
+});
+
+test('passes selection translation callbacks and bounded raw-source context', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const prefix = Array.from({ length: 10 }, () => 'P'.repeat(100))
+        .join('\n');
+    const selectedText = 'Selected text';
+    const suffix = Array.from({ length: 10 }, () => 'S'.repeat(100))
+        .join('\n');
+    const markdown = `${prefix}${selectedText}${suffix}`;
+    const calls = [];
+    let cancellations = 0;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: '',
+        translateSelection: async (text, selectionContext) => {
+            calls.push({ text, selectionContext });
+            return { text: 'Translated selection' };
+        },
+        cancelSelectionTranslation: () => {
+            cancellations += 1;
+        },
+        copySelectionTranslation: () => {},
+    });
+    editor.setDocument({ markdown });
+
+    const text = textNodeContaining(
+        document.querySelector('.cm-content'),
+        selectedText
+    );
+    const range = document.createRange();
+    const selectedOffset = text.textContent.indexOf(selectedText);
+    range.setStart(text, selectedOffset);
+    range.setEnd(text, selectedOffset + selectedText.length);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+    text.parentElement.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+    }));
+
+    const actions = document.querySelector(
+        '.mktero-markdown-selection-actions'
+    );
+    assert.ok(actions);
+    actions.querySelector('[data-action="translate-selection"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(calls, [{
+        text: selectedText,
+        selectionContext: {
+            side: 'source',
+            translationContext: markdown.slice(
+                Math.max(0, markdown.indexOf(selectedText) - 800),
+                markdown.indexOf(selectedText) + selectedText.length + 800
+            ),
+        },
+    }]);
+    assert.equal(
+        actions.querySelector('.mktero-selection-translation-result').textContent,
+        'Translated selection'
+    );
+    assert.equal(cancellations, 0);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('offers selection translation only on source text in supported views', () => {
+    const createEditor = ({ markdown, sourceActionRanges, translationPairs, calls }) => {
+        const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+            pretendToBeVisual: true,
+        });
+        const { document } = dom.window;
+        const editor = createInlineMarkdownEditor({
+            parent: document.querySelector('#editor'),
+            initialMarkdown: '',
+            translateSelection: () => {
+                calls.push(true);
+                return Promise.resolve({ text: 'Translated' });
+            },
+        });
+        editor.setDocument({
+            markdown,
+            sourceActionRanges,
+            translationPairs,
+        });
+        return { dom, document, editor };
+    };
+    const select = (document, dom, text) => {
+        const node = textNodeContaining(
+            document.querySelector('.cm-content'),
+            text
+        );
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        document.getSelection().removeAllRanges();
+        document.getSelection().addRange(range);
+        node.parentElement.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+            bubbles: true,
+            button: 0,
+        }));
+    };
+
+    const originalCalls = [];
+    const original = createEditor({
+        markdown: 'Original text.',
+        sourceActionRanges: null,
+        translationPairs: [],
+        calls: originalCalls,
+    });
+    select(original.document, original.dom, 'Original text.');
+    assert.ok(original.document.querySelector(
+        '[data-action="translate-selection"]'
+    ));
+    original.editor.destroy();
+    original.dom.window.close();
+
+    const source = 'Original text.';
+    const translated = 'Translated text.';
+    const bilingualCalls = [];
+    const bilingual = createEditor({
+        markdown: `${source}\n\n${translated}`,
+        sourceActionRanges: [{ from: 0, to: source.length }],
+        translationPairs: [{
+            id: 'translation-0',
+            sourceFrom: 0,
+            sourceTo: source.length,
+            translatedFrom: source.length + 2,
+            translatedTo: source.length + 2 + translated.length,
+        }],
+        calls: bilingualCalls,
+    });
+    select(bilingual.document, bilingual.dom, translated);
+    assert.equal(
+        bilingual.document.querySelector('[data-action="translate-selection"]'),
+        null
+    );
+    select(bilingual.document, bilingual.dom, source);
+    assert.ok(bilingual.document.querySelector(
+        '[data-action="translate-selection"]'
+    ));
+    bilingual.editor.destroy();
+    bilingual.dom.window.close();
+
+    const translationCalls = [];
+    const translation = createEditor({
+        markdown: translated,
+        sourceActionRanges: [],
+        translationPairs: [],
+        calls: translationCalls,
+    });
+    select(translation.document, translation.dom, translated);
+    assert.equal(
+        translation.document.querySelector('.mktero-markdown-selection-actions'),
+        null
+    );
+    assert.deepEqual(translationCalls, []);
+    translation.editor.destroy();
+    translation.dom.window.close();
+});
+
+test('does not create duplicate automatic selection translations for repeated mouseup', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const scheduled = [];
+    const originalSetTimeout = dom.window.setTimeout;
+    const originalClearTimeout = dom.window.clearTimeout;
+    let nextTimerID = 1;
+    dom.window.setTimeout = (callback, delay) => {
+        const timer = { callback, delay, id: nextTimerID++ };
+        scheduled.push(timer);
+        return timer.id;
+    };
+    dom.window.clearTimeout = timerID => {
+        const index = scheduled.findIndex(timer => timer.id === timerID);
+        if (index >= 0) scheduled.splice(index, 1);
+    };
+    let calls = 0;
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: 'Repeat this selection.',
+        shouldAutoTranslateSelection: () => true,
+        translateSelection: () => {
+            calls += 1;
+            return new Promise(() => {});
+        },
+    });
+    const line = document.querySelector('.cm-line');
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+
+    const dispatchMouseup = () => line.dispatchEvent(new dom.window.MouseEvent(
+        'mouseup',
+        { bubbles: true, button: 0 }
+    ));
+    dispatchMouseup();
+    dispatchMouseup();
+
+    assert.equal(
+        scheduled.filter(timer => timer.delay === 250).length,
+        1
+    );
+    scheduled.find(timer => timer.delay === 250).callback();
+    assert.equal(calls, 1);
+
+    editor.destroy();
+    dom.window.setTimeout = originalSetTimeout;
+    dom.window.clearTimeout = originalClearTimeout;
     dom.window.close();
 });
 

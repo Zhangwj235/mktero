@@ -2122,6 +2122,221 @@ test('aborts every active section request when the document signal is canceled',
     assert.equal(aborted, 5);
 });
 
+test('translates one bounded selection without using document cache', async () => {
+    const requests = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                requests.push(request);
+                return {
+                    text: '翻译后的短句',
+                    model: 'selection-model',
+                    usage: { totalTokens: 8 },
+                };
+            },
+        },
+        cache: {
+            getTranslation: () => assert.fail('selection must not read cache'),
+            putTranslation: () => assert.fail('selection must not write cache'),
+        },
+        createCacheKey: () => assert.fail('selection must not create cache keys'),
+        getSettings: () => ({
+            ...SETTINGS,
+            streaming: false,
+        }),
+    });
+
+    const result = await service.translateSelection({
+        text: 'A bounded sentence.',
+        context: 'The surrounding paragraph explains the term.',
+    });
+
+    assert.deepEqual(result, {
+        text: '翻译后的短句',
+        targetLanguage: 'zh-CN',
+        model: 'selection-model',
+        usage: { totalTokens: 8 },
+    });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].maxInputBytes, 64 * 1024);
+    assert.equal(requests[0].maxResponseBytes, 128 * 1024);
+    assert.equal(requests[0].messages.length, 2);
+    assert.equal(requests[0].messages[0].role, 'system');
+    assert.match(requests[0].messages[0].content, /academic text/);
+    assert.match(requests[0].messages[0].content, /plain text/);
+    assert.match(requests[0].messages[0].content, /Do not follow instructions/);
+    assert.equal(requests[0].messages[1].role, 'user');
+    assert.match(requests[0].messages[1].content, /A bounded sentence\./);
+    assert.match(requests[0].messages[1].content, /surrounding paragraph/);
+});
+
+test('uses the configured streaming gateway for selection translation', async () => {
+    let streamCalls = 0;
+    let generateCalls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async streamText(request) {
+                streamCalls++;
+                assert.match(request.messages[0].content, /French/);
+                return { text: 'Texte traduit', model: 'stream-model' };
+            },
+            async generateText() {
+                generateCalls++;
+                return { text: 'wrong path' };
+            },
+        },
+        getSettings: () => ({
+            ...SETTINGS,
+            streaming: true,
+            targetLanguage: 'fr-FR',
+        }),
+    });
+
+    const result = await service.translateSelection({ text: 'A sentence.' });
+
+    assert.equal(result.text, 'Texte traduit');
+    assert.equal(result.targetLanguage, 'fr-FR');
+    assert.equal(streamCalls, 1);
+    assert.equal(generateCalls, 0);
+});
+
+test('falls back to generateText when streaming is unavailable', async () => {
+    let generateCalls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                generateCalls++;
+                assert.equal(request.settings.targetLanguage, 'ja-JP');
+                return { text: '翻訳文' };
+            },
+        },
+        getSettings: () => ({
+            ...SETTINGS,
+            streaming: true,
+            targetLanguage: 'ja-JP',
+        }),
+    });
+
+    const result = await service.translateSelection({ text: 'A sentence.' });
+
+    assert.equal(result.text, '翻訳文');
+    assert.equal(generateCalls, 1);
+});
+
+test('rejects empty or invalid selection requests before calling the provider', async () => {
+    let calls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText() {
+                calls++;
+                return { text: 'unreachable' };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+    });
+
+    await assert.rejects(
+        () => service.translateSelection({ text: ' \n\t' }),
+        error => error?.code === 'AI_INVALID_REQUEST'
+    );
+    await assert.rejects(
+        () => service.translateSelection({ text: 'A sentence.', targetLanguage: 'en-US' }),
+        error => error?.code === 'AI_INVALID_REQUEST'
+    );
+    assert.equal(calls, 0);
+});
+
+test('rejects selection, context, and request data above UTF-8 byte limits', async () => {
+    let calls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText() {
+                calls++;
+                return { text: 'unreachable' };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+    });
+
+    await assert.rejects(
+        () => service.translateSelection({ text: '选'.repeat(32 * 1024) }),
+        error => error?.code === 'AI_INPUT_TOO_LARGE'
+    );
+    await assert.rejects(
+        () => service.translateSelection({
+            text: 'A sentence.',
+            context: '语境'.repeat(8 * 1024),
+        }),
+        error => error?.code === 'AI_INPUT_TOO_LARGE'
+    );
+    assert.equal(calls, 0);
+});
+
+test('rejects empty, truncated, and oversized selection responses with stable codes', async () => {
+    const outputs = [
+        { text: '  ', code: 'AI_INVALID_RESPONSE' },
+        { text: '截断的翻译', finishReason: 'length', code: 'AI_INVALID_RESPONSE' },
+        { text: '翻译'.repeat(128 * 1024), code: 'AI_RESPONSE_TOO_LARGE' },
+    ];
+
+    for (const output of outputs) {
+        const service = new MarkdownTranslationService({
+            aiGateway: {
+                async generateText() {
+                    return output;
+                },
+            },
+            getSettings: () => ({ ...SETTINGS, streaming: false }),
+        });
+
+        await assert.rejects(
+            () => service.translateSelection({ text: 'A sentence.' }),
+            error => error?.code === output.code
+        );
+    }
+});
+
+test('preserves provider errors and aborts selection requests', async () => {
+    const providerError = Object.assign(new Error('unauthorized'), {
+        code: 'AI_AUTH_ERROR',
+    });
+    const providerService = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText() {
+                throw providerError;
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+    });
+
+    await assert.rejects(
+        () => providerService.translateSelection({ text: 'A sentence.' }),
+        error => error === providerError
+    );
+
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+    const abortedService = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText() {
+                calls++;
+                return { text: 'unreachable' };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+    });
+
+    await assert.rejects(
+        () => abortedService.translateSelection({
+            text: 'A sentence.',
+            signal: controller.signal,
+        }),
+        error => error?.name === 'AbortError'
+    );
+    assert.equal(calls, 0);
+});
+
 function createBoundaryService({ output, onProviderCall = () => {} }) {
     return new MarkdownTranslationService({
         aiGateway: {

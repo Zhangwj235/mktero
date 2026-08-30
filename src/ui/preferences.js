@@ -294,6 +294,9 @@ export function readAISettingsFromControls(document, zotero) {
         ...settings,
         enabled: document.getElementById('mktero-ai-enabled')?.checked
             ?? settings.enabled,
+        autoTranslateSelection: document.getElementById(
+            'mktero-ai-auto-translate-selection'
+        )?.checked ?? settings.autoTranslateSelection,
         provider: value('mktero-ai-provider') ?? settings.provider,
         protocol: value('mktero-ai-protocol') ?? settings.protocol,
         apiBase: value('mktero-ai-api-base') ?? settings.apiBase,

@@ -33,9 +33,10 @@ Mktero 是适用于 Zotero 7、8、9 和 10 的无需重启扩展。需要时，
 - 在 Markdown 引用弹窗中检查文献是否存在于可访问的 Zotero 文库；用户可以选择可写的个人库或群组库，显式复制其他文库中的文献，针对只有标题的文献查看本地或在线元数据匹配，并导入缺失的元数据和公开 PDF。
 - 在 Markdown 中显示 Zotero PDF 高亮和下划线，并支持新建、编辑、改色、评论和删除标注。
 - 在不修改不可变 MinerU 结果的前提下，校对已有段落、标题和 GFM 表格单元格；校对内容可查看、恢复或删除。
-- 通过配置的 Vercel AI SDK Provider 翻译整篇文章，并在原文、译文和连续块级双语阅读之间切换。
+- 通过配置的 Vercel AI SDK Provider 翻译整篇文章，并在原文、译文和连续块级双语阅读之间切换；也可以在原文视图或双语视图的原文侧查询选中的术语或段落。
 - 只在当前 Zotero 文库内展示可匹配的直接引用关系，并在支持时使用 Semantic Scholar、OpenCitations 和 OpenAlex 刷新数据。
 - 保存包含 HTML、Markdown、来源映射和内嵌图片的便携 Zotero 快照。
+- 将修正后的原文 Markdown 和提取图片导出到用户选择的本地位置。
 - 界面跟随 Zotero 的英文或简体中文显示语言，其他语言回退为英文。
 
 ## 快速开始
@@ -69,6 +70,7 @@ Mktero 是适用于 Zotero 7、8、9 和 10 的无需重启扩展。需要时，
 | MinerU API Token | 缓存未命中时必需 | 使用 MinerU 上传并转换 PDF |
 | AI 功能和 Provider 设置 | 可选 | 通过托管或本地回环模型服务翻译 Markdown |
 | 翻译语言 | 可选 | 简体/繁体中文、日文、韩文、西班牙语、法语或巴西葡萄牙语 |
+| 自动翻译 Markdown 选区 | 可选，默认关闭 | 无需再次点击即可翻译稳定的选区；关闭后保留弹窗中的手动操作 |
 | 正文字体和字号 | 可选 | 选择阅读字体，并在 16–22 px 间调整字号 |
 | 复用转换结果 | 可选 | 复用相同 PDF 内容和解析配置对应的结果 |
 
@@ -81,7 +83,7 @@ MinerU 和 AI 凭据会作为普通的未加密首选项存储在当前 Zotero �
    `Read as Markdown with Mktero`。
 2. 在临时 Mktero 标签页中查看上传、转换和下载进度。存在有效缓存时会跳过远程转换。
 3. 使用目录、引用、图表预览、来源链接和 Zotero 笔记面板浏览文档。
-4. 使用阅读器工具栏调整字体、切换阅读模式、翻译、校对识别错误或保存快照。
+4. 使用阅读器工具栏调整字体、切换阅读模式、翻译、校对识别错误、保存快照或导出 Markdown。
 
 Mktero 标签页是会话级的，Zotero 重启后不会恢复。关闭标签页或关闭扩展时，进行中的转换和翻译请求会被取消。
 
@@ -101,7 +103,9 @@ MinerU 内容映射会把 Markdown 内容块连接到 PDF 的物理页码和区�
 
 ### 使用 AI 翻译
 
-AI 翻译始终需要用户主动触发，也不会重写原始 Markdown。Mktero 会把文章拆成受控的 Markdown 批次，保护公式、引用、链接、代码、图片和结构占位符，并最多同时执行 5 个请求。阅读器支持 `Original`、`Translation` 和 `Bilingual` 三种模式；部分结果会按内容块继续补译。
+AI 全文翻译需要用户主动触发，也不会重写原始 Markdown。Mktero 会把文章拆成受控的 Markdown 批次，保护公式、引用、链接、代码、图片和结构占位符，并最多同时执行 5 个请求。阅读器支持 `Original`、`Translation` 和 `Bilingual` 三种模式；部分结果会按内容块继续补译。
+
+如需查询术语或复杂句子，可以在 `Original` 或 `Bilingual` 的原文侧选中文本，使用选区弹窗工具栏末尾的翻译操作；加载、结果和错误只在需要时于下方紧凑展开。翻译成功后可以重新翻译或复制纯文本译文。`自动翻译 Markdown 选区`默认关闭；开启后，选区稳定一小段时间会自动发起一次受控请求。`Translation`、`Bilingual` 的译文侧和已保存的 HTML 快照不提供划词翻译。选区译文只显示在弹窗中，不会修改 Markdown 或笔记，也不会写入全文翻译缓存。每次选区请求只会把选中文本和附近受限长度的原文上下文发送给配置的 AI Provider，可能产生 Provider 费用。
 
 译文会按照源内容、Provider、协议、模型、语言和提示词版本独立缓存。Mktero 通过 Vercel AI SDK Core 支持 OpenAI、Anthropic、Google Gemini、DeepSeek、阿里云百炼、Moonshot/Kimi、MiniMax，以及自定义 OpenAI 兼容或 Open Responses 服务。远程地址必须使用 HTTPS；Ollama、LM Studio 等本地回环服务可以使用 HTTP。
 
@@ -118,6 +122,10 @@ AI 翻译始终需要用户主动触发，也不会重写原始 Markdown。Mkter
 ### 保存便携快照
 
 `Save snapshot` 会在 PDF 所属条目下创建专用的 `Mktero Markdown Snapshot` Note。Note 保存便携 HTML，图片作为内嵌附件，原始 Markdown 和来源映射作为关联附件。用户修改过快照 Note 后，Mktero 不会静默覆盖。没有父级文库条目的独立 PDF 无法保存快照。
+
+### 导出 Markdown
+
+`导出 Markdown` 会打开系统文件夹选择窗口。选择文件夹 `A`、论文标题为 `B` 时，Mktero 会创建 `A/B/B.md`，并将提取图片写入 `A/B/assets/`，同时更新 Markdown 中的图片路径。如果 `B` 已存在，则创建 `B-2` 等带序号的目录及对应的 `B-2.md`，不会覆盖已有导出。导出内容不包含译文或双语阅读视图，也不会自动导出。
 
 ## 工作原理
 
@@ -147,11 +155,13 @@ PDF、MinerU 结果、压缩包、图片路径、API 响应和首选项都会被
 | 用户为只有标题的文献点击“导入文献”后发送的受限引用文本 | OpenAlex | Mktero 不同步 |
 | 用户点击导入后发送的规范化 DOI、arXiv ID、PMID 或 OpenAlex 工作 ID、已确认的元数据，以及可选的公开 PDF 请求 | 选定的元数据/PDF Provider | Mktero 不同步 |
 | 受保护的 Markdown 翻译批次 | 你配置的 AI Provider | Mktero 不同步 |
+| 选区翻译使用的选中文本和附近受限长度的原文上下文 | 你配置的 AI Provider | Mktero 不同步 |
 | Zotero PDF 标注 | 本地 Zotero 文库 | 取决于 Zotero 设置 |
 | 保存的快照 Note 和附件 | Zotero 条目和附件 | 取决于 Zotero 设置 |
+| 导出的 Markdown 和图片 | 用户选择的本地路径 | 否 |
 | 导入的文献元数据和 PDF 附件 | 当前 Zotero 配置文件，未加密 | 取决于 Zotero 设置 |
 
-Mktero 不会把 PDF 标注、本地 PDF.js 索引、Zotero 笔记、完整条目记录、本地路径或缓存 Markdown 发送给文献/PDF Provider。只有标题的文献在用户明确点击“导入文献”后才会发送受限的引用文本；唯一的高置信度匹配会自动继续，不确定的匹配仍需用户确认。引用与文献请求始终匿名访问 Provider，只包含上表所述的受限引用文本、规范化标识符和已确认元数据，不会发送 Zotero key 或 PDF 字节。翻译请求包含受保护的 Markdown 和指令；如果占位符校验连续失败，最后一次重试只发送受影响内容块中的普通文本片段。日志不会写入 API Token、预签名地址、PDF 字节或带认证的响应。
+Mktero 不会把 PDF 标注、本地 PDF.js 索引、Zotero 笔记、完整条目记录、本地路径或缓存 Markdown 发送给文献/PDF Provider。只有标题的文献在用户明确点击“导入文献”后才会发送受限的引用文本；唯一的高置信度匹配会自动继续，不确定的匹配仍需用户确认。引用与文献请求始终匿名访问 Provider，只包含上表所述的受限引用文本、规范化标识符和已确认元数据，不会发送 Zotero key 或 PDF 字节。翻译请求包含受保护的 Markdown 和指令；如果占位符校验连续失败，最后一次重试只发送受影响内容块中的普通文本片段。选区翻译请求只包含选中文本和附近受限长度的原文上下文，不会写入全文翻译缓存。日志不会写入 API Token、预签名地址、PDF 字节或带认证的响应。
 
 请同时阅读 MinerU、AI Provider 和引用 Provider 的隐私政策。除非相关数据处理条款符合你的使用场景，否则不要处理机密 PDF。
 
@@ -165,6 +175,7 @@ Mktero 不会把 PDF 标注、本地 PDF.js 索引、Zotero 笔记、完整条�
 - 链接协议仅允许 `http`、`https`、`zotero` 和文档片段。
 - 校对模式只能编辑或删除已有内容块，不能改变文档结构、公式、图片或原始 HTML。
 - AI 翻译是可选的缓存阅读层，不修改源 Markdown，也不会写入快照。
+- 选区翻译是独立的按需阅读辅助，只能从 Markdown 阅读视图的原文侧使用，不写入缓存，可能产生 AI Provider 费用。
 - 压缩包、Markdown、图片、来源映射、PDF 索引和 KaTeX 渲染都有本地资源上限，超限时会安全停止处理。
 
 ## 转换排障

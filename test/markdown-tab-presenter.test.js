@@ -148,6 +148,23 @@ test('passes the citation graph action to the Markdown reader model', () => {
     presenter.dispose();
 });
 
+test('passes the Markdown export action to new and reused reader models', () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness);
+    const firstExport = () => ({ status: 'exported' });
+    const presentation = presenter.open(42, {
+        onExportMarkdown: firstExport,
+    });
+
+    assert.equal(presentation.model.onExportMarkdown, firstExport);
+
+    const secondExport = () => ({ status: 'cancelled' });
+    presenter.open(42, { onExportMarkdown: secondExport });
+    assert.equal(presentation.model.onExportMarkdown, secondExport);
+    presenter.dispose();
+});
+
 test('passes reference library actions to the Markdown reader model and refreshes reuse', () => {
     const mainWindow = createMainWindow();
     const harness = createViewHarness();
@@ -504,6 +521,44 @@ test('exposes and refreshes document translation actions on the tab model', asyn
         ['view-second', 'compare'],
         ['language-second', 'ja-JP'],
     ]);
+});
+
+test('exposes and refreshes selection translation actions on the tab model', async () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const calls = [];
+    const presenter = createPresenter(mainWindow, harness);
+    const first = presenter.open(42, {
+        onTranslateSelection: request => calls.push(['translate-first', request]),
+        onCancelSelectionTranslation: () => calls.push(['cancel-first']),
+        shouldAutoTranslateSelection: () => false,
+        onCopySelectionTranslation: text => calls.push(['copy-first', text]),
+    });
+    const second = presenter.open(42, {
+        onTranslateSelection: request => calls.push(['translate-second', request]),
+        onCancelSelectionTranslation: () => calls.push(['cancel-second']),
+        shouldAutoTranslateSelection: () => true,
+        onCopySelectionTranslation: text => calls.push(['copy-second', text]),
+    });
+
+    await second.model.onTranslateSelection({
+        text: 'Selected text.',
+        context: 'Surrounding text.',
+    });
+    second.model.onCancelSelectionTranslation();
+    assert.equal(second.model.shouldAutoTranslateSelection(), true);
+    await second.model.onCopySelectionTranslation('已翻译文本');
+
+    assert.equal(first.model, second.model);
+    assert.deepEqual(calls, [
+        ['translate-second', {
+            text: 'Selected text.',
+            context: 'Surrounding text.',
+        }],
+        ['cancel-second'],
+        ['copy-second', '已翻译文本'],
+    ]);
+    presenter.dispose();
 });
 
 test('closes another Mktero tab for the same source PDF', () => {

@@ -47,12 +47,16 @@ Useful links: [Product page](https://tenglvjun.github.io/mktero/) ·
   cells without modifying the immutable MinerU result. Corrections can be
   reviewed, restored, or removed.
 - Translate a complete article through a configured Vercel AI SDK provider and
-  switch between Original, Translation, and continuous Bilingual reading.
+  switch between Original, Translation, and continuous Bilingual reading; look
+  up a selected term or passage from the Original view or the source side of
+  Bilingual reading.
 - Explore direct reference relationships among papers already in the current
   Zotero library, using cache-first refreshes from Semantic Scholar,
   OpenCitations, and OpenAlex when identifiers are available.
 - Save a portable Zotero snapshot containing HTML, Markdown, source maps, and
   embedded figures.
+- Export the corrected source Markdown and its extracted figures to a
+  user-selected local path.
 - Follow Zotero's English or Simplified Chinese display language; other locales
   fall back to English.
 
@@ -89,6 +93,7 @@ Open `Settings -> Mktero` after installation.
 | MinerU API Token | Yes for a cache miss | Upload and convert PDFs with MinerU |
 | AI features and provider settings | Optional | Translate Markdown through a hosted or loopback model service |
 | Translation language | Optional | Choose Simplified/Traditional Chinese, Japanese, Korean, Spanish, French, or Brazilian Portuguese |
+| Automatically translate Markdown selections | Optional, off by default | Translate a stable selection without an extra click; disabling it keeps the manual popup action |
 | Body text font and size | Optional | Choose the reading font and a 16–22 px body size |
 | Reuse conversion results | Optional | Reuse results for the same PDF content and parser profile |
 
@@ -105,7 +110,7 @@ before translating.
 3. Use the outline, citations, figure/table previews, source links, and Zotero
    notes panel to navigate the document.
 4. Use the reader toolbar to adjust typography, switch reading mode, translate,
-   correct recognition errors, or save a snapshot.
+   correct recognition errors, save a snapshot, or export Markdown.
 
 Mktero tabs are session-only and are not restored after Zotero restarts. Closing
 the tab or shutting down the extension cancels active conversion and
@@ -148,6 +153,19 @@ links, code, images, and structural placeholders, and runs at most five
 requests concurrently. Choose `Original`, `Translation`, or `Bilingual` in
 the reader. Translations are cached independently by source content, provider,
 protocol, model, language, and prompt version, so partial work can resume.
+
+For a focused lookup, select text in `Original` or on the source side of
+`Bilingual` reading. The selection popup places its manual translation action
+at the end of the action row; loading, results, and errors expand below it only
+when needed in a compact panel. A successful result can be translated again or
+copied as plain text. The `Automatically translate Markdown selections` setting
+is off by default; when enabled, a stable selection starts one bounded request
+automatically after a short delay. The translated side of `Bilingual`,
+`Translation` reading, and saved HTML snapshots do not offer selection
+translation. Selection results stay in the popup, do not modify Markdown or
+notes, and are not added to the full-document translation cache. Each selection
+request sends the selected text and a bounded amount of nearby source context
+to the configured AI provider and may incur provider usage costs.
 
 Mktero includes adapters for OpenAI, Anthropic, Google Gemini, DeepSeek,
 Alibaba Cloud Model Studio, Moonshot/Kimi, MiniMax, and custom OpenAI-compatible
@@ -205,6 +223,15 @@ attachments; the original Markdown and source map are related attachments.
 Mktero refuses to silently overwrite a snapshot Note that you edited. A
 standalone PDF without a parent library item cannot save a snapshot.
 
+### Export Markdown
+
+`Export Markdown` opens the system folder picker. If the selected folder is `A`
+and the paper title is `B`, Mktero creates `A/B/B.md` and writes extracted
+figures under `A/B/assets/`, updating their Markdown paths accordingly. If `B`
+already exists, a numbered directory such as `B-2` is created with a matching
+`B-2.md`; existing exports are never overwritten. Export does not include
+translated or bilingual views and never runs automatically.
+
 ## How it works
 
 ```text
@@ -236,8 +263,10 @@ and raw HTML is escaped or sanitized before rendering.
 | Bounded citation text after the user chooses `Import reference` for a title-only reference | OpenAlex | Not by Mktero |
 | A normalized DOI, arXiv ID, PMID, or OpenAlex work ID plus confirmed metadata after the user clicks the import action; optional open-access PDF request | The selected metadata/PDF provider | Not by Mktero |
 | Protected Markdown translation batches | AI provider configured by you | Not by Mktero |
+| Selected Markdown text and bounded surrounding source context for selection translation | AI provider configured by you | Not by Mktero |
 | Zotero PDF annotations | Local Zotero library | According to Zotero settings |
 | Saved snapshot Note and attachments | Zotero items and attachments | According to Zotero settings |
+| Exported Markdown and figures | User-selected local path | No |
 | Imported reference metadata and PDF attachments | Active Zotero profile, unencrypted | According to Zotero settings |
 
 Mktero does not send PDF annotations, local PDF.js indexes, Zotero notes,
@@ -251,7 +280,9 @@ metadata described above, never Zotero keys or PDF bytes.
 Translation requests contain protected Markdown and instructions; if
 placeholder validation repeatedly fails, the final retry contains only the
 affected block's ordinary text segments. API Tokens, presigned URLs, PDF bytes,
-and authenticated responses are not written to logs.
+and authenticated responses are not written to logs. Selection translation
+requests contain only the selected text and bounded nearby source context; they
+are not written to the full-document translation cache.
 
 Review the privacy policy of MinerU and any AI or citation provider Mktero uses.
 Do not process confidential PDFs unless their data-handling terms are suitable
@@ -274,6 +305,9 @@ for your use case.
   change document structure, formulas, images, or raw HTML.
 - AI translation is an optional cached reading layer. It does not modify source
   Markdown or get included in snapshots.
+- Selection translation is a separate, on-demand reading aid. It is available
+  only from source text in Markdown reading views, is not cached, and may incur
+  AI provider usage costs.
 - Archives, Markdown, images, source maps, PDF indexes, and KaTeX rendering have
   local resource limits and fail safely when those limits are exceeded.
 

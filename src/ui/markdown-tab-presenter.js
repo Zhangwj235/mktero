@@ -66,12 +66,17 @@ export class MarkdownTabPresenter {
         onOpenCitationGraph,
         onOpenSettings,
         onSaveSnapshot,
+        onExportMarkdown,
         onSetCorrectionMode,
         onCommitCorrection,
         onRestoreCorrection,
         onRestoreAllCorrections,
         onTranslateDocument,
         onCancelDocumentTranslation,
+        onTranslateSelection,
+        onCancelSelectionTranslation,
+        shouldAutoTranslateSelection,
+        onCopySelectionTranslation,
         onSetTranslationView,
         onSelectTranslationLanguage,
         onChangeAnnotationColor,
@@ -122,6 +127,9 @@ export class MarkdownTabPresenter {
             if (onSaveSnapshot !== undefined) {
                 existing.model.onSaveSnapshot = onSaveSnapshot;
             }
+            if (onExportMarkdown !== undefined) {
+                existing.model.onExportMarkdown = onExportMarkdown;
+            }
             if (onSetCorrectionMode !== undefined) {
                 existing.model.onSetCorrectionMode = onSetCorrectionMode;
             }
@@ -141,6 +149,21 @@ export class MarkdownTabPresenter {
             if (onCancelDocumentTranslation !== undefined) {
                 existing.model.onCancelDocumentTranslation
                     = onCancelDocumentTranslation;
+            }
+            if (onTranslateSelection !== undefined) {
+                existing.model.onTranslateSelection = onTranslateSelection;
+            }
+            if (onCancelSelectionTranslation !== undefined) {
+                existing.model.onCancelSelectionTranslation
+                    = onCancelSelectionTranslation;
+            }
+            if (shouldAutoTranslateSelection !== undefined) {
+                existing.model.shouldAutoTranslateSelection
+                    = shouldAutoTranslateSelection;
+            }
+            if (onCopySelectionTranslation !== undefined) {
+                existing.model.onCopySelectionTranslation
+                    = onCopySelectionTranslation;
             }
             if (onSetTranslationView !== undefined) {
                 existing.model.onSetTranslationView = onSetTranslationView;
@@ -217,12 +240,17 @@ export class MarkdownTabPresenter {
                 onOpenCitationGraph,
                 onOpenSettings,
                 onSaveSnapshot,
+                onExportMarkdown,
                 onSetCorrectionMode,
                 onCommitCorrection,
                 onRestoreCorrection,
                 onRestoreAllCorrections,
                 onTranslateDocument,
                 onCancelDocumentTranslation,
+                onTranslateSelection,
+                onCancelSelectionTranslation,
+                shouldAutoTranslateSelection,
+                onCopySelectionTranslation,
                 onSetTranslationView,
                 onSelectTranslationLanguage,
                 onChangeAnnotationColor,
