@@ -35,8 +35,11 @@ test('declares the scalable Mktero logo for extension surfaces', () => {
     });
 });
 
-test('keeps the installable package version metadata consistent', () => {
-    assert.equal(manifest.version, '0.3.3');
+test('keeps the installable package version metadata valid and consistent', () => {
+    assert.match(
+        manifest.version,
+        /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/
+    );
     assert.equal(packageMetadata.version, manifest.version);
     assert.equal(packageLock.version, manifest.version);
     assert.equal(packageLock.packages[''].version, manifest.version);
