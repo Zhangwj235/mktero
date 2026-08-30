@@ -5672,7 +5672,7 @@ test('shows Markdown annotation actions after selecting ordinary text', () => {
     dom.window.close();
 });
 
-test('places manual translation last and expands its plain-text result below', async () => {
+test('places translation last, expands results below, and translates again', async () => {
     const dom = new JSDOM('<!doctype html><div id="popup-parent"></div>', {
         pretendToBeVisual: true,
     });
@@ -5751,12 +5751,46 @@ test('places manual translation last and expands its plain-text result below', a
     const result = actions.querySelector('.mktero-selection-translation-result');
     assert.equal(result.textContent, '<b>Translated</b>');
     assert.equal(result.querySelector('b'), null);
+    assert.deepEqual(
+        [...translationPanel.querySelectorAll(
+            '.mktero-selection-translation-actions button'
+        )].map(element => element.dataset.action),
+        [
+            'retranslate-selection',
+            'copy-selection-translation',
+        ]
+    );
+    const retranslateButton = actions.querySelector(
+        '[data-action="retranslate-selection"]'
+    );
     const copyButton = actions.querySelector(
         '[data-action="copy-selection-translation"]'
+    );
+    assert.ok(retranslateButton);
+    assert.equal(
+        retranslateButton.getAttribute('aria-label'),
+        'Translate selection again'
     );
     assert.ok(copyButton);
     copyButton.click();
     assert.equal(copiedText, '<b>Translated</b>');
+
+    retranslateButton.click();
+    assert.equal(translationCalls, 2);
+    assert.equal(actions.dataset.translationStatus, 'loading');
+    assert.equal(result.hidden, true);
+    assert.ok(actions.querySelector(
+        '[data-action="cancel-selection-translation"]'
+    ));
+
+    resolveTranslation({ text: 'Retranslated' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(actions.dataset.translationStatus, 'success');
+    assert.equal(result.textContent, 'Retranslated');
+    actions.querySelector('[data-action="copy-selection-translation"]').click();
+    assert.equal(copiedText, 'Retranslated');
 
     popup.destroy();
     dom.window.close();

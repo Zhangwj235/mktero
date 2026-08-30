@@ -502,6 +502,13 @@ function createMarkdownSelectionActions(
             LUCIDE_ICONS.rotateCcw
         )
         : null;
+    const retranslateButton = canTranslate
+        ? createTranslationButton(
+            'retranslate-selection',
+            'ai.retranslateSelection',
+            LUCIDE_ICONS.rotateCcw
+        )
+        : null;
     const copyTranslationButton = typeof copySelectionTranslation === 'function'
         ? createTranslationButton(
             'copy-selection-translation',
@@ -542,6 +549,7 @@ function createMarkdownSelectionActions(
             translationStatus.textContent = translate(
                 'ai.selectionTranslationLabel'
             );
+            translationButtons.appendChild(retranslateButton);
             if (copyTranslationButton) {
                 translationButtons.appendChild(copyTranslationButton);
             }
@@ -608,6 +616,7 @@ function createMarkdownSelectionActions(
     translateButton?.addEventListener('click', startTranslation);
     cancelTranslationButton?.addEventListener('click', cancelTranslation);
     retryTranslationButton?.addEventListener('click', startTranslation);
+    retranslateButton?.addEventListener('click', startTranslation);
     copyTranslationButton?.addEventListener('click', async () => {
         try {
             await copySelectionTranslation(translatedText);

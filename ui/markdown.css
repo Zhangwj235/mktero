@@ -2398,7 +2398,8 @@ main {
 .mktero-selection-translation {
     display: grid;
     flex: 0 0 100%;
-    min-width: 220px;
+    min-width: 0;
+    max-width: min(320px, calc(100vw - 42px));
     gap: 6px;
     padding-top: 7px;
     border-top: 1px solid var(--border-subtle);
@@ -2406,13 +2407,7 @@ main {
 
 .mktero-selection-translation-status,
 .mktero-selection-translation-error {
-    max-width: min(520px, calc(100vw - 48px));
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-}
-
-.mktero-selection-translation-result {
-    max-width: min(520px, calc(100vw - 48px));
+    max-width: 100%;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
 }
@@ -2423,6 +2418,7 @@ main {
 }
 
 .mktero-selection-translation-result {
+    max-width: 100%;
     color: var(--text);
     overflow-wrap: anywhere;
     line-height: 1.5;
@@ -2436,6 +2432,7 @@ main {
 
 .mktero-selection-translation-actions {
     display: flex;
+    justify-content: flex-end;
     gap: 4px;
 }
 

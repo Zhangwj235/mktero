@@ -104,7 +104,7 @@ MinerU 内容映射会把 Markdown 内容块连接到 PDF 的物理页码和区�
 
 AI 全文翻译需要用户主动触发，也不会重写原始 Markdown。Mktero 会把文章拆成受控的 Markdown 批次，保护公式、引用、链接、代码、图片和结构占位符，并最多同时执行 5 个请求。阅读器支持 `Original`、`Translation` 和 `Bilingual` 三种模式；部分结果会按内容块继续补译。
 
-如需查询术语或复杂句子，可以在 `Original` 或 `Bilingual` 的原文侧选中文本，使用选区弹窗中的翻译操作。`自动翻译 Markdown 选区`默认关闭；开启后，选区稳定一小段时间会自动发起一次受控请求。`Translation`、`Bilingual` 的译文侧和已保存的 HTML 快照不提供划词翻译。选区译文只显示在弹窗中，可以复制，不会修改 Markdown 或笔记，也不会写入全文翻译缓存。每次选区请求只会把选中文本和附近受限长度的原文上下文发送给配置的 AI Provider，可能产生 Provider 费用。
+如需查询术语或复杂句子，可以在 `Original` 或 `Bilingual` 的原文侧选中文本，使用选区弹窗工具栏末尾的翻译操作；加载、结果和错误只在需要时于下方紧凑展开。翻译成功后可以重新翻译或复制纯文本译文。`自动翻译 Markdown 选区`默认关闭；开启后，选区稳定一小段时间会自动发起一次受控请求。`Translation`、`Bilingual` 的译文侧和已保存的 HTML 快照不提供划词翻译。选区译文只显示在弹窗中，不会修改 Markdown 或笔记，也不会写入全文翻译缓存。每次选区请求只会把选中文本和附近受限长度的原文上下文发送给配置的 AI Provider，可能产生 Provider 费用。
 
 译文会按照源内容、Provider、协议、模型、语言和提示词版本独立缓存。Mktero 通过 Vercel AI SDK Core 支持 OpenAI、Anthropic、Google Gemini、DeepSeek、阿里云百炼、Moonshot/Kimi、MiniMax，以及自定义 OpenAI 兼容或 Open Responses 服务。远程地址必须使用 HTTPS；Ollama、LM Studio 等本地回环服务可以使用 HTTP。
 
