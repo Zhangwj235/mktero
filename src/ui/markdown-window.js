@@ -55,6 +55,19 @@ const BUNDLED_MARKDOWN_STYLES = typeof __MKTERO_MARKDOWN_STYLES__ === 'string'
     ? __MKTERO_MARKDOWN_STYLES__
     : null;
 const DOCUMENT_ACTION_STATUS_TIMEOUT_MS = 5_000;
+const DOCUMENT_ACTION_FEEDBACK = Object.freeze({
+    saveSnapshot: Object.freeze({
+        progress: 'viewer.snapshotSaving',
+        success: 'viewer.snapshotSaved',
+        failure: 'viewer.snapshotSaveFailed',
+    }),
+    exportMarkdown: Object.freeze({
+        progress: 'viewer.markdownExporting',
+        success: 'viewer.markdownExported',
+        failure: 'viewer.markdownExportFailed',
+        neutralStatus: 'cancelled',
+    }),
+});
 const WARNING_TOAST_TIMEOUT_MS = 5_000;
 const CORRECTION_UNDO_TIMEOUT_MS = 8_000;
 const SIDE_PANEL_KEYBOARD_STEP = 16;
@@ -221,6 +234,7 @@ class MarkdownTabView {
         this.renderedSnapshotAssets = undefined;
         this.snapshotURLs = new Map();
         this.documentActionBusy = null;
+        this.destroyed = false;
         this.actionStatusTimer = null;
         this.warningToastSignature = null;
         this.warningToastTimer = null;
@@ -599,6 +613,8 @@ class MarkdownTabView {
     }
 
     destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
         this.clearDocumentActionStatus();
         this.clearWarningToast();
         this.clearCorrectionUndo();
@@ -1190,6 +1206,8 @@ class MarkdownTabView {
             restoreCorrectionsLabel: documentActions.restoreCorrectionsLabel,
             saveSnapshot: documentActions.saveSnapshot,
             saveSnapshotLabel: documentActions.saveSnapshotLabel,
+            exportMarkdown: documentActions.exportMarkdown,
+            exportMarkdownLabel: documentActions.exportMarkdownLabel,
             readerControls: documentActions.readerControls,
             readerFontSize: documentActions.readerFontSize,
             readerFontDecrease: documentActions.readerFontDecrease,
@@ -1599,11 +1617,33 @@ class MarkdownTabView {
             this.t('viewer.saveSnapshotShort')
         );
         saveSnapshot.appendChild(saveSnapshotLabel);
+        const exportMarkdown = this.createElement('button', {
+            id: 'mktero-export-markdown',
+            class: 'markdown-reader-action markdown-reader-action--child',
+            type: 'button',
+            'aria-label': this.t('viewer.exportMarkdown'),
+            title: this.t('viewer.exportMarkdown'),
+        });
+        exportMarkdown.appendChild(createLucideIcon(
+            this.document,
+            LUCIDE_ICONS.download,
+            {
+                className: 'markdown-reader-action-icon',
+                size: 18,
+            }
+        ));
+        const exportMarkdownLabel = this.createElement(
+            'span',
+            { class: 'markdown-reader-action-label' },
+            this.t('viewer.exportMarkdownShort')
+        );
+        exportMarkdown.appendChild(exportMarkdownLabel);
         menu.appendChild(correctionToggle);
         menu.appendChild(restoreCorrections);
         menu.appendChild(retranslateDocument);
         menu.appendChild(reparse);
         menu.appendChild(saveSnapshot);
+        menu.appendChild(exportMarkdown);
         const status = this.createElement('span', {
             class: 'markdown-reader-action-status',
             'aria-live': 'polite',
@@ -1657,6 +1697,8 @@ class MarkdownTabView {
             restoreCorrectionsLabel,
             saveSnapshot,
             saveSnapshotLabel,
+            exportMarkdown,
+            exportMarkdownLabel,
             readerControls,
             readerFontSize,
             readerFontDecrease,
@@ -1807,6 +1849,11 @@ class MarkdownTabView {
         });
         this.listen(this.elements.saveSnapshot, 'click', () => {
             this.runDocumentAction('saveSnapshot', 'onSaveSnapshot');
+        });
+        this.listen(this.elements.exportMarkdown, 'click', () => {
+            this.runDocumentAction('exportMarkdown', 'onExportMarkdown', {
+                ownerWindow: this.ownerWindow,
+            });
         });
         this.listen(this.elements.citationGraphButton, 'click', () => {
             this.openCitationGraph();
@@ -2012,23 +2059,23 @@ class MarkdownTabView {
         this.syncResponsiveSidePanels();
     }
 
-    runDocumentAction(kind, callbackName) {
+    runDocumentAction(kind, callbackName, ...args) {
         const button = {
             reparse: this.elements.reparse,
             retry: this.elements.errorRetry,
             openSettings: this.elements.errorSettings,
             openWarningSettings: this.elements.warningSettings,
             saveSnapshot: this.elements.saveSnapshot,
+            exportMarkdown: this.elements.exportMarkdown,
         }[kind];
         if (!button || button.disabled
             || this.documentActionBusy
             || typeof this.model[callbackName] !== 'function') {
             return;
         }
+        const feedback = DOCUMENT_ACTION_FEEDBACK[kind];
         this.documentActionBusy = kind;
-        if (kind === 'saveSnapshot') {
-            this.setDocumentActionStatus('viewer.snapshotSaving');
-        }
+        if (feedback?.progress) this.setDocumentActionStatus(feedback.progress);
         this.setDocumentActionsOpen(false);
         this.syncDocumentActions(
             this.model,
@@ -2036,15 +2083,14 @@ class MarkdownTabView {
         );
         let operation;
         try {
-            operation = this.model[callbackName]();
+            operation = this.model[callbackName](...args);
         }
         catch (error) {
             this.zotero?.logError?.(error);
-            if (kind === 'saveSnapshot') {
-                this.setDocumentActionStatus(
-                    'viewer.snapshotSaveFailed',
-                    { dismissAfter: true }
-                );
+            if (feedback?.failure) {
+                this.setDocumentActionStatus(feedback.failure, {
+                    dismissAfter: true,
+                });
             }
             this.documentActionBusy = null;
             this.syncDocumentActions(
@@ -2054,25 +2100,29 @@ class MarkdownTabView {
             return;
         }
         Promise.resolve(operation)
-            .then(() => {
-                if (kind === 'saveSnapshot') {
-                    this.setDocumentActionStatus(
-                        'viewer.snapshotSaved',
-                        { dismissAfter: true }
-                    );
+            .then(result => {
+                if (this.destroyed) return;
+                if (feedback?.neutralStatus
+                    && feedback.neutralStatus === result?.status) {
+                    this.clearDocumentActionStatus();
+                }
+                else if (feedback?.success) {
+                    this.setDocumentActionStatus(feedback.success, {
+                        dismissAfter: true,
+                    });
                 }
             })
             .catch(error => {
                 this.zotero?.logError?.(error);
-                if (kind === 'saveSnapshot') {
-                    this.setDocumentActionStatus(
-                        'viewer.snapshotSaveFailed',
-                        { dismissAfter: true }
-                    );
+                if (!this.destroyed && feedback?.failure) {
+                    this.setDocumentActionStatus(feedback.failure, {
+                        dismissAfter: true,
+                    });
                 }
             })
             .finally(() => {
                 this.documentActionBusy = null;
+                if (this.destroyed) return;
                 this.syncDocumentActions(
                     this.model,
                     createLoadingPresentation(this.model, this.t)
@@ -2887,11 +2937,22 @@ class MarkdownTabView {
             'title',
             this.t('viewer.saveSnapshot')
         );
+        this.elements.exportMarkdown.setAttribute(
+            'aria-label',
+            this.t('viewer.exportMarkdown')
+        );
+        this.elements.exportMarkdown.setAttribute(
+            'title',
+            this.t('viewer.exportMarkdown')
+        );
         this.elements.reparseLabel.textContent = this.t(
             'viewer.reparseShort'
         );
         this.elements.saveSnapshotLabel.textContent = this.t(
             'viewer.saveSnapshotShort'
+        );
+        this.elements.exportMarkdownLabel.textContent = this.t(
+            'viewer.exportMarkdownShort'
         );
         const correctionLabel = this.t(this.model.correctionMode
             ? 'revision.finish'
@@ -3063,6 +3124,9 @@ class MarkdownTabView {
         const reparseAvailable = typeof model.onReparse === 'function';
         const saveAvailable = typeof model.onSaveSnapshot === 'function'
             && model.renderMode !== 'html';
+        const exportAvailable = model.status === 'ready'
+            && model.renderMode !== 'html'
+            && typeof model.onExportMarkdown === 'function';
         const correctionAvailable = model.status === 'ready'
             && model.renderMode !== 'html'
             && Array.isArray(model.editableBlocks)
@@ -3080,6 +3144,7 @@ class MarkdownTabView {
             && typeof model.onOpenCitationGraph === 'function';
         const documentActionsAvailable = reparseAvailable
             || saveAvailable
+            || exportAvailable
             || correctionAvailable
             || restoreAvailable
             || translationAvailable;
@@ -3106,6 +3171,7 @@ class MarkdownTabView {
         this.elements.editorActions.hidden = !toolbarAvailable;
         this.elements.reparse.hidden = !reparseAvailable;
         this.elements.saveSnapshot.hidden = !saveAvailable;
+        this.elements.exportMarkdown.hidden = !exportAvailable;
         this.elements.correctionToggle.hidden = !correctionAvailable;
         this.elements.translationControls.hidden = !translationAvailable;
         this.elements.restoreCorrections.hidden = !restoreAvailable;
@@ -3120,6 +3186,9 @@ class MarkdownTabView {
             || loadingView.visible
             || Boolean(this.documentActionBusy);
         this.elements.saveSnapshot.disabled = !saveAvailable
+            || loadingView.visible
+            || Boolean(this.documentActionBusy);
+        this.elements.exportMarkdown.disabled = !exportAvailable
             || loadingView.visible
             || Boolean(this.documentActionBusy);
         this.elements.correctionToggle.disabled = !correctionAvailable
@@ -3217,6 +3286,15 @@ class MarkdownTabView {
         const saving = this.documentActionBusy === 'saveSnapshot';
         this.elements.saveSnapshot.setAttribute('aria-busy', String(saving));
         this.elements.saveSnapshot.classList.toggle('is-saving', saving);
+        const exporting = this.documentActionBusy === 'exportMarkdown';
+        this.elements.exportMarkdown.setAttribute(
+            'aria-busy',
+            String(exporting)
+        );
+        this.elements.exportMarkdown.classList.toggle(
+            'is-exporting',
+            exporting
+        );
         if (!documentActionsAvailable) {
             this.documentActionsOpen = false;
         }
@@ -3587,6 +3665,7 @@ class MarkdownTabView {
         const menuTabIndex = visible ? '0' : '-1';
         this.elements.reparse.setAttribute('tabindex', menuTabIndex);
         this.elements.saveSnapshot.setAttribute('tabindex', menuTabIndex);
+        this.elements.exportMarkdown.setAttribute('tabindex', menuTabIndex);
         this.elements.correctionToggle.setAttribute('tabindex', menuTabIndex);
         this.elements.retranslateDocument.setAttribute(
             'tabindex',

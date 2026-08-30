@@ -55,6 +55,8 @@ Useful links: [Product page](https://tenglvjun.github.io/mktero/) ·
   OpenCitations, and OpenAlex when identifiers are available.
 - Save a portable Zotero snapshot containing HTML, Markdown, source maps, and
   embedded figures.
+- Export the corrected source Markdown and its extracted figures to a
+  user-selected local path.
 - Follow Zotero's English or Simplified Chinese display language; other locales
   fall back to English.
 
@@ -108,7 +110,7 @@ before translating.
 3. Use the outline, citations, figure/table previews, source links, and Zotero
    notes panel to navigate the document.
 4. Use the reader toolbar to adjust typography, switch reading mode, translate,
-   correct recognition errors, or save a snapshot.
+   correct recognition errors, save a snapshot, or export Markdown.
 
 Mktero tabs are session-only and are not restored after Zotero restarts. Closing
 the tab or shutting down the extension cancels active conversion and
@@ -221,6 +223,15 @@ attachments; the original Markdown and source map are related attachments.
 Mktero refuses to silently overwrite a snapshot Note that you edited. A
 standalone PDF without a parent library item cannot save a snapshot.
 
+### Export Markdown
+
+`Export Markdown` opens the system save dialog and writes the current corrected
+source Markdown to the selected local path. Extracted figures are written to a
+new sibling `<filename>.assets` directory, and their Markdown paths are updated
+accordingly. Existing asset directories are never overwritten; a numbered
+directory is used instead. Export does not include translated or bilingual
+views and never runs automatically.
+
 ## How it works
 
 ```text
@@ -255,6 +266,7 @@ and raw HTML is escaped or sanitized before rendering.
 | Selected Markdown text and bounded surrounding source context for selection translation | AI provider configured by you | Not by Mktero |
 | Zotero PDF annotations | Local Zotero library | According to Zotero settings |
 | Saved snapshot Note and attachments | Zotero items and attachments | According to Zotero settings |
+| Exported Markdown and figures | User-selected local path | No |
 | Imported reference metadata and PDF attachments | Active Zotero profile, unencrypted | According to Zotero settings |
 
 Mktero does not send PDF annotations, local PDF.js indexes, Zotero notes,

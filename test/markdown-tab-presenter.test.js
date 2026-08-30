@@ -148,6 +148,23 @@ test('passes the citation graph action to the Markdown reader model', () => {
     presenter.dispose();
 });
 
+test('passes the Markdown export action to new and reused reader models', () => {
+    const mainWindow = createMainWindow();
+    const harness = createViewHarness();
+    const presenter = createPresenter(mainWindow, harness);
+    const firstExport = () => ({ status: 'exported' });
+    const presentation = presenter.open(42, {
+        onExportMarkdown: firstExport,
+    });
+
+    assert.equal(presentation.model.onExportMarkdown, firstExport);
+
+    const secondExport = () => ({ status: 'cancelled' });
+    presenter.open(42, { onExportMarkdown: secondExport });
+    assert.equal(presentation.model.onExportMarkdown, secondExport);
+    presenter.dispose();
+});
+
 test('passes reference library actions to the Markdown reader model and refreshes reuse', () => {
     const mainWindow = createMainWindow();
     const harness = createViewHarness();

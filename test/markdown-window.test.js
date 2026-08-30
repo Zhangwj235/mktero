@@ -1901,6 +1901,124 @@ test('opens the document action popover and reports snapshot save state', async 
     view.destroy();
 });
 
+test('exports Markdown from the document action menu and reports progress', async () => {
+    let exportOptions;
+    let finishExport;
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        onExportMarkdown: options => {
+            exportOptions = options;
+            return new Promise(resolve => {
+                finishExport = resolve;
+            });
+        },
+    });
+    const { document, view, shadow } = createView(model);
+    const toggle = shadow.querySelector('#mktero-document-actions');
+    const exportButton = shadow.querySelector('#mktero-export-markdown');
+
+    assert.equal(exportButton.textContent, 'Export Markdown');
+    assert.equal(
+        exportButton.querySelector('svg')?.getAttribute('data-lucide'),
+        'download'
+    );
+    toggle.click();
+    exportButton.click();
+    assert.equal(exportOptions.ownerWindow, document.defaultView);
+    assert.equal(exportButton.disabled, true);
+    assert.equal(toggle.disabled, true);
+    assert.equal(
+        shadow.querySelector('.markdown-reader-action-status').textContent,
+        'Exporting Markdown…'
+    );
+
+    finishExport({ status: 'exported', path: '/exports/Paper.md' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(exportButton.disabled, false);
+    assert.equal(toggle.disabled, false);
+    assert.equal(
+        shadow.querySelector('.markdown-reader-action-status').textContent,
+        'Markdown exported'
+    );
+    view.destroy();
+});
+
+test('closes a cancelled Markdown export without reporting success', async () => {
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        onExportMarkdown: async () => ({ status: 'cancelled' }),
+    });
+    const { view, shadow } = createView(model);
+
+    shadow.querySelector('#mktero-document-actions').click();
+    shadow.querySelector('#mktero-export-markdown').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const status = shadow.querySelector('.markdown-reader-action-status');
+    assert.equal(status.hidden, true);
+    assert.equal(status.textContent, '');
+    view.destroy();
+});
+
+test('isolates Markdown exports across windows and ignores late view updates', async () => {
+    let finishFirstExport;
+    let firstOptions;
+    let secondOptions;
+    const first = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# First',
+        sourceKind: 'markdown',
+        onExportMarkdown: options => {
+            firstOptions = options;
+            return new Promise(resolve => {
+                finishFirstExport = resolve;
+            });
+        },
+    }));
+    const second = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Second',
+        sourceKind: 'markdown',
+        onExportMarkdown: async options => {
+            secondOptions = options;
+            return { status: 'cancelled' };
+        },
+    }));
+    const firstTimers = [];
+    first.view.ownerWindow.setTimeout = (callback, delay) => {
+        const timer = { callback, delay };
+        firstTimers.push(timer);
+        return timer;
+    };
+
+    first.shadow.querySelector('#mktero-document-actions').click();
+    first.shadow.querySelector('#mktero-export-markdown').click();
+    assert.equal(firstOptions.ownerWindow, first.document.defaultView);
+    assert.equal(
+        second.shadow.querySelector('#mktero-export-markdown').disabled,
+        false
+    );
+
+    second.shadow.querySelector('#mktero-document-actions').click();
+    second.shadow.querySelector('#mktero-export-markdown').click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(secondOptions.ownerWindow, second.document.defaultView);
+
+    first.view.destroy();
+    finishFirstExport({ status: 'exported', path: '/exports/First.md' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(firstTimers, []);
+    second.view.destroy();
+});
+
 test('keeps reading controls in a toolbar above the Markdown body', () => {
     const { view, shadow } = createView(createModel({
         status: 'ready',

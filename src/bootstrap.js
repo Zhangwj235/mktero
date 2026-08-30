@@ -53,6 +53,9 @@ import {
     createZoteroSavedMarkdownStore,
 } from './platform/zotero-saved-markdown-store.js';
 import {
+    createZoteroMarkdownExporter,
+} from './platform/zotero-markdown-exporter.js';
+import {
     createZoteroMarkdownRevisionStore,
 } from './platform/zotero-markdown-revision-store.js';
 import {
@@ -166,6 +169,7 @@ const runtime = {
     pdfAnnotationLocator: null,
     savedMarkdownStore: null,
     savedMarkdownResolver: null,
+    markdownExporter: null,
     rootURI: null,
     preferencePaneID: null,
     localization: null,
@@ -214,6 +218,13 @@ globalThis.startup = async function startup({ id, rootURI }) {
         zotero: Zotero,
         rootURI,
         localization,
+    });
+    runtime.markdownExporter = createZoteroMarkdownExporter({
+        createFilePicker: createZoteroFilePicker,
+        ioUtils: IOUtils,
+        pathUtils: PathUtils,
+        createID: createMarkdownExportID,
+        translate: runtimeTranslate,
     });
     const presenter = runtime.presenter;
     await Zotero.uiReadyPromise;
@@ -453,6 +464,7 @@ globalThis.shutdown = function shutdown() {
     runtime.pdfAnnotationLocator = null;
     runtime.savedMarkdownStore = null;
     runtime.savedMarkdownResolver = null;
+    runtime.markdownExporter = null;
     runtime.rootURI = null;
     runtime.localization = null;
     runtime.annotationActions = null;
@@ -539,6 +551,7 @@ async function openItemAsMarkdown(itemID, {
         ),
         onOpenSettings: () => openMinerUPreferences(Zotero),
         onSaveSnapshot: () => saveSnapshotForItem(itemID),
+        onExportMarkdown: options => exportMarkdownForDocument(itemID, options),
         onSetCorrectionMode: enabled => setCorrectionMode(itemID, enabled),
         onCommitCorrection: correction => commitCorrection(itemID, correction),
         onRestoreCorrection: blockID => restoreCorrection(itemID, blockID),
@@ -775,6 +788,7 @@ function createSavedMarkdownActions(noteID, sourceItem) {
         onSaveSnapshot: sourceItem
             ? () => saveSnapshotForSavedNote(noteID, sourceItem.id)
             : null,
+        onExportMarkdown: options => exportMarkdownForDocument(noteID, options),
         onOpenAnnotationInPDF: withSource((itemID, annotationID) => (
             runAnnotationAction('openInPDF', itemID, annotationID)
         )),
@@ -833,6 +847,11 @@ function createSavedMarkdownActions(noteID, sourceItem) {
 async function saveSnapshotForItem(itemID) {
     const presentation = runtime.presenter?.get(itemID);
     return saveSnapshotForModel(itemID, presentation?.model);
+}
+
+async function exportMarkdownForDocument(documentID, options) {
+    const presentation = runtime.presenter?.get(documentID);
+    return exportMarkdownForModel(presentation?.model, options);
 }
 
 async function readRevisionSnapshot({ itemID, cacheKey, signal }) {
@@ -1567,6 +1586,22 @@ async function saveSnapshotForSavedNote(noteID, sourceItemID) {
     return saveSnapshotForModel(sourceItemID, presentation?.model);
 }
 
+async function exportMarkdownForModel(model, { ownerWindow } = {}) {
+    if (model?.status !== 'ready' || model.renderMode === 'html') {
+        throw new Error('The Markdown document is unavailable');
+    }
+    if (!runtime.markdownExporter?.export) {
+        throw new Error('Markdown export is unavailable');
+    }
+    return runtime.markdownExporter.export({
+        ownerWindow: ownerWindow || Zotero.getMainWindow?.(),
+        title: model.title,
+        markdown: model.markdown,
+        assets: model.assets,
+        assetBasePath: model.assetBasePath,
+    });
+}
+
 async function saveSnapshotForModel(pdfItemOrID, model) {
     if (model?.status !== 'ready' || model.renderMode === 'html') {
         throw new Error('The Markdown document is unavailable');
@@ -1765,6 +1800,24 @@ function createZoteroAbortController() {
         zotero: Zotero,
         services: typeof Services === 'undefined' ? null : Services,
     });
+}
+
+function createZoteroFilePicker() {
+    if (typeof ChromeUtils === 'undefined') {
+        throw new Error('The Zotero file picker is unavailable');
+    }
+    const { FilePicker } = ChromeUtils.importESModule(
+        'chrome://zotero/content/modules/filePicker.mjs'
+    );
+    if (typeof FilePicker !== 'function') {
+        throw new Error('The Zotero file picker is unavailable');
+    }
+    return new FilePicker();
+}
+
+function createMarkdownExportID() {
+    return globalThis.crypto?.randomUUID?.()
+        || String(Date.now()) + '-' + Math.random().toString(36).slice(2);
 }
 
 async function writeZoteroTemporaryFile({ name, data }) {

@@ -66,6 +66,7 @@ export class MarkdownTabPresenter {
         onOpenCitationGraph,
         onOpenSettings,
         onSaveSnapshot,
+        onExportMarkdown,
         onSetCorrectionMode,
         onCommitCorrection,
         onRestoreCorrection,
@@ -125,6 +126,9 @@ export class MarkdownTabPresenter {
             }
             if (onSaveSnapshot !== undefined) {
                 existing.model.onSaveSnapshot = onSaveSnapshot;
+            }
+            if (onExportMarkdown !== undefined) {
+                existing.model.onExportMarkdown = onExportMarkdown;
             }
             if (onSetCorrectionMode !== undefined) {
                 existing.model.onSetCorrectionMode = onSetCorrectionMode;
@@ -236,6 +240,7 @@ export class MarkdownTabPresenter {
                 onOpenCitationGraph,
                 onOpenSettings,
                 onSaveSnapshot,
+                onExportMarkdown,
                 onSetCorrectionMode,
                 onCommitCorrection,
                 onRestoreCorrection,
