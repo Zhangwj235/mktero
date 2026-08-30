@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    createMarkdownExportDirectoryName,
     createMarkdownExportPlan,
     createMarkdownExportFileName,
     MAX_EXPORT_ASSET_BYTES,
@@ -12,6 +13,16 @@ import {
 } from '../src/markdown/markdown-export.js';
 
 test('creates safe default Markdown export file names', () => {
+    assert.equal(
+        createMarkdownExportDirectoryName(
+            '  Memory / reactivation: study?.pdf  '
+        ),
+        'Memory reactivation study'
+    );
+    assert.equal(
+        createMarkdownExportDirectoryName('...', 'document'),
+        'document'
+    );
     assert.equal(
         createMarkdownExportFileName('  Memory / reactivation: study?.pdf  '),
         'Memory reactivation study.md'
@@ -116,7 +127,7 @@ test('rewrites known local Markdown images into the export asset directory', () 
     const plan = createMarkdownExportPlan({
         markdown,
         assetBasePath: 'result',
-        assetDirectoryName: 'Memory reactivation.assets',
+        assetDirectoryName: 'assets',
         assets: [
             {
                 path: 'result/images/figure one.png',
@@ -132,10 +143,10 @@ test('rewrites known local Markdown images into the export asset directory', () 
     });
 
     assert.equal(plan.markdown, [
-        '![Figure](Memory%20reactivation.assets/images/figure%20one.png)',
+        '![Figure](assets/images/figure%20one.png)',
         '![Panel][panel]',
         '',
-        '[panel]: Memory%20reactivation.assets/images/panel.png',
+        '[panel]: assets/images/panel.png',
         '[Ordinary link](images/figure one.png)',
         '`![Code](images/figure one.png)`',
         '![Remote](https://example.com/remote.png)',
@@ -164,11 +175,11 @@ test('rewrites collapsed reference images without changing their label', () => {
     );
 });
 
-test('rewrites parent-relative images and escapes Markdown path parentheses', () => {
+test('rewrites parent-relative images and escapes image path parentheses', () => {
     const plan = createMarkdownExportPlan({
         markdown: '![Panel](../images/panel(1).png)',
         assetBasePath: 'result/docs',
-        assetDirectoryName: 'Paper (draft.assets',
+        assetDirectoryName: 'assets',
         assets: [{
             path: 'result/images/panel(1).png',
             mimeType: 'image/png',
@@ -178,7 +189,7 @@ test('rewrites parent-relative images and escapes Markdown path parentheses', ()
 
     assert.equal(
         plan.markdown,
-        '![Panel](Paper%20%28draft.assets/result/images/panel%281%29.png)'
+        '![Panel](assets/result/images/panel%281%29.png)'
     );
     assert.equal(
         plan.assets[0].relativePath,

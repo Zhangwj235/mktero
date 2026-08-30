@@ -9,11 +9,17 @@ export const MAX_EXPORT_ASSETS = 2_000;
 const RESERVED_WINDOWS_FILE_STEMS = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 const MARKDOWN_PARSER = parser.configure(GFM);
 
-export function createMarkdownExportFileName(title, fallbackTitle = 'Mktero') {
-    const stem = normalizeExportFileStem(title)
+export function createMarkdownExportDirectoryName(
+    title,
+    fallbackTitle = 'Mktero'
+) {
+    return normalizeExportFileStem(title)
         || normalizeExportFileStem(fallbackTitle)
         || 'Mktero';
-    return stem + '.md';
+}
+
+export function createMarkdownExportFileName(title, fallbackTitle = 'Mktero') {
+    return createMarkdownExportDirectoryName(title, fallbackTitle) + '.md';
 }
 
 function normalizeExportFileStem(value) {

@@ -225,12 +225,12 @@ standalone PDF without a parent library item cannot save a snapshot.
 
 ### Export Markdown
 
-`Export Markdown` opens the system save dialog and writes the current corrected
-source Markdown to the selected local path. Extracted figures are written to a
-new sibling `<filename>.assets` directory, and their Markdown paths are updated
-accordingly. Existing asset directories are never overwritten; a numbered
-directory is used instead. Export does not include translated or bilingual
-views and never runs automatically.
+`Export Markdown` opens the system folder picker. If the selected folder is `A`
+and the paper title is `B`, Mktero creates `A/B/B.md` and writes extracted
+figures under `A/B/assets/`, updating their Markdown paths accordingly. If `B`
+already exists, a numbered directory such as `B-2` is created with a matching
+`B-2.md`; existing exports are never overwritten. Export does not include
+translated or bilingual views and never runs automatically.
 
 ## How it works
 

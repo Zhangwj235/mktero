@@ -1,5 +1,5 @@
 import {
-    createMarkdownExportFileName,
+    createMarkdownExportDirectoryName,
     createMarkdownExportPlan,
 } from '../markdown/markdown-export.js';
 import { translateEnglish } from '../i18n/localization.js';
@@ -26,69 +26,52 @@ export function createZoteroMarkdownExporter({
             picker.init(
                 ownerWindow,
                 translate('viewer.exportMarkdownDialogTitle'),
-                picker.modeSave
+                picker.modeGetFolder
             );
-            picker.appendFilter(
-                translate('viewer.exportMarkdownFilter'),
-                '*.md'
-            );
-            const defaultFileName = createMarkdownExportFileName(
+            const preferredDocumentName = createMarkdownExportDirectoryName(
                 title,
                 translate('viewer.exportMarkdownDefaultFileName')
             );
-            picker.defaultExtension = 'md';
-            picker.defaultString = defaultFileName;
             const result = await picker.show();
             if (result === picker.returnCancel) {
                 return { status: 'cancelled' };
             }
-            const selectedPath = String(picker.file || '');
-            if (!selectedPath) {
-                throw new Error('The Markdown export path is unavailable');
+            const selectedDirectory = String(picker.file || '');
+            if (!selectedDirectory) {
+                throw new Error('The Markdown export directory is unavailable');
             }
-            const outputPath = /\.md$/i.test(selectedPath)
-                ? selectedPath
-                : selectedPath + '.md';
-            if (outputPath !== selectedPath
-                && await ioUtils.exists(outputPath)) {
-                throw new Error(
-                    'The Markdown export path already exists without confirmation'
-                );
-            }
-            const outputFileName = pathUtils.filename(outputPath);
-            const outputStem = outputFileName.replace(/\.md$/i, '')
-                || defaultFileName.replace(/\.md$/i, '');
-            const outputDirectory = pathUtils.parent(outputPath);
-            const preferredAssetDirectoryName = outputStem + '.assets';
-            let plan = createMarkdownExportPlan({
+            const plan = createMarkdownExportPlan({
                 markdown,
                 assets,
                 assetBasePath,
-                assetDirectoryName: preferredAssetDirectoryName,
+                assetDirectoryName: 'assets',
             });
+            let directoryPath = null;
+            let outputPath = null;
             let assetDirectoryPath = null;
             const exportID = normalizeExportID(createID());
-            const temporaryMarkdownPath = outputPath
-                + '.mktero-' + exportID + '.tmp';
-            let createdAssetDirectory = false;
+            let temporaryMarkdownPath = null;
+            let createdDocumentDirectory = false;
             try {
+                const available = await createAvailableExportDirectory({
+                    directory: selectedDirectory,
+                    preferredName: preferredDocumentName,
+                    ioUtils,
+                    pathUtils,
+                });
+                directoryPath = available.path;
+                createdDocumentDirectory = true;
+                outputPath = pathUtils.join(
+                    directoryPath,
+                    available.name + '.md'
+                );
+                temporaryMarkdownPath = outputPath
+                    + '.mktero-' + exportID + '.tmp';
                 if (plan.assets.length) {
-                    const available = await createAvailableAssetDirectory({
-                        directory: outputDirectory,
-                        preferredName: preferredAssetDirectoryName,
-                        ioUtils,
-                        pathUtils,
+                    assetDirectoryPath = pathUtils.join(directoryPath, 'assets');
+                    await ioUtils.makeDirectory(assetDirectoryPath, {
+                        ignoreExisting: false,
                     });
-                    assetDirectoryPath = available.path;
-                    createdAssetDirectory = true;
-                    if (available.name !== preferredAssetDirectoryName) {
-                        plan = createMarkdownExportPlan({
-                            markdown,
-                            assets,
-                            assetBasePath,
-                            assetDirectoryName: available.name,
-                        });
-                    }
                     await writeExportAssets(
                         assetDirectoryPath,
                         plan.assets,
@@ -101,11 +84,13 @@ export function createZoteroMarkdownExporter({
                 });
             }
             catch (error) {
-                await ioUtils.remove(temporaryMarkdownPath, {
-                    ignoreAbsent: true,
-                }).catch(() => {});
-                if (createdAssetDirectory) {
-                    await ioUtils.remove(assetDirectoryPath, {
+                if (temporaryMarkdownPath) {
+                    await ioUtils.remove(temporaryMarkdownPath, {
+                        ignoreAbsent: true,
+                    }).catch(() => {});
+                }
+                if (createdDocumentDirectory) {
+                    await ioUtils.remove(directoryPath, {
                         recursive: true,
                         ignoreAbsent: true,
                     }).catch(() => {});
@@ -122,7 +107,7 @@ export function createZoteroMarkdownExporter({
     };
 }
 
-async function createAvailableAssetDirectory({
+async function createAvailableExportDirectory({
     directory,
     preferredName,
     ioUtils,
