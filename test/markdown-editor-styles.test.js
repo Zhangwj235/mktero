@@ -924,7 +924,7 @@ test('styles Markdown selection translation states as a compact popup section', 
     const error = lastRuleBody('.mktero-selection-translation-error');
     const button = lastRuleBody('.mktero-selection-translation-button');
 
-    assert.match(translation, /flex:\s*1 1 100%/);
+    assert.match(translation, /flex:\s*0 0 100%/);
     assert.match(
         translation,
         /border-top:\s*1px solid var\(--border-subtle\)/
@@ -934,6 +934,7 @@ test('styles Markdown selection translation states as a compact popup section', 
     assert.match(error, /color:\s*var\(--error, #c62828\)/);
     assert.match(button, /width:\s*25px/);
     assert.match(button, /height:\s*25px/);
+    assert.match(button, /border-radius:\s*6px/);
 });
 
 test('keeps snapshot code blocks from inheriting inline code chrome', () => {

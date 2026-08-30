@@ -2397,7 +2397,7 @@ main {
 
 .mktero-selection-translation {
     display: grid;
-    flex: 1 1 100%;
+    flex: 0 0 100%;
     min-width: 220px;
     gap: 6px;
     padding-top: 7px;
@@ -2587,7 +2587,7 @@ main {
     justify-content: center;
     box-sizing: border-box;
     border: 1px solid transparent;
-    border-radius: 50%;
+    border-radius: 6px;
     color: var(--muted);
     background: transparent;
     cursor: pointer;
@@ -2595,6 +2595,7 @@ main {
 
 .mktero-selection-translation-button:hover {
     border-color: color-mix(in srgb, var(--text) 18%, transparent);
+    color: var(--accent);
     background: color-mix(in srgb, var(--text) 7%, transparent);
 }
 

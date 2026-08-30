@@ -5672,7 +5672,7 @@ test('shows Markdown annotation actions after selecting ordinary text', () => {
     dom.window.close();
 });
 
-test('translates a Markdown selection manually and shows a plain-text result', async () => {
+test('places manual translation last and expands its plain-text result below', async () => {
     const dom = new JSDOM('<!doctype html><div id="popup-parent"></div>', {
         pretendToBeVisual: true,
     });
@@ -5695,6 +5695,8 @@ test('translates a Markdown selection manually and shows a plain-text result', a
         copySelectionTranslation: text => {
             copiedText = text;
         },
+        copySourcedMarkdown: async () => {},
+        openSourceLocation: async () => {},
         createMarkdownAnnotation: async () => {},
     });
 
@@ -5702,10 +5704,28 @@ test('translates a Markdown selection manually and shows a plain-text result', a
         anchor,
         selection: { text: 'Selected **text**' },
         selectionContext: { side: 'source' },
+        copyTarget: { kind: 'selection' },
+        sourceLocation: { pageIndex: 0 },
+        canCopySource: true,
     });
 
     assert.equal(translationCalls, 0);
     const actions = parent.querySelector('.mktero-markdown-selection-actions');
+    assert.deepEqual(
+        [...actions.children]
+            .filter(element => element.matches('button'))
+            .map(element => element.dataset.action),
+        [
+            'add-note',
+            'view-in-pdf',
+            'copy-with-source',
+            'translate-selection',
+        ]
+    );
+    const translationPanel = actions.querySelector(
+        '.mktero-selection-translation'
+    );
+    assert.equal(translationPanel.hidden, true);
     const translateButton = actions.querySelector(
         '[data-action="translate-selection"]'
     );
@@ -5718,6 +5738,8 @@ test('translates a Markdown selection manually and shows a plain-text result', a
     translateButton.click();
     assert.equal(translationCalls, 1);
     assert.equal(actions.dataset.translationStatus, 'loading');
+    assert.equal(translateButton.hidden, true);
+    assert.equal(translationPanel.hidden, false);
     assert.ok(actions.querySelector('[data-action="cancel-selection-translation"]'));
 
     resolveTranslation({ text: '<b>Translated</b>' });
@@ -5725,6 +5747,7 @@ test('translates a Markdown selection manually and shows a plain-text result', a
     await Promise.resolve();
 
     assert.equal(actions.dataset.translationStatus, 'success');
+    assert.equal(translateButton.hidden, true);
     const result = actions.querySelector('.mktero-selection-translation-result');
     assert.equal(result.textContent, '<b>Translated</b>');
     assert.equal(result.querySelector('b'), null);

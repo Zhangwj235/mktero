@@ -153,15 +153,17 @@ the reader. Translations are cached independently by source content, provider,
 protocol, model, language, and prompt version, so partial work can resume.
 
 For a focused lookup, select text in `Original` or on the source side of
-`Bilingual` reading. The selection popup can translate it manually. The
-`Automatically translate Markdown selections` setting is off by default; when
-enabled, a stable selection starts one bounded request automatically after a
-short delay. The translated side of `Bilingual`, `Translation` reading, and
-saved HTML snapshots do not offer selection translation. Selection results stay
-in the popup, can be copied, do not modify Markdown or notes, and are not added
-to the full-document translation cache. Each selection request sends the
-selected text and a bounded amount of nearby source context to the configured
-AI provider and may incur provider usage costs.
+`Bilingual` reading. The selection popup places its manual translation action
+at the end of the action row; loading, results, and errors expand below it only
+when needed. The `Automatically translate Markdown selections` setting is off
+by default; when enabled, a stable selection starts one bounded request
+automatically after a short delay. The translated side of `Bilingual`,
+`Translation` reading, and saved HTML snapshots do not offer selection
+translation. Selection results stay in the popup, can be copied, do not modify
+Markdown or notes, and are not added to the full-document translation cache.
+Each selection request sends the selected text and a bounded amount of nearby
+source context to the configured AI provider and may incur provider usage
+costs.
 
 Mktero includes adapters for OpenAI, Anthropic, Google Gemini, DeepSeek,
 Alibaba Cloud Model Studio, Moonshot/Kimi, MiniMax, and custom OpenAI-compatible

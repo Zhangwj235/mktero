@@ -519,7 +519,12 @@ function createMarkdownSelectionActions(
         translationButtons.replaceChildren();
         translationStatus.textContent = '';
         translationError.hidden = true;
+        translation.hidden = status === 'idle';
         translationResult.hidden = status !== 'success';
+        if (translateButton) {
+            translateButton.hidden = status !== 'idle';
+            translateButton.disabled = status === 'loading';
+        }
         if (status === 'loading') {
             translationStatus.textContent = translate(
                 'ai.selectionTranslationLoading'
@@ -540,9 +545,6 @@ function createMarkdownSelectionActions(
             if (copyTranslationButton) {
                 translationButtons.appendChild(copyTranslationButton);
             }
-        }
-        else if (translateButton) {
-            translationButtons.appendChild(translateButton);
         }
         reposition?.();
     };
@@ -627,16 +629,6 @@ function createMarkdownSelectionActions(
         translationError,
         translationButtons
     );
-    if (canTranslate) {
-        content.appendChild(translation);
-        setTranslationStatus('idle');
-        if (shouldAutoTranslateSelection?.() === true) {
-            autoTranslateTimer = document.defaultView?.setTimeout(
-                startTranslation,
-                SELECTION_TRANSLATION_DELAY_MS
-            ) ?? null;
-        }
-    }
 
     const run = async (action, errorKey = 'annotation.actionFailed') => {
         for (const control of controls) control.button.disabled = true;
@@ -736,6 +728,17 @@ function createMarkdownSelectionActions(
         ));
         controls.push({ button: copyButton, enabled: true });
         content.appendChild(copyButton);
+    }
+    if (canTranslate) {
+        controls.push({ button: translateButton, enabled: true });
+        content.append(translateButton, translation);
+        setTranslationStatus('idle');
+        if (shouldAutoTranslateSelection?.() === true) {
+            autoTranslateTimer = document.defaultView?.setTimeout(
+                startTranslation,
+                SELECTION_TRANSLATION_DELAY_MS
+            ) ?? null;
+        }
     }
     content.appendChild(error);
     return content;
