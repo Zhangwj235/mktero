@@ -919,13 +919,22 @@ test('styles Zotero-colored PDF annotations and their action popup', () => {
 });
 
 test('styles Markdown selection translation states as a compact popup section', () => {
+    const selectionActions = ruleBody('.mktero-markdown-selection-actions');
+    const toolbar = ruleBody('.mktero-markdown-selection-toolbar');
     const translation = ruleBody('.mktero-selection-translation');
     const result = lastRuleBody('.mktero-selection-translation-result');
     const error = lastRuleBody('.mktero-selection-translation-error');
     const actions = lastRuleBody('.mktero-selection-translation-actions');
     const button = lastRuleBody('.mktero-selection-translation-button');
 
-    assert.match(translation, /flex:\s*0 0 100%/);
+    assert.match(selectionActions, /display:\s*grid/);
+    assert.match(
+        selectionActions,
+        /grid-template-columns:\s*minmax\(0, max-content\)/
+    );
+    assert.match(toolbar, /display:\s*flex/);
+    assert.match(toolbar, /flex-wrap:\s*wrap/);
+    assert.match(translation, /width:\s*100%/);
     assert.match(translation, /min-width:\s*0/);
     assert.match(
         translation,

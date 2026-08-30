@@ -2395,9 +2395,22 @@ main {
     flex-wrap: wrap;
 }
 
+.mktero-markdown-selection-actions {
+    display: grid;
+    grid-template-columns: minmax(0, max-content);
+}
+
+.mktero-markdown-selection-toolbar {
+    display: flex;
+    max-width: calc(100vw - 42px);
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
 .mktero-selection-translation {
     display: grid;
-    flex: 0 0 100%;
+    width: 100%;
     min-width: 0;
     max-width: min(320px, calc(100vw - 42px));
     gap: 6px;

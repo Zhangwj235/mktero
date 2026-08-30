@@ -5711,8 +5711,12 @@ test('places translation last, expands results below, and translates again', asy
 
     assert.equal(translationCalls, 0);
     const actions = parent.querySelector('.mktero-markdown-selection-actions');
+    const toolbar = actions.querySelector(
+        ':scope > .mktero-markdown-selection-toolbar'
+    );
+    assert.ok(toolbar);
     assert.deepEqual(
-        [...actions.children]
+        [...toolbar.children]
             .filter(element => element.matches('button'))
             .map(element => element.dataset.action),
         [
@@ -5725,6 +5729,7 @@ test('places translation last, expands results below, and translates again', asy
     const translationPanel = actions.querySelector(
         '.mktero-selection-translation'
     );
+    assert.equal(toolbar.nextElementSibling, translationPanel);
     assert.equal(translationPanel.hidden, true);
     const translateButton = actions.querySelector(
         '[data-action="translate-selection"]'

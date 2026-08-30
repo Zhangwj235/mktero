@@ -415,6 +415,9 @@ function createMarkdownSelectionActions(
         'mktero-annotation-actions',
         'mktero-markdown-selection-actions',
     ].join(' ');
+    const toolbar = document.createElementNS(XHTML_NAMESPACE, 'div');
+    toolbar.className = 'mktero-markdown-selection-toolbar';
+    content.appendChild(toolbar);
     const palette = document.createElementNS(XHTML_NAMESPACE, 'div');
     palette.className = 'mktero-annotation-color-palette';
     palette.setAttribute('role', 'group');
@@ -681,7 +684,7 @@ function createMarkdownSelectionActions(
         controls.push({ button, enabled: canCreate });
         palette.appendChild(button);
     }
-    content.appendChild(palette);
+    toolbar.appendChild(palette);
 
     const noteButton = document.createElementNS(XHTML_NAMESPACE, 'button');
     noteButton.className = 'mktero-annotation-note-button';
@@ -697,7 +700,7 @@ function createMarkdownSelectionActions(
     ));
     noteButton.addEventListener('click', openNote);
     controls.push({ button: noteButton, enabled: canCreate });
-    content.appendChild(noteButton);
+    toolbar.appendChild(noteButton);
 
     if (typeof viewPDFSource === 'function') {
         const sourceButton = document.createElementNS(XHTML_NAMESPACE, 'button');
@@ -716,7 +719,7 @@ function createMarkdownSelectionActions(
             'source.navigationFailed'
         ));
         controls.push({ button: sourceButton, enabled: true });
-        content.appendChild(sourceButton);
+        toolbar.appendChild(sourceButton);
     }
 
     if (typeof copySourcedMarkdown === 'function') {
@@ -736,11 +739,12 @@ function createMarkdownSelectionActions(
             'evidence.copyFailed'
         ));
         controls.push({ button: copyButton, enabled: true });
-        content.appendChild(copyButton);
+        toolbar.appendChild(copyButton);
     }
     if (canTranslate) {
         controls.push({ button: translateButton, enabled: true });
-        content.append(translateButton, translation);
+        toolbar.appendChild(translateButton);
+        content.appendChild(translation);
         setTranslationStatus('idle');
         if (shouldAutoTranslateSelection?.() === true) {
             autoTranslateTimer = document.defaultView?.setTimeout(
