@@ -124,6 +124,63 @@ test('exports Markdown and images inside a paper directory', async () => {
     ]);
 });
 
+test('exports case-colliding images without overwriting either file', async () => {
+    const writes = [];
+    const exporter = createZoteroMarkdownExporter({
+        createFilePicker: () => createFilePicker({
+            result: 0,
+            file: '/exports',
+        }),
+        ioUtils: createIOUtils(writes),
+        pathUtils,
+        createID: () => 'request-id',
+        translate: key => key,
+    });
+
+    await exporter.export({
+        ownerWindow: {},
+        title: 'Paper',
+        markdown: [
+            '![Upper](images/Figure.png)',
+            '![Lower](images/figure.png)',
+        ].join('\n'),
+        assetBasePath: 'result',
+        assets: [
+            {
+                path: 'result/images/Figure.png',
+                mimeType: 'image/png',
+                data: new Uint8Array([1]),
+            },
+            {
+                path: 'result/images/figure.png',
+                mimeType: 'image/png',
+                data: new Uint8Array([2]),
+            },
+        ],
+    });
+
+    assert.deepEqual(
+        writes.filter(write => write.type === 'binary').map(write => ({
+            path: write.path,
+            data: [...write.data],
+        })),
+        [
+            {
+                path: '/exports/Paper/assets/images/Figure.png',
+                data: [1],
+            },
+            {
+                path: '/exports/Paper/assets/images/figure-2.png',
+                data: [2],
+            },
+        ]
+    );
+    assert.equal(writes.at(-1).data, [
+        '![Upper](assets/images/Figure.png)',
+        '![Lower](assets/images/figure-2.png)',
+    ].join('\n'));
+});
+
 test('creates a paper directory without an empty assets directory', async () => {
     const writes = [];
     const exporter = createZoteroMarkdownExporter({

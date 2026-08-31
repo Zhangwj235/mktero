@@ -158,6 +158,52 @@ test('rewrites known local Markdown images into the export asset directory', () 
     assert.deepEqual(plan.assets[0].data, new Uint8Array([1, 2]));
 });
 
+test('renames case-colliding export images and rewrites each reference', () => {
+    const plan = createMarkdownExportPlan({
+        markdown: [
+            '![Upper](images/Figure.png)',
+            '![Lower](images/figure.png)',
+            '![Caps](images/FIGURE.png)',
+        ].join('\n'),
+        assetBasePath: 'result',
+        assetDirectoryName: 'assets',
+        assets: [
+            {
+                path: 'result/images/Figure.png',
+                mimeType: 'image/png',
+                data: new Uint8Array([1]),
+            },
+            {
+                path: 'result/images/figure.png',
+                mimeType: 'image/png',
+                data: new Uint8Array([2]),
+            },
+            {
+                path: 'result/images/FIGURE.png',
+                mimeType: 'image/png',
+                data: new Uint8Array([3]),
+            },
+        ],
+    });
+
+    assert.equal(plan.markdown, [
+        '![Upper](assets/images/Figure.png)',
+        '![Lower](assets/images/figure-2.png)',
+        '![Caps](assets/images/FIGURE-3.png)',
+    ].join('\n'));
+    assert.deepEqual(
+        plan.assets.map(asset => ({
+            relativePath: asset.relativePath,
+            data: [...asset.data],
+        })),
+        [
+            { relativePath: 'images/Figure.png', data: [1] },
+            { relativePath: 'images/figure-2.png', data: [2] },
+            { relativePath: 'images/FIGURE-3.png', data: [3] },
+        ]
+    );
+});
+
 test('rewrites collapsed reference images without changing their label', () => {
     const plan = createMarkdownExportPlan({
         markdown: '![Panel][]\n\n[Panel]: images/panel.png',

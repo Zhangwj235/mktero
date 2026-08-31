@@ -229,8 +229,10 @@ standalone PDF without a parent library item cannot save a snapshot.
 and the paper title is `B`, Mktero creates `A/B/B.md` and writes extracted
 figures under `A/B/assets/`, updating their Markdown paths accordingly. If `B`
 already exists, a numbered directory such as `B-2` is created with a matching
-`B-2.md`; existing exports are never overwritten. Export does not include
-translated or bilingual views and never runs automatically.
+`B-2.md`; existing exports are never overwritten. Image names that collide on
+case-insensitive filesystems are numbered and their Markdown references are
+updated, so distinct figures cannot overwrite each other. Export does not
+include translated or bilingual views and never runs automatically.
 
 ## How it works
 
