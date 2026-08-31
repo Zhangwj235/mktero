@@ -745,12 +745,622 @@ test('loads a complete document translation without calling the provider', async
             comparisonTranslationFrom: 9,
             comparisonTranslationTo: 13,
         }],
+        sourceBlocks: [{
+            id: 'translation-0-0-7-heading',
+            markdown: '# Paper',
+        }],
+        pendingBlockIDs: [],
         translationKey: 'c'.repeat(64),
         cacheHit: true,
         cacheStatus: 'complete',
         totalBlocks: 1,
         completedBlocks: 1,
+        documentKey: 'a'.repeat(64),
+        sourceMarkdown: '# Paper',
+        settingsIdentity: documentSettingsIdentity(),
     });
+});
+
+test('restores unchanged block translations after deleting a source block', async () => {
+    const newSource = 'Keep this paragraph.';
+    const cached = {
+        translatedMarkdown: '# 文章\n\n保留这一段。',
+        comparisonMarkdown: '',
+        blocks: [{
+            id: 'translation-0-0-9-heading',
+            markdown: '# 文章',
+        }, {
+            id: 'translation-1-11-31-paragraph',
+            markdown: '保留这一段。',
+        }],
+        sourceBlocks: [{
+            id: 'translation-0-0-9-heading',
+            markdown: '# Article',
+        }, {
+            id: 'translation-1-11-31-paragraph',
+            markdown: 'Keep this paragraph.',
+        }],
+        settingsIdentity: documentSettingsIdentity(),
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => null,
+            getTranslationByLanguage: async (_documentKey, language) => (
+                language === 'zh-CN' ? cached : null
+            ),
+            putTranslation: assert.fail,
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'd'.repeat(64),
+    });
+
+    const [restored] = await service.listCachedDocumentTranslationVariants({
+        documentKey: 'a'.repeat(64),
+        markdown: newSource,
+    });
+
+    assert.equal(restored.sourceMarkdown, newSource);
+    assert.equal(restored.translatedMarkdown, '保留这一段。');
+    assert.equal(restored.partial, false);
+    assert.deepEqual(restored.failedBlocks, []);
+    assert.deepEqual(restored.blocks, [{
+        id: 'translation-0-0-20-paragraph',
+        markdown: '保留这一段。',
+    }]);
+    assert.doesNotMatch(restored.comparisonMarkdown, /Article|文章/);
+});
+
+test('does not reuse an ambiguous translation after deleting a duplicate block', async () => {
+    const oldSource = [
+        'Intro.',
+        '',
+        'Repeated.',
+        '',
+        'Middle.',
+        '',
+        'Repeated.',
+        '',
+        'End.',
+    ].join('\n');
+    const newSource = 'Intro.\n\nMiddle.\n\nRepeated.\n\nEnd.';
+    const oldTranslation = {
+        documentKey: 'a'.repeat(64),
+        sourceMarkdown: oldSource,
+        translationKey: 'c'.repeat(64),
+        settingsIdentity: documentSettingsIdentity(),
+        translatedMarkdown: '简介。\n\n第一处重复。\n\n中间。\n\n第二处重复。\n\n结尾。',
+        comparisonMarkdown: '',
+        blocks: [{
+            id: 'translation-0-0-6-paragraph',
+            markdown: '简介。',
+        }, {
+            id: 'translation-1-8-17-paragraph',
+            markdown: '第一处重复。',
+        }, {
+            id: 'translation-2-19-26-paragraph',
+            markdown: '中间。',
+        }, {
+            id: 'translation-3-28-37-paragraph',
+            markdown: '第二处重复。',
+        }, {
+            id: 'translation-4-39-43-paragraph',
+            markdown: '结尾。',
+        }],
+        sourceBlocks: [{
+            id: 'translation-0-0-6-paragraph',
+            markdown: 'Intro.',
+        }, {
+            id: 'translation-1-8-17-paragraph',
+            markdown: 'Repeated.',
+        }, {
+            id: 'translation-2-19-26-paragraph',
+            markdown: 'Middle.',
+        }, {
+            id: 'translation-3-28-37-paragraph',
+            markdown: 'Repeated.',
+        }, {
+            id: 'translation-4-39-43-paragraph',
+            markdown: 'End.',
+        }],
+        targetLanguage: 'zh-CN',
+        model: 'cached-model',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => null,
+            getTranslationByLanguage: async () => null,
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'd'.repeat(64),
+    });
+
+    const reconciled = await service.reconcileDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: newSource,
+        existingTranslation: oldTranslation,
+    });
+
+    assert.equal(
+        reconciled.translatedMarkdown,
+        '简介。\n\n中间。\n\nRepeated.\n\n结尾。'
+    );
+    assert.equal(reconciled.partial, true);
+    assert.deepEqual(reconciled.pendingBlockIDs, [
+        'translation-2-17-26-paragraph',
+    ]);
+    assert.doesNotMatch(reconciled.translatedMarkdown, /第一处重复|第二处重复/);
+});
+
+test('preserves an exact complete cache when a correction is restored', async () => {
+    const documentKey = 'a'.repeat(64);
+    const baseSource = '# Paper';
+    const correctedSource = '# Study';
+    const baseKey = 'c'.repeat(64);
+    const correctedKey = 'd'.repeat(64);
+    const exact = {
+        translatedMarkdown: '# 论文',
+        comparisonMarkdown: '',
+        blocks: [{
+            id: 'translation-0-0-7-heading',
+            markdown: '# 论文',
+        }],
+        sourceBlocks: [{
+            id: 'translation-0-0-7-heading',
+            markdown: baseSource,
+        }],
+        settingsIdentity: documentSettingsIdentity(),
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    let stored = { key: baseKey, value: exact };
+    const writes = [];
+    let providerCalls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                providerCalls++;
+                return {
+                    text: translateSingleBlockRequest(
+                        request.messages[1].content,
+                        '# 论文'
+                    ),
+                };
+            },
+        },
+        cache: {
+            getTranslation: async (_key, translationKey) => (
+                stored.key === translationKey ? stored.value : null
+            ),
+            getTranslationByLanguage: async () => stored.value,
+            putTranslation: async (_key, translationKey, value) => {
+                writes.push(translationKey);
+                stored = { key: translationKey, value };
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async value => (
+            JSON.parse(value).source === baseSource ? baseKey : correctedKey
+        ),
+    });
+    const correctedTranslation = {
+        documentKey,
+        sourceMarkdown: correctedSource,
+        translationKey: correctedKey,
+        settingsIdentity: documentSettingsIdentity(),
+        translatedMarkdown: correctedSource,
+        comparisonMarkdown: '',
+        blocks: [{
+            id: 'translation-0-0-7-heading',
+            markdown: correctedSource,
+        }],
+        sourceBlocks: [{
+            id: 'translation-0-0-7-heading',
+            markdown: correctedSource,
+        }],
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: true,
+        failedBlocks: [{
+            id: 'translation-0-0-7-heading',
+            message: 'The source Markdown block changed',
+        }],
+    };
+
+    const restored = await service.reconcileDocumentTranslation({
+        documentKey,
+        markdown: baseSource,
+        existingTranslation: correctedTranslation,
+    });
+    const reopened = await service.translateDocument({
+        documentKey,
+        markdown: baseSource,
+        existingTranslation: restored,
+    });
+
+    assert.equal(restored.translatedMarkdown, '# 论文');
+    assert.equal(restored.partial, false);
+    assert.equal(reopened.translatedMarkdown, '# 论文');
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(writes, []);
+    assert.equal(stored.key, baseKey);
+});
+
+test('keeps a single edited translation block available for targeted retry', async () => {
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => null,
+            getTranslationByLanguage: async () => null,
+            putTranslation: async () => {},
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'd'.repeat(64),
+    });
+
+    const reconciled = await service.reconcileDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: '# Study',
+        existingTranslation: {
+            documentKey: 'a'.repeat(64),
+            sourceMarkdown: '# Paper',
+            translationKey: 'c'.repeat(64),
+            settingsIdentity: documentSettingsIdentity(),
+            translatedMarkdown: '# 论文',
+            comparisonMarkdown: '# Paper\n\n# 论文',
+            blocks: [{
+                id: 'translation-0-0-7-heading',
+                markdown: '# 论文',
+            }],
+            sourceBlocks: [{
+                id: 'translation-0-0-7-heading',
+                markdown: '# Paper',
+            }],
+            targetLanguage: 'zh-CN',
+            partial: false,
+            failedBlocks: [],
+        },
+    });
+
+    assert.equal(reconciled.partial, true);
+    assert.equal(reconciled.translatedMarkdown, '# Study');
+    assert.deepEqual(reconciled.pendingBlockIDs, [
+        'translation-0-0-7-heading',
+    ]);
+});
+
+test('preserves a translated block after deleting a non-semantic marker', async () => {
+    const originalSource = 'Wrist-worn devices identify ovulation (1).';
+    const correctedSource = 'Wrist-worn devices identify ovulation.';
+    const originalBlockID = `translation-0-0-${originalSource.length}-paragraph`;
+    const correctedBlockID = `translation-0-0-${correctedSource.length}-paragraph`;
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => null,
+            getTranslationByLanguage: async () => null,
+            putTranslation: async () => {},
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'd'.repeat(64),
+    });
+
+    const reconciled = await service.reconcileDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: correctedSource,
+        existingTranslation: {
+            documentKey: 'a'.repeat(64),
+            sourceMarkdown: originalSource,
+            translationKey: 'c'.repeat(64),
+            settingsIdentity: documentSettingsIdentity(),
+            translatedMarkdown: '腕戴设备可识别排卵。',
+            comparisonMarkdown: '',
+            blocks: [{
+                id: originalBlockID,
+                markdown: '腕戴设备可识别排卵。',
+            }],
+            sourceBlocks: [{
+                id: originalBlockID,
+                markdown: originalSource,
+            }],
+            targetLanguage: 'zh-CN',
+            partial: false,
+            failedBlocks: [],
+        },
+    });
+
+    assert.equal(reconciled.partial, false);
+    assert.equal(reconciled.translatedMarkdown, '腕戴设备可识别排卵。');
+    assert.deepEqual(reconciled.pendingBlockIDs, []);
+    assert.deepEqual(reconciled.blocks, [{
+        id: correctedBlockID,
+        markdown: '腕戴设备可识别排卵。',
+    }]);
+    assert.deepEqual(reconciled.sourceBlocks, [{
+        id: correctedBlockID,
+        markdown: correctedSource,
+    }]);
+});
+
+test('requires targeted retranslation after deleting semantic text', async () => {
+    const originalSource = 'Wrist-worn devices identify ovulation.';
+    const correctedSource = 'Wrist-worn devices identify.';
+    const originalBlockID = `translation-0-0-${originalSource.length}-paragraph`;
+    const correctedBlockID = `translation-0-0-${correctedSource.length}-paragraph`;
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => null,
+            getTranslationByLanguage: async () => null,
+            putTranslation: async () => {},
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'd'.repeat(64),
+    });
+
+    const reconciled = await service.reconcileDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: correctedSource,
+        existingTranslation: {
+            documentKey: 'a'.repeat(64),
+            sourceMarkdown: originalSource,
+            translationKey: 'c'.repeat(64),
+            settingsIdentity: documentSettingsIdentity(),
+            translatedMarkdown: '腕戴设备可识别排卵。',
+            comparisonMarkdown: '',
+            blocks: [{
+                id: originalBlockID,
+                markdown: '腕戴设备可识别排卵。',
+            }],
+            sourceBlocks: [{
+                id: originalBlockID,
+                markdown: originalSource,
+            }],
+            targetLanguage: 'zh-CN',
+            partial: false,
+            failedBlocks: [],
+        },
+    });
+
+    assert.equal(reconciled.partial, true);
+    assert.equal(reconciled.translatedMarkdown, correctedSource);
+    assert.deepEqual(reconciled.pendingBlockIDs, [correctedBlockID]);
+});
+
+test('reserves an exact translation while matching a deleted marker', async () => {
+    const originalSource = 'Marker (1).\n\nMarker (2).';
+    const correctedSource = 'Marker.\n\nMarker (2).';
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => null,
+            getTranslationByLanguage: async () => null,
+            putTranslation: async () => {},
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'd'.repeat(64),
+    });
+
+    const reconciled = await service.reconcileDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: correctedSource,
+        existingTranslation: {
+            documentKey: 'a'.repeat(64),
+            sourceMarkdown: originalSource,
+            translationKey: 'c'.repeat(64),
+            settingsIdentity: documentSettingsIdentity(),
+            translatedMarkdown: '标记一。\n\n标记二。',
+            comparisonMarkdown: '',
+            blocks: [{
+                id: 'translation-0-0-11-paragraph',
+                markdown: '标记一。',
+            }, {
+                id: 'translation-1-13-24-paragraph',
+                markdown: '标记二。',
+            }],
+            sourceBlocks: [{
+                id: 'translation-0-0-11-paragraph',
+                markdown: 'Marker (1).',
+            }, {
+                id: 'translation-1-13-24-paragraph',
+                markdown: 'Marker (2).',
+            }],
+            targetLanguage: 'zh-CN',
+            partial: false,
+            failedBlocks: [],
+        },
+    });
+
+    assert.equal(reconciled.partial, false);
+    assert.equal(reconciled.translatedMarkdown, '标记一。\n\n标记二。');
+    assert.deepEqual(reconciled.pendingBlockIDs, []);
+});
+
+test('rebuilds missing visible translation sources before reconciling a correction', async () => {
+    const originalSource = '# Paper\n\nUnchanged paragraph.';
+    const correctedSource = '# Study\n\nUnchanged paragraph.';
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => null,
+            getTranslationByLanguage: async () => null,
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'd'.repeat(64),
+    });
+
+    const reconciled = await service.reconcileDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: correctedSource,
+        existingTranslation: {
+            documentKey: 'a'.repeat(64),
+            sourceMarkdown: originalSource,
+            translationKey: 'c'.repeat(64),
+            settingsIdentity: documentSettingsIdentity(),
+            translatedMarkdown: '# 论文\n\n未修改段落。',
+            comparisonMarkdown: '',
+            blocks: [{
+                id: 'translation-0-0-7-heading',
+                markdown: '# 论文',
+            }, {
+                id: 'translation-1-9-29-paragraph',
+                markdown: '未修改段落。',
+            }],
+            targetLanguage: 'zh-CN',
+            partial: false,
+            failedBlocks: [],
+        },
+    });
+
+    assert.ok(reconciled);
+    assert.equal(reconciled.partial, true);
+    assert.equal(reconciled.translatedMarkdown, '# Study\n\n未修改段落。');
+    assert.deepEqual(reconciled.pendingBlockIDs, [
+        'translation-0-0-7-heading',
+    ]);
+});
+
+test('does not reuse source blocks across translation setting identities', async () => {
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => null,
+            getTranslationByLanguage: async (_documentKey, language) => (
+                language === 'zh-CN' ? {
+                    translatedMarkdown: '旧译文。',
+                    comparisonMarkdown: '',
+                    blocks: [{
+                        id: 'translation-0-0-10-paragraph',
+                        markdown: '旧译文。',
+                    }],
+                    sourceBlocks: [{
+                        id: 'translation-0-0-10-paragraph',
+                        markdown: 'Paragraph.',
+                    }],
+                    settingsIdentity: documentSettingsIdentity({
+                        model: 'previous-model',
+                    }),
+                    model: 'previous-model',
+                    targetLanguage: 'zh-CN',
+                    promptVersion: TRANSLATION_PROMPT_VERSION,
+                    partial: false,
+                    failedBlocks: [],
+                } : null
+            ),
+            putTranslation: assert.fail,
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'd'.repeat(64),
+    });
+
+    const restored = await service.listCachedDocumentTranslationVariants({
+        documentKey: 'a'.repeat(64),
+        markdown: 'Paragraph.',
+    });
+
+    assert.deepEqual(restored, []);
+});
+
+test('reuses unchanged translations and retranslates only an edited block', async () => {
+    const oldSource = 'First paragraph.\n\nSecond paragraph.';
+    const newSource = 'Edited first paragraph.\n\nSecond paragraph.';
+    const oldTranslation = {
+        documentKey: 'a'.repeat(64),
+        sourceMarkdown: oldSource,
+        translationKey: 'c'.repeat(64),
+        settingsIdentity: documentSettingsIdentity(),
+        translatedMarkdown: '第一段。\n\n第二段。',
+        comparisonMarkdown: '',
+        blocks: [{
+            id: 'translation-0-0-16-paragraph',
+            markdown: '第一段。',
+        }, {
+            id: 'translation-1-18-35-paragraph',
+            markdown: '第二段。',
+        }],
+        sourceBlocks: [{
+            id: 'translation-0-0-16-paragraph',
+            markdown: 'First paragraph.',
+        }, {
+            id: 'translation-1-18-35-paragraph',
+            markdown: 'Second paragraph.',
+        }],
+        targetLanguage: 'zh-CN',
+        model: 'cached-model',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const requests = [];
+    const writes = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                const entries = parseTranslationRequest(
+                    request.messages[1].content
+                );
+                requests.push(entries);
+                return {
+                    text: JSON.stringify(entries.map(entry => ({
+                        id: entry.id,
+                        translatedMarkdown: '修改后的第一段。',
+                    }))),
+                };
+            },
+        },
+        cache: {
+            getTranslation: async () => null,
+            getTranslationByLanguage: async () => null,
+            putTranslation: async (...args) => writes.push(args),
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async () => 'd'.repeat(64),
+    });
+
+    const reconciled = await service.reconcileDocumentTranslation({
+        documentKey: 'a'.repeat(64),
+        markdown: newSource,
+        existingTranslation: oldTranslation,
+    });
+    const result = await service.translateDocument({
+        documentKey: 'a'.repeat(64),
+        markdown: newSource,
+        existingTranslation: reconciled,
+        retryBlockIDs: reconciled.pendingBlockIDs,
+    });
+
+    assert.equal(reconciled.partial, true);
+    assert.deepEqual(reconciled.pendingBlockIDs, [
+        'translation-0-0-23-paragraph',
+    ]);
+    assert.equal(
+        reconciled.translatedMarkdown,
+        'Edited first paragraph.\n\n第二段。'
+    );
+    assert.equal(writes[0][1], 'c'.repeat(64));
+    assert.deepEqual(writes[0][2].sourceBlocks, oldTranslation.sourceBlocks);
+    assert.deepEqual(requests, [[{
+        id: 'translation-0-0-23-paragraph',
+        sourceMarkdown: 'Edited first paragraph.',
+    }]]);
+    assert.equal(
+        result.translatedMarkdown,
+        '修改后的第一段。\n\n第二段。'
+    );
+    assert.equal(result.partial, false);
 });
 
 test('rejects caches from the previous reference protection protocol', async () => {
@@ -2402,4 +3012,17 @@ function parseTranslationRequest(request) {
     const entries = JSON.parse(request);
     if (!Array.isArray(entries)) throw new Error('A JSON translation batch is required');
     return entries;
+}
+
+function documentSettingsIdentity(overrides = {}) {
+    return JSON.stringify({
+        provider: SETTINGS.provider,
+        protocol: SETTINGS.protocol,
+        apiBase: SETTINGS.apiBase,
+        model: SETTINGS.model,
+        reasoning: 'none',
+        targetLanguage: SETTINGS.targetLanguage,
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        ...overrides,
+    });
 }

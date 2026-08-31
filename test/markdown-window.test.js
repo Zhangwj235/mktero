@@ -267,9 +267,6 @@ test('toggles block correction mode and restores all saved corrections', async (
         onRestoreAllCorrections: async () => { restoreCalls++; },
     });
     const { view, shadow } = createView(model, {}, {
-        configureWindow(window) {
-            window.confirm = () => true;
-        },
         editorFactory() {
             return {
                 setDocument() {},
@@ -304,7 +301,77 @@ test('toggles block correction mode and restores all saved corrections', async (
 
     restoreAll.click();
     await new Promise(resolve => setImmediate(resolve));
+    assert.equal(restoreCalls, 0);
+    const confirmation = shadow.querySelector('.mktero-confirmation-dialog');
+    assert.equal(
+        confirmation.querySelector('.mktero-confirmation-title').textContent,
+        'Restore all corrections?'
+    );
+    assert.equal(
+        confirmation.querySelector('.mktero-confirmation-message').textContent,
+        'Restore all 1 corrections to the original recognition result?'
+    );
+    confirmation.querySelector('[data-confirmation-action="confirm"]').click();
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(restoreCalls, 1);
+
+    view.destroy();
+});
+
+test('adds matched annotation ranges to correction protection state', () => {
+    const markdown = 'Editable before protected text and after.';
+    const protectedFrom = markdown.indexOf('protected text');
+    const editorStates = [];
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown,
+        sourceKind: 'markdown',
+        correctionMode: true,
+        editableBlocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+        }],
+        annotationOverlay: {
+            matched: [{
+                id: 'mktero-local-1',
+                source: 'markdown',
+                ranges: [{
+                    from: protectedFrom,
+                    to: protectedFrom + 'protected text'.length,
+                }],
+            }],
+            unmatched: [],
+        },
+    });
+    const { view } = createView(model, {}, {
+        editorFactory() {
+            return {
+                setDocument() {},
+                setCorrectionState(state) {
+                    editorStates.push(state);
+                },
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    assert.deepEqual(editorStates.at(-1).annotationRanges, [{
+        id: 'mktero-local-1',
+        source: 'markdown',
+        rangeIndex: 0,
+        from: protectedFrom,
+        to: protectedFrom + 'protected text'.length,
+    }]);
+    assert.deepEqual(editorStates.at(-1).blocks[0].protectedRanges, [{
+        from: protectedFrom,
+        to: protectedFrom + 'protected text'.length,
+        kind: 'annotation',
+    }]);
 
     view.destroy();
 });
@@ -1254,6 +1321,67 @@ test('offers a short undo action after deleting a correction block', async () =>
     }
 });
 
+test('offers to retranslate only the translated block changed by a correction', async () => {
+    let editorOptions;
+    const translationRequests = [];
+    const model = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: 'Original paragraph.',
+        sourceKind: 'markdown',
+        onCommitCorrection: async () => ({
+            translationRefresh: {
+                blockIDs: ['translation-0-0-17-paragraph'],
+                targetLanguage: 'zh-CN',
+                translationView: 'compare',
+            },
+        }),
+        onTranslateDocument: options => translationRequests.push(options),
+    });
+    const { view, shadow } = createView(model, {}, {
+        editorFactory(options) {
+            editorOptions = options;
+            return {
+                setDocument() {},
+                setCorrectionState() {},
+                refreshRendering() {},
+                destroy() {},
+            };
+        },
+    });
+
+    try {
+        await editorOptions.onCommitCorrection({
+            blockID: 'paragraph-1',
+            replacementMarkdown: 'Edited paragraph.',
+        });
+        await new Promise(resolve => setImmediate(resolve));
+
+        assert.deepEqual(translationRequests, []);
+        const confirmation = shadow.querySelector(
+            '.mktero-confirmation-dialog'
+        );
+        assert.equal(
+            confirmation.querySelector('.mktero-confirmation-title').textContent,
+            'Retranslate changed block?'
+        );
+        assert.equal(
+            confirmation.querySelector('.mktero-confirmation-message').textContent,
+            'This translated block changed. Retranslate only this block?'
+        );
+        confirmation.querySelector('[data-confirmation-action="confirm"]').click();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(translationRequests, [{
+            retryBlockIDs: ['translation-0-0-17-paragraph'],
+            targetLanguage: 'zh-CN',
+            translationView: 'compare',
+        }]);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('updates Markdown and PDF annotations as one editor document', () => {
     const updates = [];
     const sourceMap = [{
@@ -1658,6 +1786,46 @@ test('reparses the current PDF from an accessible icon action', async () => {
 
     view.destroy();
 });
+
+test('confirms inside Mktero before reparsing a document with corrections',
+    async () => {
+        let reparseCalls = 0;
+        const model = createModel({
+            status: 'ready',
+            progress: 100,
+            markdown: '# Corrected paper',
+            sourceKind: 'markdown',
+            hasCorrections: true,
+            correctionCount: 2,
+            onReparse: () => { reparseCalls++; },
+        });
+        const { view, shadow } = createView(model);
+
+        try {
+            shadow.querySelector('#mktero-reparse').click();
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(reparseCalls, 0);
+            const confirmation = shadow.querySelector(
+                '.mktero-confirmation-dialog'
+            );
+            assert.equal(
+                confirmation.querySelector('.mktero-confirmation-title').textContent,
+                'Reparse PDF?'
+            );
+            assert.equal(
+                confirmation.querySelector('.mktero-confirmation-message').textContent,
+                'Reparsing will permanently delete 2 saved corrections. Continue?'
+            );
+            confirmation.querySelector(
+                '[data-confirmation-action="confirm"]'
+            ).click();
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(reparseCalls, 1);
+        }
+        finally {
+            view.destroy();
+        }
+    });
 
 test('keeps conversion recovery actions visible when the first conversion fails', async () => {
     const calls = [];

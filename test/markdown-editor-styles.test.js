@@ -78,6 +78,27 @@ test('renders conversion notices as compact overlay toasts', () => {
     assert.match(message, /z-index:\s*20/);
 });
 
+test('styles confirmations as Mktero modal surfaces with explicit action tones',
+    () => {
+        const backdrop = ruleBody('.mktero-confirmation-backdrop');
+        const dialog = ruleBody('.mktero-confirmation-dialog');
+        const button = ruleBody('.mktero-confirmation-button');
+        const danger = ruleBody(
+            '.mktero-confirmation-button--confirm[data-tone="danger"]'
+        );
+
+        assert.match(backdrop, /position:\s*absolute/);
+        assert.match(backdrop, /background:\s*rgb\(/);
+        assert.match(dialog, /background:\s*var\(--surface-raised\)/);
+        assert.match(dialog, /border:\s*1px solid var\(--border\)/);
+        assert.match(dialog, /border-radius:\s*var\(--radius-lg\)/);
+        assert.match(dialog, /box-shadow:\s*var\(--shadow-popover\)/);
+        assert.match(button, /min-height:\s*34px/);
+        assert.match(danger, /background:\s*var\(--error\)/);
+        assert.match(MARKDOWN_STYLES,
+            /\.mktero-confirmation-button:focus-visible[\s\S]*?outline:\s*2px solid/);
+    });
+
 test('article layout outranks the CodeMirror adopted base theme', () => {
     const scroller = ruleBody(
         '.markdown-editor-host > .cm-editor .cm-scroller'

@@ -42,6 +42,7 @@ import {
 } from './ai/translation-request-tracker.js';
 import { MarkdownDocumentService } from './core/markdown-document-service.js';
 import {
+    collectMatchedAnnotationRanges,
     createMarkdownRevisionSessionRegistry,
 } from './core/markdown-revision-session.js';
 import {
@@ -1183,22 +1184,49 @@ function abortAllTranslations() {
 function commitCorrection(itemID, correction) {
     return updateRevisionSession(
         itemID,
-        session => session.commit(correction)
-    );
+        (session, annotationRanges) => {
+            const {
+                annotationRanges: mappedAnnotationRanges = [],
+                ...revisionCorrection
+            } = correction || {};
+            return session.commit({
+                ...revisionCorrection,
+                annotationRanges,
+                mappedAnnotationRanges,
+            });
+        }
+    ).then(({ snapshot, translation }) => {
+        const canRetranslate = getAISettings(Zotero).enabled === true
+            && String(correction?.replacementMarkdown || '').trim()
+            && translation?.pendingBlockIDs?.length;
+        return {
+            ...snapshot,
+            ...(canRetranslate ? {
+                translationRefresh: {
+                    blockIDs: [...translation.pendingBlockIDs],
+                    targetLanguage: translation.targetLanguage,
+                    translationView: translation.view,
+                },
+            } : {}),
+        };
+    });
 }
 
 function restoreCorrection(itemID, blockID) {
     return updateRevisionSession(
         itemID,
-        session => session.restore(blockID)
-    );
+        (session, annotationRanges) => session.restore(
+            blockID,
+            { annotationRanges }
+        )
+    ).then(result => result.snapshot);
 }
 
 function restoreAllCorrections(itemID) {
     return updateRevisionSession(
         itemID,
-        session => session.restoreAll()
-    );
+        (session, annotationRanges) => session.restoreAll({ annotationRanges })
+    ).then(result => result.snapshot);
 }
 
 async function updateRevisionSession(itemID, mutate) {
@@ -1207,22 +1235,59 @@ async function updateRevisionSession(itemID, mutate) {
     if (!entry || !presentation) {
         throw new Error('The Markdown correction session is unavailable');
     }
-    const snapshot = await mutate(entry.session);
+    const previousTranslation = currentTranslationResult(presentation.model);
+    const annotationRanges = collectMatchedAnnotationRanges(
+        presentation.model.annotationOverlay
+    );
+    const revisionResult = await mutate(entry.session, annotationRanges);
+    const {
+        annotationRangeMappings = [],
+        ...snapshot
+    } = revisionResult;
+    if (annotationRangeMappings.length) {
+        await runtime.localAnnotations?.remapRanges?.(
+            itemID,
+            annotationRangeMappings,
+            snapshot.markdown,
+            { sourceMap: snapshot.sourceMap }
+        );
+    }
     abortDocumentTranslations(itemID);
-    await runtime.cache?.deleteTranslation?.(snapshot.cacheKey)
-        .catch(error => Zotero.logError?.(error));
+    let translation = null;
+    if (previousTranslation && snapshot.markdown.trim()) {
+        try {
+            translation = await runtime.translationService
+                ?.reconcileDocumentTranslation?.({
+                    documentKey: String(snapshot.cacheKey || ''),
+                    markdown: snapshot.markdown,
+                    existingTranslation: previousTranslation,
+                    targetLanguage: previousTranslation.targetLanguage,
+                }) || null;
+        }
+        catch (error) {
+            Zotero.logError?.(error);
+        }
+    }
     if (runtime.revisionSessions?.get(itemID) !== entry
         || runtime.presenter?.get(itemID) !== presentation) {
-        return snapshot;
+        return { snapshot, translation: null };
     }
     entry.annotationSequence = (entry.annotationSequence || 0) + 1;
     const annotationSequence = entry.annotationSequence;
+    const languageState = translation
+        ? cachedLanguageStateAfterTranslation(presentation.model, translation)
+        : null;
     runtime.presenter.update(presentation, {
         ...snapshot,
         itemID,
         annotationOverlay: createEmptyAnnotationOverlay(),
         warnings: uniqueWarnings(entry.baseWarnings),
-        ...createEmptyTranslationState(),
+        ...(translation ? documentTranslationChanges(translation, {
+            translationView: previousTranslation?.view || 'original',
+            configuredTargetLanguage:
+                presentation.model.translationConfiguredTargetLanguage,
+            ...languageState,
+        }) : createEmptyTranslationState()),
     });
     let annotationResult;
     try {
@@ -1234,12 +1299,18 @@ async function updateRevisionSession(itemID, mutate) {
     }
     catch (error) {
         Zotero.logError?.(error);
-        return snapshot;
+        return {
+            snapshot,
+            translation: translation ? {
+                ...translation,
+                view: previousTranslation?.view || 'original',
+            } : null,
+        };
     }
     if (entry.annotationSequence !== annotationSequence
         || runtime.revisionSessions?.get(itemID) !== entry
         || runtime.presenter?.get(itemID) !== presentation) {
-        return snapshot;
+        return { snapshot, translation: null };
     }
     runtime.presenter.update(presentation, {
         annotationOverlay: annotationResult.annotationOverlay
@@ -1249,7 +1320,13 @@ async function updateRevisionSession(itemID, mutate) {
             ...(annotationResult.warnings || []),
         ]),
     });
-    return snapshot;
+    return {
+        snapshot,
+        translation: translation ? {
+            ...translation,
+            view: previousTranslation?.view || 'original',
+        } : null,
+    };
 }
 
 function resetOpenDocumentTranslations() {
@@ -1265,12 +1342,6 @@ async function requestItemReparse(itemID, entryPoint) {
         || await loadRevisionSessionForItem(itemID);
     const correctionCount = entry?.session.snapshot().correctionCount || 0;
     if (correctionCount) {
-        const confirmed = Zotero.getMainWindow?.()?.confirm?.(
-            runtimeTranslate('revision.reparseConfirm', {
-                count: correctionCount,
-            })
-        );
-        if (!confirmed) return false;
         if (runtime.presenter?.get(itemID)) {
             await restoreAllCorrections(itemID);
         }
@@ -1478,6 +1549,7 @@ function documentTranslationChanges(cached, {
         translationKey: cached.translationKey,
         translationSettingsIdentity: cached.settingsIdentity || '',
         translationBlocks: cached.blocks,
+        translationSourceBlocks: cached.sourceBlocks || [],
         translationFailedBlocks: cached.failedBlocks,
         translationBlockRanges: cached.blockRanges,
         translationError: partial
@@ -1511,6 +1583,7 @@ function currentTranslationResult(model) {
         sourceMarkdown: String(model.markdown || ''),
         settingsIdentity: model.translationSettingsIdentity,
         blocks: model.translationBlocks,
+        sourceBlocks: model.translationSourceBlocks,
         failedBlocks,
         blockRanges: model.translationBlockRanges,
         translatedMarkdown: model.translatedMarkdown,
@@ -1534,6 +1607,7 @@ function restoreTranslationResult(result, { error = result.error } = {}) {
         translationKey: result.translationKey,
         translationSettingsIdentity: result.settingsIdentity || '',
         translationBlocks: result.blocks,
+        translationSourceBlocks: result.sourceBlocks || [],
         translationFailedBlocks: result.failedBlocks,
         translationBlockRanges: result.blockRanges,
         translatedMarkdown: result.translatedMarkdown,

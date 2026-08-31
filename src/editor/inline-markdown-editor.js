@@ -216,13 +216,16 @@ export function createInlineMarkdownEditor({
     let correctionManagementEnabled = false;
     let correctionBlocks = [];
     let correctedBlockIDs = [];
+    let correctionAnnotationRanges = [];
     let activeCorrection = null;
+    let pendingCorrectionViewportCenterOffset = null;
     let correctionBusy = false;
     let tableCorrectionEditing = false;
     let activeTableCorrection = null;
     let view;
     let correctionToolbar;
     let stalledViewportRepairFrame = null;
+    let correctionViewportFallbackEnabled = false;
     let translationHighlightTimer = null;
     let citationReturnPoint = null;
     let citationReturnAvailable = false;
@@ -284,7 +287,7 @@ export function createInlineMarkdownEditor({
         ownerWindow.cancelAnimationFrame?.(stalledViewportRepairFrame);
         stalledViewportRepairFrame = null;
     };
-    const deferStalledViewportRepair = scrollTop => {
+    const deferStalledViewportRepair = (scrollTop, centerOffset) => {
         cancelStalledViewportRepair();
         if (typeof ownerWindow.requestAnimationFrame !== 'function') return;
         stalledViewportRepairFrame = ownerWindow.requestAnimationFrame(() => {
@@ -292,6 +295,15 @@ export function createInlineMarkdownEditor({
             if (destroyed) return;
             activateDOMGlobals(ownerWindow);
             try {
+                view.dispatch({
+                    effects: EditorView.scrollIntoView(
+                        Math.max(
+                            0,
+                            Math.min(centerOffset, view.state.doc.length)
+                        ),
+                        { y: 'center' }
+                    ),
+                });
                 view.measure();
             }
             catch {
@@ -302,9 +314,11 @@ export function createInlineMarkdownEditor({
             }
         });
     };
-    const repairViewport = () => repairStalledViewport(
+    const repairViewport = centerOffset => repairStalledViewport(
         view,
-        deferStalledViewportRepair
+        deferStalledViewportRepair,
+        centerOffset,
+        correctionViewportFallbackEnabled
     );
     const removeDOMActivation = installDOMActivation(
         parent,
@@ -407,7 +421,7 @@ export function createInlineMarkdownEditor({
                         correctionToolbar?.setDirty(Boolean(state.dirty));
                         correctionToolbar?.setBusy(Boolean(state.busy));
                         correctionToolbar?.setError(
-                            state.error ? t('revision.saveFailed') : ''
+                            correctionErrorMessage(state.error, t)
                         );
                     },
                     translate: t,
@@ -421,12 +435,28 @@ export function createInlineMarkdownEditor({
                         return transaction;
                     }
                     let allowed = true;
+                    let annotationProtected = false;
                     transaction.changes.iterChangedRanges((from, to) => {
+                        const protectedRange = activeCorrection.protectedRanges
+                            .find(range => changeTouchesProtectedRange(
+                                from,
+                                to,
+                                range
+                            ));
                         if (from < activeCorrection.from
-                            || to > activeCorrection.to) {
+                            || to > activeCorrection.to
+                            || protectedRange) {
                             allowed = false;
+                            if (protectedRange?.kind === 'annotation') {
+                                annotationProtected = true;
+                            }
                         }
                     });
+                    if (!allowed && annotationProtected) {
+                        correctionToolbar?.setError(
+                            t('revision.annotationProtected')
+                        );
+                    }
                     return allowed ? transaction : [];
                 }),
                 history(),
@@ -491,19 +521,38 @@ export function createInlineMarkdownEditor({
                 ]),
                 EditorView.lineWrapping,
                 EditorView.updateListener.of(update => {
-                    if (update.viewportChanged
-                        || update.geometryChanged
-                        || update.docChanged) {
+                    const correctingDocument = update.docChanged
+                        && activeCorrection;
+                    if (!correctingDocument
+                        && (update.viewportChanged
+                            || update.geometryChanged
+                            || update.docChanged)) {
                         onViewportChange?.(editorViewportOffset(update.view));
                     }
                     if (update.docChanged && activeCorrection) {
                         activeCorrection = {
                             ...activeCorrection,
+                            viewportCenterOffset: update.changes.mapPos(
+                                activeCorrection.viewportCenterOffset,
+                                -1
+                            ),
                             from: update.changes.mapPos(
                                 activeCorrection.from,
                                 -1
                             ),
                             to: update.changes.mapPos(activeCorrection.to, 1),
+                            protectedRanges:
+                                activeCorrection.protectedRanges.map(range => ({
+                                    ...range,
+                                    from: update.changes.mapPos(range.from, 1),
+                                    to: update.changes.mapPos(range.to, -1),
+                                })),
+                            annotationRanges:
+                                activeCorrection.annotationRanges.map(range => ({
+                                    ...range,
+                                    from: update.changes.mapPos(range.from, 1),
+                                    to: update.changes.mapPos(range.to, -1),
+                                })),
                         };
                         const dirty = update.view.state.sliceDoc(
                             activeCorrection.from,
@@ -548,15 +597,26 @@ export function createInlineMarkdownEditor({
         }
         if (activeCorrection?.blockID === block.id) return true;
         if (activeCorrection) return false;
+        const protectedRanges = normalizeProtectedCorrectionRanges(
+            block.protectedRanges,
+            block
+        );
         activeCorrection = {
             blockID: block.id,
+            viewportCenterOffset: block.from,
             from: block.from,
             to: block.to,
             originalMarkdown: view.state.sliceDoc(block.from, block.to),
+            protectedRanges,
+            annotationRanges: correctionAnnotationRanges.map(range => ({
+                ...range,
+            })),
             dirty: false,
         };
         annotationPopup.close();
-        correctionToolbar?.show(block.type);
+        correctionToolbar?.show(block.type, protectedRanges.length
+            ? { onDelete: null }
+            : {});
         view.dispatch({
             selection: {
                 anchor: Math.max(
@@ -585,6 +645,7 @@ export function createInlineMarkdownEditor({
             return;
         }
         const active = activeCorrection;
+        activeCorrection = null;
         const changes = revert ? {
             from: active.from,
             to: active.to,
@@ -600,7 +661,6 @@ export function createInlineMarkdownEditor({
                 setInlineEditingRange.of(null),
             ],
         });
-        activeCorrection = null;
         correctionToolbar?.hide();
     };
     const cancelActiveCorrection = ({ force = false } = {}) => {
@@ -620,6 +680,9 @@ export function createInlineMarkdownEditor({
             await onCommitCorrection({
                 blockID: active.blockID,
                 replacementMarkdown,
+                ...(active.annotationRanges.length ? {
+                    annotationRanges: active.annotationRanges,
+                } : {}),
             });
             if (activeCorrection?.blockID === active.blockID) {
                 endActiveCorrection();
@@ -628,7 +691,7 @@ export function createInlineMarkdownEditor({
         }
         catch (error) {
             if (activeCorrection?.blockID === active.blockID) {
-                correctionToolbar?.setError(t('revision.saveFailed'));
+                correctionToolbar?.setError(correctionErrorMessage(error, t));
             }
             onCorrectionError?.(error);
             return false;
@@ -813,6 +876,13 @@ export function createInlineMarkdownEditor({
             translationHighlightTimer = null;
         }
         const value = String(markdown || '');
+        const viewportCenterOffset = Number.isSafeInteger(
+            activeCorrection?.viewportCenterOffset
+        )
+            ? activeCorrection.viewportCenterOffset
+            : editorViewportCenterOffset(view);
+        pendingCorrectionViewportCenterOffset = viewportCenterOffset;
+        if (activeCorrection) correctionViewportFallbackEnabled = true;
         if (value !== view.state.doc.toString()) {
             clearCitationReturnPoint();
         }
@@ -874,9 +944,19 @@ export function createInlineMarkdownEditor({
             enabled = false,
             blocks = [],
             correctedBlockIDs: corrected = [],
+            annotationRanges = [],
         } = {}) {
             activateDOMGlobals(ownerWindow);
+            const viewportCenterOffset = Number.isSafeInteger(
+                pendingCorrectionViewportCenterOffset
+            )
+                ? pendingCorrectionViewportCenterOffset
+                : editorViewportCenterOffset(view);
+            pendingCorrectionViewportCenterOffset = null;
             const nextManagementEnabled = Boolean(enabled);
+            if (!nextManagementEnabled) {
+                correctionViewportFallbackEnabled = false;
+            }
             const nextCorrectionBlocks = Array.isArray(blocks) ? blocks : [];
             const activeBlockAvailable = !activeCorrection
                 || nextCorrectionBlocks.some(block => (
@@ -890,6 +970,10 @@ export function createInlineMarkdownEditor({
             correctionManagementEnabled = nextManagementEnabled;
             correctionBlocks = nextCorrectionBlocks;
             correctedBlockIDs = Array.isArray(corrected) ? corrected : [];
+            correctionAnnotationRanges = normalizeCorrectionAnnotationRanges(
+                annotationRanges,
+                view.state.doc.length
+            );
             view.dispatch({
                 effects: setCorrectionRenderingState.of({
                     enabled: correctionManagementEnabled,
@@ -897,7 +981,7 @@ export function createInlineMarkdownEditor({
                     correctedBlockIDs,
                 }),
             });
-            repairViewport();
+            repairViewport(viewportCenterOffset);
         },
         focus() {
             activateDOMGlobals(ownerWindow);
@@ -1077,6 +1161,71 @@ function translationPairSide(node) {
     return null;
 }
 
+function normalizeProtectedCorrectionRanges(ranges, block) {
+    if (!Array.isArray(ranges)) return [];
+    const normalized = ranges.flatMap(range => (
+        Number.isSafeInteger(range?.from)
+        && Number.isSafeInteger(range?.to)
+        && range.from >= block.from
+        && range.to <= block.to
+        && range.to > range.from
+            ? [{
+                from: range.from,
+                to: range.to,
+                ...(range.kind === 'annotation'
+                    ? { kind: 'annotation' }
+                    : {}),
+            }]
+            : []
+    )).sort((left, right) => left.from - right.from || left.to - right.to);
+    const result = [];
+    for (const range of normalized) {
+        const previous = result.at(-1);
+        if (previous && range.from <= previous.to) {
+            previous.to = Math.max(previous.to, range.to);
+            if (range.kind === 'annotation') previous.kind = 'annotation';
+        }
+        else {
+            result.push(range);
+        }
+    }
+    return result;
+}
+
+function normalizeCorrectionAnnotationRanges(ranges, documentLength) {
+    if (!Array.isArray(ranges)) return [];
+    return ranges.flatMap(range => (
+        String(range?.id || '')
+        && Number.isSafeInteger(range?.rangeIndex)
+        && range.rangeIndex >= 0
+        && Number.isSafeInteger(range?.from)
+        && Number.isSafeInteger(range?.to)
+        && range.from >= 0
+        && range.to > range.from
+        && range.to <= documentLength
+            ? [{
+                id: String(range.id),
+                source: String(range.source || ''),
+                rangeIndex: range.rangeIndex,
+                from: range.from,
+                to: range.to,
+            }]
+            : []
+    ));
+}
+
+function correctionErrorMessage(error, translate) {
+    if (!error) return '';
+    return error?.code === 'MARKDOWN_ANNOTATION_PROTECTED'
+        ? translate('revision.annotationProtected')
+        : translate('revision.saveFailed');
+}
+
+function changeTouchesProtectedRange(from, to, range) {
+    if (from === to) return from > range.from && from < range.to;
+    return from < range.to && to > range.from;
+}
+
 function createBlockCorrectionToolbar({
     parent,
     translate,
@@ -1236,8 +1385,74 @@ function editorViewportOffset(editorView) {
     }
 }
 
-function repairStalledViewport(editorView, deferRepair = () => {}) {
-    if (editorView.inView) return false;
+function editorViewportCenterOffset(editorView, verifyHeight = false) {
+    const scrollTop = Number(editorView.scrollDOM?.scrollTop);
+    const clientHeight = Number(editorView.scrollDOM?.clientHeight);
+    if (!Number.isFinite(scrollTop)
+        || !Number.isFinite(clientHeight)
+        || clientHeight <= 0) {
+        return editorView.viewport.from;
+    }
+    const height = Math.max(0, scrollTop + clientHeight / 2);
+    try {
+        const block = editorView.lineBlockAtHeight(height);
+        if (!verifyHeight || blockCoversHeight(block, height)) return block.from;
+    }
+    catch {
+        if (!verifyHeight) return editorView.viewport.from;
+    }
+    return searchEditorOffsetAtHeight(editorView, height);
+}
+
+function searchEditorOffsetAtHeight(editorView, height) {
+    let low = 0;
+    let high = editorView.state.doc.length;
+    let closest = editorView.viewport.from;
+    for (let attempt = 0; attempt < 24 && low <= high; attempt++) {
+        const position = Math.floor((low + high) / 2);
+        let block;
+        try {
+            block = editorView.lineBlockAt(position);
+        }
+        catch {
+            break;
+        }
+        if (!validHeightBlock(block)) break;
+        closest = block.from;
+        if (blockCoversHeight(block, height)) return block.from;
+        if (block.bottom < height) {
+            low = Math.max(position + 1, block.to + 1);
+        }
+        else {
+            high = Math.min(position - 1, block.from - 1);
+        }
+    }
+    return closest;
+}
+
+function blockCoversHeight(block, height) {
+    return validHeightBlock(block)
+        && block.top <= height
+        && block.bottom >= height;
+}
+
+function validHeightBlock(block) {
+    return Number.isSafeInteger(block?.from)
+        && Number.isSafeInteger(block?.to)
+        && Number.isFinite(block?.top)
+        && Number.isFinite(block?.bottom)
+        && block.from >= 0
+        && block.to >= block.from
+        && block.bottom >= block.top;
+}
+
+function repairStalledViewport(
+    editorView,
+    deferRepair = () => {},
+    requestedCenterOffset,
+    allowInViewRepair = false
+) {
+    if (editorView.inView && !allowInViewRepair) return false;
     const scrollTop = Number(editorView.scrollDOM?.scrollTop);
     const clientHeight = Number(editorView.scrollDOM?.clientHeight);
     if (!Number.isFinite(scrollTop)
@@ -1245,9 +1460,12 @@ function repairStalledViewport(editorView, deferRepair = () => {}) {
         || clientHeight <= 0) {
         return false;
     }
-    const centerOffset = editorView.lineBlockAtHeight(
-        Math.max(0, scrollTop + clientHeight / 2)
-    ).from;
+    const centerOffset = Number.isSafeInteger(requestedCenterOffset)
+        ? Math.max(
+            0,
+            Math.min(requestedCenterOffset, editorView.state.doc.length)
+        )
+        : editorViewportCenterOffset(editorView, allowInViewRepair);
     if (centerOffset >= editorView.viewport.from
         && centerOffset <= editorView.viewport.to) {
         return false;
@@ -1264,7 +1482,7 @@ function repairStalledViewport(editorView, deferRepair = () => {}) {
             editorView.measure();
         }
         catch {
-            deferRepair(scrollTop);
+            deferRepair(scrollTop, centerOffset);
         }
     }
     finally {

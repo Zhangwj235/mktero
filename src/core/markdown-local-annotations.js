@@ -221,6 +221,50 @@ export class MarkdownLocalAnnotations {
         this.#clearSynchronizationBlocks(itemID, [targetID]);
     }
 
+    async remapRanges(itemID, mappings, markdown, { sourceMap = null } = {}) {
+        if (typeof markdown !== 'string') {
+            throw new TypeError('Markdown must be a string');
+        }
+        const normalizedMappings = normalizeRangeMappings(
+            mappings,
+            markdown.length
+        );
+        if (!normalizedMappings.size) return;
+        await this.#withOperation(itemID, async () => {
+            const annotations = normalizeCollection(await this.store.get(itemID));
+            const updated = annotations.map(annotation => {
+                const mapping = normalizedMappings.get(annotation.id);
+                if (!mapping) return annotation;
+                if (!markdownAnnotationRangeMatchesSource(
+                    markdown,
+                    mapping,
+                    annotation.text
+                )) {
+                    throw new Error(
+                        'Mapped Markdown annotation no longer matches its text'
+                    );
+                }
+                return {
+                    ...annotation,
+                    ranges: [{ from: mapping.from, to: mapping.to }],
+                };
+            });
+            const matched = updated.flatMap(annotation => (
+                normalizedMappings.has(annotation.id)
+                    ? [resolvedAnnotation(annotation, annotation.ranges[0])]
+                    : []
+            ));
+            const refreshed = refreshAnnotationAnchors(
+                updated,
+                matched,
+                sourceMap,
+                markdown
+            );
+            validateAggregateBudget(refreshed.annotations);
+            await this.store.put(itemID, refreshed.annotations);
+        });
+    }
+
     async synchronizePending(itemID, context = null) {
         const annotationIDs = await this.#withOperation(itemID, async () => (
             normalizeCollection(await this.store.get(itemID))
@@ -651,6 +695,23 @@ function normalizeAnnotation(value) {
     };
 }
 
+function normalizeRangeMappings(mappings, documentLength) {
+    const normalized = new Map();
+    for (const mapping of Array.isArray(mappings) ? mappings : []) {
+        if (mapping?.source !== 'markdown'
+            || !LOCAL_ANNOTATION_ID.test(String(mapping?.id || ''))
+            || mapping?.rangeIndex !== 0
+            || !validRange(mapping, documentLength)) {
+            continue;
+        }
+        normalized.set(String(mapping.id), {
+            from: mapping.from,
+            to: mapping.to,
+        });
+    }
+    return normalized;
+}
+
 function refreshAnnotationAnchors(
     annotations,
     matched,
@@ -670,10 +731,18 @@ function refreshAnnotationAnchors(
         const range = matchedRanges.get(annotation.id);
         if (!range) return annotation;
         let refreshed = refreshAnnotationTextQuote(
-            annotation,
+            {
+                ...annotation,
+                ranges: [{ from: range.from, to: range.to }],
+            },
             range,
             visible
         );
+        if (annotation.ranges[0].from !== range.from
+            || annotation.ranges[0].to !== range.to) {
+            changed = true;
+            changedIDs.add(annotation.id);
+        }
         if (!sameTextQuote(annotation.textQuote, refreshed.textQuote)) {
             changed = true;
             changedIDs.add(annotation.id);

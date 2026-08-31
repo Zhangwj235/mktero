@@ -129,6 +129,43 @@ test('stores a document translation inside its Markdown cache entry', async t =>
     assert.ok((await cache.getStats()).sizeBytes > 7);
 });
 
+test('finds the current cached translation by target language', async t => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
+    t.after(() => rm(rootPath, { recursive: true, force: true }));
+    const options = {
+        rootPath,
+        ioUtils: createNodeIOUtils(),
+        pathUtils: { join: path.join, filename: path.basename },
+    };
+    const cache = new MarkdownCache(options);
+    const translationKey = 'c'.repeat(64);
+    const translation = {
+        translatedMarkdown: '# 论文',
+        comparisonMarkdown: '# Paper\n\n# 论文',
+        blocks: [{ id: 'translation-0', markdown: '# 论文' }],
+        sourceBlocks: [{ id: 'translation-0', markdown: '# Paper' }],
+        settingsIdentity: '{"targetLanguage":"zh-CN"}',
+        model: 'example-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: 'translation-v1',
+        partial: false,
+        failedBlocks: [],
+    };
+    await cache.put(CACHE_KEY, { markdown: '# Paper' });
+    await cache.putTranslation(CACHE_KEY, translationKey, translation);
+
+    const restored = new MarkdownCache(options);
+
+    assert.deepEqual(
+        await restored.getTranslationByLanguage(CACHE_KEY, 'zh-CN'),
+        { ...translation, comparisonMarkdown: '' }
+    );
+    assert.equal(
+        await restored.getTranslationByLanguage(CACHE_KEY, 'ja-JP'),
+        null
+    );
+});
+
 test('stores independent translations per target language', async t => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
     t.after(() => rm(rootPath, { recursive: true, force: true }));
