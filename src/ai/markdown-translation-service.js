@@ -332,6 +332,7 @@ export class MarkdownTranslationService {
         context = '',
         signal,
         targetLanguage,
+        onTextDelta,
     }) {
         const configuredSettings = this.getSettings();
         const selectedLanguage = targetLanguage === undefined
@@ -379,7 +380,10 @@ export class MarkdownTranslationService {
         };
         const result = settings.streaming !== false
             && typeof this.aiGateway.streamText === 'function'
-            ? await this.aiGateway.streamText(request)
+            ? await this.aiGateway.streamText({
+                ...request,
+                onTextDelta,
+            })
             : await this.aiGateway.generateText(request);
         throwIfDocumentAborted(signal);
         if (selectionFinishReason(result?.finishReason) === 'length') {

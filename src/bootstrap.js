@@ -558,8 +558,8 @@ async function openItemAsMarkdown(itemID, {
         onRestoreAllCorrections: () => restoreAllCorrections(itemID),
         onTranslateDocument: options => translateDocument(itemID, options),
         onCancelDocumentTranslation: () => cancelDocumentTranslation(itemID),
-        onTranslateSelection: ({ text, context } = {}) => (
-            translateSelection(itemID, { text, context })
+        onTranslateSelection: ({ text, context, onTextDelta } = {}) => (
+            translateSelection(itemID, { text, context, onTextDelta })
         ),
         onCancelSelectionTranslation: () => cancelSelectionTranslation(itemID),
         shouldAutoTranslateSelection: () => isAutoSelectionTranslationEnabled(),
@@ -799,8 +799,8 @@ function createSavedMarkdownActions(noteID, sourceItem) {
             copySourcedMarkdown(itemID, target)
         )),
         onCopyCode: code => copyCode(code),
-        onTranslateSelection: ({ text, context } = {}) => (
-            translateSelection(noteID, { text, context })
+        onTranslateSelection: ({ text, context, onTextDelta } = {}) => (
+            translateSelection(noteID, { text, context, onTextDelta })
         ),
         onCancelSelectionTranslation: () => cancelSelectionTranslation(noteID),
         shouldAutoTranslateSelection: () => isAutoSelectionTranslationEnabled(),
@@ -1114,6 +1114,7 @@ async function translateSelection(documentID, {
     text,
     context = '',
     targetLanguage: requestedTargetLanguage,
+    onTextDelta,
 } = {}) {
     const presentation = runtime.presenter?.get(documentID);
     const service = runtime.translationService;
@@ -1150,6 +1151,7 @@ async function translateSelection(documentID, {
             context,
             signal,
             targetLanguage,
+            onTextDelta,
         })
     );
 }

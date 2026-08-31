@@ -1581,12 +1581,14 @@ test('forwards selection translation callbacks through the current reader model'
         shouldAutoTranslateSelection: () => true,
         onCopySelectionTranslation: text => calls.push(['copy-second', text]),
     };
+    const onTextDelta = () => {};
 
     try {
         view.render(secondModel);
         await editorOptions.translateSelection(
             'Selected text.',
-            { translationContext: 'Before selected text. Selected text. After.' }
+            { translationContext: 'Before selected text. Selected text. After.' },
+            { onTextDelta },
         );
         editorOptions.cancelSelectionTranslation();
         assert.equal(editorOptions.shouldAutoTranslateSelection(), true);
@@ -1596,6 +1598,7 @@ test('forwards selection translation callbacks through the current reader model'
             ['second', {
                 text: 'Selected text.',
                 context: 'Before selected text. Selected text. After.',
+                onTextDelta,
             }],
             ['cancel-second'],
             ['copy-second', '已翻译文本'],

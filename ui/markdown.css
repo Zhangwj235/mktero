@@ -748,8 +748,8 @@ main {
     position: absolute;
     z-index: 4;
     inset-block-end: 16px;
-    inset-inline-end: 18px;
-    max-width: calc(100% - 36px);
+    inset-inline-end: 66px;
+    max-width: calc(100% - 84px);
     flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;

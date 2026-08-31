@@ -153,9 +153,10 @@ export function createInlineMarkdownEditor({
         deleteAnnotation,
         copySourcedMarkdown,
         translateSelection: typeof translateSelection === 'function'
-            ? (text, selectionContext) => translateSelection(
+            ? (text, selectionContext, options) => translateSelection(
                 text,
-                selectionContext
+                selectionContext,
+                options,
             )
             : undefined,
         cancelSelectionTranslation,
