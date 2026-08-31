@@ -178,9 +178,14 @@ export function createAnnotationPopup(parent, {
                             : undefined,
                         translateSelection:
                             typeof translateSelection === 'function'
-                                ? text => translateSelection(
+                                ? (
                                     text,
-                                    selectionContext
+                                    translationContext,
+                                    options,
+                                ) => translateSelection(
+                                    text,
+                                    translationContext,
+                                    options,
                                 )
                             : undefined,
                         cancelSelectionTranslation:
@@ -571,12 +576,22 @@ function createMarkdownSelectionActions(
         clearAutoTranslateTimer();
         const requestID = ++translationRequestID;
         translatedText = '';
+        translationResult.textContent = '';
         setExistingControlsBusy(true);
         setTranslationStatus('loading');
         try {
             const result = await translateSelection(
                 annotation.text,
-                selectionContext
+                selectionContext,
+                {
+                    onTextDelta(_chunk, accumulated) {
+                        if (requestID !== translationRequestID) return;
+                        translatedText = String(accumulated ?? '');
+                        translationResult.textContent = translatedText;
+                        translationResult.hidden = !translatedText;
+                        reposition?.();
+                    },
+                },
             );
             if (requestID !== translationRequestID) return;
             const text = typeof result === 'string' ? result : result?.text;
@@ -587,11 +602,15 @@ function createMarkdownSelectionActions(
             }
             translatedText = text;
             translationResult.textContent = text;
+            translationRequestID += 1;
             setExistingControlsBusy(false);
             setTranslationStatus('success');
         }
         catch (cause) {
             if (requestID !== translationRequestID) return;
+            translationRequestID += 1;
+            translatedText = '';
+            translationResult.textContent = '';
             setExistingControlsBusy(false);
             translationError.textContent = annotationErrorMessage(
                 cause,
@@ -607,6 +626,8 @@ function createMarkdownSelectionActions(
         clearAutoTranslateTimer();
         translationRequestID += 1;
         cancelSelectionTranslation?.();
+        translatedText = '';
+        translationResult.textContent = '';
         setExistingControlsBusy(false);
         setTranslationStatus('idle');
     };

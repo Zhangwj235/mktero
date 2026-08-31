@@ -5681,13 +5681,22 @@ test('places translation last, expands results below, and translates again', asy
     const anchor = document.createElement('span');
     parent.appendChild(anchor);
     let resolveTranslation;
+    let emitTranslationDelta;
     let translationCalls = 0;
     let copiedText;
     const popup = createAnnotationPopup(parent, {
-        translateSelection: (text, selectionContext) => {
+        translateSelection: (text, selectionContext, { onTextDelta } = {}) => {
             translationCalls += 1;
+            emitTranslationDelta = onTextDelta;
             assert.equal(text, 'Selected **text**');
             assert.deepEqual(selectionContext, { side: 'source' });
+            if (translationCalls === 1) {
+                onTextDelta('<b>Trans', '<b>Trans');
+                onTextDelta('lated</b>', '<b>Translated</b>');
+            }
+            else {
+                onTextDelta('Re', 'Re');
+            }
             return new Promise(resolve => {
                 resolveTranslation = resolve;
             });
@@ -5746,6 +5755,10 @@ test('places translation last, expands results below, and translates again', asy
     assert.equal(translateButton.hidden, true);
     assert.equal(translationPanel.hidden, false);
     assert.ok(actions.querySelector('[data-action="cancel-selection-translation"]'));
+    const result = actions.querySelector('.mktero-selection-translation-result');
+    assert.equal(result.hidden, false);
+    assert.equal(result.textContent, '<b>Translated</b>');
+    assert.equal(result.querySelector('b'), null);
 
     resolveTranslation({ text: '<b>Translated</b>' });
     await Promise.resolve();
@@ -5753,9 +5766,10 @@ test('places translation last, expands results below, and translates again', asy
 
     assert.equal(actions.dataset.translationStatus, 'success');
     assert.equal(translateButton.hidden, true);
-    const result = actions.querySelector('.mktero-selection-translation-result');
     assert.equal(result.textContent, '<b>Translated</b>');
     assert.equal(result.querySelector('b'), null);
+    emitTranslationDelta(' late', 'Late streamed text');
+    assert.equal(result.textContent, '<b>Translated</b>');
     assert.deepEqual(
         [...translationPanel.querySelectorAll(
             '.mktero-selection-translation-actions button'
@@ -5783,7 +5797,8 @@ test('places translation last, expands results below, and translates again', asy
     retranslateButton.click();
     assert.equal(translationCalls, 2);
     assert.equal(actions.dataset.translationStatus, 'loading');
-    assert.equal(result.hidden, true);
+    assert.equal(result.hidden, false);
+    assert.equal(result.textContent, 'Re');
     assert.ok(actions.querySelector(
         '[data-action="cancel-selection-translation"]'
     ));
@@ -5868,8 +5883,11 @@ test('shows a localized error when a selection exceeds the translation limit', a
     const parent = document.querySelector('#popup-parent');
     const anchor = document.createElement('span');
     parent.appendChild(anchor);
+    let emitTranslationDelta;
     const popup = createAnnotationPopup(parent, {
-        translateSelection: async () => {
+        translateSelection: async (_text, _context, { onTextDelta } = {}) => {
+            emitTranslationDelta = onTextDelta;
+            onTextDelta('Partial', 'Partial translation');
             const error = new Error('too large');
             error.code = 'AI_INPUT_TOO_LARGE';
             throw error;
@@ -5887,10 +5905,60 @@ test('shows a localized error when a selection exceeds the translation limit', a
 
     const actions = parent.querySelector('.mktero-markdown-selection-actions');
     assert.equal(actions.dataset.translationStatus, 'error');
+    const result = actions.querySelector('.mktero-selection-translation-result');
+    assert.equal(result.hidden, true);
+    assert.equal(result.textContent, '');
+    emitTranslationDelta(' late', 'Late partial translation');
+    assert.equal(result.hidden, true);
+    assert.equal(result.textContent, '');
     assert.equal(
         actions.querySelector('.mktero-selection-translation-error').textContent,
         'Select a shorter passage and try again.'
     );
+
+    popup.destroy();
+    dom.window.close();
+});
+
+test('clears streamed selection text on cancellation and ignores late deltas', () => {
+    const dom = new JSDOM('<!doctype html><div id="popup-parent"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const parent = document.querySelector('#popup-parent');
+    const anchor = document.createElement('span');
+    parent.appendChild(anchor);
+    let onTextDelta;
+    let cancellations = 0;
+    const popup = createAnnotationPopup(parent, {
+        translateSelection: (_text, _context, options) => {
+            onTextDelta = options.onTextDelta;
+            return new Promise(() => {});
+        },
+        cancelSelectionTranslation: () => {
+            cancellations += 1;
+        },
+    });
+
+    popup.openSelection({
+        anchor,
+        selection: { text: 'Selected text' },
+    });
+    const actions = parent.querySelector('.mktero-markdown-selection-actions');
+    actions.querySelector('[data-action="translate-selection"]').click();
+    onTextDelta('Partial', 'Partial translation');
+
+    const result = actions.querySelector('.mktero-selection-translation-result');
+    assert.equal(result.hidden, false);
+    assert.equal(result.textContent, 'Partial translation');
+
+    actions.querySelector('[data-action="cancel-selection-translation"]').click();
+    assert.equal(cancellations, 1);
+    assert.equal(actions.dataset.translationStatus, 'idle');
+    assert.equal(result.textContent, '');
+    onTextDelta(' late', 'Partial translation late');
+    assert.equal(result.hidden, true);
+    assert.equal(result.textContent, '');
 
     popup.destroy();
     dom.window.close();
@@ -5906,9 +5974,13 @@ test('does not let a late selection translation replace a newer popup state', as
     const secondAnchor = document.createElement('span');
     parent.append(firstAnchor, secondAnchor);
     const resolves = [];
+    const deltas = [];
     let cancellations = 0;
     const popup = createAnnotationPopup(parent, {
-        translateSelection: () => new Promise(resolve => resolves.push(resolve)),
+        translateSelection: (_text, _context, { onTextDelta } = {}) => {
+            deltas.push(onTextDelta);
+            return new Promise(resolve => resolves.push(resolve));
+        },
         cancelSelectionTranslation: () => {
             cancellations += 1;
         },
@@ -5927,11 +5999,21 @@ test('does not let a late selection translation replace a newer popup state', as
     assert.equal(cancellations, 1);
     assert.equal(resolves.length, 2);
 
+    deltas[0]('Stale', 'Stale first stream');
+    const currentResult = parent.querySelector(
+        '.mktero-selection-translation-result'
+    );
+    assert.equal(currentResult.hidden, true);
+    assert.equal(currentResult.textContent, '');
+    deltas[1]('Current', 'Current second stream');
+    assert.equal(currentResult.hidden, false);
+    assert.equal(currentResult.textContent, 'Current second stream');
+
     resolves[0]({ text: 'Stale first result' });
     await Promise.resolve();
     assert.equal(
-        parent.querySelector('.mktero-selection-translation-result').hidden,
-        true
+        currentResult.textContent,
+        'Current second stream'
     );
     assert.equal(
         parent.querySelector('.mktero-markdown-selection-actions')
@@ -6043,8 +6125,14 @@ test('passes selection translation callbacks and bounded raw-source context', as
     const editor = createInlineMarkdownEditor({
         parent: document.querySelector('#editor'),
         initialMarkdown: '',
-        translateSelection: async (text, selectionContext) => {
+        translateSelection: async (
+            text,
+            selectionContext,
+            { onTextDelta } = {},
+        ) => {
             calls.push({ text, selectionContext });
+            onTextDelta('Streamed ', 'Streamed ');
+            onTextDelta('selection', 'Streamed selection');
             return { text: 'Translated selection' };
         },
         cancelSelectionTranslation: () => {

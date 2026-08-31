@@ -2173,11 +2173,14 @@ test('translates one bounded selection without using document cache', async () =
 test('uses the configured streaming gateway for selection translation', async () => {
     let streamCalls = 0;
     let generateCalls = 0;
+    const deltas = [];
     const service = new MarkdownTranslationService({
         aiGateway: {
             async streamText(request) {
                 streamCalls++;
                 assert.match(request.messages[0].content, /French/);
+                request.onTextDelta('Texte', 'Texte');
+                request.onTextDelta(' traduit', 'Texte traduit');
                 return { text: 'Texte traduit', model: 'stream-model' };
             },
             async generateText() {
@@ -2192,10 +2195,19 @@ test('uses the configured streaming gateway for selection translation', async ()
         }),
     });
 
-    const result = await service.translateSelection({ text: 'A sentence.' });
+    const result = await service.translateSelection({
+        text: 'A sentence.',
+        onTextDelta: (chunk, accumulated) => {
+            deltas.push([chunk, accumulated]);
+        },
+    });
 
     assert.equal(result.text, 'Texte traduit');
     assert.equal(result.targetLanguage, 'fr-FR');
+    assert.deepEqual(deltas, [
+        ['Texte', 'Texte'],
+        [' traduit', 'Texte traduit'],
+    ]);
     assert.equal(streamCalls, 1);
     assert.equal(generateCalls, 0);
 });
@@ -2207,6 +2219,7 @@ test('falls back to generateText when streaming is unavailable', async () => {
             async generateText(request) {
                 generateCalls++;
                 assert.equal(request.settings.targetLanguage, 'ja-JP');
+                assert.equal('onTextDelta' in request, false);
                 return { text: '翻訳文' };
             },
         },

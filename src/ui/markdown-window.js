@@ -316,9 +316,14 @@ class MarkdownTabView {
                 ? code => this.copyCode(code)
                 : null,
             translateSelection: typeof model?.onTranslateSelection === 'function'
-                ? (text, selectionContext) => this.model.onTranslateSelection({
+                ? (
+                    text,
+                    selectionContext,
+                    { onTextDelta } = {},
+                ) => this.model.onTranslateSelection({
                     text,
                     context: selectionContext?.translationContext || '',
+                    onTextDelta,
                 })
                 : null,
             cancelSelectionTranslation:
