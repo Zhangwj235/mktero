@@ -51,7 +51,7 @@ export function createMarkdownExportPlan({
     const assetsByPath = new Map();
     for (const asset of normalizedAssets) {
         assetsByPath.set(asset.sourcePath, asset);
-        assetsByPath.set(asset.relativePath, asset);
+        assetsByPath.set(asset.sourceRelativePath, asset);
     }
     const replacements = normalizedAssets.length
         ? collectImageURLReplacements(
@@ -71,7 +71,11 @@ export function createMarkdownExportPlan({
     }
     return {
         markdown: exportedMarkdown,
-        assets: normalizedAssets.map(({ sourcePath, ...asset }) => asset),
+        assets: normalizedAssets.map(({
+            sourcePath,
+            sourceRelativePath,
+            ...asset
+        }) => asset),
     };
 }
 
@@ -93,11 +97,13 @@ function normalizeExportAssets(assets, basePath) {
         throw new Error('The Markdown export images are invalid');
     }
     const sourcePaths = new Set();
-    const relativePaths = new Set();
+    const sourceRelativePaths = new Set();
+    const portableRelativePaths = new Set();
     let totalBytes = 0;
     return assets.map(source => {
         const sourcePath = normalizeRelativePath(source?.path);
-        const relativePath = basePath && sourcePath.startsWith(basePath + '/')
+        const sourceRelativePath = basePath
+            && sourcePath.startsWith(basePath + '/')
             ? sourcePath.slice(basePath.length + 1)
             : sourcePath;
         const mimeType = String(source?.mimeType || '');
@@ -107,13 +113,55 @@ function normalizeExportAssets(assets, basePath) {
             || data.length > MAX_EXPORT_ASSET_BYTES
             || totalBytes > MAX_EXPORT_TOTAL_ASSET_BYTES
             || sourcePaths.has(sourcePath)
-            || relativePaths.has(relativePath)) {
+            || sourceRelativePaths.has(sourceRelativePath)) {
             throw new Error('The Markdown export image metadata is invalid');
         }
         sourcePaths.add(sourcePath);
-        relativePaths.add(relativePath);
-        return { sourcePath, relativePath, mimeType, data };
+        sourceRelativePaths.add(sourceRelativePath);
+        const relativePath = allocatePortableRelativePath(
+            sourceRelativePath,
+            portableRelativePaths
+        );
+        return {
+            sourcePath,
+            sourceRelativePath,
+            relativePath,
+            mimeType,
+            data,
+        };
     });
+}
+
+function allocatePortableRelativePath(sourcePath, usedPaths) {
+    let candidate = sourcePath;
+    for (
+        let suffix = 2;
+        usedPaths.has(portablePathKey(candidate));
+        suffix += 1
+    ) {
+        candidate = appendPathSuffix(sourcePath, suffix);
+        if (candidate.length > 1_024) {
+            throw new Error('The Markdown export image path is invalid');
+        }
+    }
+    usedPaths.add(portablePathKey(candidate));
+    return candidate;
+}
+
+function portablePathKey(path) {
+    return path.normalize('NFC').toLowerCase();
+}
+
+function appendPathSuffix(path, suffix) {
+    const separator = path.lastIndexOf('/');
+    const directory = separator < 0 ? '' : path.slice(0, separator + 1);
+    const fileName = path.slice(separator + 1);
+    const extension = fileName.lastIndexOf('.');
+    const stemEnd = extension > 0 ? extension : fileName.length;
+    return directory
+        + fileName.slice(0, stemEnd)
+        + `-${suffix}`
+        + fileName.slice(stemEnd);
 }
 
 function collectImageURLReplacements(
