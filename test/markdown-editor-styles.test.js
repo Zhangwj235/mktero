@@ -24,6 +24,13 @@ function lastRuleBody(selector) {
     return ruleBodies(selector).at(-1);
 }
 
+function pixelDeclaration(body, property) {
+    const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = body.match(new RegExp(`${escapedProperty}:\\s*(\\d+)px`));
+    assert.ok(match, `Missing pixel declaration: ${property}`);
+    return Number(match[1]);
+}
+
 test('uses balanced typography for long-form Markdown', () => {
     const host = ruleBody(':host');
 
@@ -162,6 +169,20 @@ test('keeps block correction actions compact and above the editor', () => {
     assert.match(deleted, /display:\s*flex/);
     assert.match(deleted, /border:\s*1px dashed/);
     assert.match(deleted, /min-height:\s*36px/);
+});
+
+test('keeps block correction actions clear of the citation graph button', () => {
+    const graphButton = ruleBody('.markdown-citation-graph-button');
+    const toolbar = ruleBody('.mktero-correction-editor-toolbar');
+    const graphInset = pixelDeclaration(graphButton, 'inset-inline-end');
+    const graphWidth = pixelDeclaration(graphButton, 'width');
+    const toolbarInset = pixelDeclaration(toolbar, 'inset-inline-end');
+
+    assert.ok(
+        toolbarInset >= graphInset + graphWidth + 8,
+        'Correction actions must leave 8px beside the citation graph button'
+    );
+    assert.match(toolbar, /max-width:\s*calc\(100% - 84px\)/);
 });
 
 test('keeps the deleted-correction undo prompt usable with long copy', () => {
