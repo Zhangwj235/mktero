@@ -884,6 +884,21 @@ test('locates MinerU LaTeX and statistical text in the PDF', async () => {
     assert.equal(result.savedJSON.text, STATISTICAL_MARKDOWN_PASSAGE);
 });
 
+test('locates Markdown Greek formulas in PDF.js math text', async () => {
+    const markdownPassage = 'Raw Layer stores traces \\tau_{i} \\in '
+        + 'T_{train,k} collected from training.';
+    const pdfPassage = 'Raw Layer stores traces 𝜏𝑖 ∈ Ttrain,𝑘 '
+        + 'collected from training.';
+    const result = await createAnnotationWithNormalizedPDFSearch(
+        markdownPassage,
+        pdfPassage
+    );
+
+    assert.equal(result.created.id, 'SYNC0001');
+    assert.deepEqual(result.queries, [markdownPassage, pdfPassage]);
+    assert.equal(result.savedJSON.text, markdownPassage);
+});
+
 test('locates PDF.js text with spaces around a degree unit', async () => {
     const markdownPassage = 'basal body temperature increases by 0.3 °C';
     const pdfPassage = 'basal body temperature increases by 0.3   ° C';

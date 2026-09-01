@@ -1014,6 +1014,26 @@ test('matches PDF whitespace, signed numbers, dehyphenation, and CJK text', asyn
     locator.dispose();
 });
 
+test('matches Markdown LaTeX formulas against PDF math text', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem(
+            'Raw Layer stores traces 𝜏𝑖 ∈ Ttrain,𝑘 collected from training.',
+            { hasEOL: true }
+        ),
+    ]]);
+
+    const selectedText = 'Raw Layer stores traces \\tau_{i} \\in '
+        + 'T_{train,k} collected from training.';
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
+    assert.equal(located.position.pageIndex, 0);
+    assert.equal(located.position.rects.length, 1);
+    locator.dispose();
+});
+
 test('matches a spaced Markdown citation against attached PDF superscript text', async () => {
     const locator = await createSyntheticLocator([[
         createTextItem('studies', {

@@ -159,6 +159,8 @@ can be retried instead of receiving a guessed PDF position. When a highlight
 overlaps a citation, table reference, or figure reference, that semantic
 reference keeps interaction priority; annotation actions remain available from
 the surrounding highlighted text or its note marker.
+Common MinerU LaTeX math symbols and simple subscripts are normalized to the
+PDF's extracted text so selections that include formulas can still be located.
 
 ### Translate with AI
 
