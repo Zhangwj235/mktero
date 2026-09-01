@@ -111,6 +111,49 @@ test('locates a Markdown passage that continues onto the next PDF page', async (
     locator.dispose();
 });
 
+test('locates cross-page text across repeated headers and page numbers', async () => {
+    const runningHeader = 'WikiSkill: Compiling Agent Experience into Persistent Knowledge for Skill Evolution';
+    const locator = await createSyntheticLocator([
+        [
+            createTextItem(runningHeader, { y: 780, hasEOL: true }),
+            createTextItem(
+                'Wiki Layer (wiki/) This layer compiles raw traces into structured, '
+                    + 'compounding knowledge and is maintained throughout skill evolution. '
+                    + 'It contains a pattern directory (patterns/) populated',
+                { y: 100, width: 900, hasEOL: true }
+            ),
+            createTextItem('1', { y: 55, hasEOL: true }),
+        ],
+        [
+            createTextItem(runningHeader, { y: 780, hasEOL: true }),
+            createTextItem(
+                'with individual markdown files that document specific failure modes '
+                    + 'and successful strategies, along with actionable workarounds.',
+                { y: 740, width: 900, hasEOL: true }
+            ),
+            createTextItem('2', { y: 55, hasEOL: true }),
+        ],
+    ]);
+
+    const located = await locator.locate(
+        42,
+        'Wiki Layer (wiki/) This layer compiles raw traces into structured, '
+            + 'compounding knowledge and is maintained throughout skill evolution. '
+            + 'It contains a pattern directory (patterns/) populated with individual '
+            + 'markdown files that document specific failure modes and successful '
+            + 'strategies, along with actionable workarounds.',
+        { pdfPageIndexHint: 0 }
+    );
+
+    assert.deepEqual(
+        located.segments.map(segment => segment.position.pageIndex),
+        [0, 1]
+    );
+    assert.match(located.segments[0].text, /populated$/u);
+    assert.match(located.segments[1].text, /^with individual/u);
+    locator.dispose();
+});
+
 test('keeps repeated cross-page passages ambiguous without a page hint', async () => {
     const locator = await createSyntheticLocator([
         [createTextItem('Shared passage begins', { width: 900, hasEOL: true })],

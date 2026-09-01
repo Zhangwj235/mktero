@@ -17,6 +17,7 @@ import {
 const MAX_MATCHES = 10_000;
 const MIN_GLYPH_FALLBACK_TEXT_LENGTH = 32;
 const MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH = 12;
+const MIN_REPEATED_PAGE_HEADER_LENGTH = 20;
 const MISENCODED_PLUS_MINUS = /§(?=\d)/gu;
 const PLUS_MINUS_NUMBER = /±(?=\d)/u;
 
@@ -438,8 +439,7 @@ function findCrossPageMatch(
             const segments = crossPageSourceSegments(
                 sequence,
                 normalizedFrom,
-                target.length,
-                strategy
+                target.length
             );
             if (segments.length < 2
                 || !segmentsAreAdjacent(segments)) {
@@ -473,10 +473,20 @@ function createCrossPageSequence(
     const parts = [];
     const output = [];
     let offset = 0;
-    for (const page of pages) {
-        const text = transformText(
+    for (const [pageIndex, page] of pages.entries()) {
+        const sourceIndex = strategy.createSourceIndex(page.rawText);
+        const normalizedText = transformText(
             strategy.normalizedTextForPage(page)
-        ).trim();
+        );
+        const contentRange = crossPageContentRange(
+            pages,
+            pageIndex,
+            normalizedText
+        );
+        const text = normalizedText.slice(
+            contentRange.from,
+            contentRange.to
+        );
         if (!text) continue;
         if (output.length) {
             output.push(' ');
@@ -488,10 +498,86 @@ function createCrossPageSequence(
         parts.push({
             from,
             page,
+            normalizedFrom: contentRange.from,
             to: offset,
+            sourceIndex,
         });
     }
     return { parts, text: output.join('') };
+}
+
+function crossPageContentRange(
+    pages,
+    pageIndex,
+    normalizedText
+) {
+    let from = 0;
+    let to = normalizedText.length;
+    if (pageIndex > 0
+        && hasRepeatedPageHeader(
+            pages[pageIndex - 1],
+            pages[pageIndex],
+            normalizedText
+        )) {
+        const header = firstNonEmptyPageItem(pages[pageIndex]);
+        const normalizedHeader = sourceIndexForText(header.text);
+        from = normalizedText.indexOf(normalizedHeader);
+        if (from < 0) from = 0;
+        else from += normalizedHeader.length;
+    }
+    const pageNumber = trailingPageNumberStart(
+        pages[pageIndex],
+        normalizedText
+    );
+    if (pageNumber !== null) to = Math.min(to, pageNumber);
+    while (from < to && /^\s$/u.test(normalizedText[from])) from++;
+    while (to > from && /^\s$/u.test(normalizedText[to - 1])) to--;
+    return { from, to };
+}
+
+function hasRepeatedPageHeader(
+    previousPage,
+    page,
+    normalizedText
+) {
+    const previousHeader = firstNonEmptyPageItem(previousPage);
+    const header = firstNonEmptyPageItem(page);
+    if (!previousHeader
+        || !header
+        || previousHeader.sourceFrom !== 0
+        || header.sourceFrom !== 0
+        || previousHeader.text !== header.text
+        || header.text.trim().length < MIN_REPEATED_PAGE_HEADER_LENGTH) {
+        return false;
+    }
+    const normalizedHeader = sourceIndexForText(header.text);
+    return normalizedHeader.length > 0
+        && normalizedText.startsWith(normalizedHeader);
+}
+
+function firstNonEmptyPageItem(page) {
+    return page?.items?.find(item => (
+        typeof item?.text === 'string' && item.text.trim()
+    )) || null;
+}
+
+function sourceIndexForText(text) {
+    return String(text).trim();
+}
+
+function trailingPageNumberStart(page, normalizedText) {
+    const item = [...(page?.items || [])].reverse().find(value => (
+        typeof value?.text === 'string' && value.text.trim()
+    ));
+    if (!item || item.text.trim() !== String(page.pageIndex + 1)) {
+        return null;
+    }
+    const normalizedNumber = String(item.text).trim();
+    const end = normalizedText.trimEnd().length;
+    const start = end - normalizedNumber.length;
+    return start >= 0 && normalizedText.slice(start, end) === normalizedNumber
+        ? start
+        : null;
 }
 
 function segmentsAreAdjacent(segments) {
@@ -515,8 +601,7 @@ function findCrossPagePart(parts, offset) {
 function crossPageSourceSegments(
     sequence,
     normalizedFrom,
-    targetLength,
-    strategy
+    targetLength
 ) {
     const normalizedTo = normalizedFrom + targetLength;
     const segments = [];
@@ -524,9 +609,8 @@ function crossPageSourceSegments(
         const from = Math.max(normalizedFrom, part.from);
         const to = Math.min(normalizedTo, part.to);
         if (to <= from) continue;
-        const sourceIndex = strategy.createSourceIndex(part.page.rawText);
-        const sourceRange = sourceIndex.sourceRange(
-            from - part.from,
+        const sourceRange = part.sourceIndex.sourceRange(
+            part.normalizedFrom + from - part.from,
             to - from
         );
         segments.push({ page: part.page, sourceRange });
