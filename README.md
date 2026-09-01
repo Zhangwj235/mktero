@@ -159,6 +159,8 @@ can be retried instead of receiving a guessed PDF position. When a highlight
 overlaps a citation, table reference, or figure reference, that semantic
 reference keeps interaction priority; annotation actions remain available from
 the surrounding highlighted text or its note marker.
+Selections that cross a PDF page break are split into one single-page Zotero
+highlight per page, so the complete Markdown selection remains navigable.
 Common MinerU LaTeX math symbols and simple subscripts are normalized to the
 PDF's extracted text so selections that include formulas can still be located.
 

@@ -296,6 +296,48 @@ test('deletes a newly synchronized PDF highlight after its local draft was delet
     assert.deepEqual(await store.get(42), []);
 });
 
+test('deletes every page highlight after a cross-page draft is deleted', async () => {
+    let finishSynchronization;
+    let synchronizationStarted = false;
+    const synchronization = new Promise(resolve => {
+        finishSynchronization = resolve;
+    });
+    const deleted = [];
+    const store = createMemoryStore();
+    const annotations = new MarkdownLocalAnnotations({
+        store,
+        createID: () => 'local-1',
+        async createPDFAnnotation() {
+            synchronizationStarted = true;
+            return synchronization;
+        },
+        async deletePDFAnnotation(itemID, annotationID) {
+            deleted.push({ itemID, annotationID });
+        },
+    });
+    const created = await annotations.create(42, {
+        text: 'Cross-page text',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 0, to: 15 }],
+    });
+    await waitFor(() => synchronizationStarted);
+
+    await annotations.delete(42, created.id);
+    finishSynchronization({
+        id: 'ZOTERO001',
+        annotationIDs: ['ZOTERO001', 'ZOTERO002'],
+        reused: false,
+    });
+
+    await waitFor(() => deleted.length === 2);
+    assert.deepEqual(deleted, [
+        { itemID: 42, annotationID: 'ZOTERO001' },
+        { itemID: 42, annotationID: 'ZOTERO002' },
+    ]);
+    assert.deepEqual(await store.get(42), []);
+});
+
 test('migrates an existing local Markdown highlight into Zotero PDF', async () => {
     const local = {
         id: 'mktero-local-1',

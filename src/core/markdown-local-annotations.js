@@ -399,11 +399,18 @@ export class MarkdownLocalAnnotations {
             }
             else if (!saved?.reused
                 && typeof this.deletePDFAnnotation === 'function') {
-                try {
-                    await this.deletePDFAnnotation(itemID, saved.id);
-                }
-                catch (error) {
-                    this.#reportError(error);
+                const annotationIDs = Array.isArray(saved.createdAnnotationIDs)
+                    ? saved.createdAnnotationIDs
+                    : Array.isArray(saved.annotationIDs)
+                        ? saved.annotationIDs
+                        : [saved.id];
+                for (const annotationID of annotationIDs) {
+                    try {
+                        await this.deletePDFAnnotation(itemID, annotationID);
+                    }
+                    catch (error) {
+                        this.#reportError(error);
+                    }
                 }
             }
         }

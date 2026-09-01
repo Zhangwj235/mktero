@@ -18,6 +18,7 @@ const MAX_PDF_FALLBACK_PAGES = 10_000;
 const MAX_PDF_FALLBACK_PAGE_TEXT_LENGTH = 1_000_000;
 const MAX_PDF_FALLBACK_TOTAL_TEXT_LENGTH = 10_000_000;
 const MAX_PDF_TEXT_MATCHES = 10_000;
+const MAX_LOCATED_SEGMENTS = 10_000;
 
 export function createZoteroAnnotationActions(zotero, {
     locateText = null,
@@ -84,39 +85,73 @@ export function createZoteroAnnotationActions(zotero, {
             throwIfAborted(signal);
             if (!locatedText) return { deferred: true };
             const located = validateLocatedText(locatedText);
-            const json = {
-                type: 'highlight',
-                text: located.text,
-                comment,
-                color,
-                pageLabel: located.pageLabel,
-                sortIndex: located.sortIndex,
-                position: located.position,
-            };
-            const existing = await findMatchingAnnotation(
-                zotero,
-                attachment,
-                json
-            );
-            throwIfAborted(signal);
-            if (existing) {
-                await updateMatchingAnnotation(zotero, existing, json);
-                return normalizeCreatedAnnotation(existing, {
-                    ...json,
-                    key: existing.key,
-                }, { reused: true });
+            const parts = located.segments || [located];
+            const savedParts = [];
+            const createdIDs = [];
+            try {
+                for (const [index, part] of parts.entries()) {
+                    const json = {
+                        type: 'highlight',
+                        text: part.text,
+                        comment: index === 0 ? comment : '',
+                        color,
+                        pageLabel: part.pageLabel,
+                        sortIndex: part.sortIndex,
+                        position: part.position,
+                    };
+                    const existing = await findMatchingAnnotation(
+                        zotero,
+                        attachment,
+                        json
+                    );
+                    throwIfAborted(signal);
+                    if (existing) {
+                        await updateMatchingAnnotation(zotero, existing, json);
+                        savedParts.push({
+                            annotation: normalizeCreatedAnnotation(existing, {
+                                ...json,
+                                key: existing.key,
+                            }, { reused: true }),
+                            reused: true,
+                        });
+                        continue;
+                    }
+                    json.key = zotero.DataObjectUtilities.generateKey();
+                    let saved;
+                    await withNotifierQueue(zotero, async notifierQueue => {
+                        throwIfAborted(signal);
+                        saved = await zotero.Annotations.saveFromJSON(
+                            attachment,
+                            json,
+                            { notifierQueue }
+                        );
+                    });
+                    const normalized = normalizeCreatedAnnotation(
+                        saved,
+                        json,
+                        { reused: false }
+                    );
+                    savedParts.push({ annotation: normalized, reused: false });
+                    createdIDs.push(normalized.id);
+                }
             }
-            json.key = zotero.DataObjectUtilities.generateKey();
-            let saved;
-            await withNotifierQueue(zotero, async notifierQueue => {
-                throwIfAborted(signal);
-                saved = await zotero.Annotations.saveFromJSON(
-                    attachment,
-                    json,
-                    { notifierQueue }
-                );
-            });
-            return normalizeCreatedAnnotation(saved, json, { reused: false });
+            catch (error) {
+                await Promise.allSettled(createdIDs.map(annotationID => (
+                    eraseAnnotationByID(zotero, itemID, annotationID)
+                )));
+                throw error;
+            }
+            const primary = savedParts[0]?.annotation;
+            if (!primary) throw new Error('Invalid located PDF annotation');
+            if (savedParts.length === 1) return primary;
+            return {
+                ...primary,
+                reused: savedParts.every(part => part.reused),
+                annotationIDs: savedParts.map(part => part.annotation.id),
+                createdAnnotationIDs: savedParts
+                    .filter(part => !part.reused)
+                    .map(part => part.annotation.id),
+            };
         },
         async changeColor(itemID, annotationID, color) {
             const normalizedColor = String(color || '').toLowerCase();
@@ -226,6 +261,20 @@ function sameAnnotationPosition(value, expected) {
 }
 
 function validateLocatedText(value) {
+    const located = validateLocatedSegment(value);
+    if (value?.segments === undefined) return located;
+    if (!Array.isArray(value.segments)
+        || value.segments.length < 2
+        || value.segments.length > MAX_LOCATED_SEGMENTS) {
+        throw new Error('Invalid located PDF annotation');
+    }
+    return {
+        ...located,
+        segments: value.segments.map(validateLocatedSegment),
+    };
+}
+
+function validateLocatedSegment(value) {
     const text = String(value?.text || '');
     const pageLabel = String(value?.pageLabel || '');
     const sortIndex = String(value?.sortIndex || '');
@@ -253,6 +302,18 @@ function validateLocatedText(value) {
             rects: rects.map(rect => [...rect]),
         },
     };
+}
+
+async function eraseAnnotationByID(zotero, itemID, annotationID) {
+    try {
+        const annotation = editableAnnotation(zotero, itemID, annotationID);
+        await withNotifierQueue(zotero, async notifierQueue => {
+            await annotation.eraseTx({ notifierQueue });
+        });
+    }
+    catch {
+        // Best-effort rollback after a multi-page annotation save fails.
+    }
 }
 
 function validRect(rect) {
