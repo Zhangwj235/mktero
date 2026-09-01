@@ -587,6 +587,37 @@ export function validateTranslatedBlock(block, translatedMarkdown) {
     return restoreProtectedFragments(block, translated);
 }
 
+export function reconcileTranslatedBlockProtectedFragments({
+    previousSourceMarkdown,
+    currentBlock,
+    translatedMarkdown,
+}) {
+    if (!currentBlock?.translatable) {
+        throw new TypeError('A translatable Markdown block is required');
+    }
+    const previousBlocks = collectMarkdownTranslationBlocks(
+        previousSourceMarkdown
+    ).filter(block => block.translatable);
+    if (previousBlocks.length !== 1) {
+        throw new Error('The cached translation source block is invalid');
+    }
+    const [previousBlock] = previousBlocks;
+    const cachedMarkdown = normalizeCachedProtectedPlaceholders(
+        previousBlock,
+        translatedMarkdown
+    );
+    const remapping = protectedPlaceholderRemapping(
+        previousBlock.protectedFragments,
+        currentBlock.protectedFragments || []
+    );
+    if (!remapping) throw protectedContentChangedError();
+    return remapProtectedPlaceholders(
+        cachedMarkdown,
+        previousBlock.protectedFragments.map(fragment => fragment.placeholder),
+        remapping
+    );
+}
+
 function createTranslatedMarkdownView(markdown, blocks, translations) {
     const source = String(markdown || '');
     const translatedByID = validateTranslationSet(blocks, translations);
@@ -992,11 +1023,7 @@ function validateProtectedPlaceholders(block, translated) {
     const actual = translated.match(PROTECTED_PLACEHOLDER_PATTERN) || [];
     if (actual.length !== expected.length
         || actual.some((placeholder, index) => placeholder !== expected[index])) {
-        const error = new Error(
-            'The translated Markdown block changed protected content'
-        );
-        error.code = TRANSLATION_PROTECTED_CONTENT_CHANGED;
-        throw error;
+        throw protectedContentChangedError();
     }
     const originalTree = MARKDOWN_PARSER.parse(block.requestMarkdown);
     const translatedTree = MARKDOWN_PARSER.parse(translated);
@@ -1008,6 +1035,96 @@ function validateProtectedPlaceholders(block, translated) {
             );
         }
     }
+}
+
+function normalizeCachedProtectedPlaceholders(block, markdown) {
+    const value = String(markdown || '');
+    const cachedPlaceholders = value.match(PROTECTED_PLACEHOLDER_PATTERN) || [];
+    const expectedPlaceholders = block.protectedFragments.map(
+        fragment => fragment.placeholder
+    );
+    if (cachedPlaceholders.length !== expectedPlaceholders.length
+        || new Set(cachedPlaceholders).size !== cachedPlaceholders.length) {
+        throw protectedContentChangedError();
+    }
+    const normalized = remapProtectedPlaceholders(
+        value,
+        cachedPlaceholders,
+        expectedPlaceholders
+    );
+    validateTranslatedBlock(block, normalized);
+    return normalized;
+}
+
+function remapProtectedPlaceholders(markdown, placeholders, remapping) {
+    let value = String(markdown || '');
+    const temporary = placeholders.map((placeholder, index) => {
+        let marker = `MKTEROCACHED${index}PLACEHOLDER`;
+        while (value.includes(marker)) marker += 'X';
+        value = value.replace(placeholder, marker);
+        return marker;
+    });
+    for (let index = 0; index < temporary.length; index++) {
+        value = remapping[index]
+            ? value.replace(temporary[index], remapping[index])
+            : removeProtectedPlaceholder(value, temporary[index]);
+    }
+    return value;
+}
+
+function protectedPlaceholderRemapping(previousFragments, currentFragments) {
+    const previousCounts = protectedFragmentCounts(previousFragments);
+    const currentCounts = protectedFragmentCounts(currentFragments);
+    for (const [fragment, count] of currentCounts) {
+        if (previousCounts.get(fragment) !== count) return null;
+    }
+    const currentByFragment = new Map();
+    for (const fragment of currentFragments) {
+        const placeholders = currentByFragment.get(fragment.markdown) || [];
+        placeholders.push(fragment.placeholder);
+        currentByFragment.set(fragment.markdown, placeholders);
+    }
+    return previousFragments.map(fragment => (
+        currentByFragment.get(fragment.markdown)?.shift() || null
+    ));
+}
+
+function protectedFragmentCounts(fragments) {
+    const counts = new Map();
+    for (const fragment of fragments) {
+        counts.set(fragment.markdown, (counts.get(fragment.markdown) || 0) + 1);
+    }
+    return counts;
+}
+
+function removeProtectedPlaceholder(markdown, placeholder) {
+    const value = String(markdown || '');
+    const index = value.indexOf(placeholder);
+    if (index < 0 || index !== value.lastIndexOf(placeholder)) return value;
+    const before = value.slice(0, index);
+    const after = value.slice(index + placeholder.length);
+    const leading = before.match(/[\t ]+$/u)?.[0] || '';
+    const trailing = after.match(/^[\t ]+/u)?.[0] || '';
+    const previous = before.slice(0, before.length - leading.length).at(-1) || '';
+    const next = after.slice(trailing.length)[0] || '';
+    if (leading && trailing) {
+        return `${before.slice(0, -leading.length)} ${after.slice(trailing.length)}`;
+    }
+    if (leading && (!next || /[\p{P}\p{S}]/u.test(next))) {
+        return before.slice(0, -leading.length) + after;
+    }
+    if (trailing && (!previous || /[\p{P}\p{S}]/u.test(previous))) {
+        return before + after.slice(trailing.length);
+    }
+    return before + after;
+}
+
+function protectedContentChangedError() {
+    const error = new Error(
+        'The translated Markdown block changed protected content'
+    );
+    error.code = TRANSLATION_PROTECTED_CONTENT_CHANGED;
+    return error;
 }
 
 function protectedTextTranslationParts(block) {

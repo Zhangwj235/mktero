@@ -17,6 +17,7 @@ import {
     createDocumentTranslationViews,
     createMarkdownTranslationBatches,
     createProtectedTextTranslationPayload,
+    reconcileTranslatedBlockProtectedFragments,
     TRANSLATION_PROTECTED_CONTENT_CHANGED,
     validateTranslatedBlock,
 } from '../markdown/markdown-translation-blocks.js';
@@ -1636,11 +1637,21 @@ function reconcileTranslationBlocks(blocks, value) {
         }
         const exactCandidates = candidatesBySource.get(block.markdown);
         let candidate;
+        let translatedMarkdown;
         while (!candidate && exactCandidates?.length) {
             const exactCandidate = exactCandidates.shift();
             if (!exactCandidate.used) candidate = exactCandidate;
         }
-        if (candidate) candidate.used = true;
+        if (candidate) {
+            candidate.used = true;
+            translatedMarkdown = block.protectedFragments?.length
+                ? reconcileTranslatedBlockProtectedFragments({
+                    previousSourceMarkdown: candidate.sourceMarkdown,
+                    currentBlock: block,
+                    translatedMarkdown: candidate.translation.markdown,
+                })
+                : candidate.translation.markdown;
+        }
         if (!candidate) {
             const deletionMatches = translationCandidates.filter(value => (
                 !value.used
@@ -1653,6 +1664,12 @@ function reconcileTranslationBlocks(blocks, value) {
             if (deletionMatches.length === 1) {
                 [candidate] = deletionMatches;
                 candidate.used = true;
+                translatedMarkdown =
+                    reconcileTranslatedBlockProtectedFragments({
+                        previousSourceMarkdown: candidate.sourceMarkdown,
+                        currentBlock: block,
+                        translatedMarkdown: candidate.translation.markdown,
+                    });
             }
         }
         if (!candidate) {
@@ -1667,7 +1684,7 @@ function reconcileTranslationBlocks(blocks, value) {
         matchedBlocks++;
         translations.push({
             id: block.id,
-            markdown: candidate.translation.markdown,
+            markdown: translatedMarkdown,
         });
         if (candidate.failure) {
             failedBlocks.push({

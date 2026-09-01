@@ -14,6 +14,7 @@ import {
     createProtectedTextTranslationPayload,
     createTranslationReadingPositionAnchor,
     mapSourceRangeToComparison,
+    reconcileTranslatedBlockProtectedFragments,
     resolveTranslationReadingPosition,
     TRANSLATION_PROTECTED_CONTENT_CHANGED,
     validateTranslatedBlock,
@@ -736,6 +737,25 @@ test('identifies protected content changes with a stable error code', () => {
         block,
         block.requestMarkdown.replace(block.protectedFragments[0].placeholder, '')
     ), error => error?.code === TRANSLATION_PROTECTED_CONTENT_CHANGED);
+});
+
+test('rejects duplicate cached placeholder identities while reconciling', () => {
+    const source = 'See [1] and [2].';
+    const [block] = collectMarkdownTranslationBlocks(source);
+    const [first, second] = block.protectedFragments;
+    const translatedMarkdown = block.requestMarkdown.replace(
+        second.placeholder,
+        first.placeholder
+    );
+
+    assert.throws(
+        () => reconcileTranslatedBlockProtectedFragments({
+            previousSourceMarkdown: source,
+            currentBlock: block,
+            translatedMarkdown,
+        }),
+        error => error?.code === TRANSLATION_PROTECTED_CONTENT_CHANGED
+    );
 });
 
 test('translates only ordinary text segments around protected content', () => {

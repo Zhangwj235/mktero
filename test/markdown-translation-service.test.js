@@ -4,6 +4,10 @@ import {
     MarkdownTranslationService,
     TRANSLATION_PROMPT_VERSION,
 } from '../src/ai/markdown-translation-service.js';
+import {
+    collectMarkdownTranslationBlocks,
+    TRANSLATION_PROTECTED_CONTENT_CHANGED,
+} from '../src/markdown/markdown-translation-blocks.js';
 
 const SETTINGS = Object.freeze({
     enabled: true,
@@ -814,6 +818,151 @@ test('restores unchanged block translations after deleting a source block', asyn
         markdown: '保留这一段。',
     }]);
     assert.doesNotMatch(restored.comparisonMarkdown, /Article|文章/);
+});
+
+test('restores a cached translation after deleting a protected citation marker',
+    async () => {
+    const oldSource = 'Wrist-worn devices identify ovulation [1].';
+    const currentSource = 'Wrist-worn devices identify ovulation.';
+    const [oldBlock] = collectMarkdownTranslationBlocks(oldSource);
+    const cached = {
+        blocks: [{
+            id: oldBlock.id,
+            markdown: oldBlock.requestMarkdown.replace(
+                'Wrist-worn devices identify ovulation',
+                '腕戴设备可识别排卵'
+            ).replace(/\.$/u, '。'),
+        }],
+        sourceBlocks: [{ id: oldBlock.id, markdown: oldSource }],
+        settingsIdentity: documentSettingsIdentity(),
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const { service, cacheErrors } = createCompatibleCacheService(cached);
+
+    const variants = await service.listCachedDocumentTranslationVariants({
+        documentKey: 'a'.repeat(64),
+        markdown: currentSource,
+    });
+
+    assert.deepEqual(cacheErrors, []);
+    assert.equal(variants.length, 1);
+    assert.equal(variants[0].translatedMarkdown, '腕戴设备可识别排卵。');
+    assert.equal(variants[0].partial, false);
+    assert.deepEqual(variants[0].pendingBlockIDs, []);
+});
+
+test('renumbers a retained protected citation after deleting an earlier one',
+    async () => {
+    const oldSource = 'See [1] and [2].';
+    const currentSource = 'See and [2].';
+    const [oldBlock] = collectMarkdownTranslationBlocks(oldSource);
+    const [firstCitation, secondCitation] = oldBlock.protectedFragments;
+    const cached = {
+        blocks: [{
+            id: oldBlock.id,
+            markdown: [
+                '结果见',
+                firstCitation.placeholder,
+                '，并参见 ',
+                secondCitation.placeholder,
+                '。',
+            ].join(''),
+        }],
+        sourceBlocks: [{ id: oldBlock.id, markdown: oldSource }],
+        settingsIdentity: documentSettingsIdentity(),
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const { service, cacheErrors } = createCompatibleCacheService(cached);
+
+    const variants = await service.listCachedDocumentTranslationVariants({
+        documentKey: 'a'.repeat(64),
+        markdown: currentSource,
+    });
+
+    assert.deepEqual(cacheErrors, []);
+    assert.equal(variants.length, 1);
+    assert.equal(variants[0].translatedMarkdown, '结果见，并参见 [2]。');
+    assert.equal(variants[0].partial, false);
+    assert.deepEqual(variants[0].pendingBlockIDs, []);
+});
+
+test('renumbers protected citations in later unchanged cached blocks',
+    async () => {
+    const oldSource = 'First [1].\n\nSecond [2].';
+    const currentSource = 'First.\n\nSecond [2].';
+    const oldBlocks = collectMarkdownTranslationBlocks(oldSource);
+    const cached = {
+        blocks: oldBlocks.map(block => ({
+            id: block.id,
+            markdown: block.requestMarkdown
+                .replace('First', '第一处')
+                .replace('Second', '第二处')
+                .replace(/\.$/u, '。'),
+        })),
+        sourceBlocks: oldBlocks.map(block => ({
+            id: block.id,
+            markdown: block.markdown,
+        })),
+        settingsIdentity: documentSettingsIdentity(),
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const { service, cacheErrors } = createCompatibleCacheService(cached);
+
+    const variants = await service.listCachedDocumentTranslationVariants({
+        documentKey: 'a'.repeat(64),
+        markdown: currentSource,
+    });
+
+    assert.deepEqual(cacheErrors, []);
+    assert.equal(variants.length, 1);
+    assert.equal(variants[0].translatedMarkdown, '第一处。\n\n第二处 [2]。');
+    assert.equal(variants[0].partial, false);
+    assert.deepEqual(variants[0].pendingBlockIDs, []);
+});
+
+test('rejects an ambiguous protected citation deletion from translation cache',
+    async () => {
+    const oldSource = 'See [1] and [1].';
+    const currentSource = 'See and [1].';
+    const [oldBlock] = collectMarkdownTranslationBlocks(oldSource);
+    const cached = {
+        blocks: [{
+            id: oldBlock.id,
+            markdown: oldBlock.requestMarkdown.replace('See', '见'),
+        }],
+        sourceBlocks: [{ id: oldBlock.id, markdown: oldSource }],
+        settingsIdentity: documentSettingsIdentity(),
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const { service, cacheErrors } = createCompatibleCacheService(cached);
+
+    const variants = await service.listCachedDocumentTranslationVariants({
+        documentKey: 'a'.repeat(64),
+        markdown: currentSource,
+    });
+
+    assert.deepEqual(variants, []);
+    assert.equal(cacheErrors.length, 1);
+    assert.equal(
+        cacheErrors[0].code,
+        TRANSLATION_PROTECTED_CONTENT_CHANGED
+    );
 });
 
 test('does not reuse an ambiguous translation after deleting a duplicate block', async () => {
@@ -3025,4 +3174,22 @@ function documentSettingsIdentity(overrides = {}) {
         promptVersion: TRANSLATION_PROMPT_VERSION,
         ...overrides,
     });
+}
+
+function createCompatibleCacheService(cached) {
+    const cacheErrors = [];
+    const service = new MarkdownTranslationService({
+        aiGateway: { generateText: assert.fail },
+        cache: {
+            getTranslation: async () => null,
+            getTranslationByLanguage: async (_documentKey, language) => (
+                language === 'zh-CN' ? cached : null
+            ),
+            putTranslation: assert.fail,
+        },
+        getSettings: () => SETTINGS,
+        createCacheKey: async () => 'd'.repeat(64),
+        onCacheError: error => cacheErrors.push(error),
+    });
+    return { service, cacheErrors };
 }
