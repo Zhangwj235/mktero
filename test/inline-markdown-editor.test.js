@@ -7720,8 +7720,10 @@ test('supports editors owned by two Zotero windows at the same time', () => {
 test('activates the owning Zotero window before CodeMirror handles scrolling', () => {
     const originalRequestMeasure = EditorView.prototype.requestMeasure;
     const originalMeasure = EditorView.prototype.measure;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
     let measureRequests = 0;
     let synchronousMeasures = 0;
+    let computedStyleWindow = null;
     EditorView.prototype.requestMeasure = function(...args) {
         measureRequests++;
         return originalRequestMeasure.apply(this, args);
@@ -7736,6 +7738,16 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
     const secondDOM = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
+    const firstWindowGetComputedStyle = firstDOM.window.getComputedStyle;
+    const secondWindowGetComputedStyle = secondDOM.window.getComputedStyle;
+    firstDOM.window.getComputedStyle = function(element) {
+        computedStyleWindow = this;
+        return firstWindowGetComputedStyle.call(firstDOM.window, element);
+    };
+    secondDOM.window.getComputedStyle = function(element) {
+        computedStyleWindow = this;
+        return secondWindowGetComputedStyle.call(secondDOM.window, element);
+    };
     const firstEditor = createInlineMarkdownEditor({
         parent: firstDOM.window.document.querySelector('#editor'),
         initialMarkdown: Array.from(
@@ -7758,6 +7770,8 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
     const scrollMeasuredSynchronously = (
         synchronousMeasures > synchronousMeasuresBeforeScroll
     );
+    globalThis.getComputedStyle(firstDOM.window.document.body);
+    const styleActivatedFirstWindow = computedStyleWindow === firstDOM.window;
 
     firstDOM.window.document.querySelector('.cm-content').dispatchEvent(
         new firstDOM.window.KeyboardEvent('keydown', {
@@ -7766,6 +7780,10 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
         })
     );
     const keyActivatedFirstWindow = globalThis.window === firstDOM.window;
+
+    secondEditor.focus();
+    globalThis.getComputedStyle(secondDOM.window.document.body);
+    const styleActivatedSecondWindow = computedStyleWindow === secondDOM.window;
 
     secondEditor.destroy();
     firstEditor.destroy();
@@ -7777,7 +7795,70 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
     assert.equal(scrollActivatedFirstWindow, true);
     assert.equal(scrollRequestedMeasure, true);
     assert.equal(scrollMeasuredSynchronously, true);
+    assert.equal(styleActivatedFirstWindow, true);
     assert.equal(keyActivatedFirstWindow, true);
+    assert.equal(styleActivatedSecondWindow, true);
+    assert.equal(globalThis.getComputedStyle, originalGetComputedStyle);
+});
+
+test('bridges the owning Zotero window style API for CodeMirror scrolling', () => {
+    const previousGetComputedStyle = Object.getOwnPropertyDescriptor(
+        globalThis,
+        'getComputedStyle'
+    );
+    delete globalThis.getComputedStyle;
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    dom.window.Range.prototype.getClientRects = () => [];
+    dom.window.scrollBy = () => {};
+    const windowGetComputedStyle = dom.window.getComputedStyle;
+    let styleCalls = 0;
+    dom.window.getComputedStyle = function(element) {
+        assert.equal(this, dom.window);
+        styleCalls++;
+        return windowGetComputedStyle.call(dom.window, element);
+    };
+    let editor;
+
+    try {
+        const parent = dom.window.document.querySelector('#editor');
+        editor = createInlineMarkdownEditor({
+            parent,
+            initialMarkdown: Array.from(
+                { length: 200 },
+                (_, index) => `Paragraph ${index + 1}`
+            ).join('\n\n'),
+        });
+        const view = EditorView.findFromDOM(parent.querySelector('.cm-editor'));
+        view.docView.coordsAt = () => rectangle(2000, 10, 2020, 0);
+        const styleCallsBeforeScroll = styleCalls;
+
+        assert.doesNotThrow(() => {
+            view.dispatch({
+                effects: EditorView.scrollIntoView(
+                    view.state.doc.length,
+                    { y: 'center' }
+                ),
+            });
+            view.docView.scrollIntoView(view.viewState.scrollTarget);
+        });
+        assert.ok(styleCalls > styleCallsBeforeScroll);
+    }
+    finally {
+        editor?.destroy();
+        dom.window.close();
+        if (previousGetComputedStyle) {
+            Object.defineProperty(
+                globalThis,
+                'getComputedStyle',
+                previousGetComputedStyle
+            );
+        }
+        else {
+            delete globalThis.getComputedStyle;
+        }
+    }
 });
 
 function createStalledViewportFixture({

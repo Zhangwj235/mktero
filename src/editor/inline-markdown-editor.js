@@ -47,6 +47,7 @@ const DOM_GLOBAL_NAMES = [
     'document',
     'window',
     'Window',
+    'getComputedStyle',
     'IntersectionObserver',
     'MutationObserver',
     'ResizeObserver',
@@ -1658,9 +1659,15 @@ function acquireDOMGlobals(ownerWindow) {
 function activateDOMGlobals(ownerWindow) {
     if (activeDOMWindow === ownerWindow) return;
     for (const name of DOM_GLOBAL_NAMES) {
-        globalThis[name] = name === 'document'
-            ? ownerWindow.document
-            : ownerWindow[name];
+        if (name === 'document') {
+            globalThis[name] = ownerWindow.document;
+        }
+        else if (name === 'getComputedStyle') {
+            globalThis[name] = ownerWindow.getComputedStyle?.bind(ownerWindow);
+        }
+        else {
+            globalThis[name] = ownerWindow[name];
+        }
     }
     activeDOMWindow = ownerWindow;
 }
