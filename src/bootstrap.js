@@ -1225,11 +1225,14 @@ function restoreCorrection(itemID, blockID) {
 function restoreAllCorrections(itemID) {
     return updateRevisionSession(
         itemID,
-        (session, annotationRanges) => session.restoreAll({ annotationRanges })
+        (session, annotationRanges) => session.restoreAll({ annotationRanges }),
+        { recoverCachedTranslation: true },
     ).then(result => result.snapshot);
 }
 
-async function updateRevisionSession(itemID, mutate) {
+async function updateRevisionSession(itemID, mutate, {
+    recoverCachedTranslation = false,
+} = {}) {
     const entry = runtime.revisionSessions?.get(itemID);
     const presentation = runtime.presenter?.get(itemID);
     if (!entry || !presentation) {
@@ -1253,41 +1256,39 @@ async function updateRevisionSession(itemID, mutate) {
         );
     }
     abortDocumentTranslations(itemID);
-    let translation = null;
-    if (previousTranslation && snapshot.markdown.trim()) {
-        try {
-            translation = await runtime.translationService
-                ?.reconcileDocumentTranslation?.({
-                    documentKey: String(snapshot.cacheKey || ''),
-                    markdown: snapshot.markdown,
-                    existingTranslation: previousTranslation,
-                    targetLanguage: previousTranslation.targetLanguage,
-                }) || null;
-        }
-        catch (error) {
-            Zotero.logError?.(error);
-        }
-    }
+    const translationState = await resolveTranslationAfterRevision(snapshot, {
+        previousTranslation,
+        recoverCachedTranslation,
+    });
     if (runtime.revisionSessions?.get(itemID) !== entry
         || runtime.presenter?.get(itemID) !== presentation) {
         return { snapshot, translation: null };
     }
+    const recoveredTranslationChanges = translationState.recovered ? {
+        ...translationState.recoveredSnapshot,
+        translationView: translationState.view,
+    } : null;
     entry.annotationSequence = (entry.annotationSequence || 0) + 1;
     const annotationSequence = entry.annotationSequence;
-    const languageState = translation
-        ? cachedLanguageStateAfterTranslation(presentation.model, translation)
-        : null;
+    const languageState = translationState.reconciled
+        ? cachedLanguageStateAfterTranslation(
+            presentation.model,
+            translationState.reconciled
+        ) : null;
     runtime.presenter.update(presentation, {
         ...snapshot,
         itemID,
         annotationOverlay: createEmptyAnnotationOverlay(),
         warnings: uniqueWarnings(entry.baseWarnings),
-        ...(translation ? documentTranslationChanges(translation, {
-            translationView: previousTranslation?.view || 'original',
-            configuredTargetLanguage:
-                presentation.model.translationConfiguredTargetLanguage,
-            ...languageState,
-        }) : createEmptyTranslationState()),
+        ...(translationState.reconciled ? documentTranslationChanges(
+            translationState.reconciled,
+            {
+                translationView: translationState.view,
+                configuredTargetLanguage:
+                    presentation.model.translationConfiguredTargetLanguage,
+                ...languageState,
+            }
+        ) : recoveredTranslationChanges || createEmptyTranslationState()),
     });
     let annotationResult;
     try {
@@ -1301,10 +1302,7 @@ async function updateRevisionSession(itemID, mutate) {
         Zotero.logError?.(error);
         return {
             snapshot,
-            translation: translation ? {
-                ...translation,
-                view: previousTranslation?.view || 'original',
-            } : null,
+            translation: translationState.result,
         };
     }
     if (entry.annotationSequence !== annotationSequence
@@ -1322,10 +1320,49 @@ async function updateRevisionSession(itemID, mutate) {
     });
     return {
         snapshot,
-        translation: translation ? {
-            ...translation,
-            view: previousTranslation?.view || 'original',
-        } : null,
+        translation: translationState.result,
+    };
+}
+
+async function resolveTranslationAfterRevision(snapshot, {
+    previousTranslation,
+    recoverCachedTranslation,
+}) {
+    let reconciled = null;
+    if (previousTranslation && snapshot.markdown.trim()) {
+        try {
+            reconciled = await runtime.translationService
+                ?.reconcileDocumentTranslation?.({
+                    documentKey: String(snapshot.cacheKey || ''),
+                    markdown: snapshot.markdown,
+                    existingTranslation: previousTranslation,
+                    targetLanguage: previousTranslation.targetLanguage,
+                }) || null;
+        }
+        catch (error) {
+            Zotero.logError?.(error);
+        }
+    }
+    let recoveredSnapshot = null;
+    if (!reconciled
+        && recoverCachedTranslation
+        && snapshot.markdown.trim()) {
+        try {
+            recoveredSnapshot = await attachCachedDocumentTranslation(snapshot);
+        }
+        catch (error) {
+            Zotero.logError?.(error);
+        }
+    }
+    const recovered = currentTranslationResult(recoveredSnapshot);
+    const active = reconciled || recovered;
+    const view = previousTranslation?.view || recovered?.view || 'original';
+    return {
+        reconciled,
+        recovered,
+        recoveredSnapshot,
+        result: active ? { ...active, view } : null,
+        view,
     };
 }
 

@@ -876,6 +876,62 @@ test('uses the language menu without changing the default translation language',
     );
     assert.equal(providerRequests.length, 7);
 
+    await t.test(
+        'restores cached translation after restoring all corrections',
+        async () => {
+            await putCachedTranslation(cache, cacheKey, markdown, {
+                targetLanguage: 'ko-KR',
+                translatedMarkdown: '# 한국어 논문',
+            });
+            mainWindow.Zotero_Tabs.close('tab-2');
+            toolbarButtons[0].click();
+            const restoredRoot = await waitFor(() => (
+                mainWindow.tabRoot('tab-3')
+            ));
+            const restoredShadow = restoredRoot.shadowRoot;
+            const restoreTranslate = restoredShadow.querySelector(
+                '#mktero-translate-document'
+            );
+            await waitFor(() => restoredShadow.querySelector(
+                '.cm-content'
+            ).textContent.includes('Study'));
+            assert.equal(restoreTranslate.hidden, false);
+            assert.equal(providerRequests.length, 7);
+
+            restoredShadow.querySelector('#mktero-document-actions').click();
+            const restoreCorrections = restoredShadow.querySelector(
+                '#mktero-restore-corrections'
+            );
+            assert.equal(restoreCorrections.hidden, false);
+            assert.equal(restoreCorrections.disabled, false);
+            restoreCorrections.click();
+            const restoreConfirmation = await waitFor(() => (
+                restoredShadow.querySelector('.mktero-confirmation-dialog')
+            ));
+            restoreConfirmation.querySelector(
+                '[data-confirmation-action="confirm"]'
+            ).click();
+
+            const restoredTranslatedMode = restoredShadow.querySelector(
+                '[data-translation-view="translated"]'
+            );
+            await waitFor(() => restoredTranslatedMode.textContent
+                === 'Simplified Chinese');
+            await waitFor(() => restoredTranslatedMode.disabled === false);
+            assert.equal(restoreTranslate.hidden, true);
+            restoredTranslatedMode.click();
+            const restoredChineseOption = restoredShadow.querySelector(
+                '[data-translation-language="zh-CN"]'
+            );
+            await waitFor(() => restoredChineseOption.disabled === false);
+            restoredChineseOption.click();
+            await waitFor(() => restoredShadow.querySelector(
+                '.cm-content'
+            ).textContent.includes('论文'));
+            assert.equal(providerRequests.length, 7);
+        }
+    );
+
     const targetObserverID = preferenceObservers.get(
         'extensions.mktero.aiTargetLanguage'
     ).id;

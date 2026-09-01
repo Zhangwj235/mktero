@@ -169,6 +169,8 @@ When local Markdown corrections delete a block, translations for unchanged
 blocks remain available and the deleted block disappears from `Bilingual`
 reading. Editing a translated block keeps the other translations, marks that
 block as pending, and offers to retranslate only the changed block.
+Restoring all corrections reloads a complete cached translation for the
+original Markdown when one is available, without sending a new AI request.
 
 For a focused lookup, select text in `Original` or on the source side of
 `Bilingual` reading. The selection popup places its manual translation action
