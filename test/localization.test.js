@@ -46,6 +46,22 @@ test('creates a fixed localization from the Zotero locale', () => {
     assert.equal(chinese.t('missing.message'), 'missing.message');
     assert.equal(chinese.t('annotation.noteEditor'), '编辑笔记');
     assert.equal(chinese.t('annotation.saveNote'), '保存');
+    assert.equal(
+        localization.t('preferences.conversion.provider.mineru'),
+        'MinerU'
+    );
+    assert.equal(
+        localization.t('preferences.conversion.provider.mistral'),
+        'Mistral OCR 4.1'
+    );
+    assert.match(
+        localization.t('preferences.conversion.privacyNote'),
+        /selected provider receives the complete PDF.*API keys.*unencrypted/i
+    );
+    assert.match(
+        chinese.t('preferences.conversion.privacyNote'),
+        /所选服务.*完整 PDF.*API Key.*未加密/
+    );
     assert.equal(chinese.t('revision.deleteParagraph'), '删除整段');
     assert.equal(localization.t('revision.start'), 'Manage corrections');
     assert.equal(chinese.t('revision.start'), '管理校对');

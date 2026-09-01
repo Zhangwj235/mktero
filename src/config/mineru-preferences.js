@@ -3,10 +3,35 @@ import {
     AI_MAX_OUTPUT_TOKENS,
     AI_MAX_REQUEST_TIMEOUT_MS,
 } from './ai-preferences.js';
+import {
+    CONVERSION_PROVIDER_MINERU,
+    CONVERSION_PROVIDER_MISTRAL,
+    CONVERSION_PROVIDER_PREF,
+    getConversionProvider,
+    getMinerUApiKey,
+    getMinerUCacheEnabled,
+    getMistralApiKey,
+    MINERU_API_KEY_PREF,
+    MINERU_CACHE_ENABLED_PREF,
+    MISTRAL_API_KEY_PREF,
+    normalizeConversionProvider,
+} from './conversion-preferences.js';
 
-export const MINERU_API_KEY_PREF = 'extensions.mktero.mineruApiKey';
-export const MINERU_CACHE_ENABLED_PREF = 'extensions.mktero.cacheEnabled';
 export const MINERU_PREFERENCE_PANE_ID = 'mktero-preferences';
+
+export {
+    CONVERSION_PROVIDER_MINERU,
+    CONVERSION_PROVIDER_MISTRAL,
+    CONVERSION_PROVIDER_PREF,
+    getConversionProvider,
+    getMinerUApiKey,
+    getMinerUCacheEnabled,
+    getMistralApiKey,
+    MINERU_API_KEY_PREF,
+    MINERU_CACHE_ENABLED_PREF,
+    MISTRAL_API_KEY_PREF,
+    normalizeConversionProvider,
+};
 
 export const PREFERENCE_CONTROL_LIMITS = Object.freeze({
     aiRequestTimeoutMs: AI_MAX_REQUEST_TIMEOUT_MS,
@@ -19,14 +44,6 @@ export function getZoteroLocale(zotero, services) {
         || services?.locale?.appLocaleAsBCP47
         || ''
     );
-}
-
-export function getMinerUApiKey(zotero) {
-    return String(zotero.Prefs.get(MINERU_API_KEY_PREF, true) || '').trim();
-}
-
-export function getMinerUCacheEnabled(zotero) {
-    return zotero.Prefs.get(MINERU_CACHE_ENABLED_PREF, true) !== false;
 }
 
 export function registerMinerUPreferencesPane({

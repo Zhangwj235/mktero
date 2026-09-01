@@ -11,9 +11,25 @@
         <html:div class="mktero-settings-card">
             <html:div class="mktero-setting-row mktero-field-row">
                 <html:div class="mktero-setting-copy">
-                    <html:label for="mktero-mineru-api-key"><html:strong data-i18n="preferences.apiToken.label"></html:strong></html:label>
+                    <html:label for="mktero-conversion-provider"><html:strong data-i18n="preferences.conversion.providerLabel"></html:strong></html:label>
+                    <html:small id="mktero-conversion-provider-help"
+                                data-i18n="preferences.conversion.providerHelp"></html:small>
+                </html:div>
+                <html:div class="mktero-field-control mktero-field-control-compact">
+                    <html:select id="mktero-conversion-provider"
+                                 preference="extensions.mktero.conversionProvider"
+                                 aria-describedby="mktero-conversion-provider-help">
+                        <html:option value="mineru" data-i18n="preferences.conversion.provider.mineru"></html:option>
+                        <html:option value="mistral" data-i18n="preferences.conversion.provider.mistral"></html:option>
+                    </html:select>
+                </html:div>
+            </html:div>
+
+            <html:div class="mktero-setting-row mktero-field-row">
+                <html:div class="mktero-setting-copy">
+                    <html:label for="mktero-mineru-api-key"><html:strong data-i18n="preferences.conversion.mineruApiKeyLabel"></html:strong></html:label>
                     <html:small id="mktero-token-help"
-                                data-i18n="preferences.apiToken.help"></html:small>
+                                data-i18n="preferences.conversion.mineruApiKeyHelp"></html:small>
                 </html:div>
                 <html:div class="mktero-field-control mktero-token-control">
                     <html:input id="mktero-mineru-api-key"
@@ -24,13 +40,39 @@
                                 spellcheck="false" />
                     <html:div class="mktero-field-meta">
                         <html:small id="mktero-token-storage-note"
-                                    data-i18n="preferences.apiToken.storage"></html:small>
+                                    data-i18n="preferences.conversion.mineruApiKeyStorage"></html:small>
                         <label is="zotero-text-link"
                                href="https://mineru.net/apiManage/token"
-                               data-i18n="preferences.apiToken.manage"></label>
+                               data-i18n="preferences.conversion.mineruApiKeyManage"></label>
                     </html:div>
                 </html:div>
             </html:div>
+
+            <html:div class="mktero-setting-row mktero-field-row">
+                <html:div class="mktero-setting-copy">
+                    <html:label for="mktero-mistral-api-key"><html:strong data-i18n="preferences.conversion.mistralApiKeyLabel"></html:strong></html:label>
+                    <html:small id="mktero-mistral-api-key-help"
+                                data-i18n="preferences.conversion.mistralApiKeyHelp"></html:small>
+                </html:div>
+                <html:div class="mktero-field-control mktero-token-control">
+                    <html:input id="mktero-mistral-api-key"
+                                type="password"
+                                preference="extensions.mktero.mistralApiKey"
+                                aria-describedby="mktero-mistral-api-key-help mktero-mistral-api-key-storage"
+                                autocomplete="off"
+                                spellcheck="false" />
+                    <html:div class="mktero-field-meta">
+                        <html:small id="mktero-mistral-api-key-storage"
+                                    data-i18n="preferences.conversion.mistralApiKeyStorage"></html:small>
+                        <label is="zotero-text-link"
+                               href="https://console.mistral.ai/api-keys/"
+                               data-i18n="preferences.conversion.mistralApiKeyManage"></label>
+                    </html:div>
+                </html:div>
+            </html:div>
+
+            <html:small class="mktero-card-note"
+                        data-i18n="preferences.conversion.privacyNote"></html:small>
         </html:div>
     </groupbox>
 

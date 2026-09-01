@@ -221,6 +221,50 @@ test('configures the Markdown reader font size from preferences', async () => {
     assert.equal(writes.length, 2);
 });
 
+test('initializes the conversion provider without sharing credential fields', async () => {
+    const dom = new JSDOM(`<!doctype html><body>
+        <section id="mktero-preferences-pane">
+            <select id="mktero-conversion-provider">
+                <option value="mineru">MinerU</option>
+                <option value="mistral">Mistral OCR 4.1</option>
+            </select>
+            <input id="mktero-mineru-api-key" value="mineru-secret">
+            <input id="mktero-mistral-api-key" value="mistral-secret">
+            <span id="mktero-cache-status"></span>
+            <button id="mktero-clear-cache"></button>
+        </section>
+    </body>`);
+    const values = new Map([
+        ['extensions.mktero.conversionProvider', 'mistral'],
+    ]);
+    const controller = createPreferencesController({
+        document: dom.window.document,
+        zotero: {
+            Prefs: { get: key => values.get(key) },
+            logError: assert.fail,
+        },
+        cache: {
+            getStats: async () => ({ entries: 0, sizeBytes: 0 }),
+            clear: async () => {},
+        },
+    });
+
+    await controller.init();
+    assert.equal(
+        dom.window.document.getElementById('mktero-conversion-provider').value,
+        'mistral'
+    );
+    assert.equal(
+        dom.window.document.getElementById('mktero-mineru-api-key').value,
+        'mineru-secret'
+    );
+    assert.equal(
+        dom.window.document.getElementById('mktero-mistral-api-key').value,
+        'mistral-secret'
+    );
+    controller.destroy();
+});
+
 test('tests the current AI SDK settings without exposing the key', async () => {
     const dom = new JSDOM(`<!doctype html><body>
         <section id="mktero-preferences-pane">
