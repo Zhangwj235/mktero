@@ -89,6 +89,11 @@ test('rewrites data and remote image destinations to local or empty paths', () =
         '![two](img/two.png)',
         '![three](img/two.png)',
     ].join('\n\n'));
+
+    const withoutAssets = normalizeMistralResult({
+        pages: [page({ markdown: '![remote](https://example.com/figure.png)' })],
+    });
+    assert.equal(withoutAssets.markdown, '![remote]()');
 });
 
 test('skips optional malformed blocks and keeps source locations bounded', () => {

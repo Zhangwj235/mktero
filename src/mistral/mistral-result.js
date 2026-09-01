@@ -370,7 +370,7 @@ function decodeAssetReference(value) {
 }
 
 function rewriteMarkdownImages(markdown, pageMap) {
-    if (!markdown || !pageMap?.size) return markdown;
+    if (!markdown) return markdown;
     return markdown.replace(
         /!\[([^\]\r\n]*)\]\(\s*(<[^>\r\n]+>|[^)\s]+)([^)]*)\)/g,
         (match, alt, rawDestination, suffix) => {
