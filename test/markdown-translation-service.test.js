@@ -932,6 +932,109 @@ test('renumbers protected citations in later unchanged cached blocks',
     assert.deepEqual(variants[0].pendingBlockIDs, []);
 });
 
+test('preserves context-protected figure references in compatible cache',
+    async () => {
+    const oldSource = [
+        'First [1].',
+        '',
+        '# Results',
+        '',
+        'The ablation appears in Fig. 2.',
+        '',
+        '![](images/panel-a.png)',
+        '',
+        '![](images/panel-b.png)  ',
+        'Figure 2. Ablation results.',
+    ].join('\n');
+    const currentSource = oldSource.replace('First [1].', 'First.');
+    const oldBlocks = collectMarkdownTranslationBlocks(oldSource).filter(
+        block => block.translatable
+    );
+    const cached = {
+        blocks: oldBlocks.map(block => ({
+            id: block.id,
+            markdown: block.requestMarkdown
+                .replace('First', '第一处')
+                .replace('# Results', '# 结果')
+                .replace('The ablation appears in', '消融结果见')
+                .replace('Ablation results', '消融结果')
+                .replace(/\.$/u, '。'),
+        })),
+        sourceBlocks: oldBlocks.map(block => ({
+            id: block.id,
+            markdown: block.markdown,
+        })),
+        settingsIdentity: documentSettingsIdentity(),
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const { service, cacheErrors } = createCompatibleCacheService(cached);
+
+    const variants = await service.listCachedDocumentTranslationVariants({
+        documentKey: 'a'.repeat(64),
+        markdown: currentSource,
+    });
+
+    assert.deepEqual(cacheErrors, []);
+    assert.equal(variants.length, 1);
+    assert.match(variants[0].translatedMarkdown, /消融结果\s*见 Fig\. 2。/u);
+    assert.match(variants[0].translatedMarkdown, /Figure 2\. 消融结果。/u);
+    assert.doesNotMatch(variants[0].translatedMarkdown, /MKTEROPROTECTED/u);
+});
+
+test('deletes a citation beside a context-protected figure reference',
+    async () => {
+    const oldSource = [
+        '# Results',
+        '',
+        'The ablation [1] appears in Fig. 2.',
+        '',
+        '![](images/panel-a.png)',
+        '',
+        '![](images/panel-b.png)  ',
+        'Figure 2. Ablation results.',
+    ].join('\n');
+    const currentSource = oldSource.replace(' [1]', '');
+    const oldBlocks = collectMarkdownTranslationBlocks(oldSource).filter(
+        block => block.translatable
+    );
+    const cached = {
+        blocks: oldBlocks.map(block => ({
+            id: block.id,
+            markdown: block.requestMarkdown
+                .replace('# Results', '# 结果')
+                .replace('The ablation', '消融结果')
+                .replace('appears in', '见')
+                .replace('Ablation results', '消融结果')
+                .replace(/\.$/u, '。'),
+        })),
+        sourceBlocks: oldBlocks.map(block => ({
+            id: block.id,
+            markdown: block.markdown,
+        })),
+        settingsIdentity: documentSettingsIdentity(),
+        model: 'cached-model',
+        targetLanguage: 'zh-CN',
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        partial: false,
+        failedBlocks: [],
+    };
+    const { service, cacheErrors } = createCompatibleCacheService(cached);
+
+    const variants = await service.listCachedDocumentTranslationVariants({
+        documentKey: 'a'.repeat(64),
+        markdown: currentSource,
+    });
+
+    assert.deepEqual(cacheErrors, []);
+    assert.equal(variants.length, 1);
+    assert.match(variants[0].translatedMarkdown, /消融结果\s*见 Fig\. 2。/u);
+    assert.doesNotMatch(variants[0].translatedMarkdown, /MKTEROPROTECTED/u);
+});
+
 test('rejects an ambiguous protected citation deletion from translation cache',
     async () => {
     const oldSource = 'See [1] and [1].';

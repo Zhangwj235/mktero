@@ -649,7 +649,8 @@ export class MarkdownTranslationService {
             const blocks = collectMarkdownTranslationBlocks(source);
             const reconciled = reconcileTranslationBlocks(
                 blocks,
-                cached
+                cached,
+                source
             );
             if (!reconciled.matchedBlocks) return null;
             validateDocumentTranslationOutput(
@@ -1453,7 +1454,7 @@ function normalizeVisibleTranslation(
             : reconcileTranslationBlocks(blocks, {
                 ...value,
                 sourceBlocks: previousSourceBlocks,
-            });
+            }, source);
         validateDocumentTranslationOutput(
             translatableBlocks,
             reconciled.translations
@@ -1561,7 +1562,7 @@ function reconcileTranslationBlocksByID(blocks, value) {
     };
 }
 
-function reconcileTranslationBlocks(blocks, value) {
+function reconcileTranslationBlocks(blocks, value, source) {
     const translationsByID = new Map((value.blocks || []).map(translation => [
         String(translation?.id || ''),
         translation,
@@ -1646,7 +1647,7 @@ function reconcileTranslationBlocks(blocks, value) {
             candidate.used = true;
             translatedMarkdown = block.protectedFragments?.length
                 ? reconcileTranslatedBlockProtectedFragments({
-                    previousSourceMarkdown: candidate.sourceMarkdown,
+                    previousBlock: block,
                     currentBlock: block,
                     translatedMarkdown: candidate.translation.markdown,
                 })
@@ -1666,7 +1667,11 @@ function reconcileTranslationBlocks(blocks, value) {
                 candidate.used = true;
                 translatedMarkdown =
                     reconcileTranslatedBlockProtectedFragments({
-                        previousSourceMarkdown: candidate.sourceMarkdown,
+                        previousBlock: collectPreviousTranslationBlock(
+                            source,
+                            block,
+                            candidate.sourceMarkdown
+                        ),
                         currentBlock: block,
                         translatedMarkdown: candidate.translation.markdown,
                     });
@@ -1700,6 +1705,27 @@ function reconcileTranslationBlocks(blocks, value) {
         pendingBlockIDs,
         matchedBlocks,
     };
+}
+
+function collectPreviousTranslationBlock(source, currentBlock, previousMarkdown) {
+    const currentSource = String(source || '');
+    if (currentSource.slice(currentBlock.from, currentBlock.to)
+        !== currentBlock.markdown) {
+        throw new Error('The current translation source block is invalid');
+    }
+    const previousSource = currentSource.slice(0, currentBlock.from)
+        + previousMarkdown
+        + currentSource.slice(currentBlock.to);
+    const previousBlock = collectMarkdownTranslationBlocks(previousSource)
+        .find(block => (
+            block.translatable
+            && block.from === currentBlock.from
+            && block.markdown === previousMarkdown
+        ));
+    if (!previousBlock) {
+        throw new Error('The cached translation source block is invalid');
+    }
+    return previousBlock;
 }
 
 function isNonSemanticMarkerDeletion(previousSource, currentSource) {

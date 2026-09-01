@@ -750,7 +750,7 @@ test('rejects duplicate cached placeholder identities while reconciling', () => 
 
     assert.throws(
         () => reconcileTranslatedBlockProtectedFragments({
-            previousSourceMarkdown: source,
+            previousBlock: block,
             currentBlock: block,
             translatedMarkdown,
         }),

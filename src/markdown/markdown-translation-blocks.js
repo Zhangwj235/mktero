@@ -588,20 +588,13 @@ export function validateTranslatedBlock(block, translatedMarkdown) {
 }
 
 export function reconcileTranslatedBlockProtectedFragments({
-    previousSourceMarkdown,
+    previousBlock,
     currentBlock,
     translatedMarkdown,
 }) {
-    if (!currentBlock?.translatable) {
-        throw new TypeError('A translatable Markdown block is required');
+    if (!previousBlock?.translatable || !currentBlock?.translatable) {
+        throw new TypeError('Translatable Markdown blocks are required');
     }
-    const previousBlocks = collectMarkdownTranslationBlocks(
-        previousSourceMarkdown
-    ).filter(block => block.translatable);
-    if (previousBlocks.length !== 1) {
-        throw new Error('The cached translation source block is invalid');
-    }
-    const [previousBlock] = previousBlocks;
     const cachedMarkdown = normalizeCachedProtectedPlaceholders(
         previousBlock,
         translatedMarkdown
