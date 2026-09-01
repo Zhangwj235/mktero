@@ -20,6 +20,52 @@ const SIGNED_NUMBER_WHITESPACE_PATTERN = /(?:[+\-−±]|(?<!\\)\\pm)(\s+)(?=\d)/
 const DEGREE_SYMBOL_WHITESPACE_PATTERN = /([\p{N})\]}])(\s+)(?=°)/gu;
 const DEGREE_SYMBOL_UNIT_WHITESPACE_PATTERN = /°(\s+)(?=\p{L})/gu;
 const LATEX_TEXT_UNIT_PATTERN = /(?<!\\)\\mathrm\{([A-Za-z]{1,32})\}/gu;
+const LATEX_BRACED_SUBSCRIPT_PATTERN = /(?<!\\)_\{([A-Za-z0-9][A-Za-z0-9,.;:+-]{0,63})\}/gu;
+const LATEX_SINGLE_SUBSCRIPT_PATTERN = /(?<!\\)_([A-Za-z0-9])/gu;
+const LATEX_MATH_COMMAND_NAMES = new Set([
+    'alpha',
+    'beta',
+    'gamma',
+    'delta',
+    'epsilon',
+    'varepsilon',
+    'zeta',
+    'eta',
+    'theta',
+    'vartheta',
+    'iota',
+    'kappa',
+    'varkappa',
+    'lambda',
+    'mu',
+    'nu',
+    'xi',
+    'pi',
+    'varpi',
+    'rho',
+    'varrho',
+    'sigma',
+    'varsigma',
+    'tau',
+    'upsilon',
+    'phi',
+    'varphi',
+    'chi',
+    'psi',
+    'omega',
+    'Gamma',
+    'Delta',
+    'Theta',
+    'Lambda',
+    'Xi',
+    'Pi',
+    'Sigma',
+    'Upsilon',
+    'Phi',
+    'Psi',
+    'Omega',
+    'in',
+]);
 const PDF_ANNOTATION_SYMBOL_REPLACEMENTS = [
     { pattern: /(?<!\\)\\%/gu, text: '%' },
     { pattern: /(?<![\\;])(?:\\;)?\^\{\\circ\}/gu, text: '°' },
@@ -30,6 +76,63 @@ const PDF_ANNOTATION_SYMBOL_REPLACEMENTS = [
     { pattern: />=/gu, text: '≥' },
     { pattern: /<=/gu, text: '≤' },
     { pattern: /!=/gu, text: '≠' },
+];
+const LATEX_MATH_SYMBOL_REPLACEMENTS = [
+    { pattern: /(?<!\\)\\alpha(?![A-Za-z])/gu, text: 'α' },
+    { pattern: /(?<!\\)\\beta(?![A-Za-z])/gu, text: 'β' },
+    { pattern: /(?<!\\)\\gamma(?![A-Za-z])/gu, text: 'γ' },
+    { pattern: /(?<!\\)\\delta(?![A-Za-z])/gu, text: 'δ' },
+    { pattern: /(?<!\\)\\epsilon(?![A-Za-z])/gu, text: 'ε' },
+    { pattern: /(?<!\\)\\varepsilon(?![A-Za-z])/gu, text: 'ε' },
+    { pattern: /(?<!\\)\\zeta(?![A-Za-z])/gu, text: 'ζ' },
+    { pattern: /(?<!\\)\\eta(?![A-Za-z])/gu, text: 'η' },
+    { pattern: /(?<!\\)\\theta(?![A-Za-z])/gu, text: 'θ' },
+    { pattern: /(?<!\\)\\vartheta(?![A-Za-z])/gu, text: 'θ' },
+    { pattern: /(?<!\\)\\iota(?![A-Za-z])/gu, text: 'ι' },
+    { pattern: /(?<!\\)\\kappa(?![A-Za-z])/gu, text: 'κ' },
+    { pattern: /(?<!\\)\\varkappa(?![A-Za-z])/gu, text: 'κ' },
+    { pattern: /(?<!\\)\\lambda(?![A-Za-z])/gu, text: 'λ' },
+    { pattern: /(?<!\\)\\mu(?![A-Za-z])/gu, text: 'μ' },
+    { pattern: /(?<!\\)\\nu(?![A-Za-z])/gu, text: 'ν' },
+    { pattern: /(?<!\\)\\xi(?![A-Za-z])/gu, text: 'ξ' },
+    { pattern: /(?<!\\)\\pi(?![A-Za-z])/gu, text: 'π' },
+    { pattern: /(?<!\\)\\varpi(?![A-Za-z])/gu, text: 'π' },
+    { pattern: /(?<!\\)\\rho(?![A-Za-z])/gu, text: 'ρ' },
+    { pattern: /(?<!\\)\\varrho(?![A-Za-z])/gu, text: 'ρ' },
+    { pattern: /(?<!\\)\\sigma(?![A-Za-z])/gu, text: 'σ' },
+    { pattern: /(?<!\\)\\varsigma(?![A-Za-z])/gu, text: 'σ' },
+    { pattern: /(?<!\\)\\tau(?![A-Za-z])/gu, text: 'τ' },
+    { pattern: /(?<!\\)\\upsilon(?![A-Za-z])/gu, text: 'υ' },
+    { pattern: /(?<!\\)\\phi(?![A-Za-z])/gu, text: 'φ' },
+    { pattern: /(?<!\\)\\varphi(?![A-Za-z])/gu, text: 'φ' },
+    { pattern: /(?<!\\)\\chi(?![A-Za-z])/gu, text: 'χ' },
+    { pattern: /(?<!\\)\\psi(?![A-Za-z])/gu, text: 'ψ' },
+    { pattern: /(?<!\\)\\omega(?![A-Za-z])/gu, text: 'ω' },
+    { pattern: /(?<!\\)\\Gamma(?![A-Za-z])/gu, text: 'Γ' },
+    { pattern: /(?<!\\)\\Delta(?![A-Za-z])/gu, text: 'Δ' },
+    { pattern: /(?<!\\)\\Theta(?![A-Za-z])/gu, text: 'Θ' },
+    { pattern: /(?<!\\)\\Lambda(?![A-Za-z])/gu, text: 'Λ' },
+    { pattern: /(?<!\\)\\Xi(?![A-Za-z])/gu, text: 'Ξ' },
+    { pattern: /(?<!\\)\\Pi(?![A-Za-z])/gu, text: 'Π' },
+    { pattern: /(?<!\\)\\Sigma(?![A-Za-z])/gu, text: 'Σ' },
+    { pattern: /(?<!\\)\\Upsilon(?![A-Za-z])/gu, text: 'Υ' },
+    { pattern: /(?<!\\)\\Phi(?![A-Za-z])/gu, text: 'Φ' },
+    { pattern: /(?<!\\)\\Psi(?![A-Za-z])/gu, text: 'Ψ' },
+    { pattern: /(?<!\\)\\Omega(?![A-Za-z])/gu, text: 'Ω' },
+    { pattern: /(?<!\\)\\in(?![A-Za-z])/gu, text: '∈' },
+];
+const MATH_SYMBOL_CANONICAL_FORMS = new Map([
+    ['ϵ', 'ε'],
+    ['ϑ', 'θ'],
+    ['ϰ', 'κ'],
+    ['ϖ', 'π'],
+    ['ϱ', 'ρ'],
+    ['ς', 'σ'],
+    ['ϕ', 'φ'],
+]);
+const ALL_PDF_ANNOTATION_SYMBOL_REPLACEMENTS = [
+    ...PDF_ANNOTATION_SYMBOL_REPLACEMENTS,
+    ...LATEX_MATH_SYMBOL_REPLACEMENTS,
 ];
 
 export function normalizePdfAnnotationText(text) {
@@ -192,13 +295,14 @@ function normalizePdfAnnotationCharacter(
         && /^[CF](?![\p{L}\p{N}])/u.test(source.slice(offset + 1))) {
         return '°';
     }
-    return character.normalize('NFKC');
+    return normalizeMathSymbolText(character.normalize('NFKC'));
 }
 
 function collectNormalizationMarkup(text) {
     const ignoredOffsets = new Set();
     const replacements = new Map();
     markAnnotationSymbols(text, ignoredOffsets, replacements);
+    markLatexSubscripts(text, ignoredOffsets, replacements);
     markStatisticalNumericExponents(text, ignoredOffsets, replacements);
     markMathematicalWhitespace(text, ignoredOffsets);
     for (const match of text.matchAll(CITATION_WRAPPER)) {
@@ -323,12 +427,12 @@ function markStatisticalNumericExponents(
 }
 
 function markAnnotationSymbols(text, ignoredOffsets, replacements) {
-    for (const replacement of PDF_ANNOTATION_SYMBOL_REPLACEMENTS) {
+    for (const replacement of ALL_PDF_ANNOTATION_SYMBOL_REPLACEMENTS) {
         for (const match of text.matchAll(replacement.pattern)) {
             replacements.set(match.index, {
                 from: match.index,
                 to: match.index + match[0].length,
-                text: replacement.text,
+                text: normalizeMathSymbolText(replacement.text),
             });
             markOffsetRange(
                 ignoredOffsets,
@@ -349,6 +453,63 @@ function markAnnotationSymbols(text, ignoredOffsets, replacements) {
             match[0].length - 1
         );
     }
+}
+
+function markLatexSubscripts(text, ignoredOffsets, replacements) {
+    for (const pattern of [
+        LATEX_BRACED_SUBSCRIPT_PATTERN,
+        LATEX_SINGLE_SUBSCRIPT_PATTERN,
+    ]) {
+        for (const match of text.matchAll(pattern)) {
+            if (!isLikelyLatexSubscript(text, match.index)) continue;
+            replacements.set(match.index, {
+                from: match.index,
+                to: match.index + match[0].length,
+                text: match[1],
+            });
+            markOffsetRange(
+                ignoredOffsets,
+                match.index + 1,
+                match[0].length - 1
+            );
+        }
+    }
+}
+
+function isLikelyLatexSubscript(text, offset) {
+    const prefix = text.slice(Math.max(0, offset - 64), offset);
+    const command = latexCommandAtEnd(prefix);
+    if (command) {
+        // A command identifies unbraced subscripts; unknown commands stay inert.
+        return !command.escaped && (
+            LATEX_MATH_COMMAND_NAMES.has(command.name)
+            || command.name === 'mathrm'
+            || command.name === 'text'
+        );
+    }
+    // Braces are the unambiguous LaTeX form, even when the base is a word.
+    return text[offset + 1] === '{';
+}
+
+function latexCommandAtEnd(prefix) {
+    const match = /\\([A-Za-z]+)(?:\{[^{}]{0,64}\})?$/.exec(prefix);
+    if (!match) return null;
+    let slashFrom = match.index - 1;
+    let precedingSlashes = 0;
+    while (slashFrom >= 0 && prefix[slashFrom] === '\\') {
+        precedingSlashes++;
+        slashFrom--;
+    }
+    return {
+        name: match[1],
+        escaped: precedingSlashes % 2 !== 0,
+    };
+}
+
+function normalizeMathSymbolText(text) {
+    return [...String(text)].map(character => (
+        MATH_SYMBOL_CANONICAL_FORMS.get(character) || character
+    )).join('');
 }
 
 function markMathematicalWhitespace(text, ignoredOffsets) {

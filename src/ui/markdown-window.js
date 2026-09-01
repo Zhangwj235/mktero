@@ -8,6 +8,10 @@ import {
     createEmptyAnnotationOverlay,
 } from '../core/markdown-annotation-overlay.js';
 import {
+    collectMatchedAnnotationRanges,
+    protectEditableBlocksWithAnnotations,
+} from '../core/markdown-revision-session.js';
+import {
     createMarkdownAnnotationTextQuote,
     markdownAnnotationRangeMatchesSource,
 } from '../core/markdown-local-annotations.js';
@@ -48,6 +52,7 @@ import {
     createLucideIcon,
     LUCIDE_ICONS,
 } from '../icons/lucide-icon.js';
+import { createConfirmationDialog } from './confirmation-dialog.js';
 import { createLoadingPresentation } from './markdown-loading-state.js';
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
@@ -291,6 +296,10 @@ class MarkdownTabView {
         this.mount.appendChild(this.createStylesheet(stylesheetText));
         this.elements = this.createContent();
         this.mount.appendChild(this.elements.view);
+        this.confirmationDialog = createConfirmationDialog({
+            document: this.document,
+            parent: this.elements.view,
+        });
         this.setReaderFont(this.readerFont);
         this.setReaderFontSize(this.readerFontSize);
         this.editor = editorFactory({
@@ -576,12 +585,19 @@ class MarkdownTabView {
                     comparisonView
                 ),
             });
+            const correctionAnnotationRanges = collectMatchedAnnotationRanges(
+                model.annotationOverlay
+            );
             this.editor.setCorrectionState?.({
                 enabled: Boolean(model.correctionMode)
                     && !translatedView
                     && !comparisonView,
-                blocks: model.editableBlocks || [],
+                blocks: protectEditableBlocksWithAnnotations(
+                    model.editableBlocks,
+                    correctionAnnotationRanges
+                ),
                 correctedBlockIDs: model.correctedBlockIDs || [],
+                annotationRanges: correctionAnnotationRanges,
             });
             this.renderedMarkdown = markdown;
             this.renderedRenderMode = 'markdown';
@@ -629,6 +645,7 @@ class MarkdownTabView {
         this.listeners = [];
         this.responsiveResizeObserver?.disconnect?.();
         this.responsiveResizeObserver = null;
+        this.confirmationDialog.destroy();
         this.editor?.destroy();
         this.revokeAssetURLs();
         this.revokeSnapshotURLs();
@@ -1769,8 +1786,8 @@ class MarkdownTabView {
             this.setTranslationLanguagesOpen(false);
             this.setDocumentActionsOpen(!this.documentActionsOpen);
         });
-        this.listen(this.elements.reparse, 'click', () => {
-            this.runDocumentAction('reparse', 'onReparse');
+        this.listen(this.elements.reparse, 'click', event => {
+            void this.reparseDocument(event.currentTarget);
         });
         this.listen(this.elements.correctionToggle, 'click', () => {
             this.toggleCorrectionMode();
@@ -2446,9 +2463,74 @@ class MarkdownTabView {
             }
             else {
                 this.clearCorrectionUndo();
+                void this.offerChangedBlockTranslation(result);
             }
             return result;
         });
+    }
+
+    async offerChangedBlockTranslation(result) {
+        const refresh = result?.translationRefresh;
+        const blockIDs = Array.isArray(refresh?.blockIDs)
+            ? [...new Set(refresh.blockIDs.map(String).filter(Boolean))]
+            : [];
+        if (!blockIDs.length
+            || typeof this.model.onTranslateDocument !== 'function') {
+            return false;
+        }
+        const singular = blockIDs.length === 1;
+        const confirmed = await this.confirmationDialog.confirm({
+            title: this.t(singular
+                ? 'ai.retranslateChangedBlockDialogTitle'
+                : 'ai.retranslateChangedBlocksDialogTitle', {
+                count: blockIDs.length,
+            }),
+            message: this.t(singular
+                ? 'ai.retranslateChangedBlockConfirm'
+                : 'ai.retranslateChangedBlocksConfirm', {
+                count: blockIDs.length,
+            }),
+            confirmLabel: this.t('ai.retranslateChangedDialogConfirm'),
+            cancelLabel: this.t('dialog.cancel'),
+            icon: LUCIDE_ICONS.languages,
+            confirmIcon: LUCIDE_ICONS.languages,
+            returnFocus: this.elements.correctionToggle,
+        });
+        if (!confirmed) return false;
+        Promise.resolve(this.model.onTranslateDocument({
+            retryBlockIDs: blockIDs,
+            targetLanguage: refresh.targetLanguage,
+            translationView: refresh.translationView,
+        })).catch(error => this.reportTranslationError(error));
+        return true;
+    }
+
+    async reparseDocument(returnFocus = this.elements.reparse) {
+        if (this.elements.reparse.disabled
+            || this.documentActionBusy
+            || typeof this.model.onReparse !== 'function') {
+            return false;
+        }
+        const correctionCount = this.model.hasCorrections
+            ? this.model.correctionCount || 0
+            : 0;
+        if (correctionCount) {
+            const confirmed = await this.confirmationDialog.confirm({
+                title: this.t('revision.reparseDialogTitle'),
+                message: this.t('revision.reparseConfirm', {
+                    count: correctionCount,
+                }),
+                confirmLabel: this.t('revision.reparseDialogConfirm'),
+                cancelLabel: this.t('dialog.cancel'),
+                tone: 'danger',
+                icon: LUCIDE_ICONS.triangleAlert,
+                confirmIcon: LUCIDE_ICONS.refreshCw,
+                returnFocus,
+            });
+            if (!confirmed || this.destroyed) return false;
+        }
+        this.runDocumentAction('reparse', 'onReparse');
+        return true;
     }
 
     restoreCorrection(blockID) {
@@ -2470,11 +2552,18 @@ class MarkdownTabView {
             || typeof this.model.onRestoreAllCorrections !== 'function') {
             return false;
         }
-        const confirmed = this.ownerWindow.confirm?.(
-            this.t('revision.restoreAllConfirm', {
+        const confirmed = await this.confirmationDialog.confirm({
+            title: this.t('revision.restoreAllDialogTitle'),
+            message: this.t('revision.restoreAllConfirm', {
                 count: this.model.correctionCount || 0,
-            })
-        );
+            }),
+            confirmLabel: this.t('revision.restoreAllDialogConfirm'),
+            cancelLabel: this.t('dialog.cancel'),
+            tone: 'danger',
+            icon: LUCIDE_ICONS.triangleAlert,
+            confirmIcon: LUCIDE_ICONS.rotateCcw,
+            returnFocus: this.elements.restoreCorrections,
+        });
         if (!confirmed) return false;
         this.clearCorrectionUndo();
         this.setDocumentActionsOpen(false);
@@ -2524,7 +2613,12 @@ class MarkdownTabView {
         }
         catch (error) {
             this.zotero?.logError?.(error);
-            this.setDocumentActionStatus(failureKey, { dismissAfter: true });
+            this.setDocumentActionStatus(
+                error?.code === 'MARKDOWN_ANNOTATION_PROTECTED'
+                    ? 'revision.annotationProtected'
+                    : failureKey,
+                { dismissAfter: true }
+            );
             throw error;
         }
         finally {
@@ -2597,11 +2691,14 @@ class MarkdownTabView {
     }
 
     setReaderFont(font) {
-        this.readerFont = normalizeMarkdownReaderFont(font);
+        const nextFont = normalizeMarkdownReaderFont(font);
+        const changed = nextFont !== this.readerFont;
+        this.readerFont = nextFont;
         this.host.style.setProperty(
             '--reader-font',
             getMarkdownReaderFontFamily(this.readerFont)
         );
+        if (changed) this.editor?.requestMeasure?.();
         if (!this.elements) return;
         this.syncReaderFontPicker();
     }
@@ -2789,11 +2886,14 @@ class MarkdownTabView {
     }
 
     setReaderFontSize(size) {
-        this.readerFontSize = normalizeMarkdownReaderFontSize(size);
+        const nextSize = normalizeMarkdownReaderFontSize(size);
+        const changed = nextSize !== this.readerFontSize;
+        this.readerFontSize = nextSize;
         this.host.style.setProperty(
             '--reader-font-size',
             `${this.readerFontSize}px`
         );
+        if (changed) this.editor?.requestMeasure?.();
         if (!this.elements) return;
         this.elements.readerFontValue.textContent = this.t(
             'viewer.textSizeValue',
@@ -2835,6 +2935,7 @@ class MarkdownTabView {
             if (!selected || selected.value === translation.selected.value) return;
             this.translationReaderFonts.set(translation.language, selected.value);
             this.syncReaderFontPicker();
+            this.editor?.requestMeasure?.();
             return;
         }
         const normalized = normalizeMarkdownReaderFont(font);

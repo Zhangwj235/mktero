@@ -2132,6 +2132,179 @@ test('commits one paragraph block directly from read-only mode', async () => {
     dom.window.close();
 });
 
+test('edits prose while protecting formulas in a correction block', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'The value is $E = mc^2$ for 5O participants.';
+    const formulaFrom = markdown.indexOf('$E = mc^2$');
+    const formulaTo = formulaFrom + '$E = mc^2$'.length;
+    const commits = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => commits.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'formula-paragraph',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+            protectedRanges: [{ from: formulaFrom, to: formulaTo }],
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const content = document.querySelector('.cm-content');
+    const typo = markdown.indexOf('5O');
+    view.posAtCoords = () => typo;
+    const prose = textNodeContaining(content, 'The value');
+    const range = document.createRange();
+    range.setStart(prose, prose.textContent.indexOf('value'));
+    range.setEnd(prose, prose.textContent.indexOf('value') + 'value'.length);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+    prose.parentElement.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.ok(document.querySelector('.mktero-markdown-selection-actions'));
+
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+    assert.equal(
+        document.querySelector('.mktero-markdown-selection-actions'),
+        null
+    );
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-delete').hidden,
+        true
+    );
+
+    view.dispatch({ changes: { from: 0, to: 3, insert: 'Measured' } });
+    const offsetDelta = 'Measured'.length - 'The'.length;
+    view.dispatch({
+        changes: {
+            from: typo + offsetDelta + 1,
+            to: typo + offsetDelta + 2,
+            insert: '0',
+        },
+    });
+    const exponent = markdown.indexOf('2$') + offsetDelta;
+    view.dispatch({ changes: { from: exponent, to: exponent + 1, insert: '3' } });
+
+    assert.equal(
+        editor.getMarkdown(),
+        'Measured value is $E = mc^2$ for 50 participants.'
+    );
+    document.querySelector('.mktero-correction-editor-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(commits, [{
+        blockID: 'formula-paragraph',
+        replacementMarkdown: 'Measured value is $E = mc^2$ for 50 participants.',
+    }]);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('protects annotated text and submits its exact mapped range', async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Before protected text after.';
+    const protectedFrom = markdown.indexOf('protected text');
+    const protectedTo = protectedFrom + 'protected text'.length;
+    const commits = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => commits.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'annotated-paragraph',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+            markdown,
+            protectedRanges: [{
+                from: protectedFrom,
+                to: protectedTo,
+                kind: 'annotation',
+            }],
+        }],
+        annotationRanges: [{
+            id: 'mktero-local-1',
+            source: 'markdown',
+            rangeIndex: 0,
+            from: protectedFrom,
+            to: protectedTo,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const content = document.querySelector('.cm-content');
+    view.posAtCoords = () => 1;
+    content.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    view.dispatch({ changes: { from: 0, insert: 'New ' } });
+    const shiftedFrom = protectedFrom + 4;
+    view.dispatch({
+        changes: {
+            from: shiftedFrom + 1,
+            to: shiftedFrom + 2,
+            insert: 'X',
+        },
+    });
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-status').textContent,
+        'This text has an annotation. Delete the annotation before editing it.'
+    );
+    const afterFrom = editor.getMarkdown().indexOf('after');
+    view.dispatch({ changes: { from: afterFrom, insert: 'really ' } });
+
+    assert.equal(
+        editor.getMarkdown(),
+        'New Before protected text really after.'
+    );
+    document.querySelector('.mktero-correction-editor-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(commits, [{
+        blockID: 'annotated-paragraph',
+        replacementMarkdown: 'New Before protected text really after.',
+        annotationRanges: [{
+            id: 'mktero-local-1',
+            source: 'markdown',
+            rangeIndex: 0,
+            from: shiftedFrom,
+            to: protectedTo + 4,
+        }],
+    }]);
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-delete').hidden,
+        true
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('does not start direct correction from an interactive link', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -2188,6 +2361,134 @@ test('does not start direct correction from an interactive link', () => {
         button: 0,
     }));
     assert.equal(content.getAttribute('contenteditable'), 'true');
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('uses the clicked rendered line when CodeMirror coordinates lag behind',
+    async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Keywords: wearable devices; ovulation.',
+        '',
+        'Copyright 2024 Authors. This long paragraph contains a URL '
+            + 'https://example.com/article and enough text to wrap across lines.',
+    ].join('\n');
+    const keywordsFrom = markdown.indexOf('Keywords');
+    const copyrightFrom = markdown.indexOf('Copyright');
+    const submissions = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => submissions.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'keywords',
+            type: 'paragraph',
+            from: keywordsFrom,
+            to: keywordsFrom + 'Keywords: wearable devices; ovulation.'.length,
+        }, {
+            id: 'copyright',
+            type: 'paragraph',
+            from: copyrightFrom,
+            to: markdown.length,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => copyrightFrom + 1;
+    const keywordLine = [...document.querySelectorAll('.cm-line')].find(line => (
+        line.textContent.startsWith('Keywords:')
+    ));
+    assert.ok(keywordLine);
+
+    keywordLine.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    view.dispatch({
+        changes: {
+            from: keywordsFrom,
+            to: keywordsFrom + 1,
+            insert: 'k',
+        },
+    });
+    document.querySelector('.mktero-correction-editor-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(submissions, [{
+        blockID: 'keywords',
+        replacementMarkdown: 'keywords: wearable devices; ovulation.',
+    }]);
+
+    const copyrightLine = [...document.querySelectorAll('.cm-line')].find(line => (
+        line.textContent.startsWith('Copyright')
+    ));
+    assert.ok(copyrightLine);
+    copyrightLine.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(
+        document.querySelector('.cm-content').getAttribute('contenteditable'),
+        'true'
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not start correction from an open selection actions popup', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Select this Markdown text.';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+        }],
+    });
+    const line = document.querySelector('.cm-line');
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+    line.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+    }));
+    const popup = document.querySelector('.mktero-markdown-selection-actions');
+    assert.ok(popup);
+
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => 0;
+    popup.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    assert.equal(
+        document.querySelector('.cm-content').getAttribute('contenteditable'),
+        'false'
+    );
 
     editor.destroy();
     dom.window.close();
@@ -2954,6 +3255,91 @@ test('commits a rendered GFM table cell directly from read-only mode', async () 
     assert.equal(commits.length, 1);
     assert.equal(commits[0].blockID, 'table-1');
     assert.match(commits[0].replacementMarkdown, /\| Score \| 43 \|/);
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('keeps protected formula, citation, and annotation table cells read-only', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        '| Kind | Value | Note |',
+        '| --- | --- | --- |',
+        '| Citation | $[2,10]$ | Editable citation note |',
+        '| Formula | $x^2$ | Editable formula note |',
+        '| Note | Annotated value | Editable annotation note |',
+    ].join('\n');
+    const citation = '$[2,10]$';
+    const formula = '$x^2$';
+    const annotated = 'Annotated value';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: true,
+        blocks: [{
+            id: 'protected-table',
+            type: 'table',
+            from: 0,
+            to: markdown.length,
+            markdown,
+            protectedRanges: [{
+                from: markdown.indexOf(citation),
+                to: markdown.indexOf(citation) + citation.length,
+            }, {
+                from: markdown.indexOf(formula),
+                to: markdown.indexOf(formula) + formula.length,
+            }, {
+                from: markdown.indexOf(annotated),
+                to: markdown.indexOf(annotated) + annotated.length,
+                kind: 'annotation',
+            }],
+        }],
+    });
+    const citationCell = document.querySelector(
+        '.cm-mktero-table tbody tr:first-child td:nth-child(2)'
+    );
+    const citationNote = document.querySelector(
+        '.cm-mktero-table tbody tr:first-child td:nth-child(3)'
+    );
+    const formulaCell = document.querySelector(
+        '.cm-mktero-table tbody tr:nth-child(2) td:nth-child(2)'
+    );
+    const annotationCell = document.querySelector(
+        '.cm-mktero-table tbody tr:last-child td:nth-child(2)'
+    );
+    const annotationNote = document.querySelector(
+        '.cm-mktero-table tbody tr:last-child td:nth-child(3)'
+    );
+
+    enterTableCellEditing(citationCell, dom.window);
+    enterTableCellEditing(formulaCell, dom.window);
+    enterTableCellEditing(annotationCell, dom.window);
+    assert.equal(citationCell.getAttribute('contenteditable'), 'false');
+    assert.equal(formulaCell.getAttribute('contenteditable'), 'false');
+    assert.equal(annotationCell.getAttribute('contenteditable'), 'false');
+    assert.equal(
+        annotationCell.getAttribute('title'),
+        'This text has an annotation. Delete the annotation before editing it.'
+    );
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-toolbar').hidden,
+        true
+    );
+
+    enterTableCellEditing(citationNote, dom.window);
+    assert.equal(citationNote.getAttribute('contenteditable'), 'true');
+    assert.equal(
+        document.querySelector('.mktero-correction-editor-toolbar').hidden,
+        false
+    );
+    enterTableCellEditing(annotationNote, dom.window);
+    assert.equal(annotationNote.getAttribute('contenteditable'), 'true');
 
     editor.destroy();
     dom.window.close();
@@ -5558,6 +5944,53 @@ test('previews a rendered image with zoom and drag controls', () => {
     dom.window.close();
 });
 
+test('does not start correction from the image preview stage', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Intro\n\n![Figure](images/figure.png)';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => 'blob:mktero-preview-figure',
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: 'Intro'.length,
+        }],
+    });
+    const renderedImage = document.querySelector('.cm-mktero-image img');
+    renderedImage.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    const stage = document.querySelector('.mktero-image-preview-stage');
+    assert.ok(stage);
+
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => 0;
+    stage.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    assert.equal(
+        document.querySelector('.cm-content').getAttribute('contenteditable'),
+        'false'
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('previews an image inside a rendered table without editing the cell', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -7462,8 +7895,10 @@ test('supports editors owned by two Zotero windows at the same time', () => {
 test('activates the owning Zotero window before CodeMirror handles scrolling', () => {
     const originalRequestMeasure = EditorView.prototype.requestMeasure;
     const originalMeasure = EditorView.prototype.measure;
+    const originalGetComputedStyle = globalThis.getComputedStyle;
     let measureRequests = 0;
     let synchronousMeasures = 0;
+    let computedStyleWindow = null;
     EditorView.prototype.requestMeasure = function(...args) {
         measureRequests++;
         return originalRequestMeasure.apply(this, args);
@@ -7478,6 +7913,16 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
     const secondDOM = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
     });
+    const firstWindowGetComputedStyle = firstDOM.window.getComputedStyle;
+    const secondWindowGetComputedStyle = secondDOM.window.getComputedStyle;
+    firstDOM.window.getComputedStyle = function(element) {
+        computedStyleWindow = this;
+        return firstWindowGetComputedStyle.call(firstDOM.window, element);
+    };
+    secondDOM.window.getComputedStyle = function(element) {
+        computedStyleWindow = this;
+        return secondWindowGetComputedStyle.call(secondDOM.window, element);
+    };
     const firstEditor = createInlineMarkdownEditor({
         parent: firstDOM.window.document.querySelector('#editor'),
         initialMarkdown: Array.from(
@@ -7500,6 +7945,8 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
     const scrollMeasuredSynchronously = (
         synchronousMeasures > synchronousMeasuresBeforeScroll
     );
+    globalThis.getComputedStyle(firstDOM.window.document.body);
+    const styleActivatedFirstWindow = computedStyleWindow === firstDOM.window;
 
     firstDOM.window.document.querySelector('.cm-content').dispatchEvent(
         new firstDOM.window.KeyboardEvent('keydown', {
@@ -7508,6 +7955,10 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
         })
     );
     const keyActivatedFirstWindow = globalThis.window === firstDOM.window;
+
+    secondEditor.focus();
+    globalThis.getComputedStyle(secondDOM.window.document.body);
+    const styleActivatedSecondWindow = computedStyleWindow === secondDOM.window;
 
     secondEditor.destroy();
     firstEditor.destroy();
@@ -7519,7 +7970,70 @@ test('activates the owning Zotero window before CodeMirror handles scrolling', (
     assert.equal(scrollActivatedFirstWindow, true);
     assert.equal(scrollRequestedMeasure, true);
     assert.equal(scrollMeasuredSynchronously, true);
+    assert.equal(styleActivatedFirstWindow, true);
     assert.equal(keyActivatedFirstWindow, true);
+    assert.equal(styleActivatedSecondWindow, true);
+    assert.equal(globalThis.getComputedStyle, originalGetComputedStyle);
+});
+
+test('bridges the owning Zotero window style API for CodeMirror scrolling', () => {
+    const previousGetComputedStyle = Object.getOwnPropertyDescriptor(
+        globalThis,
+        'getComputedStyle'
+    );
+    delete globalThis.getComputedStyle;
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    dom.window.Range.prototype.getClientRects = () => [];
+    dom.window.scrollBy = () => {};
+    const windowGetComputedStyle = dom.window.getComputedStyle;
+    let styleCalls = 0;
+    dom.window.getComputedStyle = function(element) {
+        assert.equal(this, dom.window);
+        styleCalls++;
+        return windowGetComputedStyle.call(dom.window, element);
+    };
+    let editor;
+
+    try {
+        const parent = dom.window.document.querySelector('#editor');
+        editor = createInlineMarkdownEditor({
+            parent,
+            initialMarkdown: Array.from(
+                { length: 200 },
+                (_, index) => `Paragraph ${index + 1}`
+            ).join('\n\n'),
+        });
+        const view = EditorView.findFromDOM(parent.querySelector('.cm-editor'));
+        view.docView.coordsAt = () => rectangle(2000, 10, 2020, 0);
+        const styleCallsBeforeScroll = styleCalls;
+
+        assert.doesNotThrow(() => {
+            view.dispatch({
+                effects: EditorView.scrollIntoView(
+                    view.state.doc.length,
+                    { y: 'center' }
+                ),
+            });
+            view.docView.scrollIntoView(view.viewState.scrollTarget);
+        });
+        assert.ok(styleCalls > styleCallsBeforeScroll);
+    }
+    finally {
+        editor?.destroy();
+        dom.window.close();
+        if (previousGetComputedStyle) {
+            Object.defineProperty(
+                globalThis,
+                'getComputedStyle',
+                previousGetComputedStyle
+            );
+        }
+        else {
+            delete globalThis.getComputedStyle;
+        }
+    }
 });
 
 function createStalledViewportFixture({
@@ -7643,6 +8157,122 @@ test('keeps the scrolled region rendered when correction mode is enabled', () =>
     assert.ok(resultingViewport.from <= targetOffset);
     assert.ok(resultingViewport.to >= targetOffset + targetText.length);
     assert.equal(resultingScrollTop, 600);
+});
+
+test('keeps a scrolled correction rendered when height lookup stays stale',
+    async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    dom.window.Range.prototype.getClientRects = () => [];
+    const { document } = dom.window;
+    const paragraphCount = 40;
+    const targetParagraph = 25;
+    const paragraphs = Array.from(
+        { length: paragraphCount },
+        (_, index) => `Paragraph ${index + 1} ${'content '.repeat(8)}`.trim()
+    );
+    const markdown = paragraphs.join('\n\n');
+    const createBlocks = value => {
+        let from = 0;
+        return value.split('\n\n').map((text, index) => {
+            const block = {
+                id: `paragraph-${index + 1}`,
+                type: 'paragraph',
+                from,
+                to: from + text.length,
+                markdown: text,
+            };
+            from += text.length + 2;
+            return block;
+        });
+    };
+    const viewportOffsets = [];
+    let editor;
+    editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onViewportChange: offset => viewportOffsets.push(offset),
+        async onCommitCorrection(correction) {
+            const updatedMarkdown = editor.getMarkdown();
+            editor.setDocument({ markdown: updatedMarkdown, sourceMap: [] });
+            editor.setCorrectionState({
+                enabled: true,
+                blocks: createBlocks(updatedMarkdown),
+                correctedBlockIDs: [correction.blockID],
+            });
+        },
+    });
+    const blocks = createBlocks(markdown);
+    editor.setCorrectionState({ enabled: true, blocks });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    const scroller = view.scrollDOM;
+    const targetText = paragraphs[targetParagraph - 1];
+    const targetOffset = markdown.indexOf(targetText);
+    const targetBlock = view.lineBlockAt(targetOffset);
+    Object.defineProperty(view, 'inView', {
+        configurable: true,
+        get: () => false,
+    });
+    Object.defineProperty(scroller, 'clientHeight', {
+        configurable: true,
+        value: 800,
+    });
+    Object.defineProperty(scroller, 'scrollHeight', {
+        configurable: true,
+        value: Math.max(view.contentHeight, targetBlock.bottom + 800),
+    });
+    scroller.scrollTop = Math.max(0, targetBlock.top - 400);
+    scroller.dispatchEvent(new dom.window.Event('scroll', { bubbles: true }));
+    assert.match(document.querySelector('.cm-content').textContent, /Paragraph 25/);
+
+    view.posAtCoords = () => targetOffset + 10;
+    document.querySelector('.cm-content').dispatchEvent(
+        new dom.window.MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+        })
+    );
+    viewportOffsets.length = 0;
+    view.dispatch({
+        changes: {
+            from: targetOffset,
+            insert: 'Edited ',
+        },
+    });
+    assert.deepEqual(viewportOffsets, []);
+    document.querySelector('.mktero-correction-editor-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const updatedTargetOffset = editor.getMarkdown().indexOf('Edited Paragraph 25');
+    const renderedText = document.querySelector('.cm-content').textContent;
+    const resultingViewport = view.viewport;
+
+    const nextTargetText = paragraphs[31];
+    const nextTargetOffset = editor.getMarkdown().indexOf(nextTargetText);
+    const nextTargetBlock = view.lineBlockAt(nextTargetOffset);
+    view.lineBlockAtHeight = () => view.lineBlockAt(0);
+    scroller.scrollTop = Math.max(0, nextTargetBlock.top - 400);
+    scroller.dispatchEvent(new dom.window.Event('scroll', { bubbles: true }));
+    const renderedAfterScroll = document.querySelector('.cm-content').textContent;
+    const viewportAfterScroll = view.viewport;
+
+    editor.destroy();
+    dom.window.close();
+
+    assert.match(renderedText, /Edited Paragraph 25/);
+    assert.ok(
+        resultingViewport.from <= updatedTargetOffset,
+        JSON.stringify({ resultingViewport, updatedTargetOffset })
+    );
+    assert.ok(
+        resultingViewport.to >= updatedTargetOffset + targetText.length,
+        JSON.stringify({ resultingViewport, updatedTargetOffset })
+    );
+    assert.match(renderedAfterScroll, /Paragraph 32/);
+    assert.ok(viewportAfterScroll.from <= nextTargetOffset);
+    assert.ok(viewportAfterScroll.to >= nextTargetOffset + nextTargetText.length);
 });
 
 test('restores scrolling after a deferred stalled viewport measurement', () => {

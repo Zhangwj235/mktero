@@ -79,6 +79,104 @@ test('locates PDF text without an open Zotero reader', async () => {
     locator.dispose();
 });
 
+test('locates a Markdown passage that continues onto the next PDF page', async () => {
+    const locator = await createSyntheticLocator([
+        [createTextItem(
+            'Wiki Layer (wiki/) This layer compiles raw traces into structured, '
+                + 'compounding knowledge and is maintained throughout skill '
+                + 'evolution. It contains a pattern directory (patterns/) populated',
+            { width: 900, hasEOL: true }
+        )],
+        [createTextItem(
+            'with individual markdown files that document specific failure modes '
+                + 'and their fixes.',
+            { width: 900, hasEOL: true }
+        )],
+    ]);
+
+    const located = await locator.locate(
+        42,
+        'Wiki Layer (wiki/) This layer compiles raw traces into structured, '
+            + 'compounding knowledge and is maintained throughout skill evolution. '
+            + 'It contains a pattern directory (patterns/) populated with individual '
+            + 'markdown files that document specific failure modes and their fixes.',
+        { pdfPageIndexHint: 0 }
+    );
+
+    assert.equal(located.segments.length, 2);
+    assert.equal(located.segments[0].position.pageIndex, 0);
+    assert.equal(located.segments[1].position.pageIndex, 1);
+    assert.match(located.segments[0].text, /populated$/u);
+    assert.match(located.segments[1].text, /^with individual/u);
+    locator.dispose();
+});
+
+test('locates cross-page text across repeated headers and page numbers', async () => {
+    const runningHeader = 'WikiSkill: Compiling Agent Experience into Persistent Knowledge for Skill Evolution';
+    const locator = await createSyntheticLocator([
+        [
+            createTextItem(runningHeader, { y: 780, hasEOL: true }),
+            createTextItem(
+                'Wiki Layer (wiki/) This layer compiles raw traces into structured, '
+                    + 'compounding knowledge and is maintained throughout skill evolution. '
+                    + 'It contains a pattern directory (patterns/) populated',
+                { y: 100, width: 900, hasEOL: true }
+            ),
+            createTextItem('1', { y: 55, hasEOL: true }),
+        ],
+        [
+            createTextItem(runningHeader, { y: 780, hasEOL: true }),
+            createTextItem(
+                'with individual markdown files that document specific failure modes '
+                    + 'and successful strategies, along with actionable workarounds.',
+                { y: 740, width: 900, hasEOL: true }
+            ),
+            createTextItem('2', { y: 55, hasEOL: true }),
+        ],
+    ]);
+
+    const located = await locator.locate(
+        42,
+        'Wiki Layer (wiki/) This layer compiles raw traces into structured, '
+            + 'compounding knowledge and is maintained throughout skill evolution. '
+            + 'It contains a pattern directory (patterns/) populated with individual '
+            + 'markdown files that document specific failure modes and successful '
+            + 'strategies, along with actionable workarounds.',
+        { pdfPageIndexHint: 0 }
+    );
+
+    assert.deepEqual(
+        located.segments.map(segment => segment.position.pageIndex),
+        [0, 1]
+    );
+    assert.match(located.segments[0].text, /populated$/u);
+    assert.match(located.segments[1].text, /^with individual/u);
+    locator.dispose();
+});
+
+test('keeps repeated cross-page passages ambiguous without a page hint', async () => {
+    const locator = await createSyntheticLocator([
+        [createTextItem('Shared passage begins', { width: 900, hasEOL: true })],
+        [createTextItem('and continues', { width: 900, hasEOL: true })],
+        [createTextItem('Shared passage begins', { width: 900, hasEOL: true })],
+        [createTextItem('and continues', { width: 900, hasEOL: true })],
+    ]);
+    const selectedText = 'Shared passage begins and continues';
+
+    await assert.rejects(
+        locator.locate(42, selectedText),
+        error => error?.code === 'MKTERO_PDF_TEXT_AMBIGUOUS'
+    );
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 2,
+    });
+    assert.deepEqual(
+        located.segments.map(segment => segment.position.pageIndex),
+        [2, 3]
+    );
+    locator.dispose();
+});
+
 test('rejects malformed PDF bytes through the real PDF.js engine', async () => {
     const engine = createTestPDFEngine();
 
@@ -1011,6 +1109,26 @@ test('matches PDF whitespace, signed numbers, dehyphenation, and CJK text', asyn
 
     assert.equal(located.position.pageIndex, 0);
     assert.equal(located.position.rects.length, 2);
+    locator.dispose();
+});
+
+test('matches Markdown LaTeX formulas against PDF math text', async () => {
+    const locator = await createSyntheticLocator([[
+        createTextItem(
+            'Raw Layer stores traces 𝜏𝑖 ∈ Ttrain,𝑘 collected from training.',
+            { hasEOL: true }
+        ),
+    ]]);
+
+    const selectedText = 'Raw Layer stores traces \\tau_{i} \\in '
+        + 'T_{train,k} collected from training.';
+    const located = await locator.locate(42, selectedText, {
+        pdfPageIndexHint: 0,
+    });
+
+    assert.equal(located.text, selectedText);
+    assert.equal(located.position.pageIndex, 0);
+    assert.equal(located.position.rects.length, 1);
     locator.dispose();
 });
 

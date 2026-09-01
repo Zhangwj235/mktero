@@ -124,6 +124,9 @@ MinerU content mappings connect Markdown blocks to physical PDF pages and
 regions. Source links and source-aware copy use those mappings when they are
 reliable; Mktero does not guess a location when a match is ambiguous. Markdown
 is rendered in an isolated shadow root with a restricted link and image policy.
+Academic figure captions are recognized in common publisher formats, including
+`Figure N | ...` captions that follow an empty MinerU image, so prose figure
+references remain previewable in cached documents.
 
 ### Correct recognition errors
 
@@ -132,7 +135,19 @@ save or cancel explicitly. Existing paragraphs and headings can also be
 deleted and restored from `Manage corrections`. Corrections are stored
 separately from the conversion cache and are tied to the PDF content and MinerU
 parser profile. They cannot insert or reorder blocks, add images, or add raw
-HTML.
+HTML. Saving a correction preserves the reading position and keeps the full
+document available while scrolling. Prose around formulas and MinerU
+dollar-wrapped citation tokens remains
+editable, while those tokens are protected from changes; a block containing
+protected content cannot be deleted as a whole. In rendered GFM tables, cells
+containing protected content remain read-only while other cells stay editable.
+Text covered by a matched annotation is protected in the same way: delete the
+annotation before changing that text. Edits before or after it remain allowed,
+and Mktero updates the annotation anchor so it still matches after reopening.
+Restoring a correction is refused when it would change annotated corrected
+text. Restoring all corrections and reparsing a corrected PDF use an in-reader
+Mktero confirmation dialog; `Escape`, the backdrop, or the default-focused
+Cancel action leaves the document unchanged.
 
 ### Annotate from Markdown
 
@@ -144,6 +159,10 @@ can be retried instead of receiving a guessed PDF position. When a highlight
 overlaps a citation, table reference, or figure reference, that semantic
 reference keeps interaction priority; annotation actions remain available from
 the surrounding highlighted text or its note marker.
+Selections that cross a PDF page break are split into one single-page Zotero
+highlight per page, so the complete Markdown selection remains navigable.
+Common MinerU LaTeX math symbols and simple subscripts are normalized to the
+PDF's extracted text so selections that include formulas can still be located.
 
 ### Translate with AI
 
@@ -153,6 +172,17 @@ links, code, images, and structural placeholders, and runs at most five
 requests concurrently. Choose `Original`, `Translation`, or `Bilingual` in
 the reader. Translations are cached independently by source content, provider,
 protocol, model, language, and prompt version, so partial work can resume.
+When local Markdown corrections delete a block, translations for unchanged
+blocks remain available and the deleted block disappears from `Bilingual`
+reading. Earlier source versions are retained, so restoring a deleted block can
+reuse its complete translation even after the corrected document was translated.
+Deleting a citation marker also preserves that block's translation when its
+protected placeholders can be mapped unambiguously; ambiguous changes remain
+pending for block-only retranslation. Editing a translated block keeps the
+other translations, marks that block as pending, and offers to retranslate only
+the changed block.
+Restoring all corrections reloads a complete cached translation for the
+original Markdown when one is available, without sending a new AI request.
 
 For a focused lookup, select text in `Original` or on the source side of
 `Bilingual` reading. The selection popup places its manual translation action
@@ -306,8 +336,11 @@ for your use case.
 - Markdown images are limited to supported GIF, JPEG, PNG, and WebP files from
   the current result archive. Remote images are blocked.
 - Links are restricted to `http`, `https`, `zotero`, and document fragments.
-- Markdown correction mode only edits or removes existing blocks; it cannot
-  change document structure, formulas, images, or raw HTML.
+- Markdown correction mode only edits or removes existing blocks. Prose around
+  formulas and MinerU dollar-wrapped citation tokens is editable, but those
+  tokens and annotated text are protected and their blocks cannot be deleted;
+  delete an annotation before changing its text. Document structure, images,
+  and raw HTML also remain protected.
 - AI translation is an optional cached reading layer. It does not modify source
   Markdown or get included in snapshots.
 - Selection translation is a separate, on-demand reading aid. It is available

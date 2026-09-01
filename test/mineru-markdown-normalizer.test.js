@@ -246,6 +246,17 @@ test('moves an adjacent MinerU figure caption into the image description', () =>
     );
 });
 
+test('moves a pipe-separated MinerU figure caption into the image description', () => {
+    const markdown = '![](images/framework.jpg)  \n'
+        + 'Figure 2 | Overview of the WikiSkill framework.';
+
+    assert.equal(
+        normalizeMinerUMarkdown(markdown),
+        '![Figure 2 | Overview of the WikiSkill framework.]'
+            + '(images/framework.jpg)'
+    );
+});
+
 test('moves an abbreviated figure caption without punctuation after its number', () => {
     const markdown = '![](images/figure.jpg)  \n'
         + 'Fig. 1 Cumulative frequencies of reasons for listening to music after stress.';

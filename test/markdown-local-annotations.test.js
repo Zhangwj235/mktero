@@ -296,6 +296,48 @@ test('deletes a newly synchronized PDF highlight after its local draft was delet
     assert.deepEqual(await store.get(42), []);
 });
 
+test('deletes every page highlight after a cross-page draft is deleted', async () => {
+    let finishSynchronization;
+    let synchronizationStarted = false;
+    const synchronization = new Promise(resolve => {
+        finishSynchronization = resolve;
+    });
+    const deleted = [];
+    const store = createMemoryStore();
+    const annotations = new MarkdownLocalAnnotations({
+        store,
+        createID: () => 'local-1',
+        async createPDFAnnotation() {
+            synchronizationStarted = true;
+            return synchronization;
+        },
+        async deletePDFAnnotation(itemID, annotationID) {
+            deleted.push({ itemID, annotationID });
+        },
+    });
+    const created = await annotations.create(42, {
+        text: 'Cross-page text',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{ from: 0, to: 15 }],
+    });
+    await waitFor(() => synchronizationStarted);
+
+    await annotations.delete(42, created.id);
+    finishSynchronization({
+        id: 'ZOTERO001',
+        annotationIDs: ['ZOTERO001', 'ZOTERO002'],
+        reused: false,
+    });
+
+    await waitFor(() => deleted.length === 2);
+    assert.deepEqual(deleted, [
+        { itemID: 42, annotationID: 'ZOTERO001' },
+        { itemID: 42, annotationID: 'ZOTERO002' },
+    ]);
+    assert.deepEqual(await store.get(42), []);
+});
+
 test('migrates an existing local Markdown highlight into Zotero PDF', async () => {
     const local = {
         id: 'mktero-local-1',
@@ -924,6 +966,45 @@ test('restores saved ranges and relocates a uniquely moved Markdown quote', asyn
     assert.deepEqual(original.matched[0].ranges, [{ from: 4, to: 20 }]);
     assert.deepEqual(moved.matched[0].ranges, [{ from: 15, to: 31 }]);
     assert.equal(moved.matched[0].matchKind, 'local');
+    assert.deepEqual((await store.get(42))[0].ranges, [{ from: 15, to: 31 }]);
+});
+
+test('persists an exact correction mapping for repeated annotation text', async () => {
+    const original = 'same quote first; same quote selected.';
+    const selectedFrom = original.lastIndexOf('same quote');
+    const store = createMemoryStore([{
+        id: 'mktero-local-1',
+        source: 'markdown',
+        type: 'highlight',
+        text: 'same quote',
+        comment: '',
+        color: '#ffd400',
+        ranges: [{
+            from: selectedFrom,
+            to: selectedFrom + 'same quote'.length,
+        }],
+    }]);
+    const annotations = new MarkdownLocalAnnotations({ store });
+    const corrected = `Preface. ${original}`;
+    const mappedFrom = selectedFrom + 'Preface. '.length;
+
+    await annotations.remapRanges(42, [{
+        id: 'mktero-local-1',
+        source: 'markdown',
+        rangeIndex: 0,
+        oldFrom: selectedFrom,
+        oldTo: selectedFrom + 'same quote'.length,
+        from: mappedFrom,
+        to: mappedFrom + 'same quote'.length,
+    }], corrected);
+
+    const reopened = new MarkdownLocalAnnotations({ store });
+    const result = await reopened.resolve(42, corrected);
+    assert.deepEqual(result.matched[0].ranges, [{
+        from: mappedFrom,
+        to: mappedFrom + 'same quote'.length,
+    }]);
+    assert.deepEqual(result.unmatched, []);
 });
 
 test('restores a Markdown note selected across a superscript citation range', async () => {

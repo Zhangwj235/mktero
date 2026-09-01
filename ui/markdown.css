@@ -41,6 +41,7 @@
     --success: #237a45;
     --warning: #7a4a00;
     --error: #a40e26;
+    --error-contrast: #ffffff;
     font: menu;
 }
 
@@ -63,6 +64,7 @@
         --success: #67c587;
         --warning: #ffd27a;
         --error: #ff8d9b;
+        --error-contrast: #321016;
         --shadow-popover:
             0 18px 44px rgb(0 0 0 / 38%),
             0 4px 12px rgb(0 0 0 / 28%);
@@ -86,6 +88,146 @@
     background: var(--background);
     font-family: var(--ui-font);
     container: mktero-view / inline-size;
+}
+
+.mktero-confirmation-backdrop {
+    display: grid;
+    position: absolute;
+    inset: 0;
+    z-index: 1000;
+    padding: 20px;
+    overflow: auto;
+    background: rgb(20 27 36 / 44%);
+    place-items: center;
+}
+
+.mktero-confirmation-dialog {
+    width: min(440px, 100%);
+    max-height: 100%;
+    overflow: auto;
+    color: var(--text);
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-popover);
+    font: 13px/1.5 var(--ui-font);
+}
+
+.mktero-confirmation-header {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+    padding: 20px 20px 18px;
+}
+
+.mktero-confirmation-symbol {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    color: var(--accent-strong);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-radius: var(--radius-md);
+    place-items: center;
+}
+
+.mktero-confirmation-backdrop[data-tone="danger"]
+    .mktero-confirmation-symbol {
+    color: var(--error);
+    background: color-mix(in srgb, var(--error) 11%, transparent);
+}
+
+.mktero-confirmation-copy {
+    min-width: 0;
+}
+
+.mktero-confirmation-title {
+    margin: 1px 0 5px;
+    color: var(--text);
+    font: 600 15px/1.35 var(--ui-font);
+    overflow-wrap: anywhere;
+}
+
+.mktero-confirmation-message {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+.mktero-confirmation-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface) 38%, var(--surface-raised));
+}
+
+.mktero-confirmation-button {
+    display: inline-flex;
+    min-width: 92px;
+    min-height: 34px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 7px 13px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    background: var(--surface-raised);
+    font: 500 13px/1.2 var(--ui-font);
+    cursor: pointer;
+}
+
+.mktero-confirmation-button:hover {
+    background: color-mix(in srgb, var(--surface) 68%, var(--surface-raised));
+}
+
+.mktero-confirmation-button:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 58%, transparent);
+    outline-offset: 2px;
+}
+
+.mktero-confirmation-button--confirm {
+    color: var(--accent-contrast);
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.mktero-confirmation-button--confirm:hover {
+    background: color-mix(in srgb, var(--accent) 88%, black);
+}
+
+.mktero-confirmation-button--confirm[data-tone="danger"] {
+    color: var(--error-contrast);
+    background: var(--error);
+    border-color: var(--error);
+}
+
+.mktero-confirmation-button--confirm[data-tone="danger"]:hover {
+    background: color-mix(in srgb, var(--error) 88%, black);
+}
+
+@media (max-width: 480px) {
+    .mktero-confirmation-backdrop {
+        padding: 12px;
+    }
+
+    .mktero-confirmation-header {
+        padding: 16px;
+    }
+
+    .mktero-confirmation-actions {
+        align-items: stretch;
+        flex-direction: column-reverse;
+    }
+
+    .mktero-confirmation-button {
+        width: 100%;
+    }
 }
 
 #mktero-progress {

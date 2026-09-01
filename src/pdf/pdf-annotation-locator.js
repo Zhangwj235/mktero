@@ -17,6 +17,7 @@ import {
 const MAX_MATCHES = 10_000;
 const MIN_GLYPH_FALLBACK_TEXT_LENGTH = 32;
 const MIN_TEXT_QUOTE_CONTEXT_MATCH_LENGTH = 12;
+const MIN_REPEATED_PAGE_HEADER_LENGTH = 20;
 const MISENCODED_PLUS_MINUS = /§(?=\d)/gu;
 const PLUS_MINUS_NUMBER = /±(?=\d)/u;
 
@@ -300,6 +301,14 @@ function locateInIndex(index, text, {
         : index.pages.filter(page => page.pageIndex === pdfPageIndexHint);
     const quote = normalizePDFAnnotationTextQuote(textQuote);
     let located = findMatchWithTextStrategies(pages, target, quote);
+    if (!located) {
+        located = findCrossPageMatch(
+            index.pages,
+            target,
+            quote,
+            pdfPageIndexHint
+        );
+    }
     if (!located
         && target.length >= MIN_GLYPH_FALLBACK_TEXT_LENGTH
         && PLUS_MINUS_NUMBER.test(target)) {
@@ -312,8 +321,34 @@ function locateInIndex(index, text, {
                 '±'
             )
         );
+        if (!located) {
+            located = findCrossPageMatch(
+                index.pages,
+                target,
+                quote,
+                pdfPageIndexHint,
+                normalizedText => normalizedText.replace(
+                    MISENCODED_PLUS_MINUS,
+                    '±'
+                )
+            );
+        }
     }
     if (!located) throw notFoundError();
+    if (located.segments) {
+        const segments = locateCrossPageSegments(
+            located.segments,
+            measureText
+        );
+        if (!segments || segments.length < 2) throw notFoundError();
+        return {
+            text: selectedText,
+            pageLabel: segments[0].pageLabel,
+            sortIndex: segments[0].sortIndex,
+            position: segments[0].position,
+            segments,
+        };
+    }
     const { match, sourceRange } = located;
     const rects = locateSourceRange(
         match.page,
@@ -369,6 +404,241 @@ function findMatchWithTextStrategies(
         textQuote,
         transformText
     );
+}
+
+function findCrossPageMatch(
+    pages,
+    target,
+    textQuote,
+    pdfPageIndexHint,
+    transformText = value => value
+) {
+    for (const strategy of basicTextMatchStrategies()) {
+        const sequence = createCrossPageSequence(
+            pages,
+            strategy,
+            transformText
+        );
+        const occurrences = findTextOccurrences(
+            sequence.text,
+            target,
+            MAX_MATCHES
+        );
+        if (occurrences.truncated) throw ambiguousError();
+        const matches = [];
+        for (const normalizedFrom of occurrences.offsets) {
+            const startPart = findCrossPagePart(
+                sequence.parts,
+                normalizedFrom
+            );
+            if (!startPart
+                || (pdfPageIndexHint !== undefined
+                    && startPart.page.pageIndex !== pdfPageIndexHint)) {
+                continue;
+            }
+            const segments = crossPageSourceSegments(
+                sequence,
+                normalizedFrom,
+                target.length
+            );
+            if (segments.length < 2
+                || !segmentsAreAdjacent(segments)) {
+                continue;
+            }
+            matches.push({
+                normalizedFrom,
+                normalizedText: sequence.text,
+                page: startPart.page,
+                segments,
+            });
+            if (matches.length > MAX_MATCHES) throw ambiguousError();
+        }
+        const match = selectUniqueIndexMatch(
+            matches,
+            target.length,
+            mapTextQuote(textQuote, value => transformText(
+                strategy.createSourceIndex(value).text.trim()
+            ))
+        );
+        if (match) return match;
+    }
+    return null;
+}
+
+function createCrossPageSequence(
+    pages,
+    strategy,
+    transformText
+) {
+    const parts = [];
+    const output = [];
+    let offset = 0;
+    for (const [pageIndex, page] of pages.entries()) {
+        const sourceIndex = strategy.createSourceIndex(page.rawText);
+        const normalizedText = transformText(
+            strategy.normalizedTextForPage(page)
+        );
+        const contentRange = crossPageContentRange(
+            pages,
+            pageIndex,
+            normalizedText
+        );
+        const text = normalizedText.slice(
+            contentRange.from,
+            contentRange.to
+        );
+        if (!text) continue;
+        if (output.length) {
+            output.push(' ');
+            offset++;
+        }
+        const from = offset;
+        output.push(text);
+        offset += text.length;
+        parts.push({
+            from,
+            page,
+            normalizedFrom: contentRange.from,
+            to: offset,
+            sourceIndex,
+        });
+    }
+    return { parts, text: output.join('') };
+}
+
+function crossPageContentRange(
+    pages,
+    pageIndex,
+    normalizedText
+) {
+    let from = 0;
+    let to = normalizedText.length;
+    if (pageIndex > 0
+        && hasRepeatedPageHeader(
+            pages[pageIndex - 1],
+            pages[pageIndex],
+            normalizedText
+        )) {
+        const header = firstNonEmptyPageItem(pages[pageIndex]);
+        const normalizedHeader = sourceIndexForText(header.text);
+        from = normalizedText.indexOf(normalizedHeader);
+        if (from < 0) from = 0;
+        else from += normalizedHeader.length;
+    }
+    const pageNumber = trailingPageNumberStart(
+        pages[pageIndex],
+        normalizedText
+    );
+    if (pageNumber !== null) to = Math.min(to, pageNumber);
+    while (from < to && /^\s$/u.test(normalizedText[from])) from++;
+    while (to > from && /^\s$/u.test(normalizedText[to - 1])) to--;
+    return { from, to };
+}
+
+function hasRepeatedPageHeader(
+    previousPage,
+    page,
+    normalizedText
+) {
+    const previousHeader = firstNonEmptyPageItem(previousPage);
+    const header = firstNonEmptyPageItem(page);
+    if (!previousHeader
+        || !header
+        || previousHeader.sourceFrom !== 0
+        || header.sourceFrom !== 0
+        || previousHeader.text !== header.text
+        || header.text.trim().length < MIN_REPEATED_PAGE_HEADER_LENGTH) {
+        return false;
+    }
+    const normalizedHeader = sourceIndexForText(header.text);
+    return normalizedHeader.length > 0
+        && normalizedText.startsWith(normalizedHeader);
+}
+
+function firstNonEmptyPageItem(page) {
+    return page?.items?.find(item => (
+        typeof item?.text === 'string' && item.text.trim()
+    )) || null;
+}
+
+function sourceIndexForText(text) {
+    return String(text).trim();
+}
+
+function trailingPageNumberStart(page, normalizedText) {
+    const item = [...(page?.items || [])].reverse().find(value => (
+        typeof value?.text === 'string' && value.text.trim()
+    ));
+    if (!item || item.text.trim() !== String(page.pageIndex + 1)) {
+        return null;
+    }
+    const normalizedNumber = String(item.text).trim();
+    const end = normalizedText.trimEnd().length;
+    const start = end - normalizedNumber.length;
+    return start >= 0 && normalizedText.slice(start, end) === normalizedNumber
+        ? start
+        : null;
+}
+
+function segmentsAreAdjacent(segments) {
+    return segments.every((segment, index) => index === 0
+        || segment.page.pageIndex === segments[index - 1].page.pageIndex + 1);
+}
+
+function findCrossPagePart(parts, offset) {
+    let low = 0;
+    let high = parts.length - 1;
+    while (low <= high) {
+        const middle = low + Math.floor((high - low) / 2);
+        const part = parts[middle];
+        if (offset < part.from) high = middle - 1;
+        else if (offset >= part.to) low = middle + 1;
+        else return part;
+    }
+    return null;
+}
+
+function crossPageSourceSegments(
+    sequence,
+    normalizedFrom,
+    targetLength
+) {
+    const normalizedTo = normalizedFrom + targetLength;
+    const segments = [];
+    for (const part of sequence.parts) {
+        const from = Math.max(normalizedFrom, part.from);
+        const to = Math.min(normalizedTo, part.to);
+        if (to <= from) continue;
+        const sourceRange = part.sourceIndex.sourceRange(
+            part.normalizedFrom + from - part.from,
+            to - from
+        );
+        segments.push({ page: part.page, sourceRange });
+    }
+    return segments;
+}
+
+function locateCrossPageSegments(segments, measureText) {
+    const located = segments.map(({ page, sourceRange }) => {
+        const rects = locateSourceRange(page, sourceRange, measureText);
+        if (!rects.length) return null;
+        const text = page.rawText.slice(sourceRange.from, sourceRange.to);
+        if (!text.trim()) return null;
+        return {
+            text,
+            pageLabel: page.pageLabel,
+            sortIndex: createSortIndex(
+                page,
+                sourceRange.from,
+                rects[0]
+            ),
+            position: {
+                pageIndex: page.pageIndex,
+                rects,
+            },
+        };
+    });
+    return located.every(Boolean) ? located : null;
 }
 
 function locateTextQuoteInIndex(index, text, {

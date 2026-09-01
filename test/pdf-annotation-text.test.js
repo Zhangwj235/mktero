@@ -123,6 +123,40 @@ test('normalizes MinerU LaTeX symbols while preserving source ranges', () => {
     assert.equal(normalizePdfAnnotationText('\\pmod2'), '\\pmod2');
 });
 
+test('normalizes LaTeX Greek symbols and braced subscripts from PDF text', () => {
+    const markdown = 'Raw Layer stores traces \\tau_{i} \\in T_{train,k} collected from training.';
+    const pdf = 'Raw Layer stores traces 𝜏𝑖 ∈ Ttrain,𝑘 collected from training.';
+    const markdownIndex = createPdfAnnotationTextIndex(markdown);
+    const pdfIndex = createPdfAnnotationTextIndex(pdf);
+    const normalized = 'Raw Layer stores traces τi ∈ Ttrain,k collected from training.';
+
+    assert.equal(markdownIndex.text, normalized);
+    assert.equal(pdfIndex.text, normalized);
+
+    const formula = 'τi ∈ Ttrain,k';
+    const formulaRange = markdownIndex.sourceRange(
+        normalized.indexOf(formula),
+        formula.length
+    );
+    assert.equal(
+        markdown.slice(formulaRange.from, formulaRange.to),
+        '\\tau_{i} \\in T_{train,k}'
+    );
+    assert.equal(
+        normalizePdfAnnotationText('\\epsilon \\phi \\vartheta \\varkappa'),
+        normalizePdfAnnotationText('𝜀 𝜙 𝜗 𝜘')
+    );
+    assert.equal(normalizePdfAnnotationText('Table_1 foo_bar'), 'Table_1 foo_bar');
+    assert.equal(normalizePdfAnnotationText('A_B a_b X_1'), 'A_B a_b X_1');
+    assert.equal(normalizePdfAnnotationText('foo_{bar}'), 'foobar');
+    assert.equal(normalizePdfAnnotationText('\\input_{secret}'), '\\input_{secret}');
+    assert.equal(normalizePdfAnnotationText('\\operatorname{foo}_{bar}'), '\\operatorname{foo}_{bar}');
+    assert.equal(normalizePdfAnnotationText('\\tau_i'), 'τi');
+    assert.equal(normalizePdfAnnotationText('literal \\_value'), 'literal \\_value');
+    assert.equal(normalizePdfAnnotationText('\\\\tau_i'), '\\\\tau_i');
+    assert.equal(normalizePdfAnnotationText('\\\\tau_{i}'), '\\\\tau_{i}');
+});
+
 test('normalizes LaTeX relational operators while preserving source ranges', () => {
     const markdown = 'Limits x \\geq 2, y \\le 3, z \\neq 4.';
     const pdf = 'Limits x >= 2, y <= 3, z != 4.';

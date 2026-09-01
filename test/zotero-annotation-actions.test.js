@@ -155,6 +155,168 @@ test('creates a Zotero PDF highlight from located Markdown text', async () => {
     assert.equal(committedQueue, queue);
 });
 
+test('splits a cross-page location into one Zotero highlight per page', async () => {
+    const attachment = {
+        id: 42,
+        libraryID: 7,
+        isPDFAttachment: () => true,
+    };
+    const saved = [];
+    let key = 0;
+    const zotero = {
+        Items: {
+            get: id => id === 42 ? attachment : null,
+            loadDataTypes: async () => {},
+        },
+        DataObjectUtilities: {
+            generateKey: () => `PAGE${++key}`,
+        },
+        Annotations: {
+            async saveFromJSON(_parent, json) {
+                saved.push(json);
+                return {
+                    key: json.key,
+                    annotationType: json.type,
+                    annotationText: json.text,
+                    annotationComment: json.comment,
+                    annotationColor: json.color,
+                    annotationPageLabel: json.pageLabel,
+                    annotationSortIndex: json.sortIndex,
+                    annotationPosition: JSON.stringify(json.position),
+                };
+            },
+        },
+        Notifier: {
+            Queue: class Queue {},
+            async commit() {},
+        },
+    };
+    const actions = createZoteroAnnotationActions(zotero, {
+        locateText: async () => ({
+            text: 'complete cross-page passage',
+            pageLabel: '4',
+            sortIndex: '00003|000001|00000',
+            position: {
+                pageIndex: 3,
+                rects: [[72, 700, 300, 720]],
+            },
+            segments: [
+                {
+                    text: 'complete cross-page',
+                    pageLabel: '4',
+                    sortIndex: '00003|000001|00000',
+                    position: {
+                        pageIndex: 3,
+                        rects: [[72, 700, 300, 720]],
+                    },
+                },
+                {
+                    text: 'passage',
+                    pageLabel: '5',
+                    sortIndex: '00004|000001|00000',
+                    position: {
+                        pageIndex: 4,
+                        rects: [[72, 700, 150, 720]],
+                    },
+                },
+            ],
+        }),
+    });
+
+    const result = await actions.createFromText(42, {
+        text: 'complete cross-page passage',
+        comment: 'Review this',
+        color: '#ffd400',
+    });
+
+    assert.equal(saved.length, 2);
+    assert.equal(saved[0].text, 'complete cross-page');
+    assert.equal(saved[0].comment, 'Review this');
+    assert.equal(saved[0].position.pageIndex, 3);
+    assert.equal(saved[1].text, 'passage');
+    assert.equal(saved[1].comment, '');
+    assert.equal(saved[1].position.pageIndex, 4);
+    assert.deepEqual(result.annotationIDs, ['PAGE1', 'PAGE2']);
+});
+
+test('reports only newly created page highlights for mixed reuse', async () => {
+    const firstPosition = {
+        pageIndex: 3,
+        rects: [[72, 700, 300, 720]],
+    };
+    const attachment = {
+        id: 42,
+        libraryID: 7,
+        isPDFAttachment: () => true,
+        getAnnotations: () => [{
+            key: 'EXIST01',
+            annotationType: 'highlight',
+            annotationText: 'complete cross-page',
+            annotationComment: 'Old comment',
+            annotationColor: '#ffd400',
+            annotationPosition: JSON.stringify(firstPosition),
+            isEditable: () => true,
+            async saveTx() {},
+        }],
+    };
+    const saved = [];
+    const zotero = {
+        Items: {
+            get: id => id === 42 ? attachment : null,
+            loadDataTypes: async () => {},
+        },
+        DataObjectUtilities: {
+            generateKey: () => 'NEW02',
+        },
+        Annotations: {
+            async saveFromJSON(_parent, json) {
+                saved.push(json);
+                return { key: json.key };
+            },
+        },
+        Notifier: {
+            Queue: class Queue {},
+            async commit() {},
+        },
+    };
+    const actions = createZoteroAnnotationActions(zotero, {
+        locateText: async () => ({
+            text: 'complete cross-page passage',
+            pageLabel: '4',
+            sortIndex: '00003|000001|00000',
+            position: { pageIndex: 3, rects: [[72, 700, 300, 720]] },
+            segments: [
+                {
+                    text: 'complete cross-page',
+                    pageLabel: '4',
+                    sortIndex: '00003|000001|00000',
+                    position: firstPosition,
+                },
+                {
+                    text: 'passage',
+                    pageLabel: '5',
+                    sortIndex: '00004|000001|00000',
+                    position: {
+                        pageIndex: 4,
+                        rects: [[72, 700, 150, 720]],
+                    },
+                },
+            ],
+        }),
+    });
+
+    const result = await actions.createFromText(42, {
+        text: 'complete cross-page passage',
+        comment: 'Review this',
+        color: '#ffd400',
+    });
+
+    assert.equal(saved.length, 1);
+    assert.deepEqual(result.annotationIDs, ['EXIST01', 'NEW02']);
+    assert.deepEqual(result.createdAnnotationIDs, ['NEW02']);
+    assert.equal(result.reused, false);
+});
+
 test('rejects an invalid PDF page hint before locating text', async () => {
     const attachment = {
         id: 42,
@@ -882,6 +1044,21 @@ test('locates MinerU LaTeX and statistical text in the PDF', async () => {
         STATISTICAL_PDF_PASSAGE,
     ]);
     assert.equal(result.savedJSON.text, STATISTICAL_MARKDOWN_PASSAGE);
+});
+
+test('locates Markdown Greek formulas in PDF.js math text', async () => {
+    const markdownPassage = 'Raw Layer stores traces \\tau_{i} \\in '
+        + 'T_{train,k} collected from training.';
+    const pdfPassage = 'Raw Layer stores traces 𝜏𝑖 ∈ Ttrain,𝑘 '
+        + 'collected from training.';
+    const result = await createAnnotationWithNormalizedPDFSearch(
+        markdownPassage,
+        pdfPassage
+    );
+
+    assert.equal(result.created.id, 'SYNC0001');
+    assert.deepEqual(result.queries, [markdownPassage, pdfPassage]);
+    assert.equal(result.savedJSON.text, markdownPassage);
 });
 
 test('locates PDF.js text with spaces around a degree unit', async () => {

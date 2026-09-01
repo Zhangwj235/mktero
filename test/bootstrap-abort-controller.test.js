@@ -15,6 +15,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { JSDOM } from 'jsdom';
+import { EditorView } from '@codemirror/view';
 import {
     createMinerUCacheKey,
     createZoteroMarkdownCache,
@@ -792,6 +793,144 @@ test('uses the language menu without changing the default translation language',
     )).getAttribute('data-translation-status'), 'complete');
     assert.ok(errors.some(error => error?.name === 'AbortError'));
     assert.ok(errors.every(error => !String(error).includes('test-token')));
+
+    providerReplies.push(body => JSON.stringify(
+        JSON.parse(body.messages.at(-1).content).map(entry => ({
+            id: entry.id,
+            translatedMarkdown: '# 수정된 논문',
+        }))
+    ));
+    shadow.querySelector('[data-translation-view="original"]').click();
+    shadow.querySelector('#mktero-correction-toggle').click();
+    const editorElement = shadow.querySelector('.cm-editor');
+    const editorView = EditorView.findFromDOM(editorElement);
+    editorView.posAtCoords = () => 3;
+    const content = shadow.querySelector('.cm-content');
+    content.dispatchEvent(new mainWindow.document.defaultView.MouseEvent(
+        'dblclick', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+        }
+    ));
+    assert.equal(content.getAttribute('contenteditable'), 'true');
+    editorView.dispatch({
+        changes: { from: 2, to: 7, insert: 'Study' },
+    });
+    const saveCorrection = shadow.querySelector(
+        '.mktero-correction-editor-save'
+    );
+    assert.equal(saveCorrection.disabled, false);
+    const errorsBeforeCorrection = errors.length;
+    saveCorrection.click();
+    const correctionConfirmation = await waitFor(() => shadow.querySelector(
+        '.mktero-confirmation-dialog'
+    ));
+    assert.equal(
+        correctionConfirmation.querySelector(
+            '.mktero-confirmation-title'
+        ).textContent,
+        'Retranslate changed block?'
+    );
+    correctionConfirmation.querySelector(
+        '[data-confirmation-action="confirm"]'
+    ).click();
+    const correctionRequest = await waitFor(() => providerRequests[6]);
+    assert.deepEqual(
+        JSON.parse(correctionRequest.body.messages.at(-1).content).map(
+            entry => entry.sourceMarkdown
+        ),
+        ['# Study']
+    );
+    await waitFor(() => shadow.querySelector(
+        '#mktero-translate-document'
+    )?.getAttribute('aria-busy') === 'false');
+    const correctedCached = await cache.getTranslationByLanguage(
+        cacheKey,
+        'ko-KR'
+    );
+    assert.equal(correctedCached.translatedMarkdown, '# 수정된 논문',
+        JSON.stringify(errors.slice(errorsBeforeCorrection).map(error => (
+            error?.message || String(error)
+        ))));
+
+    mainWindow.Zotero_Tabs.close('tab-1');
+    activeMainWindow = mainWindow;
+    toolbarButtons[0].click();
+    const reopenedRoot = await waitFor(() => mainWindow.tabRoot('tab-2'));
+    const reopenedShadow = reopenedRoot.shadowRoot;
+    const reopenedTranslatedMode = reopenedShadow.querySelector(
+        '[data-translation-view="translated"]'
+    );
+    await waitFor(() => reopenedTranslatedMode.textContent === 'Korean');
+    reopenedTranslatedMode.click();
+    reopenedShadow.querySelector(
+        '[data-translation-language="ko-KR"]'
+    ).click();
+    await waitFor(() => reopenedShadow.querySelector(
+        '.cm-content'
+    ).textContent.includes('수정된 논문'));
+    assert.match(
+        reopenedShadow.querySelector('.cm-content').textContent,
+        /수정된 논문/
+    );
+    assert.equal(providerRequests.length, 7);
+
+    await t.test(
+        'restores cached translation after restoring all corrections',
+        async () => {
+            await putCachedTranslation(cache, cacheKey, markdown, {
+                targetLanguage: 'ko-KR',
+                translatedMarkdown: '# 한국어 논문',
+            });
+            mainWindow.Zotero_Tabs.close('tab-2');
+            toolbarButtons[0].click();
+            const restoredRoot = await waitFor(() => (
+                mainWindow.tabRoot('tab-3')
+            ));
+            const restoredShadow = restoredRoot.shadowRoot;
+            const restoreTranslate = restoredShadow.querySelector(
+                '#mktero-translate-document'
+            );
+            await waitFor(() => restoredShadow.querySelector(
+                '.cm-content'
+            ).textContent.includes('Study'));
+            assert.equal(restoreTranslate.hidden, true);
+            assert.equal(providerRequests.length, 7);
+
+            restoredShadow.querySelector('#mktero-document-actions').click();
+            const restoreCorrections = restoredShadow.querySelector(
+                '#mktero-restore-corrections'
+            );
+            assert.equal(restoreCorrections.hidden, false);
+            assert.equal(restoreCorrections.disabled, false);
+            restoreCorrections.click();
+            const restoreConfirmation = await waitFor(() => (
+                restoredShadow.querySelector('.mktero-confirmation-dialog')
+            ));
+            restoreConfirmation.querySelector(
+                '[data-confirmation-action="confirm"]'
+            ).click();
+
+            const restoredTranslatedMode = restoredShadow.querySelector(
+                '[data-translation-view="translated"]'
+            );
+            await waitFor(() => restoredTranslatedMode.textContent
+                === 'Korean');
+            await waitFor(() => restoredTranslatedMode.disabled === false);
+            assert.equal(restoreTranslate.hidden, true);
+            restoredTranslatedMode.click();
+            const restoredChineseOption = restoredShadow.querySelector(
+                '[data-translation-language="zh-CN"]'
+            );
+            await waitFor(() => restoredChineseOption.disabled === false);
+            restoredChineseOption.click();
+            await waitFor(() => restoredShadow.querySelector(
+                '.cm-content'
+            ).textContent.includes('论文'));
+            assert.equal(providerRequests.length, 7);
+        }
+    );
 
     const targetObserverID = preferenceObservers.get(
         'extensions.mktero.aiTargetLanguage'

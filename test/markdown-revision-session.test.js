@@ -111,6 +111,192 @@ test('commits a paragraph correction and downgrades only its source mapping', as
     );
 });
 
+test('maps an unchanged annotation while correcting text around it', async () => {
+    const session = await openMarkdownRevisionSession({
+        baseDocument: createBaseDocument(),
+        store: createMemoryStore(),
+    });
+    const initial = session.snapshot();
+    const paragraph = initial.editableBlocks.find(block => (
+        block.originalMarkdown.includes('5O participants')
+    ));
+    const annotationFrom = initial.markdown.indexOf('participants');
+    const replacementMarkdown = 'Updated: The study included 50 participants.';
+    const mappedFrom = paragraph.from
+        + replacementMarkdown.indexOf('participants');
+
+    const corrected = await session.commit({
+        blockID: paragraph.id,
+        replacementMarkdown,
+        annotationRanges: [{
+            id: 'mktero-local-1',
+            source: 'markdown',
+            rangeIndex: 0,
+            from: annotationFrom,
+            to: annotationFrom + 'participants'.length,
+        }],
+        mappedAnnotationRanges: [{
+            id: 'mktero-local-1',
+            source: 'markdown',
+            rangeIndex: 0,
+            from: mappedFrom,
+            to: mappedFrom + 'participants'.length,
+        }],
+    });
+
+    assert.deepEqual(corrected.annotationRangeMappings, [{
+        id: 'mktero-local-1',
+        source: 'markdown',
+        rangeIndex: 0,
+        oldFrom: annotationFrom,
+        oldTo: annotationFrom + 'participants'.length,
+        from: mappedFrom,
+        to: mappedFrom + 'participants'.length,
+    }]);
+});
+
+test('rejects a correction that changes annotated text', async () => {
+    const session = await openMarkdownRevisionSession({
+        baseDocument: createBaseDocument(),
+        store: createMemoryStore(),
+    });
+    const initial = session.snapshot();
+    const paragraph = initial.editableBlocks.find(block => (
+        block.originalMarkdown.includes('5O participants')
+    ));
+    const annotationFrom = initial.markdown.indexOf('5O');
+
+    await assert.rejects(
+        () => session.commit({
+            blockID: paragraph.id,
+            replacementMarkdown: 'The study included 50 participants.',
+            annotationRanges: [{
+                id: 'mktero-local-1',
+                source: 'markdown',
+                rangeIndex: 0,
+                from: annotationFrom,
+                to: annotationFrom + 2,
+            }],
+            mappedAnnotationRanges: [{
+                id: 'mktero-local-1',
+                source: 'markdown',
+                rangeIndex: 0,
+                from: annotationFrom,
+                to: annotationFrom + 2,
+            }],
+        }),
+        error => error?.code === 'MARKDOWN_ANNOTATION_PROTECTED'
+    );
+    assert.equal(session.snapshot().correctionCount, 0);
+
+    const participantFrom = initial.markdown.indexOf('participants');
+    await assert.rejects(
+        () => session.commit({
+            blockID: paragraph.id,
+            replacementMarkdown: '',
+            annotationRanges: [{
+                id: 'mktero-local-2',
+                source: 'markdown',
+                rangeIndex: 0,
+                from: participantFrom,
+                to: participantFrom + 'participants'.length,
+            }],
+        }),
+        error => error?.code === 'MARKDOWN_ANNOTATION_PROTECTED'
+    );
+
+    const afterAnnotationDeletion = await session.commit({
+        blockID: paragraph.id,
+        replacementMarkdown: 'The study included 50 participants.',
+    });
+    assert.equal(afterAnnotationDeletion.correctionCount, 1);
+});
+
+test('blocks restore only when it would change annotated corrected text', async () => {
+    const session = await openMarkdownRevisionSession({
+        baseDocument: createBaseDocument(),
+        store: createMemoryStore(),
+    });
+    const paragraph = session.snapshot().editableBlocks.find(block => (
+        block.originalMarkdown.includes('5O participants')
+    ));
+    const replacementMarkdown = 'The study included 50 participants.';
+    const corrected = await session.commit({
+        blockID: paragraph.id,
+        replacementMarkdown,
+    });
+    const correctedValueFrom = corrected.markdown.indexOf('50');
+
+    await assert.rejects(
+        () => session.restore(paragraph.id, {
+            annotationRanges: [{
+                id: 'mktero-local-1',
+                source: 'markdown',
+                rangeIndex: 0,
+                from: correctedValueFrom,
+                to: correctedValueFrom + 2,
+            }],
+        }),
+        error => error?.code === 'MARKDOWN_ANNOTATION_PROTECTED'
+    );
+    assert.equal(session.snapshot().correctionCount, 1);
+
+    const participantFrom = corrected.markdown.indexOf('participants');
+    const restored = await session.restore(paragraph.id, {
+        annotationRanges: [{
+            id: 'mktero-local-2',
+            source: 'markdown',
+            rangeIndex: 0,
+            from: participantFrom,
+            to: participantFrom + 'participants'.length,
+        }],
+    });
+    assert.equal(restored.correctionCount, 0);
+    assert.equal(
+        restored.markdown.slice(
+            restored.annotationRangeMappings[0].from,
+            restored.annotationRangeMappings[0].to
+        ),
+        'participants'
+    );
+});
+
+test('keeps every correction when restore-all conflicts with an annotation', async () => {
+    const session = await openMarkdownRevisionSession({
+        baseDocument: createBaseDocument(),
+        store: createMemoryStore(),
+    });
+    const initial = session.snapshot();
+    const heading = initial.editableBlocks.find(block => block.type === 'heading');
+    const paragraph = initial.editableBlocks.find(block => (
+        block.originalMarkdown.includes('5O participants')
+    ));
+    await session.commit({
+        blockID: heading.id,
+        replacementMarkdown: '# Updated Study',
+    });
+    const corrected = await session.commit({
+        blockID: paragraph.id,
+        replacementMarkdown: 'The study included 50 participants.',
+    });
+    const annotatedFrom = corrected.markdown.indexOf('50');
+
+    await assert.rejects(
+        () => session.restoreAll({
+            annotationRanges: [{
+                id: 'mktero-local-1',
+                source: 'markdown',
+                rangeIndex: 0,
+                from: annotatedFrom,
+                to: annotatedFrom + 2,
+            }],
+        }),
+        error => error?.code === 'MARKDOWN_ANNOTATION_PROTECTED'
+    );
+    assert.equal(session.snapshot().correctionCount, 2);
+    assert.match(session.snapshot().markdown, /50 participants/);
+});
+
 test('deletes a Markdown block and persists the deletion across sessions', async () => {
     const store = createMemoryStore();
     const baseDocument = createBaseDocument();
@@ -193,6 +379,44 @@ test('persists table cell corrections across sessions', async () => {
 
     assert.match(reopened.snapshot().markdown, /\| Accuracy \| 90% \|/);
     assert.equal(reopened.snapshot().correctionCount, 1);
+});
+
+test('maps an annotated table cell while another cell is corrected', async () => {
+    const markdown = [
+        '| Metric | Value | Note |',
+        '| --- | --- | --- |',
+        '| Accuracy | 9O% | Keep this |',
+    ].join('\n');
+    const baseDocument = {
+        ...createBaseDocument(),
+        markdown,
+        sourceMap: [],
+    };
+    const session = await openMarkdownRevisionSession({
+        baseDocument,
+        store: createMemoryStore(),
+    });
+    const table = session.snapshot().editableBlocks[0];
+    const annotationFrom = markdown.indexOf('Keep this');
+    const replacementMarkdown = markdown.replace('9O%', '90%');
+
+    const corrected = await session.commit({
+        blockID: table.id,
+        replacementMarkdown,
+        annotationRanges: [{
+            id: 'mktero-local-1',
+            source: 'markdown',
+            rangeIndex: 0,
+            from: annotationFrom,
+            to: annotationFrom + 'Keep this'.length,
+        }],
+    });
+
+    const mapping = corrected.annotationRangeMappings[0];
+    assert.equal(
+        corrected.markdown.slice(mapping.from, mapping.to),
+        'Keep this'
+    );
 });
 
 test('rejects structural and unsafe replacements', async () => {
@@ -376,10 +600,77 @@ test('restores all corrections without changing the immutable base', async () =>
     assert.equal(restored.correctionCount, 0);
 });
 
-test('does not expose formula blocks for correction', async () => {
+test('edits prose in a formula block while preserving the formula', async () => {
     const baseDocument = {
         ...createBaseDocument(),
-        markdown: 'The value is $E = mc^2$.\n\nPlain recognition text.',
+        markdown: 'The value is $E = mc^2$ for 5O participants.',
+        sourceMap: [],
+    };
+    const session = await openMarkdownRevisionSession({
+        baseDocument,
+        store: createMemoryStore(),
+    });
+    const block = session.snapshot().editableBlocks[0];
+    const formulaFrom = baseDocument.markdown.indexOf('$E = mc^2$');
+
+    assert.equal(block.markdown, baseDocument.markdown);
+    assert.deepEqual(block.protectedRanges, [{
+        from: formulaFrom,
+        to: formulaFrom + '$E = mc^2$'.length,
+    }]);
+
+    const corrected = await session.commit({
+        blockID: block.id,
+        replacementMarkdown: 'The value is $E = mc^2$ for 50 participants.',
+    });
+
+    assert.equal(
+        corrected.markdown,
+        'The value is $E = mc^2$ for 50 participants.'
+    );
+});
+
+test('rejects formula changes made through the revision session', async () => {
+    const baseDocument = {
+        ...createBaseDocument(),
+        markdown: 'The value is $E = mc^2$ for 5O participants.',
+        sourceMap: [],
+    };
+    const session = await openMarkdownRevisionSession({
+        baseDocument,
+        store: createMemoryStore(),
+    });
+    const block = session.snapshot().editableBlocks[0];
+
+    await assert.rejects(session.commit({
+        blockID: block.id,
+        replacementMarkdown: 'The value is $E = mc^3$ for 50 participants.',
+    }), /Formulas cannot be changed/);
+    await assert.rejects(session.commit({
+        blockID: block.id,
+        replacementMarkdown: 'The value is 50 participants.',
+    }), /Formulas cannot be changed/);
+
+    const plainDocument = {
+        ...baseDocument,
+        markdown: 'The value is 5O participants.',
+    };
+    const plainSession = await openMarkdownRevisionSession({
+        baseDocument: plainDocument,
+        store: createMemoryStore(),
+    });
+    await assert.rejects(plainSession.commit({
+        blockID: plainSession.snapshot().editableBlocks[0].id,
+        replacementMarkdown: 'The value is $E = mc^2$ for 50 participants.',
+    }), /Formulas cannot be added/);
+});
+
+test('keeps a formula-only block out of correction editing', async () => {
+    const formula = '$E = mc^2$';
+    const plain = 'Plain recognition text.';
+    const baseDocument = {
+        ...createBaseDocument(),
+        markdown: [formula, plain].join('\n\n'),
         sourceMap: [],
     };
     const session = await openMarkdownRevisionSession({
@@ -389,7 +680,81 @@ test('does not expose formula blocks for correction', async () => {
 
     assert.deepEqual(
         session.snapshot().editableBlocks.map(block => block.markdown),
-        ['Plain recognition text.']
+        [plain]
+    );
+});
+
+test('adds protected formula blocks when reopening a legacy revision', async () => {
+    const store = createMemoryStore();
+    const heading = '# Study';
+    const formula = 'The value is $E = mc^2$.';
+    const conclusion = 'Conclusion.';
+    const markdown = [heading, formula, conclusion].join('\n\n');
+    const conclusionFrom = markdown.indexOf(conclusion);
+    const conclusionID = [
+        'block-1-',
+        conclusionFrom,
+        '-',
+        conclusionFrom + conclusion.length,
+        '-paragraph',
+    ].join('');
+    const baseDocument = {
+        ...createBaseDocument(),
+        markdown,
+        sourceMap: [],
+    };
+    store.setSaved({
+        schemaVersion: 1,
+        base: baseDocument,
+        blocks: [{
+            id: `block-0-0-${heading.length}-heading`,
+            type: 'heading',
+            baseFrom: 0,
+            baseTo: heading.length,
+            originalMarkdown: heading,
+        }, {
+            id: conclusionID,
+            type: 'paragraph',
+            baseFrom: conclusionFrom,
+            baseTo: conclusionFrom + conclusion.length,
+            originalMarkdown: conclusion,
+        }],
+        corrections: [{
+            blockID: conclusionID,
+            originalMarkdown: conclusion,
+            replacementMarkdown: 'Finding.',
+            updatedAt: 1_786_320_000_000,
+        }],
+    });
+
+    const session = await openMarkdownRevisionSession({ baseDocument, store });
+    const snapshot = session.snapshot();
+
+    assert.equal(snapshot.markdown, [heading, formula, 'Finding.'].join('\n\n'));
+    assert.equal(snapshot.correctionCount, 1);
+    assert.ok(snapshot.editableBlocks.some(block => (
+        block.markdown === formula && block.protectedRanges?.length === 1
+    )));
+
+    const tampered = store.getSaved();
+    const formulaFrom = markdown.indexOf(formula);
+    tampered.corrections = [{
+        blockID: [
+            'formula-block-',
+            formulaFrom,
+            '-',
+            formulaFrom + formula.length,
+            '-paragraph',
+        ].join(''),
+        originalMarkdown: formula,
+        replacementMarkdown: 'Measured $E = mc^2$.',
+        updatedAt: 1_786_320_000_001,
+    }];
+    store.setSaved(tampered);
+
+    await assert.rejects(
+        () => openMarkdownRevisionSession({ baseDocument, store }),
+        /Invalid saved Markdown correction/
     );
 });
 

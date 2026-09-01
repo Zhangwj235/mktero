@@ -209,6 +209,59 @@ export class MarkdownCache {
         }
     }
 
+    getTranslationByLanguage(cacheKey, targetLanguage) {
+        validateCacheKey(cacheKey);
+        validateTargetLanguage(targetLanguage);
+        return this.#withOperation(() => this.#getTranslationByLanguage(
+            cacheKey,
+            targetLanguage
+        ));
+    }
+
+    async #getTranslationByLanguage(cacheKey, targetLanguage) {
+        const entryPath = this.#entryPath(cacheKey);
+        const metadataPath = this.path.join(entryPath, METADATA_FILE);
+        if (!(await this.io.exists(metadataPath))) return null;
+        let metadata;
+        try {
+            metadata = JSON.parse(await this.io.readUTF8(metadataPath));
+            validateMetadata(metadata, cacheKey, this.maxSourceMapBytes);
+            metadata = await this.#repairInvalidTranslationMetadata(
+                entryPath,
+                metadataPath,
+                metadata
+            );
+        }
+        catch {
+            return null;
+        }
+        const descriptors = metadata.translations || [];
+        let descriptor = null;
+        for (let index = descriptors.length - 1; index >= 0; index--) {
+            if (descriptors[index].targetLanguage === targetLanguage) {
+                descriptor = descriptors[index];
+                break;
+            }
+        }
+        if (!descriptor) return null;
+        try {
+            const record = await this.#readTranslationRecord(
+                entryPath,
+                descriptor
+            );
+            return translationValue(record);
+        }
+        catch {
+            await this.#removeTranslationReference(
+                entryPath,
+                metadataPath,
+                metadata,
+                descriptor.translationKey
+            ).catch(() => {});
+            return null;
+        }
+    }
+
     putTranslation(cacheKey, translationKey, translation) {
         validateCacheKey(cacheKey);
         validateCacheKey(translationKey);
@@ -273,9 +326,7 @@ export class MarkdownCache {
             });
             const previousTranslations = metadata.translations || [];
             const retainedTranslations = previousTranslations
-                .filter(descriptor => descriptor.targetLanguage
-                    !== translation.targetLanguage
-                    && descriptor.translationKey !== translationKey)
+                .filter(descriptor => descriptor.translationKey !== translationKey)
                 .slice(-(MAX_TRANSLATION_VARIANTS - 1));
             const translations = [
                 ...retainedTranslations,
@@ -566,7 +617,7 @@ export class MarkdownCache {
             if (isSafeTranslationFile(file)) rejectedFiles.add(file);
         }
         const acceptedFiles = new Set();
-        const acceptedLanguages = new Set();
+        const acceptedKeys = new Set();
         for (const candidate of candidates) {
             let descriptor = candidate;
             if (legacy && isValidTranslationDescriptor(candidate, {
@@ -593,7 +644,7 @@ export class MarkdownCache {
             });
             if (!valid
                 || acceptedFiles.has(descriptor.translationFile)
-                || acceptedLanguages.has(descriptor.targetLanguage)) {
+                || acceptedKeys.has(descriptor.translationKey)) {
                 if (isSafeTranslationFile(candidate?.translationFile)) {
                     rejectedFiles.add(candidate.translationFile);
                 }
@@ -606,7 +657,7 @@ export class MarkdownCache {
                 targetLanguage: descriptor.targetLanguage,
             });
             acceptedFiles.add(descriptor.translationFile);
-            acceptedLanguages.add(descriptor.targetLanguage);
+            acceptedKeys.add(descriptor.translationKey);
         }
         for (const file of acceptedFiles) rejectedFiles.delete(file);
         const nextMetadata = withTranslationReferences(metadata, translations);
@@ -871,6 +922,28 @@ function validateTranslationValue(value) {
         }
     }
     const blockIDs = new Set(value.blocks.map(block => block.id));
+    if (value.sourceBlocks !== undefined) {
+        if (!Array.isArray(value.sourceBlocks)
+            || value.sourceBlocks.length !== value.blocks.length) {
+            throw new Error('Invalid cached Markdown translation sources');
+        }
+        const sourceBlockIDs = new Set();
+        for (const block of value.sourceBlocks) {
+            if (typeof block?.id !== 'string'
+                || !blockIDs.has(block.id)
+                || sourceBlockIDs.has(block.id)
+                || typeof block.markdown !== 'string') {
+                throw new Error('Invalid cached Markdown translation source');
+            }
+            sourceBlockIDs.add(block.id);
+        }
+    }
+    if (value.settingsIdentity !== undefined
+        && (typeof value.settingsIdentity !== 'string'
+            || !value.settingsIdentity
+            || value.settingsIdentity.length > 8_192)) {
+        throw new Error('Invalid cached translation settings identity');
+    }
     const failedIDs = new Set();
     for (const failure of failedBlocks) {
         if (typeof failure?.id !== 'string'
@@ -885,13 +958,27 @@ function validateTranslationValue(value) {
 
 function translationValue(value) {
     const failedBlocks = value.failedBlocks ?? [];
+    const sourceBlocks = Array.isArray(value.sourceBlocks)
+        ? value.sourceBlocks
+        : null;
     return {
         translatedMarkdown: value.translatedMarkdown,
-        comparisonMarkdown: value.comparisonMarkdown,
+        // The comparison view is rebuilt from source and translated blocks.
+        comparisonMarkdown: sourceBlocks ? '' : value.comparisonMarkdown,
         blocks: value.blocks.map(block => ({
             id: block.id,
             markdown: block.markdown,
         })),
+        ...(sourceBlocks ? {
+            sourceBlocks: sourceBlocks.map(block => ({
+                id: block.id,
+                markdown: block.markdown,
+            })),
+        } : {}),
+        ...(typeof value.settingsIdentity === 'string'
+            && value.settingsIdentity ? {
+                settingsIdentity: value.settingsIdentity,
+            } : {}),
         model: value.model,
         targetLanguage: value.targetLanguage,
         promptVersion: value.promptVersion,
@@ -901,6 +988,14 @@ function translationValue(value) {
             message: failure.message,
         })),
     };
+}
+
+function validateTargetLanguage(targetLanguage) {
+    if (typeof targetLanguage !== 'string'
+        || !targetLanguage
+        || targetLanguage.length > 64) {
+        throw new TypeError('A translation target language is required');
+    }
 }
 
 function validateSourceMap(sourceMap, markdownLength, maxLocations) {

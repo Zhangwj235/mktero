@@ -45,6 +45,42 @@ test('previews a captioned image from its prose figure reference', () => {
     dom.window.close();
 });
 
+test('recognizes a single empty image followed by a pipe-separated Figure caption', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'The WikiSkill workspace is shown in (Figure 2).',
+        '',
+        '![](images/framework.jpg)  ',
+        'Figure 2 | Overview of the WikiSkill framework.',
+    ].join('\n');
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: path => `blob:mktero-${path}`,
+    });
+
+    const references = document.querySelectorAll(
+        '.cm-mktero-figure-reference'
+    );
+    assert.equal(references.length, 1);
+    assert.equal(references[0]?.textContent, 'Figure 2');
+    assert.equal(
+        document.querySelector('.cm-mktero-image img')?.getAttribute('src'),
+        'blob:mktero-images/framework.jpg'
+    );
+    assert.equal(
+        document.querySelector('.cm-mktero-image figcaption')?.textContent,
+        'Figure 2 | Overview of the WikiSkill framework.'
+    );
+    assert.equal(editor.getMarkdown(), markdown);
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('localizes figure reference controls', () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,

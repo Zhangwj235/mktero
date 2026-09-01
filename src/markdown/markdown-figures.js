@@ -3,11 +3,14 @@ import { parseGFMTableRow } from './markdown-tables.js';
 const ACADEMIC_REFERENCE_SPACE_SOURCE = '[\\p{Zs}\\t]';
 const ACADEMIC_REFERENCE_IDENTIFIER_SOURCE =
     '(?:s?\\d+[a-z]?|[ivxlcdm]+[a-z]?)';
+const ACADEMIC_FIGURE_CAPTION_SEPARATOR_SOURCE =
+    '(?:[.:：。]|[\\p{Zs}\\t]*[|｜])';
 const ACADEMIC_FIGURE_CAPTION_PATTERNS = [
     new RegExp(
         `^((?:(?:algorithm|chart|fig\\.?|figure|scheme|table)`
             + `${ACADEMIC_REFERENCE_SPACE_SOURCE}+`
-            + `${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE}[.:：。]`
+            + `${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE}`
+            + `${ACADEMIC_FIGURE_CAPTION_SEPARATOR_SOURCE}`
             + `|fig[.．]${ACADEMIC_REFERENCE_SPACE_SOURCE}+`
             + `${ACADEMIC_REFERENCE_IDENTIFIER_SOURCE}[.:：。]?))`
             + `${ACADEMIC_REFERENCE_SPACE_SOURCE}+(\\S[\\s\\S]*)$`,
@@ -202,7 +205,9 @@ export function findAcademicFigureGroups(markdown) {
         const caption = parseCaptionLine(lines[index].raw);
         if (caption) {
             const images = collectNearbyImages(lines, index + 1, blockedLines);
-            if (images.length > 1) {
+            if (images.length > 1
+                || (images.length === 1
+                    && isEmptyImageLine(lines[images[0].index].raw))) {
                 groups.push({
                     from: lines[index].from,
                     to: lines[images.at(-1).index].to,
@@ -216,7 +221,9 @@ export function findAcademicFigureGroups(markdown) {
 
         if (!isMarkdownImageLine(lines[index].raw)) continue;
         const images = collectNearbyImages(lines, index, blockedLines);
-        if (images.length < 2) continue;
+        const singleEmptyImage = images.length === 1
+            && isEmptyImageLine(lines[images[0].index].raw);
+        if (images.length < 2 && !singleEmptyImage) continue;
 
         const embeddedCaptions = images
             .map(image => captionFromImageLine(lines[image.index].raw))
@@ -254,6 +261,10 @@ export function findAcademicFigureGroups(markdown) {
     }
 
     return groups;
+}
+
+function isEmptyImageLine(line) {
+    return EMPTY_IMAGE_LINE_PATTERN.test(line || '');
 }
 
 export function findAcademicFigures(markdown) {

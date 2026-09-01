@@ -159,6 +159,16 @@ export class RenderedTableWidget extends WidgetType {
         const columnCount = model.header.length;
         const values = [model.header, ...model.body].flat();
         cells.forEach((cell, index) => {
+            const protection = this.#cellProtection(model.cellRanges[index]);
+            if (protection) {
+                if (protection.kind === 'annotation') {
+                    cell.setAttribute(
+                        'title',
+                        this.translate('revision.annotationProtected')
+                    );
+                }
+                return;
+            }
             this.#configureCell(cell, {
                 model,
                 values,
@@ -166,6 +176,17 @@ export class RenderedTableWidget extends WidgetType {
                 columnCount,
             });
         });
+    }
+
+    #cellProtection(range) {
+        if (!range || !Array.isArray(this.correctionBlock?.protectedRanges)) {
+            return null;
+        }
+        const from = this.correctionBlock.from + range.from;
+        const to = this.correctionBlock.from + range.to;
+        return this.correctionBlock.protectedRanges.find(protectedRange => (
+            protectedRange?.from < to && protectedRange?.to > from
+        )) || null;
     }
 
     #configureCell(cell, { model, values, index, columnCount }) {
@@ -356,10 +377,13 @@ export function createTableCaption(document, caption) {
 }
 
 function parseGFMTable(source) {
-    const lines = String(source).trim().split(/\r?\n/);
+    const value = String(source);
+    const trimmed = value.trim();
+    const sourceOffset = value.indexOf(trimmed);
+    const lines = tableSourceLines(trimmed, sourceOffset);
     if (lines.length < 2) return null;
-    const header = parseGFMTableRow(lines[0]);
-    const separator = parseGFMTableRow(lines[1]);
+    const header = parseGFMTableRow(lines[0].text);
+    const separator = parseGFMTableRow(lines[1].text);
     if (!header.length || separator.length !== header.length) return null;
     const alignment = separator.map(cell => {
         const value = cell.trim();
@@ -370,12 +394,74 @@ function parseGFMTable(source) {
         return 'none';
     });
     if (alignment.includes(null)) return null;
+    const headerRanges = tableRowCellRanges(lines[0]);
+    const bodyRanges = [];
     const body = lines.slice(2).map(line => {
-        const row = parseGFMTableRow(line);
+        const row = parseGFMTableRow(line.text);
+        const ranges = tableRowCellRanges(line);
         while (row.length < header.length) row.push('');
+        while (ranges.length < header.length) ranges.push(null);
+        bodyRanges.push(ranges.slice(0, header.length));
         return row.slice(0, header.length);
     });
-    return { header, alignment, body };
+    return {
+        header,
+        alignment,
+        body,
+        cellRanges: [
+            ...headerRanges.slice(0, header.length),
+            ...bodyRanges.flat(),
+        ],
+    };
+}
+
+function tableSourceLines(source, sourceOffset) {
+    const lines = [];
+    let from = 0;
+    while (from < source.length) {
+        const newline = source.indexOf('\n', from);
+        const rawTo = newline === -1 ? source.length : newline;
+        const to = rawTo > from && source[rawTo - 1] === '\r'
+            ? rawTo - 1
+            : rawTo;
+        lines.push({
+            text: source.slice(from, to),
+            from: sourceOffset + from,
+        });
+        if (newline === -1) break;
+        from = newline + 1;
+    }
+    return lines;
+}
+
+function tableRowCellRanges(line) {
+    const leadingWhitespace = line.text.match(/^\s*/)?.[0].length || 0;
+    const trailingWhitespace = line.text.match(/\s*$/)?.[0].length || 0;
+    const trimmedTo = line.text.length - trailingWhitespace;
+    const source = line.text.slice(leadingWhitespace, trimmedTo);
+    if (!source.includes('|')) return [];
+    let from = source.startsWith('|') ? 1 : 0;
+    let to = source.length;
+    if (source.endsWith('|') && !source.endsWith('\\|')) to--;
+    const ranges = [];
+    let cellFrom = from;
+    for (let index = from; index < to; index++) {
+        if (source[index] === '\\' && source[index + 1] === '|') {
+            index++;
+            continue;
+        }
+        if (source[index] !== '|') continue;
+        ranges.push({
+            from: line.from + leadingWhitespace + cellFrom,
+            to: line.from + leadingWhitespace + index,
+        });
+        cellFrom = index + 1;
+    }
+    ranges.push({
+        from: line.from + leadingWhitespace + cellFrom,
+        to: line.from + leadingWhitespace + to,
+    });
+    return ranges;
 }
 
 function serializeGFMTable(table) {
