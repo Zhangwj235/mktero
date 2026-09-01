@@ -33,6 +33,34 @@ test('maps a prose figure reference to a uniquely captioned image', () => {
     }]);
 });
 
+test('maps Figure references to captions that use a pipe separator', () => {
+    const markdown = [
+        'The WikiSkill workspace is shown in (Figure 2).',
+        '',
+        '![](images/framework.jpg)',
+        'Figure 2 | Overview of the WikiSkill framework.',
+    ].join('\n');
+
+    const result = analyzeMarkdownFigureReferences(markdown);
+
+    assert.deepEqual(result.targets.map(target => ({
+        id: target.id,
+        label: target.label,
+        caption: target.caption,
+    })), [{
+        id: 'figure:2',
+        label: 'Figure 2 |',
+        caption: 'Figure 2 | Overview of the WikiSkill framework.',
+    }]);
+    assert.deepEqual(result.references.map(reference => ({
+        text: markdown.slice(reference.from, reference.to),
+        targetId: reference.targetId,
+    })), [{
+        text: 'Figure 2',
+        targetId: 'figure:2',
+    }]);
+});
+
 test('maps a subfigure reference to its uniquely captioned parent figure', () => {
     const markdown = [
         'The first layer appears in (Fig. 1a).',

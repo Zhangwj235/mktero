@@ -124,6 +124,9 @@ MinerU content mappings connect Markdown blocks to physical PDF pages and
 regions. Source links and source-aware copy use those mappings when they are
 reliable; Mktero does not guess a location when a match is ambiguous. Markdown
 is rendered in an isolated shadow root with a restricted link and image policy.
+Academic figure captions are recognized in common publisher formats, including
+`Figure N | ...` captions that follow an empty MinerU image, so prose figure
+references remain previewable in cached documents.
 
 ### Correct recognition errors
 
