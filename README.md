@@ -10,18 +10,20 @@
 **Read Zotero PDFs as source-linked Markdown.**
 
 Mktero is a restartless Zotero extension for Zotero 7, 8, 9, and 10. It sends a
-local PDF to [MinerU](https://mineru.net/) when needed, then opens the
-resulting Markdown, formulas, tables, figures, citations, and annotations in a
-temporary, reading-first Zotero tab. A content-addressed local cache avoids
-repeating conversions for the same PDF.
+local PDF to your selected OCR service, [MinerU](https://mineru.net/) or
+[Mistral OCR 4.1](https://docs.mistral.ai/models/ocr-4-1), when needed, then
+opens the resulting Markdown, formulas, tables, figures, citations, and
+annotations in a temporary, reading-first Zotero tab. A content-addressed
+local cache avoids repeating conversions for the same PDF and parser profile.
 
 ![Mktero converting, reading, and annotating an academic PDF in Zotero](./docs/assets/mktero-demo.gif)
 
 > [!IMPORTANT]
-> Mktero is in beta. On a cache miss, the complete PDF is uploaded to MinerU,
-> so a MinerU API Token is required. Optional AI translation sends protected
-> Markdown batches to the provider configured by you. Review [Privacy and data
-> handling](#privacy-and-data-handling) before processing sensitive documents.
+> Mktero is in beta. On a cache miss, the complete PDF is sent to the selected
+> conversion provider, so configure either a MinerU API Token or a Mistral API
+> Key. Optional AI translation sends protected Markdown batches to the provider
+> configured by you. Review [Privacy and data handling](#privacy-and-data-handling)
+> before processing sensitive documents.
 
 Useful links: [Product page](https://tenglvjun.github.io/mktero/) ·
 [Download](https://github.com/tenglvjun/mktero/releases/latest) ·
@@ -44,7 +46,7 @@ Useful links: [Product page](https://tenglvjun.github.io/mktero/) ·
 - Display Zotero PDF highlights and underlines in Markdown, and create,
   recolor, comment on, or delete annotations.
 - Correct recognition errors in existing paragraphs, headings, and GFM table
-  cells without modifying the immutable MinerU result. Corrections can be
+  cells without modifying the immutable OCR result. Corrections can be
   reviewed, restored, or removed.
 - Translate a complete article through a configured Vercel AI SDK provider and
   switch between Original, Translation, and continuous Bilingual reading; look
@@ -66,12 +68,15 @@ Useful links: [Product page](https://tenglvjun.github.io/mktero/) ·
 
 - Desktop Zotero `7.0` through `10.0.*`
 - A PDF attachment downloaded and available as a local file
-- A [MinerU API Token](https://mineru.net/apiManage/token)
-- Network access to the MinerU API
+- A [MinerU API Token](https://mineru.net/apiManage/token) when MinerU is selected,
+  or a [Mistral API Key](https://console.mistral.ai/api-keys/) when Mistral is selected
+- Network access to the selected conversion API
 
-MinerU controls file-size, page-count, quota, and service-availability limits.
-See the [MinerU API documentation](https://mineru.net/apiManage/docs) for the
-current limits.
+MinerU and Mistral control file-size, page-count, quota, and service-availability
+limits. See the [MinerU API documentation](https://mineru.net/apiManage/docs) or
+[Mistral OCR documentation](https://docs.mistral.ai/studio/document-processing/basic_ocr)
+for current limits. Mktero checks Mistral's documented 50 MB PDF and 1,000-page
+limits before creating the Base64 request.
 
 ### Install
 
@@ -90,16 +95,20 @@ Open `Settings -> Mktero` after installation.
 
 | Setting | Required | Purpose |
 | --- | --- | --- |
-| MinerU API Token | Yes for a cache miss | Upload and convert PDFs with MinerU |
+| Conversion provider | Yes | Select MinerU or Mistral OCR 4.1 |
+| MinerU API Token | Required for a MinerU cache miss | Upload and convert PDFs with MinerU |
+| Mistral API Key | Required for a Mistral cache miss | Convert PDFs synchronously with Mistral OCR 4.1 |
 | AI features and provider settings | Optional | Translate Markdown through a hosted or loopback model service |
 | Translation language | Optional | Choose Simplified/Traditional Chinese, Japanese, Korean, Spanish, French, or Brazilian Portuguese |
 | Automatically translate Markdown selections | Optional, off by default | Translate a stable selection without an extra click; disabling it keeps the manual popup action |
 | Body text font and size | Optional | Choose the reading font and a 16–22 px body size |
 | Reuse conversion results | Optional | Reuse results for the same PDF content and parser profile |
 
-MinerU and AI credentials are stored as ordinary, unencrypted preferences in
-the active Zotero profile. Use `Test connection` to validate an AI endpoint
-before translating.
+MinerU, Mistral, and AI credentials are stored as ordinary, unencrypted
+preferences in the active Zotero profile. Mistral uses a synchronous request;
+it can be cancelled locally, but it has no resumable server task. MinerU keeps
+its existing resumable task behavior. Use `Test connection` to validate an AI
+endpoint before translating.
 
 ### Open a PDF
 
@@ -120,12 +129,12 @@ translation requests.
 
 ### Source-aware reading
 
-MinerU content mappings connect Markdown blocks to physical PDF pages and
+OCR content mappings connect Markdown blocks to physical PDF pages and
 regions. Source links and source-aware copy use those mappings when they are
 reliable; Mktero does not guess a location when a match is ambiguous. Markdown
 is rendered in an isolated shadow root with a restricted link and image policy.
 Academic figure captions are recognized in common publisher formats, including
-`Figure N | ...` captions that follow an empty MinerU image, so prose figure
+`Figure N | ...` captions that follow an empty OCR image, so prose figure
 references remain previewable in cached documents.
 
 ### Correct recognition errors
@@ -133,10 +142,10 @@ references remain previewable in cached documents.
 Double-click an existing paragraph, heading, or GFM table cell to edit it, then
 save or cancel explicitly. Existing paragraphs and headings can also be
 deleted and restored from `Manage corrections`. Corrections are stored
-separately from the conversion cache and are tied to the PDF content and MinerU
-parser profile. They cannot insert or reorder blocks, add images, or add raw
+separately from the conversion cache and are tied to the PDF content and the
+selected provider's parser profile. They cannot insert or reorder blocks, add images, or add raw
 HTML. Saving a correction preserves the reading position and keeps the full
-document available while scrolling. Prose around formulas and MinerU
+document available while scrolling. Prose around formulas and OCR
 dollar-wrapped citation tokens remains
 editable, while those tokens are protected from changes; a block containing
 protected content cannot be deleted as a whole. In rendered GFM tables, cells
@@ -273,7 +282,7 @@ include translated or bilingual views and never runs automatically.
 Local Zotero PDF
         |
         v
-MinerU conversion -----> Markdown + figures + content map
+Selected OCR provider -> Markdown + figures + content map
         |                               |
         v                               v
 Local content cache             Safe normalization/rendering
@@ -282,7 +291,7 @@ Local content cache             Safe normalization/rendering
                            Reading-first Mktero tab in Zotero
 ```
 
-PDFs, MinerU results, archives, image paths, API responses, and preferences are
+PDFs, OCR results, archives, image paths, API responses, and preferences are
 treated as untrusted input. Archives and Markdown are checked against resource
 budgets, archive paths are normalized, remote Markdown images are not loaded,
 and raw HTML is escaped or sanitized before rendering.
@@ -291,8 +300,8 @@ and raw HTML is escaped or sanitized before rendering.
 
 | Data | Sent to or stored in | Zotero sync |
 | --- | --- | --- |
-| Complete PDF on a cache miss | MinerU | Not by Mktero |
-| MinerU API Token and AI credentials | Active Zotero profile, unencrypted | No |
+| Complete PDF on a cache miss | Selected MinerU or Mistral provider | Not by Mktero |
+| MinerU/Mistral API credentials and AI credentials | Active Zotero profile, unencrypted | No |
 | Cached Markdown, figures, source maps, PDF indexes, corrections, and translations | Active Zotero profile, unencrypted | No |
 | Focused DOI/arXiv/OpenAlex identifiers and provider-specific candidate identifiers | Semantic Scholar, OpenCitations, or OpenAlex | Not by Mktero |
 | Bounded citation text after the user chooses `Import reference` for a title-only reference | OpenAlex | Not by Mktero |
@@ -327,8 +336,9 @@ for your use case.
 
 - Only local PDF attachments are supported. A scanned PDF may convert through
   OCR but still lacks the text layer needed for precise Zotero highlights.
-- Source navigation depends on the stable MinerU `*_content_list.json` format;
-  older cached results may remain readable without source links.
+- Source navigation depends on provider blocks and coordinates; older cached
+  results may remain readable without source links. MinerU and Mistral results
+  have independent parser profiles and caches.
 - Navigation currently goes from Markdown to PDF. Reverse navigation is not
   implemented.
 - Mktero displays text highlights and underlines, not standalone notes,
@@ -353,7 +363,8 @@ for your use case.
 
 In Zotero, open `Help -> Debug Output Logging`, enable logging, reproduce the
 problem, and filter for `Mktero:`. Confirm that the PDF is downloaded locally,
-the MinerU Token is valid, and the current network can reach MinerU. Logs do
+the selected provider's API credential is valid, and the current network can
+reach that provider. Logs do
 not contain API Tokens, presigned upload URLs, MinerU batch IDs, or PDF content.
 
 For a confirmed, reproducible bug, open a [GitHub Issue](https://github.com/tenglvjun/mktero/issues)

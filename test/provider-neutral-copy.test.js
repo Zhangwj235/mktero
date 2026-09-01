@@ -48,6 +48,16 @@ test('localizes known conversion errors and hides unknown internal messages', ()
     );
 });
 
+test('localizes Mistral conversion errors without exposing provider details', () => {
+    const localization = createLocalization({ zoteroLocale: 'en-US' });
+    const error = new Error('Mistral OCR returned HTTP 401 with secret details');
+    error.code = 'MISTRAL_API_KEY_INVALID';
+    assert.equal(
+        localizeConversionError(error, localization.t.bind(localization)),
+        'The API Token is invalid or expired. Update it in Settings -> Mktero.'
+    );
+});
+
 test('localizes fallback titles and conversion warnings', () => {
     const localization = createLocalization({ zoteroLocale: 'zh-CN' });
     const result = localizeConversionResult({
