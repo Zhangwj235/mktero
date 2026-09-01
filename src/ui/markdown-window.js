@@ -2691,11 +2691,14 @@ class MarkdownTabView {
     }
 
     setReaderFont(font) {
-        this.readerFont = normalizeMarkdownReaderFont(font);
+        const nextFont = normalizeMarkdownReaderFont(font);
+        const changed = nextFont !== this.readerFont;
+        this.readerFont = nextFont;
         this.host.style.setProperty(
             '--reader-font',
             getMarkdownReaderFontFamily(this.readerFont)
         );
+        if (changed) this.editor?.requestMeasure?.();
         if (!this.elements) return;
         this.syncReaderFontPicker();
     }
@@ -2883,11 +2886,14 @@ class MarkdownTabView {
     }
 
     setReaderFontSize(size) {
-        this.readerFontSize = normalizeMarkdownReaderFontSize(size);
+        const nextSize = normalizeMarkdownReaderFontSize(size);
+        const changed = nextSize !== this.readerFontSize;
+        this.readerFontSize = nextSize;
         this.host.style.setProperty(
             '--reader-font-size',
             `${this.readerFontSize}px`
         );
+        if (changed) this.editor?.requestMeasure?.();
         if (!this.elements) return;
         this.elements.readerFontValue.textContent = this.t(
             'viewer.textSizeValue',
@@ -2929,6 +2935,7 @@ class MarkdownTabView {
             if (!selected || selected.value === translation.selected.value) return;
             this.translationReaderFonts.set(translation.language, selected.value);
             this.syncReaderFontPicker();
+            this.editor?.requestMeasure?.();
             return;
         }
         const normalized = normalizeMarkdownReaderFont(font);

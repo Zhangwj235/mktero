@@ -2366,6 +2366,134 @@ test('does not start direct correction from an interactive link', () => {
     dom.window.close();
 });
 
+test('uses the clicked rendered line when CodeMirror coordinates lag behind',
+    async () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = [
+        'Keywords: wearable devices; ovulation.',
+        '',
+        'Copyright 2024 Authors. This long paragraph contains a URL '
+            + 'https://example.com/article and enough text to wrap across lines.',
+    ].join('\n');
+    const keywordsFrom = markdown.indexOf('Keywords');
+    const copyrightFrom = markdown.indexOf('Copyright');
+    const submissions = [];
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async correction => submissions.push(correction),
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'keywords',
+            type: 'paragraph',
+            from: keywordsFrom,
+            to: keywordsFrom + 'Keywords: wearable devices; ovulation.'.length,
+        }, {
+            id: 'copyright',
+            type: 'paragraph',
+            from: copyrightFrom,
+            to: markdown.length,
+        }],
+    });
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => copyrightFrom + 1;
+    const keywordLine = [...document.querySelectorAll('.cm-line')].find(line => (
+        line.textContent.startsWith('Keywords:')
+    ));
+    assert.ok(keywordLine);
+
+    keywordLine.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    view.dispatch({
+        changes: {
+            from: keywordsFrom,
+            to: keywordsFrom + 1,
+            insert: 'k',
+        },
+    });
+    document.querySelector('.mktero-correction-editor-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(submissions, [{
+        blockID: 'keywords',
+        replacementMarkdown: 'keywords: wearable devices; ovulation.',
+    }]);
+
+    const copyrightLine = [...document.querySelectorAll('.cm-line')].find(line => (
+        line.textContent.startsWith('Copyright')
+    ));
+    assert.ok(copyrightLine);
+    copyrightLine.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    assert.equal(
+        document.querySelector('.cm-content').getAttribute('contenteditable'),
+        'true'
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
+test('does not start correction from an open selection actions popup', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Select this Markdown text.';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: markdown.length,
+        }],
+    });
+    const line = document.querySelector('.cm-line');
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+    line.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+    }));
+    const popup = document.querySelector('.mktero-markdown-selection-actions');
+    assert.ok(popup);
+
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => 0;
+    popup.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    assert.equal(
+        document.querySelector('.cm-content').getAttribute('contenteditable'),
+        'false'
+    );
+
+    editor.destroy();
+    dom.window.close();
+});
+
 test('deletes a whole correction block after removing its final character', async () => {
     const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
         pretendToBeVisual: true,
@@ -5813,6 +5941,53 @@ test('previews a rendered image with zoom and drag controls', () => {
 
     editor.destroy();
     assert.equal(document.querySelector('.mktero-image-preview'), null);
+    dom.window.close();
+});
+
+test('does not start correction from the image preview stage', () => {
+    const dom = new JSDOM('<!doctype html><div id="editor"></div>', {
+        pretendToBeVisual: true,
+    });
+    const { document } = dom.window;
+    const markdown = 'Intro\n\n![Figure](images/figure.png)';
+    const editor = createInlineMarkdownEditor({
+        parent: document.querySelector('#editor'),
+        initialMarkdown: markdown,
+        resolveImageURL: () => 'blob:mktero-preview-figure',
+        onCommitCorrection: async () => {},
+    });
+    editor.setCorrectionState({
+        enabled: false,
+        blocks: [{
+            id: 'paragraph-1',
+            type: 'paragraph',
+            from: 0,
+            to: 'Intro'.length,
+        }],
+    });
+    const renderedImage = document.querySelector('.cm-mktero-image img');
+    renderedImage.dispatchEvent(new dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+    const stage = document.querySelector('.mktero-image-preview-stage');
+    assert.ok(stage);
+
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+    view.posAtCoords = () => 0;
+    stage.dispatchEvent(new dom.window.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+    }));
+
+    assert.equal(
+        document.querySelector('.cm-content').getAttribute('contenteditable'),
+        'false'
+    );
+
+    editor.destroy();
     dom.window.close();
 });
 

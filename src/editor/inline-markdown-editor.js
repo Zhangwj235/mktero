@@ -211,6 +211,7 @@ export function createInlineMarkdownEditor({
     const referenceFeatureList = Object.values(referenceFeatures);
     const interactionPopups = [
         annotationPopup,
+        imagePreview,
         ...referenceFeatureList.map(feature => feature.popup),
     ];
     const editingMode = new Compartment();
@@ -724,27 +725,49 @@ export function createInlineMarkdownEditor({
         if (event.button !== 0
             || tableCorrectionEditing
             || event.target?.closest?.('.cm-mktero-table')
+            || correctionToolbar?.contains?.(event.target)
+            || interactionPopups.some(popup => popup.contains(event.target))
             || isCorrectionInteractionTarget(event.target)) {
             return;
         }
         activateDOMGlobals(ownerWindow);
-        let position = view.posAtCoords?.({
+        const clickedLine = event.target?.closest?.('.cm-line');
+        let linePosition = null;
+        if (clickedLine) {
+            try {
+                linePosition = view.posAtDOM(clickedLine, 0);
+            }
+            catch {
+                linePosition = null;
+            }
+        }
+        let coordinatePosition = view.posAtCoords?.({
             x: event.clientX,
             y: event.clientY,
         });
-        if (!Number.isSafeInteger(position)) {
+        if (!Number.isSafeInteger(coordinatePosition)) {
             try {
-                position = view.posAtDOM(event.target, 0);
+                coordinatePosition = view.posAtDOM(event.target, 0);
             }
             catch {
-                return;
+                coordinatePosition = null;
             }
         }
-        const block = correctionBlocks.find(candidate => (
+        const blockAtPosition = position => correctionBlocks.find(candidate => (
             isEditableTextCorrectionBlock(candidate)
+            && Number.isSafeInteger(position)
             && position >= candidate.from
             && position <= candidate.to
         ));
+        const lineBlock = blockAtPosition(linePosition);
+        const coordinateBlock = blockAtPosition(coordinatePosition);
+        const block = lineBlock || coordinateBlock;
+        if (lineBlock && coordinateBlock !== lineBlock) {
+            coordinatePosition = linePosition;
+        }
+        const position = Number.isSafeInteger(coordinatePosition)
+            ? coordinatePosition
+            : linePosition;
         if (!block || !beginActiveCorrection(block, position)) return;
         event.preventDefault();
         event.stopPropagation();
@@ -1017,6 +1040,10 @@ export function createInlineMarkdownEditor({
         refreshRendering() {
             activateDOMGlobals(ownerWindow);
             view.dispatch({ effects: refreshInlineRendering.of(null) });
+        },
+        requestMeasure() {
+            activateDOMGlobals(ownerWindow);
+            view.requestMeasure();
         },
         destroy() {
             if (destroyed) return;
@@ -1340,6 +1367,9 @@ function createBlockCorrectionToolbar({
         setError(message) {
             errorMessage = message || '';
             syncStatus();
+        },
+        contains(target) {
+            return toolbar.contains(target);
         },
         destroy() {
             for (const { button, listener } of listeners) {

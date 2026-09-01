@@ -213,6 +213,9 @@ export function createImagePreview(parent, {
     return {
         open,
         close,
+        contains(target) {
+            return dialog?.contains(target) || false;
+        },
         destroy: close,
     };
 }

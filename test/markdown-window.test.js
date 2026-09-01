@@ -2370,6 +2370,37 @@ test('adjusts the persisted reader font size from the top toolbar', () => {
     }
 });
 
+test('refreshes editor geometry after reader typography changes', () => {
+    let measureRequests = 0;
+    const { view, shadow } = createView(createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper\n\nReadable text.',
+        sourceKind: 'markdown',
+    }), {}, {
+        editorFactory(options) {
+            const editor = createTestInlineEditor(options);
+            editor.requestMeasure = () => {
+                measureRequests++;
+            };
+            return editor;
+        },
+    });
+
+    try {
+        const initialRequests = measureRequests;
+        shadow.querySelector('#mktero-reader-font-increase').click();
+        view.setReaderFont('cambria');
+        view.setReaderFont('cambria');
+        view.setReaderFontSize(view.readerFontSize);
+
+        assert.equal(measureRequests, initialRequests + 2);
+    }
+    finally {
+        view.destroy();
+    }
+});
+
 test('selects a font from the top toolbar without opening document actions', () => {
     const persistedFonts = [];
     const { view, shadow } = createView(createModel({
@@ -2589,6 +2620,45 @@ test('offers fonts for the current language only in translated mode', () => {
             assert.deepEqual(optionValues(), expectedOptions, language);
             assert.equal(trigger.textContent.trim(), expectedLabel, language);
         }
+    }
+    finally {
+        view.destroy();
+    }
+});
+
+test('refreshes editor geometry after changing the translated font', () => {
+    let measureRequests = 0;
+    const translatedModel = createModel({
+        status: 'ready',
+        progress: 100,
+        markdown: '# Paper',
+        sourceKind: 'markdown',
+        translationStatus: 'ready',
+        translationView: 'translated',
+        translationTargetLanguage: 'zh-CN',
+        translatedMarkdown: '# 论文',
+        comparisonMarkdown: '# Paper\n\n# 论文',
+        onTranslateDocument: () => {},
+        onSetTranslationView: () => {},
+    });
+    const { view, shadow } = createView(translatedModel, {}, {
+        editorFactory(options) {
+            const editor = createTestInlineEditor(options);
+            editor.requestMeasure = () => {
+                measureRequests++;
+            };
+            return editor;
+        },
+    });
+
+    try {
+        const initialRequests = measureRequests;
+        const option = shadow.querySelector(
+            '[data-reader-font="source-han-serif-sc"]'
+        );
+        option.click();
+
+        assert.equal(measureRequests, initialRequests + 1);
     }
     finally {
         view.destroy();
