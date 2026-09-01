@@ -9,6 +9,8 @@ const READY_RESULT_FIELDS = [
     'assets',
     'assetBasePath',
     'sourceKind',
+    'provider',
+    'parserProfile',
     'cacheHit',
     'cacheKey',
     'sourceMap',
@@ -48,7 +50,17 @@ const READY_RESULT_FIELDS = [
 export function snapshotReadyResult(model) {
     if (model?.status !== 'ready') return null;
     const snapshot = {};
-    for (const field of READY_RESULT_FIELDS) snapshot[field] = model[field];
+    for (const field of READY_RESULT_FIELDS) {
+        if (field === 'provider' || field === 'parserProfile') {
+            const value = boundedIdentity(
+                model[field],
+                field === 'provider' ? 64 : 4_096
+            );
+            if (value) snapshot[field] = value;
+            continue;
+        }
+        if (model[field] !== undefined) snapshot[field] = model[field];
+    }
     snapshot.warnings = [...(model.warnings || [])];
     return snapshot;
 }
@@ -147,7 +159,7 @@ export function createTranslationLoadingChanges({
 }
 
 export function createConversionReadyChanges(result) {
-    return {
+    const changes = {
         assets: [],
         assetBasePath: '',
         cacheKey: null,
@@ -167,6 +179,15 @@ export function createConversionReadyChanges(result) {
         errorAction: null,
         warningAction: null,
     };
+    if (changes.provider !== undefined) {
+        changes.provider = boundedIdentity(changes.provider, 64);
+        if (!changes.provider) delete changes.provider;
+    }
+    if (changes.parserProfile !== undefined) {
+        changes.parserProfile = boundedIdentity(changes.parserProfile, 4_096);
+        if (!changes.parserProfile) delete changes.parserProfile;
+    }
+    return changes;
 }
 
 export function createConversionFailureChanges(
@@ -227,4 +248,14 @@ export function createEmptyTranslationState() {
         comparisonTranslationRanges: [],
         translationError: '',
     };
+}
+
+function boundedIdentity(value, maxLength) {
+    if (typeof value !== 'string'
+        || !value
+        || value.length > maxLength
+        || /[\u0000-\u001F\u007F]/.test(value)) {
+        return null;
+    }
+    return value;
 }

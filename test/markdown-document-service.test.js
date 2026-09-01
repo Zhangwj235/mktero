@@ -130,6 +130,8 @@ test('passes through Markdown produced by MinerU', async () => {
         extractor: {
             extract: async () => ({
                 kind: 'markdown',
+                provider: 'mineru',
+                parserProfile: 'mineru-profile-v1',
                 title: 'MinerU Paper',
                 markdown: '# Already Markdown\n\n| A | B |',
                 extractedPages: 2,
@@ -147,6 +149,8 @@ test('passes through Markdown produced by MinerU', async () => {
 
     assert.equal(result.markdown, '# Already Markdown\n\n| A | B |');
     assert.equal(result.sourceKind, 'markdown');
+    assert.equal(result.provider, 'mineru');
+    assert.equal(result.parserProfile, 'mineru-profile-v1');
     assert.equal(result.cacheHit, true);
     assert.equal(result.resumedTask, true);
     assert.equal(result.cacheKey, 'a'.repeat(64));

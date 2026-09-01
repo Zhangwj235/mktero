@@ -6,6 +6,7 @@ import {
     registerMinerUPreferencesPane,
 } from './config/mineru-preferences.js';
 import {
+    createMarkdownCacheKey,
     createMinerUCacheKey,
     createZoteroMarkdownCache,
 } from './cache/markdown-cache.js';
@@ -49,6 +50,7 @@ import {
     createSavedMarkdownOpenResolver,
 } from './core/saved-markdown-open-resolver.js';
 import { MINERU_PARSER_PROFILE_ID } from './mineru/parser-profile.js';
+import { MISTRAL_PARSER_PROFILE_ID } from './mistral/parser-profile.js';
 import {
     createZoteroBlobFactory,
     createZoteroSavedMarkdownStore,
@@ -304,7 +306,10 @@ globalThis.startup = async function startup({ id, rootURI }) {
         runtime.savedMarkdownResolver = createSavedMarkdownOpenResolver({
             store: runtime.savedMarkdownStore,
             cache,
-            parserProfile: MINERU_PARSER_PROFILE_ID,
+            parserProfiles: [
+                MINERU_PARSER_PROFILE_ID,
+                MISTRAL_PARSER_PROFILE_ID,
+            ],
             resolveSourceItem: manifest => (
                 resolveZoteroSavedMarkdownSourceItem(Zotero, manifest)
             ),
@@ -1725,11 +1730,16 @@ async function saveSnapshotForModel(pdfItemOrID, model) {
     const pdfItem = pdfItemOrID && typeof pdfItemOrID === 'object'
         ? pdfItemOrID
         : await Zotero.Items.getAsync(pdfItemOrID);
+    const parserProfile = validParserProfile(model.parserProfile)
+        ? model.parserProfile
+        : MINERU_PARSER_PROFILE_ID;
     let cacheKey = model.cacheKey;
     if (!cacheKey) {
         const filePath = await pdfItem?.getFilePathAsync?.();
         if (!filePath) throw new Error('The local PDF file is unavailable');
-        cacheKey = await createMinerUCacheKey(await IOUtils.read(filePath));
+        cacheKey = await createMarkdownCacheKey(await IOUtils.read(filePath), {
+            parserProfile,
+        });
     }
     const result = await runtime.savedMarkdownStore.saveSnapshot({
         pdfItem,
@@ -1739,12 +1749,19 @@ async function saveSnapshotForModel(pdfItemOrID, model) {
         assetBasePath: model.assetBasePath,
         sourceMap: model.sourceMap,
         cacheKey,
-        parserProfile: MINERU_PARSER_PROFILE_ID,
+        parserProfile,
         containsUserCorrections: Boolean(model.hasCorrections),
         correctionCount: model.correctionCount || 0,
     });
     Zotero.debug('Mktero: saved Markdown snapshot for item ' + pdfItem.id);
     return result;
+}
+
+function validParserProfile(value) {
+    return typeof value === 'string'
+        && value.length > 0
+        && value.length <= 4_096
+        && !/[\u0000-\u001F\u007F]/.test(value);
 }
 
 async function runAnnotationAction(action, ...args) {

@@ -67,6 +67,7 @@ export class MarkdownDocumentService {
             totalPages: extracted.totalPages,
             warnings: extracted.warnings || [],
         };
+        copyIdentity(result, extracted);
         if ('cacheHit' in extracted) {
             result.cacheHit = Boolean(extracted.cacheHit);
         }
@@ -170,6 +171,23 @@ export class MarkdownDocumentService {
             ],
         };
     }
+}
+
+function copyIdentity(target, source) {
+    const provider = boundedIdentity(source?.provider, 64);
+    const parserProfile = boundedIdentity(source?.parserProfile, 4_096);
+    if (provider) target.provider = provider;
+    if (parserProfile) target.parserProfile = parserProfile;
+}
+
+function boundedIdentity(value, maxLength) {
+    if (typeof value !== 'string'
+        || !value
+        || value.length > maxLength
+        || /[\u0000-\u001F\u007F]/.test(value)) {
+        return null;
+    }
+    return value;
 }
 
 export function createMarkdownDocumentService({

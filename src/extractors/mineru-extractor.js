@@ -1,4 +1,5 @@
 import { prepareMinerUResult } from '../mineru/mineru-result.js';
+import { MINERU_PARSER_PROFILE_ID } from '../mineru/parser-profile.js';
 
 export class MinerUConfigurationError extends Error {
     constructor() {
@@ -165,6 +166,8 @@ function createResult(
 ) {
     const extracted = {
         kind: 'markdown',
+        provider: 'mineru',
+        parserProfile: MINERU_PARSER_PROFILE_ID,
         title,
         markdown: parsedResult.markdown,
         assets: parsedResult.assets || [],

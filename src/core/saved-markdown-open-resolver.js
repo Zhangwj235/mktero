@@ -8,6 +8,7 @@ export class SavedMarkdownOpenResolver {
         resolveSourceItem = async () => null,
         hash = sha256Hex,
         parserProfile = null,
+        parserProfiles = [],
         onCacheError = () => {},
     }) {
         if (!store?.read) {
@@ -17,7 +18,7 @@ export class SavedMarkdownOpenResolver {
         this.cache = cache;
         this.resolveSourceItem = resolveSourceItem;
         this.hash = hash;
-        this.parserProfile = parserProfile;
+        this.parserProfiles = normalizeParserProfiles(parserProfiles, parserProfile);
         this.onCacheError = onCacheError;
     }
 
@@ -36,6 +37,7 @@ export class SavedMarkdownOpenResolver {
                     ? cached.sourceMap
                     : [],
                 cacheHit: true,
+                parserProfile: saved.manifest.parserProfile,
             });
         }
 
@@ -48,6 +50,7 @@ export class SavedMarkdownOpenResolver {
                 assetBasePath: saved.manifest.assetBasePath,
                 sourceMap: saved.sourceMap,
                 cacheHit: false,
+                parserProfile: saved.manifest.parserProfile,
             });
         }
 
@@ -65,6 +68,7 @@ export class SavedMarkdownOpenResolver {
                 sourceMap: [],
                 cacheHit: false,
                 cacheKey: saved.manifest.cacheKey,
+                parserProfile: saved.manifest.parserProfile,
                 snapshotHTML: saved.bodyHTML,
                 snapshotAssets: saved.assets,
                 snapshotModified: saved.snapshotModified,
@@ -92,8 +96,8 @@ export class SavedMarkdownOpenResolver {
     async #readMatchingCache(saved) {
         if (!this.cache?.get
             || !saved.manifest.cacheKey
-            || (this.parserProfile
-                && saved.manifest.parserProfile !== this.parserProfile)) {
+            || (this.parserProfiles.length
+                && !this.parserProfiles.includes(saved.manifest.parserProfile))) {
             return null;
         }
         try {
@@ -130,6 +134,7 @@ function createMarkdownDocument({
     assetBasePath,
     sourceMap,
     cacheHit,
+    parserProfile,
 }) {
     return {
         documentID: saved.noteID,
@@ -144,12 +149,23 @@ function createMarkdownDocument({
         sourceMap: Array.isArray(sourceMap) ? sourceMap : [],
         cacheHit,
         cacheKey: saved.manifest.cacheKey,
+        parserProfile: parserProfile || saved.manifest.parserProfile,
         snapshotHTML: null,
         snapshotAssets: [],
         snapshotModified: saved.snapshotModified,
         warnings: [],
         annotationOverlay: createEmptyAnnotationOverlay(),
     };
+}
+
+function normalizeParserProfiles(parserProfiles, parserProfile) {
+    const values = Array.isArray(parserProfiles)
+        ? [...parserProfiles]
+        : [];
+    if (parserProfile) values.push(parserProfile);
+    return [...new Set(values.filter(value => (
+        typeof value === 'string' && value.length > 0 && value.length <= 4_096
+    )))];
 }
 
 function documentTitle(sourceItem, note) {

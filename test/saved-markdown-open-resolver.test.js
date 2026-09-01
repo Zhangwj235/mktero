@@ -73,6 +73,59 @@ test('prefers a matching local cache over synced source attachments', async () =
     assert.equal(result.markdown, markdown);
     assert.equal(result.cacheHit, true);
     assert.equal(result.renderMode, 'markdown');
+    assert.equal(result.parserProfile, manifest.parserProfile);
+});
+
+test('accepts any supported parser profile when resolving a saved note', async () => {
+    const markdown = '# Mistral';
+    const manifest = await manifestFor(markdown, {
+        parserProfile: 'mistral-profile-v1',
+    });
+    const resolver = new SavedMarkdownOpenResolver({
+        store: { read: async () => savedNote(markdown, { manifest }) },
+        cache: {
+            get: async () => ({
+                markdown,
+                assets: [],
+                sourceMap: [],
+            }),
+        },
+        parserProfiles: ['mineru-profile-v1', 'mistral-profile-v1'],
+        resolveSourceItem: async () => ({
+            id: 42,
+            isPDFAttachment: () => true,
+        }),
+        hash,
+    });
+
+    const result = await resolver.resolve(900);
+
+    assert.equal(result.cacheHit, true);
+    assert.equal(result.parserProfile, 'mistral-profile-v1');
+});
+
+test('rejects an unsupported parser profile when a whitelist is supplied', async () => {
+    const markdown = '# Unknown';
+    const manifest = await manifestFor(markdown, {
+        parserProfile: 'unknown-profile-v1',
+    });
+    const resolver = new SavedMarkdownOpenResolver({
+        store: { read: async () => savedNote(markdown, { manifest }) },
+        cache: {
+            get: async () => assert.fail('unsupported profile must miss cache'),
+        },
+        parserProfiles: ['mineru-profile-v1', 'mistral-profile-v1'],
+        resolveSourceItem: async () => ({
+            id: 42,
+            isPDFAttachment: () => true,
+        }),
+        hash,
+    });
+
+    const result = await resolver.resolve(900);
+
+    assert.equal(result.cacheHit, false);
+    assert.equal(result.parserProfile, 'unknown-profile-v1');
 });
 
 test('rejects a different cached hash and then uses synchronized source', async () => {

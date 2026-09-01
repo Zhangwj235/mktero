@@ -20,6 +20,8 @@ test('keeps the current Markdown visible while a forced reparse is running', () 
         assets: [{ path: 'figure.png' }],
         assetBasePath: 'result',
         sourceKind: 'markdown',
+        provider: 'mistral',
+        parserProfile: 'mistral-profile-v1',
         cacheHit: true,
         cacheKey: 'a'.repeat(64),
         sourceMap: [{
@@ -56,6 +58,8 @@ test('keeps the current Markdown visible while a forced reparse is running', () 
     assert.equal(loading.markdown, '# Cached paper');
     assert.equal(loading.cacheHit, true);
     assert.equal(loading.cacheKey, 'a'.repeat(64));
+    assert.equal(loading.provider, 'mistral');
+    assert.equal(loading.parserProfile, 'mistral-profile-v1');
     assert.equal(loading.resumingTask, false);
     assert.deepEqual(loading.annotationOverlay, current.annotationOverlay);
     assert.equal(loading.sourceMap, current.sourceMap);
