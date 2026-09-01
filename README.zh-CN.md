@@ -10,14 +10,15 @@
 **在 Zotero 中以带来源链接的 Markdown 阅读 PDF。**
 
 Mktero 是适用于 Zotero 7、8、9 和 10 的无需重启扩展。需要时，它会将本地 PDF
-发送到 [MinerU](https://mineru.net/) 进行转换，再在临时的阅读优先 Zotero 标签页中
-打开 Markdown、公式、表格、图片、引用和标注。内容寻址的本地缓存会复用同一 PDF 的转换结果，避免重复处理。
+发送到所选的 OCR 服务（[MinerU](https://mineru.net/) 或
+[Mistral OCR 4.1](https://docs.mistral.ai/models/ocr-4-1)）进行转换，再在临时的阅读优先
+Zotero 标签页中打开 Markdown、公式、表格、图片、引用和标注。内容寻址的本地缓存会按 PDF 内容和解析配置复用转换结果，避免重复处理。
 
 ![Mktero 在 Zotero 中转换、阅读和标注学术 PDF](./docs/assets/mktero-demo.gif)
 
 > [!IMPORTANT]
-> Mktero 目前处于 Beta 阶段。缓存未命中时，完整 PDF 会上传到 MinerU，因此需要
-> MinerU API Token。可选的 AI 翻译会把受保护的 Markdown 批次发送给你配置的 Provider。
+> Mktero 目前处于 Beta 阶段。缓存未命中时，完整 PDF 会发送到所选的转换服务，因此需要
+> 配置 MinerU API Token 或 Mistral API Key。可选的 AI 翻译会把受保护的 Markdown 批次发送给你配置的 Provider。
 > 处理敏感文档前，请阅读[数据与隐私](#数据与隐私)。
 
 常用链接：[产品介绍页](https://tenglvjun.github.io/mktero/) ·
@@ -32,7 +33,7 @@ Mktero 是适用于 Zotero 7、8、9 和 10 的无需重启扩展。需要时，
 - 在不丢失当前位置的情况下预览引用、作者单位、图片和表格。
 - 在 Markdown 引用弹窗中检查文献是否存在于可访问的 Zotero 文库；用户可以选择可写的个人库或群组库，显式复制其他文库中的文献，针对只有标题的文献查看本地或在线元数据匹配，并导入缺失的元数据和公开 PDF。
 - 在 Markdown 中显示 Zotero PDF 高亮和下划线，并支持新建、编辑、改色、评论和删除标注。
-- 在不修改不可变 MinerU 结果的前提下，校对已有段落、标题和 GFM 表格单元格；校对内容可查看、恢复或删除。
+- 在不修改不可变 OCR 结果的前提下，校对已有段落、标题和 GFM 表格单元格；校对内容可查看、恢复或删除。
 - 通过配置的 Vercel AI SDK Provider 翻译整篇文章，并在原文、译文和连续块级双语阅读之间切换；也可以在原文视图或双语视图的原文侧查询选中的术语或段落。
 - 只在当前 Zotero 文库内展示可匹配的直接引用关系，并在支持时使用 Semantic Scholar、OpenCitations 和 OpenAlex 刷新数据。
 - 保存包含 HTML、Markdown、来源映射和内嵌图片的便携 Zotero 快照。
@@ -45,11 +46,12 @@ Mktero 是适用于 Zotero 7、8、9 和 10 的无需重启扩展。需要时，
 
 - 桌面版 Zotero `7.0` 至 `10.0.*`
 - 已下载并可在本机访问的 PDF 附件
-- [MinerU API Token](https://mineru.net/apiManage/token)
-- 能够访问 MinerU API 的网络环境
+- 选择 MinerU 时需要 [MinerU API Token](https://mineru.net/apiManage/token)，选择 Mistral 时需要 [Mistral API Key](https://console.mistral.ai/api-keys/)
+- 能够访问所选转换 API 的网络环境
 
-文件大小、页数、账户额度和服务可用性由 MinerU 控制，请以
-[MinerU API 文档](https://mineru.net/apiManage/docs)中的当前限制为准。
+文件大小、页数、账户额度和服务可用性由各服务控制，请以
+[MinerU API 文档](https://mineru.net/apiManage/docs)或
+[Mistral OCR 文档](https://docs.mistral.ai/studio/document-processing/basic_ocr)中的当前限制为准。Mktero 会在创建 Base64 请求前检查 Mistral 文档列出的 50 MB PDF 和 1000 页限制。
 
 ### 安装
 
@@ -67,15 +69,17 @@ Mktero 是适用于 Zotero 7、8、9 和 10 的无需重启扩展。需要时，
 
 | 设置 | 是否必需 | 作用 |
 | --- | --- | --- |
-| MinerU API Token | 缓存未命中时必需 | 使用 MinerU 上传并转换 PDF |
+| 转换服务 | 必需 | 选择 MinerU 或 Mistral OCR 4.1 |
+| MinerU API Token | 选择 MinerU 且缓存未命中时必需 | 使用 MinerU 上传并转换 PDF |
+| Mistral API Key | 选择 Mistral 且缓存未命中时必需 | 使用 Mistral OCR 4.1 同步转换 PDF |
 | AI 功能和 Provider 设置 | 可选 | 通过托管或本地回环模型服务翻译 Markdown |
 | 翻译语言 | 可选 | 简体/繁体中文、日文、韩文、西班牙语、法语或巴西葡萄牙语 |
 | 自动翻译 Markdown 选区 | 可选，默认关闭 | 无需再次点击即可翻译稳定的选区；关闭后保留弹窗中的手动操作 |
 | 正文字体和字号 | 可选 | 选择阅读字体，并在 16–22 px 间调整字号 |
 | 复用转换结果 | 可选 | 复用相同 PDF 内容和解析配置对应的结果 |
 
-MinerU 和 AI 凭据会作为普通的未加密首选项存储在当前 Zotero 配置文件中。开始翻译前，
-可以使用`测试连接`验证 AI 地址。
+MinerU、Mistral 和 AI 凭据会作为普通的未加密首选项存储在当前 Zotero 配置文件中。Mistral
+使用同步请求，可以在本地取消，但没有可恢复的服务端任务；MinerU 仍保留原有的任务恢复行为。开始翻译前，可以使用`测试连接`验证 AI 地址。
 
 ### 打开 PDF
 
@@ -91,16 +95,16 @@ Mktero 标签页是会话级的，Zotero 重启后不会恢复。关闭标签页
 
 ### 带来源的阅读
 
-MinerU 内容映射会把 Markdown 内容块连接到 PDF 的物理页码和区域。来源跳转和附带来源复制只在映射可靠时执行；匹配存在歧义时不会猜测位置。Markdown 在隔离的 shadow root 中渲染，并使用受限的链接和图片策略。
+OCR 内容映射会把 Markdown 内容块连接到 PDF 的物理页码和区域。来源跳转和附带来源复制只在映射可靠时执行；匹配存在歧义时不会猜测位置。Markdown 在隔离的 shadow root 中渲染，并使用受限的链接和图片策略。
 
 ### 校对识别错误
 
-双击已有段落、标题或 GFM 表格单元格即可编辑，然后显式保存或取消。在 `Manage corrections` 中还可以删除和恢复已有段落或标题。校对数据独立于转换缓存，并绑定当前 PDF 内容和 MinerU 解析配置；不能插入或重排内容块，也不能添加图片或原始 HTML。保存校对后会保留当前阅读位置，继续滚动时整篇文档仍可正常显示。公式、MinerU 使用美元符号包裹的引用标记和已匹配的划区文字都受到保护；需要修改划区文字时，应先删除划区。划区前后的文字仍可编辑，保存后会同步更新划区锚点，重新打开文档仍能对准原位置；如果恢复校对会改变已划区的校对文本，Mktero 会拒绝恢复。在渲染后的 GFM 表格中，含受保护内容的单元格保持只读，其他单元格仍可编辑。恢复全部校对或重新解析含校对的 PDF 时，会使用阅读器内的 Mktero 确认框；按 `Escape`、点击遮罩或使用默认聚焦的“取消”都不会改变文档。
+双击已有段落、标题或 GFM 表格单元格即可编辑，然后显式保存或取消。在 `Manage corrections` 中还可以删除和恢复已有段落或标题。校对数据独立于转换缓存，并绑定当前 PDF 内容和所选服务的解析配置；不能插入或重排内容块，也不能添加图片或原始 HTML。保存校对后会保留当前阅读位置，继续滚动时整篇文档仍可正常显示。公式、OCR 使用美元符号包裹的引用标记和已匹配的划区文字都受到保护；需要修改划区文字时，应先删除划区。划区前后的文字仍可编辑，保存后会同步更新划区锚点，重新打开文档仍能对准原位置；如果恢复校对会改变已划区的校对文本，Mktero 会拒绝恢复。在渲染后的 GFM 表格中，含受保护内容的单元格保持只读，其他单元格仍可编辑。恢复全部校对或重新解析含校对的 PDF 时，会使用阅读器内的 Mktero 确认框；按 `Escape`、点击遮罩或使用默认聚焦的“取消”都不会改变文档。
 
 ### 从 Markdown 创建标注
 
 打开文档时会加载已有的 Zotero 文本高亮和下划线。选中 Markdown 文本后可以立即创建本地标注；只有本地 PDF 文字索引能够可靠定位唯一位置时，Mktero 才会创建对应的 Zotero 标注。重复或歧义文本会保留在本地并可重试，不会被放置到猜测的位置。跨越 PDF 分页的选区会按页面拆成多个单页 Zotero 高亮，因此完整的 Markdown 选区仍可导航。高亮与论文引用、表格引用或图表引用重叠时，语义引用保持更高的交互优先级；仍可从周围的高亮文本或笔记标记打开标注操作。
-常见的 MinerU LaTeX 数学符号和简单下标会转换为 PDF 提取文本的形式，因此包含公式的选区也可以继续定位。
+常见的 OCR LaTeX 数学符号和简单下标会转换为 PDF 提取文本的形式，因此包含公式的选区也可以继续定位。
 
 ### 使用 AI 翻译
 
@@ -134,7 +138,7 @@ AI 全文翻译需要用户主动触发，也不会重写原始 Markdown。Mkter
 Zotero 本地 PDF
         |
         v
-MinerU 转换 ----------> Markdown + 图片 + 内容映射
+所选 OCR 服务 ----------> Markdown + 图片 + 内容映射
         |                              |
         v                              v
 本地内容缓存                    安全规范化与渲染
@@ -143,14 +147,14 @@ MinerU 转换 ----------> Markdown + 图片 + 内容映射
                             Zotero 中的 Mktero 阅读标签页
 ```
 
-PDF、MinerU 结果、压缩包、图片路径、API 响应和首选项都会被视为不可信输入。压缩包和 Markdown 会检查资源预算，归档路径会被规范化，远程 Markdown 图片不会加载，原始 HTML 会在渲染前转义或清理。
+PDF、OCR 结果、压缩包、图片路径、API 响应和首选项都会被视为不可信输入。压缩包和 Markdown 会检查资源预算，归档路径会被规范化，远程 Markdown 图片不会加载，原始 HTML 会在渲染前转义或清理。
 
 ## 数据与隐私
 
 | 数据 | 发送到或存储在 | Zotero 同步 |
 | --- | --- | --- |
-| 缓存未命中时的完整 PDF | MinerU | Mktero 不同步 |
-| MinerU API Token 和 AI 凭据 | 当前 Zotero 配置文件，未加密 | 否 |
+| 缓存未命中时的完整 PDF | 所选 MinerU 或 Mistral 服务 | Mktero 不同步 |
+| MinerU/Mistral API 凭据和 AI 凭据 | 当前 Zotero 配置文件，未加密 | 否 |
 | 缓存的 Markdown、图片、来源映射、PDF 索引、校对和译文 | 当前 Zotero 配置文件，未加密 | 否 |
 | 当前论文的 DOI/arXiv 标识符及 Provider 所需的候选 DOI | Semantic Scholar、OpenCitations 或 OpenAlex | Mktero 不同步 |
 | 用户为只有标题的文献点击“导入文献”后发送的受限引用文本 | OpenAlex | Mktero 不同步 |
@@ -169,7 +173,7 @@ Mktero 不会把 PDF 标注、本地 PDF.js 索引、Zotero 笔记、完整条�
 ## 当前限制
 
 - 仅支持本地 PDF 附件。扫描版 PDF 可以通过 OCR 转换，但没有文字层时无法生成精确的 Zotero 高亮。
-- 来源跳转依赖稳定的 MinerU `*_content_list.json`；旧缓存可能仍可阅读，但没有来源链接。
+- 来源跳转依赖 Provider 返回的内容块和坐标；MinerU 与 Mistral 使用独立的解析配置和缓存，旧缓存可能仍可阅读但没有来源链接。
 - 当前只支持从 Markdown 跳转到 PDF，不支持反向跳转。
 - 目前显示文本高亮和下划线，不显示独立便签、图片/区域标注或手写标注。
 - Markdown 图片仅限当前结果压缩包中的 GIF、JPEG、PNG 和 WebP；远程图片会被阻止。
@@ -181,7 +185,7 @@ Mktero 不会把 PDF 标注、本地 PDF.js 索引、Zotero 笔记、完整条�
 
 ## 转换排障
 
-在 Zotero 中打开 `帮助 -> 调试输出日志`，启用日志后重现问题，并筛选 `Mktero:`。请确认 PDF 已下载到本机、MinerU Token 有效且当前网络可以访问 MinerU。日志不会包含 API Token、预签名上传地址、MinerU batch ID 或 PDF 内容。
+在 Zotero 中打开 `帮助 -> 调试输出日志`，启用日志后重现问题，并筛选 `Mktero:`。请确认 PDF 已下载到本机、所选 Provider 的 API 凭据有效且当前网络可以访问该服务。日志不会包含 API Token、预签名上传地址、MinerU batch ID 或 PDF 内容。
 
 确认问题可复现后，请提交 [GitHub Issue](https://github.com/tenglvjun/mktero/issues)，并附上 Zotero 与 Mktero 版本、操作系统、PDF 类型、复现步骤、预期行为和实际行为。请勿附带 API Token、私密 PDF、带认证链接或本地文件路径。
 

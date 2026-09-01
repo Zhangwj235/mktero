@@ -22,6 +22,8 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     ]);
 
     assert.match(prefs, /pref\("extensions\.mktero\.mineruApiKey", ""\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.conversionProvider", "mineru"\)/);
+    assert.match(prefs, /pref\("extensions\.mktero\.mistralApiKey", ""\)/);
     assert.match(prefs, /pref\("extensions\.mktero\.cacheEnabled", true\)/);
     assert.doesNotMatch(
         prefs,
@@ -60,6 +62,11 @@ test('ships conversion, AI, cache preferences, and localized Markdown UI assets'
     assert.doesNotMatch(pane, /id="mktero-language"/);
     assert.doesNotMatch(pane, /preference="extensions\.mktero\.language"/);
     assert.match(pane, /preference="extensions\.mktero\.mineruApiKey"/);
+    assert.match(pane, /id="mktero-conversion-provider"[\s\S]*?preference="extensions\.mktero\.conversionProvider"/);
+    assert.match(pane, /<html:option value="mineru" data-i18n="preferences\.conversion\.provider\.mineru"><\/html:option>/);
+    assert.match(pane, /<html:option value="mistral" data-i18n="preferences\.conversion\.provider\.mistral"><\/html:option>/);
+    assert.match(pane, /id="mktero-mistral-api-key"[\s\S]*?preference="extensions\.mktero\.mistralApiKey"/);
+    assert.match(pane, /href="https:\/\/console\.mistral\.ai\/api-keys\/"/);
     assert.match(pane, /preference="extensions\.mktero\.cacheEnabled"/);
     assert.doesNotMatch(
         pane,
@@ -252,13 +259,13 @@ test('keeps preference fields in an aligned responsive flex layout', async () =>
         (pane.match(
             /class="mktero-setting-row mktero-(?:field|reader-font)-row"/g
         ) || []).length,
-        11
+        13
     );
     assert.equal(
         (pane.match(
             /<html:div class="mktero-(?:field|reader-font)-control(?: [^"]+)?">/g
         ) || []).length,
-        11
+        13
     );
 });
 

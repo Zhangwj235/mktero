@@ -29,10 +29,13 @@ export function createZoteroMarkdownCache({ zotero, ioUtils, pathUtils }) {
     });
 }
 
-export async function createMinerUCacheKey(fileData, {
+export async function createMarkdownCacheKey(fileData, {
     crypto = globalThis.crypto,
     parserProfile = DEFAULT_MINERU_PARSER_PROFILE,
 } = {}) {
+    if (typeof parserProfile !== 'string' || !parserProfile) {
+        throw new TypeError('A parser profile is required');
+    }
     const sourceHash = await sha256Hex(fileData, { crypto });
     const descriptor = new TextEncoder().encode([
         `cache-schema:${CACHE_SCHEMA_VERSION}`,
@@ -40,6 +43,13 @@ export async function createMinerUCacheKey(fileData, {
         `source-sha256:${sourceHash}`,
     ].join('\n'));
     return sha256Hex(descriptor, { crypto });
+}
+
+export async function createMinerUCacheKey(fileData, options = {}) {
+    return createMarkdownCacheKey(fileData, {
+        ...options,
+        parserProfile: options.parserProfile || DEFAULT_MINERU_PARSER_PROFILE,
+    });
 }
 
 export { sha256Hex };

@@ -15,11 +15,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { webcrypto } from 'node:crypto';
 import {
+    createMarkdownCacheKey,
     createMinerUCacheKey,
     createZoteroMarkdownCache,
     MarkdownCache,
     sha256Hex,
 } from '../src/cache/markdown-cache.js';
+import { MISTRAL_PARSER_PROFILE_ID } from '../src/mistral/parser-profile.js';
 
 const CACHE_KEY = 'a'.repeat(64);
 const SECOND_CACHE_KEY = 'b'.repeat(64);
@@ -737,6 +739,17 @@ test('keys cache entries by PDF content and MinerU processing profile', async ()
     assert.equal(first, same);
     assert.notEqual(first, changedContent);
     assert.notEqual(first, changedProfile);
+});
+
+test('isolates cache keys for MinerU and Mistral parser profiles', async () => {
+    const pdf = new TextEncoder().encode('same PDF bytes');
+    const mineruKey = await createMinerUCacheKey(pdf, { crypto: webcrypto });
+    const mistralKey = await createMarkdownCacheKey(pdf, {
+        crypto: webcrypto,
+        parserProfile: MISTRAL_PARSER_PROFILE_ID,
+    });
+
+    assert.notEqual(mineruKey, mistralKey);
 });
 
 test('treats a corrupted cache entry as a miss and removes it', async t => {

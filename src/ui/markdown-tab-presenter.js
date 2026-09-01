@@ -525,6 +525,8 @@ function createInitialModel(
         assets: [],
         assetBasePath: '',
         sourceKind: null,
+        provider: null,
+        parserProfile: null,
         renderMode: 'markdown',
         cacheHit: false,
         cacheKey: null,

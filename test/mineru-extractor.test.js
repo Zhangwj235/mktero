@@ -4,6 +4,7 @@ import {
     MinerUConfigurationError,
     MinerUDocumentExtractor,
 } from '../src/extractors/mineru-extractor.js';
+import { MINERU_PARSER_PROFILE_ID } from '../src/mineru/parser-profile.js';
 
 function createPDFItem(overrides = {}) {
     return {
@@ -50,6 +51,8 @@ test('reads the current Zotero PDF and delegates conversion', async () => {
     });
 
     assert.equal(result.kind, 'markdown');
+    assert.equal(result.provider, 'mineru');
+    assert.equal(result.parserProfile, MINERU_PARSER_PROFILE_ID);
     assert.equal(result.title, 'Parent Paper');
     assert.equal(result.markdown, '# MinerU result');
     assert.equal(result.cacheHit, false);

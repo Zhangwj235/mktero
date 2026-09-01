@@ -1,15 +1,14 @@
-import { prepareMinerUResult } from '../mineru/mineru-result.js';
-import { MINERU_PARSER_PROFILE_ID } from '../mineru/parser-profile.js';
+import { MISTRAL_PARSER_PROFILE_ID } from '../mistral/parser-profile.js';
 
-export class MinerUConfigurationError extends Error {
+export class MistralConfigurationError extends Error {
     constructor() {
-        super('Configure a MinerU API Token in the Mktero preferences');
-        this.name = 'MinerUConfigurationError';
-        this.code = 'MINERU_API_KEY_REQUIRED';
+        super('Configure a Mistral API key in the Mktero preferences');
+        this.name = 'MistralConfigurationError';
+        this.code = 'MISTRAL_API_KEY_REQUIRED';
     }
 }
 
-export class MinerUDocumentExtractor {
+export class MistralDocumentExtractor {
     constructor({
         zotero,
         conversion,
@@ -17,6 +16,7 @@ export class MinerUDocumentExtractor {
         readFile,
         preparePDFIndex = null,
         createCacheKey = null,
+        parserProfile = MISTRAL_PARSER_PROFILE_ID,
         readRevision = null,
         isCacheEnabled = () => false,
         onCacheError = error => zotero.logError?.(error),
@@ -24,16 +24,20 @@ export class MinerUDocumentExtractor {
     }) {
         if (!zotero) throw new TypeError('A Zotero runtime is required');
         if (!conversion?.convert) {
-            throw new TypeError('A MinerU conversion module is required');
+            throw new TypeError('A Mistral conversion module is required');
         }
-        if (!getApiKey) throw new TypeError('A MinerU API Token provider is required');
+        if (!getApiKey) throw new TypeError('A Mistral API key provider is required');
         if (!readFile) throw new TypeError('A file reader is required');
+        if (typeof parserProfile !== 'string' || !parserProfile) {
+            throw new TypeError('A Mistral parser profile is required');
+        }
         this.zotero = zotero;
         this.conversion = conversion;
         this.getApiKey = getApiKey;
         this.readFile = readFile;
         this.preparePDFIndex = preparePDFIndex;
         this.createCacheKey = createCacheKey;
+        this.parserProfile = parserProfile;
         this.readRevision = readRevision;
         this.isCacheEnabled = isCacheEnabled;
         this.onCacheError = onCacheError;
@@ -55,6 +59,7 @@ export class MinerUDocumentExtractor {
         const fileData = await this.readFile(filePath);
         throwIfAborted(signal);
         this.#preparePDFIndex(itemID, fileData, signal);
+
         const title = item.parentItem?.getDisplayTitle?.()
             || item.getDisplayTitle?.()
             || 'Untitled PDF';
@@ -63,13 +68,16 @@ export class MinerUDocumentExtractor {
         let cacheKey = null;
         if (this.createCacheKey) {
             try {
-                cacheKey = await this.createCacheKey(fileData);
+                cacheKey = await this.createCacheKey(fileData, {
+                    parserProfile: this.parserProfile,
+                });
             }
             catch (error) {
                 this.#reportCacheError(error);
                 warnings.push('The local Markdown cache is unavailable.');
             }
         }
+
         if (!forceRefresh && cacheKey && typeof this.readRevision === 'function') {
             const revision = await this.readRevision({
                 itemID,
@@ -79,19 +87,20 @@ export class MinerUDocumentExtractor {
             throwIfAborted(signal);
             if (revision) {
                 onProgress?.(100);
-                const result = prepareMinerUResult({
-                    ...revision,
-                    userEdited: true,
-                });
                 return createResult(
                     title,
-                    result,
+                    {
+                        ...revision,
+                        userEdited: true,
+                    },
                     true,
                     warnings,
-                    cacheKey
+                    cacheKey,
+                    this.parserProfile,
                 );
             }
         }
+
         const apiKey = String(this.getApiKey() || '').trim();
         let converted;
         try {
@@ -107,30 +116,24 @@ export class MinerUDocumentExtractor {
             });
         }
         catch (error) {
-            if (error?.message === 'A MinerU API Token is required') {
-                throw new MinerUConfigurationError();
+            if (error?.code === 'MISTRAL_API_KEY_REQUIRED'
+                || error?.message === 'A Mistral API key is required') {
+                throw new MistralConfigurationError();
             }
             throw error;
         }
+
         warnings.push(...(converted.warnings || []));
-        const result = prepareMinerUResult(converted.result);
+        const result = converted.result || {};
+        warnings.push(...(result.warnings || []));
         return createResult(
             title,
             result,
             converted.origin === 'cache',
             warnings,
             cacheKey,
-            converted.origin === 'resumed'
+            this.parserProfile,
         );
-    }
-
-    #reportCacheError(error) {
-        try {
-            this.onCacheError(error);
-        }
-        catch {
-            // Cache diagnostics must not make PDF conversion fail.
-        }
     }
 
     #preparePDFIndex(itemID, fileData, signal) {
@@ -143,6 +146,15 @@ export class MinerUDocumentExtractor {
         }
         catch (error) {
             this.#reportPDFIndexError(error);
+        }
+    }
+
+    #reportCacheError(error) {
+        try {
+            this.onCacheError(error);
+        }
+        catch {
+            // Cache diagnostics must not make PDF conversion fail.
         }
     }
 
@@ -162,12 +174,12 @@ function createResult(
     cacheHit,
     warnings = [],
     cacheKey = null,
-    resumedTask = false
+    parserProfile = MISTRAL_PARSER_PROFILE_ID,
 ) {
     const extracted = {
         kind: 'markdown',
-        provider: 'mineru',
-        parserProfile: MINERU_PARSER_PROFILE_ID,
+        provider: 'mistral',
+        parserProfile,
         title,
         markdown: parsedResult.markdown,
         assets: parsedResult.assets || [],
@@ -177,7 +189,7 @@ function createResult(
         sourceMap: parsedResult.sourceMap,
         warnings,
         cacheHit,
-        resumedTask,
+        resumedTask: false,
     };
     if (cacheKey) extracted.cacheKey = cacheKey;
     if (parsedResult.userEdited) extracted.userEdited = true;

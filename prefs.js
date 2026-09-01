@@ -1,4 +1,6 @@
 pref("extensions.mktero.mineruApiKey", "");
+pref("extensions.mktero.conversionProvider", "mineru");
+pref("extensions.mktero.mistralApiKey", "");
 pref("extensions.mktero.cacheEnabled", true);
 pref("extensions.mktero.readerFontSize", 18);
 pref("extensions.mktero.readerFont", "system-serif");

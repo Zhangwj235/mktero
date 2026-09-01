@@ -24,6 +24,7 @@ import {
     getZoteroLocale,
     PREFERENCE_CONTROL_LIMITS,
 } from '../config/mineru-preferences.js';
+import { getConversionProvider } from '../config/conversion-preferences.js';
 import {
     getMarkdownReaderFont,
     getMarkdownReaderFontSize,
@@ -98,6 +99,9 @@ export function createPreferencesController({
     const readerFontInput = document.getElementById(
         'mktero-reader-font-family'
     );
+    const conversionProviderInput = document.getElementById(
+        'mktero-conversion-provider'
+    );
     const aiTestButton = document.getElementById('mktero-ai-test');
     const aiTestStatus = document.getElementById('mktero-ai-test-status');
     const aiProviderInput = document.getElementById('mktero-ai-provider');
@@ -146,6 +150,11 @@ export function createPreferencesController({
         if (!readerFontInput) return;
         readerFontInput.value = getMarkdownReaderFont(zotero);
         readerFontInput.addEventListener('change', updateReaderFont);
+    }
+
+    function initializeConversionProvider() {
+        if (!conversionProviderInput) return;
+        conversionProviderInput.value = getConversionProvider(zotero);
     }
 
     function updateAIProtocolOptions({ persist = true } = {}) {
@@ -261,6 +270,7 @@ export function createPreferencesController({
             clearButton.addEventListener('click', clear);
             aiTestButton?.addEventListener('click', testAI);
             localize();
+            initializeConversionProvider();
             initializeAIProvider();
             initializePreferenceControlLimits();
             initializeReaderFont();

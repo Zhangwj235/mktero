@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import {
     getMinerUCacheEnabled,
     getMinerUApiKey,
+    getConversionProvider,
+    getMistralApiKey,
+    CONVERSION_PROVIDER_PREF,
+    MISTRAL_API_KEY_PREF,
     getZoteroLocale,
     MINERU_API_KEY_PREF,
     MINERU_CACHE_ENABLED_PREF,
@@ -39,6 +43,27 @@ test('reads whether the local MinerU cache is enabled', () => {
 
     assert.equal(getMinerUCacheEnabled(zotero), false);
     assert.deepEqual(calls, [{ key: MINERU_CACHE_ENABLED_PREF, global: true }]);
+});
+
+test('keeps provider accessors available from the MinerU preferences module', () => {
+    const calls = [];
+    const zotero = {
+        Prefs: {
+            get(key, global) {
+                calls.push({ key, global });
+                return key === CONVERSION_PROVIDER_PREF
+                    ? 'mistral'
+                    : '  mistral-secret  ';
+            },
+        },
+    };
+
+    assert.equal(getConversionProvider(zotero), 'mistral');
+    assert.equal(getMistralApiKey(zotero), 'mistral-secret');
+    assert.deepEqual(calls, [
+        { key: CONVERSION_PROVIDER_PREF, global: true },
+        { key: MISTRAL_API_KEY_PREF, global: true },
+    ]);
 });
 
 test('uses the Zotero locale and ignores the operating system locale', () => {
