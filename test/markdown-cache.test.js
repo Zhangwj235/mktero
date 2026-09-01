@@ -210,7 +210,7 @@ test('stores independent translations per target language', async t => {
     );
 });
 
-test('replaces only the cached translation for the same language', async t => {
+test('retains prior source translations for the same language', async t => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
     t.after(() => rm(rootPath, { recursive: true, force: true }));
     const options = {
@@ -247,9 +247,16 @@ test('replaces only the cached translation for the same language', async t => {
         targetLanguage: 'zh-CN',
     });
 
-    assert.equal(await cache.getTranslation(CACHE_KEY, oldChineseKey), null);
+    assert.equal(
+        (await cache.getTranslation(CACHE_KEY, oldChineseKey)).model,
+        'example-model'
+    );
     assert.equal(
         (await cache.getTranslation(CACHE_KEY, newChineseKey)).model,
+        'new-model'
+    );
+    assert.equal(
+        (await cache.getTranslationByLanguage(CACHE_KEY, 'zh-CN')).model,
         'new-model'
     );
     assert.equal(
@@ -258,7 +265,7 @@ test('replaces only the cached translation for the same language', async t => {
     );
 });
 
-test('bounds cached language variants and removes evicted translation files', async t => {
+test('bounds cached translation variants and removes evicted translation files', async t => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), 'mktero-cache-'));
     t.after(() => rm(rootPath, { recursive: true, force: true }));
     const cache = new MarkdownCache({

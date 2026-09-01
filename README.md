@@ -167,11 +167,13 @@ the reader. Translations are cached independently by source content, provider,
 protocol, model, language, and prompt version, so partial work can resume.
 When local Markdown corrections delete a block, translations for unchanged
 blocks remain available and the deleted block disappears from `Bilingual`
-reading. Deleting a citation marker also preserves that block's translation
-when its protected placeholders can be mapped unambiguously; ambiguous changes
-remain pending for block-only retranslation. Editing a translated block keeps
-the other translations, marks that block as pending, and offers to retranslate
-only the changed block.
+reading. Earlier source versions are retained, so restoring a deleted block can
+reuse its complete translation even after the corrected document was translated.
+Deleting a citation marker also preserves that block's translation when its
+protected placeholders can be mapped unambiguously; ambiguous changes remain
+pending for block-only retranslation. Editing a translated block keeps the
+other translations, marks that block as pending, and offers to retranslate only
+the changed block.
 Restoring all corrections reloads a complete cached translation for the
 original Markdown when one is available, without sending a new AI request.
 

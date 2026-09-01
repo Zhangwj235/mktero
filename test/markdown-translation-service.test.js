@@ -1251,6 +1251,89 @@ test('preserves an exact complete cache when a correction is restored', async ()
     assert.equal(stored.key, baseKey);
 });
 
+test('reuses the original translation after a deleted block is retranslated',
+    async () => {
+    const documentKey = 'a'.repeat(64);
+    const originalSource = [
+        '# Paper',
+        '',
+        'Deleted article block [1].',
+        '',
+        'Persistent paragraph.',
+    ].join('\n');
+    const deletedSource = [
+        '# Paper',
+        '',
+        '   ',
+        '',
+        'Persistent paragraph.',
+    ].join('\n');
+    const originalKey = 'c'.repeat(64);
+    const deletedKey = 'd'.repeat(64);
+    const stored = new Map();
+    const cacheErrors = [];
+    let providerCalls = 0;
+    const service = new MarkdownTranslationService({
+        aiGateway: {
+            async generateText(request) {
+                providerCalls++;
+                return {
+                    text: translateBatchRequest(
+                        request.messages[1].content,
+                        source => source
+                            .replace('# Paper', '# 论文')
+                            .replace('Deleted article block', '已删除文章段。')
+                            .replace('Persistent paragraph.', '持久段落。')
+                    ),
+                };
+            },
+        },
+        cache: {
+            getTranslation: async (_key, translationKey) => (
+                stored.get(translationKey)?.value || null
+            ),
+            getTranslationByLanguage: async () => (
+                [...stored.values()].at(-1)?.value || null
+            ),
+            putTranslation: async (_key, translationKey, value) => {
+                stored.delete(translationKey);
+                stored.set(translationKey, { value });
+            },
+        },
+        getSettings: () => ({ ...SETTINGS, streaming: false }),
+        createCacheKey: async value => {
+            const source = JSON.parse(value).source;
+            return source === originalSource ? originalKey : deletedKey;
+        },
+        onCacheError: error => cacheErrors.push(error),
+    });
+
+    const originalTranslation = await service.translateDocument({
+        documentKey,
+        markdown: originalSource,
+    });
+    const deletedTranslation = await service.translateDocument({
+        documentKey,
+        markdown: deletedSource,
+        existingTranslation: originalTranslation,
+        forceRetranslate: true,
+    });
+    const restored = await service.reconcileDocumentTranslation({
+        documentKey,
+        markdown: originalSource,
+        existingTranslation: deletedTranslation,
+    });
+
+    assert.equal(providerCalls, 2);
+    assert.deepEqual(cacheErrors, []);
+    assert.equal(restored.partial, false);
+    assert.equal(
+        restored.translatedMarkdown,
+        '# 论文\n\n已删除文章段。 [1].\n\n持久段落。'
+    );
+    assert.deepEqual(restored.pendingBlockIDs, []);
+});
+
 test('keeps a single edited translation block available for targeted retry', async () => {
     const service = new MarkdownTranslationService({
         aiGateway: { generateText: assert.fail },

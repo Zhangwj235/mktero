@@ -895,7 +895,7 @@ test('uses the language menu without changing the default translation language',
             await waitFor(() => restoredShadow.querySelector(
                 '.cm-content'
             ).textContent.includes('Study'));
-            assert.equal(restoreTranslate.hidden, false);
+            assert.equal(restoreTranslate.hidden, true);
             assert.equal(providerRequests.length, 7);
 
             restoredShadow.querySelector('#mktero-document-actions').click();
@@ -916,7 +916,7 @@ test('uses the language menu without changing the default translation language',
                 '[data-translation-view="translated"]'
             );
             await waitFor(() => restoredTranslatedMode.textContent
-                === 'Simplified Chinese');
+                === 'Korean');
             await waitFor(() => restoredTranslatedMode.disabled === false);
             assert.equal(restoreTranslate.hidden, true);
             restoredTranslatedMode.click();
