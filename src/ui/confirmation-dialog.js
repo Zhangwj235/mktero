@@ -124,7 +124,7 @@ export function createConfirmationDialog({ document, parent }) {
             const result = new Promise(resolve => {
                 pending = { resolve, returnFocus: focusTarget };
             });
-            queueMicrotask(() => {
+            scheduleDocumentMicrotask(document, () => {
                 if (pending && backdrop.isConnected) cancel.focus?.();
             });
             return result;
@@ -136,6 +136,19 @@ export function createConfirmationDialog({ document, parent }) {
             backdrop.remove();
         },
     };
+}
+
+function scheduleDocumentMicrotask(document, callback) {
+    const ownerWindow = document.defaultView;
+    if (typeof ownerWindow?.queueMicrotask === 'function') {
+        ownerWindow.queueMicrotask(callback);
+        return;
+    }
+    if (typeof ownerWindow?.Promise?.resolve === 'function') {
+        ownerWindow.Promise.resolve().then(callback);
+        return;
+    }
+    callback();
 }
 
 function activeElementWithin(parent, document) {

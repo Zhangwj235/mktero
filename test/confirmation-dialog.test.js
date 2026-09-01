@@ -84,6 +84,45 @@ test('renders an accessible Mktero confirmation and defaults focus to Cancel',
         fixture.dom.window.close();
     });
 
+test('schedules initial focus through the owning window', async () => {
+    const fixture = createFixture();
+    const queueMicrotaskDescriptor = Object.getOwnPropertyDescriptor(
+        globalThis,
+        'queueMicrotask'
+    );
+    fixture.dom.window.queueMicrotask = callback => {
+        Promise.resolve().then(callback);
+    };
+
+    let confirmation;
+    try {
+        delete globalThis.queueMicrotask;
+        confirmation = fixture.dialog.confirm({
+            title: 'Retranslate changed block?',
+            message: 'Retranslate only this block?',
+            confirmLabel: 'Retranslate',
+            cancelLabel: 'Cancel',
+        });
+    }
+    finally {
+        Object.defineProperty(
+            globalThis,
+            'queueMicrotask',
+            queueMicrotaskDescriptor
+        );
+    }
+
+    await Promise.resolve();
+    const cancel = fixture.parent.querySelector(
+        '[data-confirmation-action="cancel"]'
+    );
+    assert.equal(fixture.document.activeElement, cancel);
+    cancel.click();
+    assert.equal(await confirmation, false);
+    fixture.dialog.destroy();
+    fixture.dom.window.close();
+});
+
 test('Escape and backdrop clicks cancel without invoking the confirm action',
     async () => {
         const fixture = createFixture();
