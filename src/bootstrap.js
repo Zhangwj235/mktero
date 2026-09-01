@@ -1,6 +1,8 @@
 import {
     getMinerUCacheEnabled,
     getMinerUApiKey,
+    getConversionProvider,
+    getMistralApiKey,
     getZoteroLocale,
     openMinerUPreferences,
     registerMinerUPreferencesPane,
@@ -42,6 +44,7 @@ import {
     TranslationRequestTracker,
 } from './ai/translation-request-tracker.js';
 import { MarkdownDocumentService } from './core/markdown-document-service.js';
+import { ConversionProviderRouter } from './core/conversion-provider.js';
 import {
     collectMatchedAnnotationRanges,
     createMarkdownRevisionSessionRegistry,
@@ -81,9 +84,15 @@ import {
     MinerUConfigurationError,
     MinerUDocumentExtractor,
 } from './extractors/mineru-extractor.js';
+import {
+    MistralConfigurationError,
+    MistralDocumentExtractor,
+} from './extractors/mistral-extractor.js';
 import { ZoteroAnnotationExtractor } from './extractors/zotero-annotation-extractor.js';
 import { MinerUClient } from './mineru/mineru-client.js';
 import { MinerUConversion } from './mineru/mineru-conversion.js';
+import { MistralClient } from './mistral/mistral-client.js';
+import { MistralConversion } from './mistral/mistral-conversion.js';
 import {
     createZoteroMinerUPendingTaskStore,
 } from './mineru/pending-task-store.js';
@@ -361,22 +370,58 @@ globalThis.startup = async function startup({ id, rootURI }) {
         cache,
         onError: error => Zotero.logError?.(error),
     });
-    runtime.service = new MarkdownDocumentService({
-        extractor: new MinerUDocumentExtractor({
-            zotero: Zotero,
-            conversion,
-            getApiKey: () => getMinerUApiKey(Zotero),
-            readFile: path => IOUtils.read(path),
-            preparePDFIndex: (itemID, options) => trackPDFIndexTask(
-                runtime.pdfIndexOperations,
-                itemID,
-                options,
-                pdfAnnotationLocator
-            ),
-            createCacheKey: fileData => createMinerUCacheKey(fileData),
-            readRevision: options => readRevisionSnapshot(options),
-            isCacheEnabled: () => getMinerUCacheEnabled(Zotero),
+    const mineruExtractor = new MinerUDocumentExtractor({
+        zotero: Zotero,
+        conversion,
+        getApiKey: () => getMinerUApiKey(Zotero),
+        readFile: path => IOUtils.read(path),
+        preparePDFIndex: (itemID, options) => trackPDFIndexTask(
+            runtime.pdfIndexOperations,
+            itemID,
+            options,
+            pdfAnnotationLocator
+        ),
+        createCacheKey: fileData => createMinerUCacheKey(fileData),
+        readRevision: options => readRevisionSnapshot(options),
+        isCacheEnabled: () => getMinerUCacheEnabled(Zotero),
+    });
+    const mistralConversion = new MistralConversion({
+        client: new MistralClient({
+            createAbortController: createZoteroAbortController,
         }),
+        cache,
+        onError: error => Zotero.logError?.(error),
+    });
+    const mistralExtractor = new MistralDocumentExtractor({
+        zotero: Zotero,
+        conversion: mistralConversion,
+        getApiKey: () => getMistralApiKey(Zotero),
+        readFile: path => IOUtils.read(path),
+        preparePDFIndex: (itemID, options) => trackPDFIndexTask(
+            runtime.pdfIndexOperations,
+            itemID,
+            options,
+            pdfAnnotationLocator
+        ),
+        createCacheKey: (fileData, options) => createMarkdownCacheKey(
+            fileData,
+            {
+                ...options,
+                parserProfile: MISTRAL_PARSER_PROFILE_ID,
+            }
+        ),
+        readRevision: options => readRevisionSnapshot(options),
+        isCacheEnabled: () => getMinerUCacheEnabled(Zotero),
+    });
+    const extractor = new ConversionProviderRouter({
+        getProvider: () => getConversionProvider(Zotero),
+        providers: {
+            mineru: mineruExtractor,
+            mistral: mistralExtractor,
+        },
+    });
+    runtime.service = new MarkdownDocumentService({
+        extractor,
         annotationOverlay,
         localAnnotations,
         savedResolver: runtime.savedMarkdownResolver,
@@ -667,10 +712,10 @@ async function openItemAsMarkdown(itemID, {
         });
         Zotero.debug(
             result.cacheHit
-                ? `Mktero: item ${itemID}: completed from local cache; MinerU upload skipped`
+                ? `Mktero: item ${itemID}: completed from local cache`
                 : result.resumedTask
-                    ? `Mktero: item ${itemID}: completed from a resumed MinerU task`
-                    : `Mktero: item ${itemID}: completed through a new MinerU task`
+                    ? `Mktero: item ${itemID}: completed from a resumed conversion task`
+                    : `Mktero: item ${itemID}: completed through a new conversion request`
         );
         const revisionResult = await attachRevisionSession(
             itemID,
@@ -696,7 +741,10 @@ async function openItemAsMarkdown(itemID, {
         );
         Zotero.logError(error);
         const opensSettings = error instanceof MinerUConfigurationError
-            || error?.code === 'MINERU_API_KEY_INVALID';
+            || error instanceof MistralConfigurationError
+            || error?.code === 'MINERU_API_KEY_INVALID'
+            || error?.code === 'MISTRAL_API_KEY_INVALID'
+            || error?.code === 'MISTRAL_API_KEY_REQUIRED';
         if (opensSettings) {
             openMinerUPreferences(Zotero);
         }
@@ -1681,7 +1729,15 @@ async function loadRevisionSessionForItem(itemID) {
     const item = await Zotero.Items.getAsync(itemID);
     const filePath = await item?.getFilePathAsync?.();
     if (!filePath) return null;
-    const cacheKey = await createMinerUCacheKey(await IOUtils.read(filePath));
+    const modelProfile = runtime.presenter?.get(itemID)?.model?.parserProfile;
+    const parserProfile = validParserProfile(modelProfile)
+        ? modelProfile
+        : getConversionProvider(Zotero) === 'mistral'
+            ? MISTRAL_PARSER_PROFILE_ID
+            : MINERU_PARSER_PROFILE_ID;
+    const cacheKey = await createMarkdownCacheKey(await IOUtils.read(filePath), {
+        parserProfile,
+    });
     const saved = await runtime.revisionStore.load(cacheKey);
     if (!saved) return null;
     return replaceRevisionSession(itemID, saved.base);
@@ -1859,19 +1915,19 @@ function conversionProgressLog(progress, resumingTask = false) {
         return 'conversion result available';
     }
     if (progress >= CONVERSION_PROGRESS.DOWNLOADING) {
-        return 'MinerU parsing finished; downloading the result';
+        return 'conversion parsing finished; downloading the result';
     }
     if (resumingTask) {
-        return 'resuming an uploaded MinerU task; PDF upload skipped';
+        return 'resuming an uploaded conversion task; PDF upload skipped';
     }
     if (progress >= CONVERSION_PROGRESS.PARSING) {
-        return 'PDF upload completed; MinerU is parsing';
+        return 'PDF upload completed; conversion service is parsing';
     }
     if (progress >= CONVERSION_PROGRESS.UPLOADING) {
-        return 'uploading PDF to MinerU';
+        return 'uploading PDF to conversion service';
     }
     if (progress >= CONVERSION_PROGRESS.PREPARING) {
-        return 'requesting a MinerU upload URL';
+        return 'preparing conversion request';
     }
     return 'preparing the local PDF';
 }
@@ -2020,6 +2076,9 @@ function userFacingError(error) {
         return runtimeTranslate('error.citationParentRequired');
     }
     if (error instanceof MinerUConfigurationError) {
+        return runtimeTranslate('error.apiTokenMissing');
+    }
+    if (error instanceof MistralConfigurationError) {
         return runtimeTranslate('error.apiTokenMissing');
     }
     return localizeConversionError(error, runtimeTranslate);

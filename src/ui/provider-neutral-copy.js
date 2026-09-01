@@ -25,6 +25,15 @@ const ERROR_CODE_KEYS = new Map([
     ['MINERU_ARCHIVE_TOO_LARGE', 'error.resultTooLarge'],
     ['MINERU_TASK_NOT_FOUND', 'error.taskUnavailable'],
     ['MKTERO_SAVED_NOTE_CONFLICT', 'error.snapshotConflict'],
+    ['MISTRAL_API_KEY_REQUIRED', 'error.apiTokenMissing'],
+    ['MISTRAL_API_KEY_INVALID', 'error.apiTokenInvalid'],
+    ['MISTRAL_REQUEST_TIMEOUT', 'error.requestTimedOut'],
+    ['MISTRAL_NETWORK_ERROR', 'error.networkFailed'],
+    ['MISTRAL_HTTP_ERROR', 'error.requestFailed'],
+    ['MISTRAL_INVALID_RESPONSE', 'error.invalidResponse'],
+    ['MISTRAL_INVALID_RESULT', 'error.resultInvalid'],
+    ['MISTRAL_INPUT_TOO_LARGE', 'error.resultTooLarge'],
+    ['MISTRAL_RESPONSE_TOO_LARGE', 'error.resultTooLarge'],
 ]);
 
 const WARNING_MESSAGE_KEYS = new Map([
