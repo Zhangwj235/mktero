@@ -670,16 +670,7 @@ class MarkdownTabView {
         if (typeof this.model.onCopySourcedMarkdown !== 'function') {
             throw new Error('Sourced Markdown copy is unavailable');
         }
-        const sourceTarget = this.model.translationView === 'compare'
-            ? mapComparisonTargetToSource(
-                target,
-                this.model.translationBlockRanges
-            )
-            : target;
-        if (!sourceTarget) {
-            throw new Error('A reliable PDF source is unavailable');
-        }
-        return this.model.onCopySourcedMarkdown(sourceTarget);
+        return this.model.onCopySourcedMarkdown(target);
     }
 
     copyCode(code) {

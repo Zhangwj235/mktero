@@ -1760,6 +1760,38 @@ async function saveSnapshotForSavedNote(noteID, sourceItemID) {
     return saveSnapshotForModel(sourceItemID, presentation?.model);
 }
 
+async function selectExportMarkdown(model) {
+    if (!model) return '';
+    const view = model.translationView;
+    if (view === 'translated'
+        && typeof model.translatedMarkdown === 'string'
+        && model.translatedMarkdown) {
+        return model.translatedMarkdown;
+    }
+    if (view === 'compare'
+        && typeof model.comparisonMarkdown === 'string'
+        && model.comparisonMarkdown) {
+        return model.comparisonMarkdown;
+    }
+    return model.markdown || '';
+}
+
+async function selectExportSourceMap(model) {
+    if (!model) return [];
+    const view = model.translationView;
+    if (view === 'compare'
+        && Array.isArray(model.sourceMap)
+        && Array.isArray(model.translationBlockRanges)
+        && model.sourceMap.length > 0
+        && typeof mapSourceMapToComparison === 'function') {
+        return mapSourceMapToComparison(
+            model.sourceMap,
+            model.translationBlockRanges
+        );
+    }
+    return model.sourceMap || [];
+}
+
 async function exportMarkdownForModel(model, { ownerWindow } = {}) {
     if (model?.status !== 'ready' || model.renderMode === 'html') {
         throw new Error('The Markdown document is unavailable');
@@ -1770,7 +1802,7 @@ async function exportMarkdownForModel(model, { ownerWindow } = {}) {
     return runtime.markdownExporter.export({
         ownerWindow: ownerWindow || Zotero.getMainWindow?.(),
         title: model.title,
-        markdown: model.markdown,
+        markdown: selectExportMarkdown(model),
         assets: model.assets,
         assetBasePath: model.assetBasePath,
     });
