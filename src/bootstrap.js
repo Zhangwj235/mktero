@@ -76,6 +76,7 @@ import {
     createEvidenceSnippet,
     formatEvidenceMarkdown,
 } from './markdown/markdown-evidence.js';
+import { selectExportMarkdown } from './markdown/export-markdown-selector.js';
 import {
     CONVERSION_PROGRESS,
     normalizeConversionProgress,
@@ -1758,38 +1759,6 @@ function uniqueWarnings(warnings) {
 async function saveSnapshotForSavedNote(noteID, sourceItemID) {
     const presentation = runtime.presenter?.get(noteID);
     return saveSnapshotForModel(sourceItemID, presentation?.model);
-}
-
-async function selectExportMarkdown(model) {
-    if (!model) return '';
-    const view = model.translationView;
-    if (view === 'translated'
-        && typeof model.translatedMarkdown === 'string'
-        && model.translatedMarkdown) {
-        return model.translatedMarkdown;
-    }
-    if (view === 'compare'
-        && typeof model.comparisonMarkdown === 'string'
-        && model.comparisonMarkdown) {
-        return model.comparisonMarkdown;
-    }
-    return model.markdown || '';
-}
-
-async function selectExportSourceMap(model) {
-    if (!model) return [];
-    const view = model.translationView;
-    if (view === 'compare'
-        && Array.isArray(model.sourceMap)
-        && Array.isArray(model.translationBlockRanges)
-        && model.sourceMap.length > 0
-        && typeof mapSourceMapToComparison === 'function') {
-        return mapSourceMapToComparison(
-            model.sourceMap,
-            model.translationBlockRanges
-        );
-    }
-    return model.sourceMap || [];
 }
 
 async function exportMarkdownForModel(model, { ownerWindow } = {}) {
